@@ -261,7 +261,7 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
             journal.ExecuteUnderSnapshotBarrierAsync(
                 failure,
-                static async (reason, ct) =>
+                static async (reason, _, ct) =>
                 {
                     await Task.Delay(PastThreshold, TimeProvider.System, ct);
                     throw reason;
@@ -289,7 +289,7 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
             writer,
             logger);
 
-        await journal.ExecuteUnderSnapshotBarrierAsync(PastThreshold, static async (delay, ct) => await Task.Delay(delay, TimeProvider.System, ct), cancellationToken);
+        await journal.ExecuteUnderSnapshotBarrierAsync(PastThreshold, static async (delay, _, ct) => await Task.Delay(delay, TimeProvider.System, ct), cancellationToken);
 
         _ = await Assert.That(logger.Count(GateHeldLongEventId)).IsEqualTo(1);
     }
@@ -355,18 +355,16 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
     }
 
     private static Task HoldGateAsync(JournalCoordinator journal, TimeSpan holdFor, CancellationToken cancellationToken) => journal
-       .ExecuteUnderSnapshotBarrierAsync(holdFor, static async (delay, ct) => await Task.Delay(delay, TimeProvider.System, ct), cancellationToken).AsTask();
+       .ExecuteUnderSnapshotBarrierAsync(holdFor, static async (delay, _, ct) => await Task.Delay(delay, TimeProvider.System, ct), cancellationToken).AsTask();
 
-    private static Task HoldGateUntilReleasedAsync(JournalCoordinator journal, GateHold gate, CancellationToken cancellationToken) => journal
-       .ExecuteUnderSnapshotBarrierAsync(
-            gate,
-            static async (hold, ct) =>
-            {
-                _ = hold.Entered.TrySetResult();
-                await hold.Released.Task.WaitAsync(ct);
-            },
-            cancellationToken)
-       .AsTask();
+    private static Task HoldGateUntilReleasedAsync(JournalCoordinator journal, GateHold gate, CancellationToken cancellationToken) => journal.ExecuteUnderSnapshotBarrierAsync(
+        gate,
+        static async (hold, _, ct) =>
+        {
+            hold.Entered.SetResult();
+            await hold.Released.Task.WaitAsync(ct);
+        },
+        cancellationToken).AsTask();
 
     private PersistenceOptions CreateOptions() => new()
     {

@@ -142,15 +142,15 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask AppendPutAndAwaitDurabilityAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask AppendRemoveExpirationAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask AppendTouchExpirationAsync(AsyncLockOwnership ownership, CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
@@ -169,15 +169,15 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
             Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
             CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) =>
+        public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TState, TResult>(
             TState state,
-            Func<TState, CancellationToken, ValueTask<TResult>> action,
+            Func<TState, AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action,
             CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, CancellationToken, ValueTask> action, CancellationToken cancellationToken) =>
+        public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> action, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public void FailJournalPipeline(Exception reason) => throw new NotSupportedException();

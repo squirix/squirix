@@ -56,7 +56,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
                     static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
                     new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload, ApplyCounter Apply), int>(
                         (journal, CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), applyState),
-                        static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
+                        static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, s.Key, s.Payload, ct),
                         static (s, ct) => s.Apply.ApplyAsync(ct)),
                     cancellationToken));
 
@@ -96,7 +96,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
                 static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Skip(99)),
                 new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload, ApplyCounter Apply), int>(
                     (journal, CacheKey.Default("skip-key"), JournalEntryPayloadKit.EncodePut("v"), applyState),
-                    static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
+                    static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, s.Key, s.Payload, ct),
                     static (s, ct) => s.Apply.ApplyAsync(ct)),
                 cancellationToken);
 

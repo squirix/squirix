@@ -78,7 +78,7 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
                     static (_, _) => new ValueTask<DurableMutationCondition<bool>>(DurableMutationCondition<bool>.Apply()),
                     new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload), bool>(
                         (state.Journal, state.Key, state.Payload),
-                        static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
+                        static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, s.Key, s.Payload, ct),
                         static (_, _) => new ValueTask<bool>(true)),
                     cancellationToken).ConfigureAwait(false);
                 return new TryAddAsyncResponse { Added = added };
@@ -163,21 +163,21 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
             return _inner.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, cancellationToken);
         }
 
-        public ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
-            _inner.AppendPutAndAwaitDurabilityAsync(key, entryBytes, cancellationToken);
+        public ValueTask AppendPutAndAwaitDurabilityAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
+            _inner.AppendPutAndAwaitDurabilityAsync(ownership, key, entryBytes, cancellationToken);
 
-        public ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
+        public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
         {
             _trace.Record(OrderingStep.Put);
-            return _inner.AppendPutAsync(key, entryBytes, cancellationToken);
+            return _inner.AppendPutAsync(ownership, key, entryBytes, cancellationToken);
         }
 
-        public ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken) => _inner.AppendRemoveAsync(key, cancellationToken);
+        public ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => _inner.AppendRemoveAsync(ownership, key, cancellationToken);
 
-        public ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken) => _inner.AppendRemoveExpirationAsync(key, cancellationToken);
+        public ValueTask AppendRemoveExpirationAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => _inner.AppendRemoveExpirationAsync(ownership, key, cancellationToken);
 
-        public ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) =>
-            _inner.AppendTouchExpirationAsync(key, expiresUtc, cancellationToken);
+        public ValueTask AppendTouchExpirationAsync(AsyncLockOwnership ownership, CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) =>
+            _inner.AppendTouchExpirationAsync(ownership, key, expiresUtc, cancellationToken);
 
         public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
         {
@@ -196,15 +196,15 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
             Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
             CancellationToken cancellationToken) => _inner.ExecuteSnapshotCutAsync(state, captureUnderBarrier, buildOutsideBarrier, cancellationToken);
 
-        public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) =>
+        public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) =>
             _inner.ExecuteUnderSnapshotBarrierAsync(action, cancellationToken);
 
         public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TState, TResult>(
             TState state,
-            Func<TState, CancellationToken, ValueTask<TResult>> action,
+            Func<TState, AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action,
             CancellationToken cancellationToken) => _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken);
 
-        public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, CancellationToken, ValueTask> action, CancellationToken cancellationToken) =>
+        public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> action, CancellationToken cancellationToken) =>
             _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken);
 
         public void FailJournalPipeline(Exception reason) => _inner.FailJournalPipeline(reason);

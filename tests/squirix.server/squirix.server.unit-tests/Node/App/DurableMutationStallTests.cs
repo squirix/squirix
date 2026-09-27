@@ -48,7 +48,7 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
                 static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
                 new DurableMutationPipeline<(IJournalCoordinator Journal, byte[] Payload, Exception Failure), int>(
                     (journal.Journal, JournalEntryPayloadKit.EncodePut("a"), failure),
-                    static (s, ct) => s.Journal.AppendPutAsync(CacheKey.Default("a"), s.Payload, ct),
+                    static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, CacheKey.Default("a"), s.Payload, ct),
                     static (s, _) => ValueTask.FromException<int>(s.Failure)),
                 cancellationToken).AsTask());
         var latched = journal.Journal.GetJournalThreadFailure();
@@ -145,7 +145,7 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
             static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
             new DurableMutationPipeline<(IJournalCoordinator Journal, byte[] Payload, TaskCompletionSource<bool> Applied), int>(
                 (journal.Journal, JournalEntryPayloadKit.EncodePut("a"), applyObservedCancellation),
-                static (s, ct) => s.Journal.AppendPutAsync(CacheKey.Default("a"), s.Payload, ct),
+                static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, CacheKey.Default("a"), s.Payload, ct),
                 static (s, ct) => ValueTask.FromResult(s.Applied.TrySetResult(ct.IsCancellationRequested) ? 1 : 0)),
             caller.Token).AsTask();
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);

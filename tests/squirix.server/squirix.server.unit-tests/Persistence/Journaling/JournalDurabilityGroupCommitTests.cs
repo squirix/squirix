@@ -251,7 +251,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
             new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, ReadOnlyMemory<byte> Payload, AtomicCounter ApplyCount), int>(
                 (journal, key, payload, applyCount),
-                static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
+                static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, s.Key, s.Payload, ct),
                 static (s, _) =>
                 {
                     s.ApplyCount.Increment();
