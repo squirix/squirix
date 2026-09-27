@@ -188,6 +188,10 @@ internal sealed class JournalEventLoopSegmentWriter
 
         _rollTarget.PrepareRollTargetSegment(targetSegmentIndex, targetPath);
 
+        // This roll consumed any pre-created target; the next one creates a new segment. Cleared while the triggering frame is still
+        // tracked, so append admission never counts this roll as free after the frame left the pending set.
+        _roll.SetRollTargetCounted(false);
+
         _roll.SetPendingRollTargetSegmentIndex(targetSegmentIndex);
         _roll.SetSegmentRollInFlight(true);
         _owner.Host.PublishRoll(_roll.PendingRollTargetSegmentIndex);
@@ -638,6 +642,7 @@ internal sealed class JournalEventLoopSegmentWriter
                 _roll.SetJournalSegmentCount(segmentCount);
                 _owner.SetActiveSegmentWrittenBytes(resetSegment.ActiveBytesAfterOpen);
                 _owner.SetOpenCreatesSegment(resetSegment.OpenCreatesSegment);
+                _roll.SetRollTargetCounted(resetSegment.RollTargetCounted);
             }
             catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
             {

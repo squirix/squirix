@@ -433,8 +433,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         // Conservative admission (issue #703): a frame admitted here is never rejected for capacity by the journal thread. The caller holds
         // the mutation gate (AllocateSequence refused it otherwise), and the check runs synchronously up to this append's own Track, so no
         // other producer is admitted in between; meanwhile, the journal thread only moves appends out of the pending set.
-        // - Read order: pending counters, then the journal thread's flag, then its counters. The journal thread accounts a frame's bytes (and
-        //   the header and segment of an open or roll it triggers) and clears the flag before it untracks the frame, so a frame missing from
+        // - Read order: pending counters, then the journal thread's flags, then its counters. The journal thread accounts a frame's bytes (and
+        //   the header and segment of an open or roll it triggers) and clears the flags before it untracks the frame, so a frame missing from
         //   the pending read is already reflected in everything read after it; and it counts a created segment before it clears the flag.
         // - Each pending frame, and this one, adds at most one segment header to the total (a roll, or the first open of a missing or empty
         //   segment; a frame that fits an empty segment never rolls right after such an open), so FileHeaderSize * (pendingCount + 1) bounds
@@ -444,18 +444,20 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         //   + frameLength overflows it too: either way the roll is predicted and the segment count checked. This holds because the active
         //   counter equals the current segment's on-disk length (as the next open sees it) whenever the segment is not open: it is seeded at
         //   startup and at maintenance end.
-        // - The segments added before this frame's roll is checked are the open of a missing current segment (the flag) and the rolls of the
-        //   backlog, which JournalSegmentPolicy.BoundNewSegments bounds by the backlog's bytes, not only by its count.
+        // - The segments added before this frame's roll is checked are the open of a missing current segment (OpenCreatesSegment) and the
+        //   rolls of the backlog, which JournalSegmentPolicy.BoundNewSegments bounds by the backlog's bytes, not only by its count; a roll
+        //   into a pre-created target the journal already counted (RollTargetCounted) adds none.
         // - Apart from that forward accounting, the counters change (in either direction) only in the maintenance end resync. Maintenance
         //   holds the gate from before Begin until the End ack completes, even when its caller cancels, and the ring is empty by then, so no
         //   admission runs against a layout in flux. After a pipeline failure, appends are refused before they reach admission.
         var pendingBytes = PendingAppends.PendingBytes;
         var pendingCount = PendingAppends.PendingCount;
         var openCreatesSegment = EventLoop.OpenCreatesSegment;
+        var rollTargetCounted = EventLoop.RollTargetCounted;
         var totalBytes = EventLoop.JournalTotalBytes;
         var activeSegmentBytes = EventLoop.ActiveSegmentWrittenBytes;
         var segmentCount = EventLoop.JournalSegmentCount;
-        var snapshot = new JournalAdmissionSnapshot(pendingBytes, pendingCount, openCreatesSegment, totalBytes, activeSegmentBytes, segmentCount);
+        var snapshot = new JournalAdmissionSnapshot(pendingBytes, pendingCount, openCreatesSegment, rollTargetCounted, totalBytes, activeSegmentBytes, segmentCount);
         EventLoop.Policy.EnsureAdmissionOrThrow(in snapshot, frameLength);
     }
 

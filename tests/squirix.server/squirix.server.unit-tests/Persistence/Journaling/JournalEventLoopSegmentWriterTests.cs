@@ -362,6 +362,10 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         {
         }
 
+        void IJournalEventLoopRollState.SetRollTargetCounted(bool value)
+        {
+        }
+
         void IJournalEventLoopRollState.SetSegmentRollInFlight(bool value)
         {
         }

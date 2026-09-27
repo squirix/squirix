@@ -218,6 +218,33 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
     }
 
     /// <summary>
+    /// A restart after a crash between a roll target's pre-creation and its manifest publish: the header-only target is already counted, so
+    /// at the segment count limit the frame that rolls into it is admitted, the journal rolls without adding a segment, and the pipeline
+    /// stays healthy.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RestartRollsIntoCountedTarget(CancellationToken cancellationToken)
+    {
+        await using (var first = await StallableJournal.CreateAsync(Dir, false, JournalSegmentLimits.DefaultMaxTotalBytesMb, 1, 2, cancellationToken))
+            await FillSegmentAsync(first, cancellationToken);
+
+        WriteHeaderOnlySegment(JournalReadPath.BuildSegmentPath(Dir, 2));
+
+        await using var restarted = await StallableJournal.CreateAsync(Dir, false, JournalSegmentLimits.DefaultMaxTotalBytesMb, 1, 2, cancellationToken);
+        await AppendDurablyAsync(restarted, "roll", (2 * FillPayload) + 1024, cancellationToken);
+        var segmentIndex = restarted.Journal.CurrentSegmentIndex;
+        var segmentCount = restarted.Journal.EventLoop.JournalSegmentCount;
+        var failed = restarted.Journal.HasFlushLoopFailure;
+        await restarted.ShutdownAsync();
+
+        _ = await Assert.That(segmentIndex).IsEqualTo(2);
+        _ = await Assert.That(segmentCount).IsEqualTo(2);
+        _ = await Assert.That(failed).IsFalse();
+        _ = await Assert.That(restarted.Recover(string.Empty, 0, cancellationToken)).IsEqualTo(Keys("fill", "roll"));
+    }
+
+    /// <summary>
     /// A restart over a nearly full current segment at the segment count limit: the frame that would roll is refused at admission (the
     /// pipeline keeps running) before any append opened the segment, and a smaller frame that fits is written.
     /// </summary>
@@ -357,6 +384,16 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
         _ = await Assert.That(refused.Message).Contains("segment count");
         await AppendDurablyAsync(journal, "fits", FillPayload, cancellationToken);
         return journal.Journal.HasFlushLoopFailure;
+    }
+
+    /// <summary>Writes a segment holding only its file header, as a roll target pre-created before a crash.</summary>
+    /// <param name="path">Segment path.</param>
+    private static void WriteHeaderOnlySegment(string path)
+    {
+        Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
+        JournalFraming.WriteFileHeader(header);
+        using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.Write);
+        RandomAccess.Write(handle, header, 0);
     }
 
     private Task<StallableJournal> CreateSingleSegmentJournalAsync(CancellationToken cancellationToken) => StallableJournal.CreateAsync(

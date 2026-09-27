@@ -56,7 +56,7 @@ public sealed class JournalSegmentRollCapacityTests
     [Arguments(0L, 0L, 0, false, 5L, 1, OneMegabyte - 5)]
     public void AdmissionAcceptsWithinBounds(long totalBytes, long pendingBytes, int pendingCount, bool openCreatesSegment, long activeBytes, int segmentCount, int frameBytes)
     {
-        var snapshot = new JournalAdmissionSnapshot(pendingBytes, pendingCount, openCreatesSegment, totalBytes, activeBytes, segmentCount);
+        var snapshot = new JournalAdmissionSnapshot(pendingBytes, pendingCount, openCreatesSegment, false, totalBytes, activeBytes, segmentCount);
         CreateAdmissionPolicy().EnsureAdmissionOrThrow(in snapshot, frameBytes);
     }
 
@@ -68,11 +68,28 @@ public sealed class JournalSegmentRollCapacityTests
     public async Task AdmissionCountsCreatedSegment()
     {
         var policy = CreateAdmissionPolicy();
-        var fits = new JournalAdmissionSnapshot(0L, 0, true, 0L, Segment - 999L, AdmissionSegmentCountLimit - 2);
+        var fits = new JournalAdmissionSnapshot(0L, 0, true, false, 0L, Segment - 999L, AdmissionSegmentCountLimit - 2);
         var full = fits with { SegmentCount = AdmissionSegmentCountLimit - 1 };
 
         policy.EnsureAdmissionOrThrow(in fits, 1000);
         var thrown = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws((Policy: policy, Snapshot: full), static s => s.Policy.EnsureAdmissionOrThrow(in s.Snapshot, 1000));
+
+        _ = await Assert.That(thrown.Message).Contains("segment count", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A roll into a pre-created target the journal already counted adds no segment, so at the segment count limit the frame that rolls
+    /// into it is admitted; a backlog that may roll past that target needs a new segment and is refused.
+    /// </summary>
+    [Test]
+    public async Task AdmissionReusesCountedRollTarget()
+    {
+        var policy = CreateAdmissionPolicy();
+        var intoTarget = new JournalAdmissionSnapshot(0L, 0, false, true, 1000L, Segment - 999L, AdmissionSegmentCountLimit);
+        var pastTarget = new JournalAdmissionSnapshot(Usable, 1, false, true, 1000L, 5L, AdmissionSegmentCountLimit);
+
+        policy.EnsureAdmissionOrThrow(in intoTarget, 1000);
+        var thrown = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws((Policy: policy, Snapshot: pastTarget), static s => s.Policy.EnsureAdmissionOrThrow(in s.Snapshot, 1000));
 
         _ = await Assert.That(thrown.Message).Contains("segment count", StringComparison.Ordinal);
     }
@@ -94,7 +111,7 @@ public sealed class JournalSegmentRollCapacityTests
     [Arguments(0L, 0L, 0, 5L, 1, OneMegabyte - 4, "segment size")]
     public async Task AdmissionRefusesPastBounds(long totalBytes, long pendingBytes, int pendingCount, long activeBytes, int segmentCount, int frameBytes, string reason)
     {
-        var snapshot = new JournalAdmissionSnapshot(pendingBytes, pendingCount, false, totalBytes, activeBytes, segmentCount);
+        var snapshot = new JournalAdmissionSnapshot(pendingBytes, pendingCount, false, false, totalBytes, activeBytes, segmentCount);
         var thrown = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(
             (Policy: CreateAdmissionPolicy(), Snapshot: snapshot, Frame: frameBytes),
             static s => s.Policy.EnsureAdmissionOrThrow(in s.Snapshot, s.Frame));
@@ -113,8 +130,9 @@ public sealed class JournalSegmentRollCapacityTests
 
     /// <summary>
     /// Seeded simulation of the journal thread's next-fit roll rule over random backlogs (small, large, and alternating half-segment and
-    /// tiny frames): whenever the incoming frame rolls, the bound covers every segment added up to and including that roll and stays
-    /// within twice that count plus two, and admission refuses the frame when one segment slot fewer is left than the journal thread needs.
+    /// tiny frames), some with a counted header-only roll target: whenever the incoming frame rolls, the bound covers every segment added
+    /// up to and including that roll and stays within twice that count plus two, and admission refuses the frame when one segment slot
+    /// fewer is left than the journal thread needs.
     /// </summary>
     [Test]
     public async Task NewSegmentBoundCoversNextFitRolls()
@@ -140,17 +158,20 @@ public sealed class JournalSegmentRollCapacityTests
 
             var frame = NextFrame(random, scenario % 3);
             var active = random.NextLong(JournalFraming.FileHeaderSize, Segment);
-            var added = SimulateAddedSegments(active, backlog, frame, out var frameRolls);
+            var rollTargetCounted = random.NextInt(0, 2) == 0;
+            var rolls = SimulateRolls(active, backlog, frame, out var frameRolls);
             if (!frameRolls)
                 continue;
 
+            // The first roll goes into the counted target and adds no segment.
+            var added = rollTargetCounted ? rolls - 1L : rolls;
             rolled++;
-            var bound = policy.BoundNewSegments(pendingBytes, backlog.Length, frame);
+            var bound = policy.BoundNewSegments(pendingBytes, backlog.Length, frame, rollTargetCounted);
             if (bound < added || bound > (2L * added) + 2L)
                 outOfBound++;
 
             // One slot fewer than the journal thread needs: it would reject the roll, so admission must refuse the frame.
-            var snapshot = new JournalAdmissionSnapshot(pendingBytes, backlog.Length, false, 0L, active, JournalSegmentLimits.HardMaxSegmentCount - Convert.ToInt32(added) + 1);
+            var snapshot = new JournalAdmissionSnapshot(pendingBytes, backlog.Length, false, rollTargetCounted, 0L, active, JournalSegmentLimits.HardMaxSegmentCount - Convert.ToInt32(added) + 1);
             _ = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws((Policy: policy, Snapshot: snapshot, Frame: frame), static s => s.Policy.EnsureAdmissionOrThrow(in s.Snapshot, s.Frame));
         }
 
@@ -207,8 +228,8 @@ public sealed class JournalSegmentRollCapacityTests
     /// <param name="backlog">Frames placed before the incoming frame.</param>
     /// <param name="frame">Incoming frame.</param>
     /// <param name="frameRolls">Whether the incoming frame rolls.</param>
-    /// <returns>Segments added by the backlog, plus one when the incoming frame rolls.</returns>
-    private static long SimulateAddedSegments(long active, int[] backlog, int frame, out bool frameRolls)
+    /// <returns>Rolls of the backlog, plus one when the incoming frame rolls.</returns>
+    private static long SimulateRolls(long active, int[] backlog, int frame, out bool frameRolls)
     {
         var added = 0L;
         for (var i = 0; i < backlog.Length; i++)

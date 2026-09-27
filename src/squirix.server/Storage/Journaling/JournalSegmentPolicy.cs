@@ -44,8 +44,9 @@ internal sealed class JournalSegmentPolicy
     /// <param name="pendingBytes">Summed frame length of the appends admitted and not yet written.</param>
     /// <param name="pendingCount">Number of the appends admitted and not yet written.</param>
     /// <param name="incomingFrameBytes">Length of the incoming frame, assumed to roll.</param>
+    /// <param name="rollTargetCounted">Whether the next roll target is already on disk, counted, and at most a file header.</param>
     /// <returns>The most segments that can be added before the incoming frame's roll is checked, plus one for that roll.</returns>
-    internal long BoundNewSegments(long pendingBytes, int pendingCount, int incomingFrameBytes)
+    internal long BoundNewSegments(long pendingBytes, int pendingCount, int incomingFrameBytes, bool rollTargetCounted)
     {
         // The journal thread places frames in order (next fit): it rolls when active + staged + frame exceeds the segment size S, and a
         // new segment starts at FileHeaderSize, so W = S - FileHeaderSize bytes of frames fit into it. Every admitted frame fits an empty
@@ -54,10 +55,11 @@ internal sealed class JournalSegmentPolicy
         // incoming frame F rolls out of segment R. Leaving segment i took c_i + g_(i+1) >= W + 1, with g_(R+1) = F. Summing over
         // i = 1..R: R * (W + 1) <= sum(c_i) + sum(g_2..g_R) + F <= 2P + F, since each g_i is part of c_i. So R <= (2P + F) / (W + 1),
         // and F's own roll adds one more. A roll into a pre-created target that already holds frames adds no segment; the chain skips
-        // that segment, and the bound still holds for the new ones.
+        // that segment, and the bound still holds for the new ones. When the next target is pre-created with at most a header (counted,
+        // and still starting at the header once rolled into), the chain covers every roll, and the first of the R + 1 rolls adds none.
         var usableSegmentBytes = _maxSegmentBytes - JournalFraming.FileHeaderSize;
         var backlogRolls = Math.Min(pendingCount, ((2L * pendingBytes) + incomingFrameBytes) / (usableSegmentBytes + 1L));
-        return backlogRolls + 1L;
+        return rollTargetCounted ? backlogRolls : backlogRolls + 1L;
     }
 
     /// <summary>
@@ -85,7 +87,7 @@ internal sealed class JournalSegmentPolicy
             return;
 
         var openedSegments = state.OpenCreatesSegment ? 1L : 0L;
-        if (state.SegmentCount + openedSegments + BoundNewSegments(state.PendingBytes, state.PendingCount, incomingFrameBytes) > SegmentCountProbeLimit)
+        if (state.SegmentCount + openedSegments + BoundNewSegments(state.PendingBytes, state.PendingCount, incomingFrameBytes, state.RollTargetCounted) > SegmentCountProbeLimit)
             throw new JournalCapacityExceededException(SegmentCountExceededMessage);
     }
 

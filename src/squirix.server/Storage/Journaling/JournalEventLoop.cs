@@ -21,6 +21,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     private int _journalSegmentCount;
     private long _journalTotalBytes;
     private int _openCreatesSegment;
+    private int _rollTargetCounted;
     private int _segmentRollCompletionPending;
 
     internal JournalEventLoop(
@@ -49,6 +50,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         // never opens the segment), and opening the segment eagerly would create a segment file and header with nothing to write.
         _activeSegmentWrittenBytes = startup.ActiveSegment.ActiveBytesAfterOpen;
         _openCreatesSegment = startup.ActiveSegment.OpenCreatesSegment ? 1 : 0;
+        _rollTargetCounted = startup.ActiveSegment.RollTargetCounted ? 1 : 0;
         BackgroundToken = bgToken;
         _segmentWriterOps = new JournalEventLoopSegmentWriter(this, this);
         DrainScheduler = new JournalEventLoopDrainScheduler(this, _segmentWriterOps);
@@ -85,6 +87,12 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     public JournalSegmentPolicy Policy { get; }
 
     public BoundedJournalRing Ring { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether the next roll target is already on disk and counted with at most a file header, so the next roll
+    /// adds no segment. Cleared by the journal thread when a roll begins; read cross-thread by append admission.
+    /// </summary>
+    public bool RollTargetCounted => Volatile.Read(ref _rollTargetCounted) != 0;
 
     public bool SegmentRollInFlight { get; private set; }
 
@@ -138,6 +146,8 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     public void SetOpenCreatesSegment(bool value) => Volatile.Write(ref _openCreatesSegment, value ? 1 : 0);
 
     public void SetPendingRollTargetSegmentIndex(int value) => PendingRollTargetSegmentIndex = value;
+
+    public void SetRollTargetCounted(bool value) => Volatile.Write(ref _rollTargetCounted, value ? 1 : 0);
 
     public void SetSegmentRollInFlight(bool value) => SegmentRollInFlight = value;
 
