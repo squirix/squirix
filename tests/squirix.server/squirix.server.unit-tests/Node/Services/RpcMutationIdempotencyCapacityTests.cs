@@ -166,7 +166,7 @@ public sealed class RpcMutationIdempotencyCapacityTests : IsolatedStorageTestBas
                 PutEntryBytes = JournalEntryPayloadKit.EncodePut(value),
                 MutationOperationId = OperationId,
             };
-            var frame = JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
+            var frame = JournalFraming.FrameTotalLength(BinaryJournalCodec.PrepareEncode(record).BodyLength);
             if (frame == target)
                 return value;
 

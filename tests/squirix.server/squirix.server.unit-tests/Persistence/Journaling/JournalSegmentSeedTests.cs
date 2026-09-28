@@ -30,13 +30,13 @@ public sealed class JournalSegmentSeedTests : IsolatedStorageTestBase
     public async Task FreshStartSeedsHeaderBytes(bool groupCommit, CancellationToken cancellationToken)
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, cancellationToken);
-        var seeded = journal.Journal.ActiveSegmentWrittenBytes;
+        var seeded = journal.Journal.EventLoop.ActiveSegmentWrittenBytes;
 
         await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
         await journal.Journal.AwaitDurabilityCommitAsync(cancellationToken);
 
         _ = await Assert.That(seeded).IsEqualTo(JournalFraming.FileHeaderSize);
-        _ = await Assert.That(journal.Journal.ActiveSegmentWrittenBytes).IsEqualTo(SegmentLength(1));
+        _ = await Assert.That(journal.Journal.EventLoop.ActiveSegmentWrittenBytes).IsEqualTo(SegmentLength(1));
     }
 
     /// <summary>
@@ -61,7 +61,7 @@ public sealed class JournalSegmentSeedTests : IsolatedStorageTestBase
                 return ValueTask.CompletedTask;
             },
             cancellationToken);
-        var seeded = journal.Journal.ActiveSegmentWrittenBytes;
+        var seeded = journal.Journal.EventLoop.ActiveSegmentWrittenBytes;
         var openCreatesSegment = journal.Journal.EventLoop.OpenCreatesSegment;
         var countAfterEnd = journal.Journal.EventLoop.JournalSegmentCount;
         await AppendDurablyAsync(journal, "b", SmallPayload, cancellationToken);
@@ -71,7 +71,7 @@ public sealed class JournalSegmentSeedTests : IsolatedStorageTestBase
         _ = await Assert.That(countAfterEnd).IsEqualTo(0);
         _ = await Assert.That(journal.Journal.EventLoop.OpenCreatesSegment).IsFalse();
         _ = await Assert.That(journal.Journal.EventLoop.JournalSegmentCount).IsEqualTo(1);
-        _ = await Assert.That(journal.Journal.ActiveSegmentWrittenBytes).IsEqualTo(SegmentLength(1));
+        _ = await Assert.That(journal.Journal.EventLoop.ActiveSegmentWrittenBytes).IsEqualTo(SegmentLength(1));
     }
 
     /// <summary>After a no-op maintenance, the active segment counter holds the reset segment's length instead of zero.</summary>
@@ -88,8 +88,8 @@ public sealed class JournalSegmentSeedTests : IsolatedStorageTestBase
 
         await journal.Journal.ExecuteMaintenanceExclusiveAsync(static _ => ValueTask.CompletedTask, cancellationToken);
 
-        _ = await Assert.That(journal.Journal.ActiveSegmentWrittenBytes).IsEqualTo(SegmentLength(1));
-        _ = await Assert.That(journal.Journal.ActiveSegmentWrittenBytes).IsGreaterThan(JournalFraming.FileHeaderSize);
+        _ = await Assert.That(journal.Journal.EventLoop.ActiveSegmentWrittenBytes).IsEqualTo(SegmentLength(1));
+        _ = await Assert.That(journal.Journal.EventLoop.ActiveSegmentWrittenBytes).IsGreaterThan(JournalFraming.FileHeaderSize);
     }
 
     /// <summary>A restart seeds the active segment counter with the current segment's on-disk length before any append opens it.</summary>
@@ -110,7 +110,7 @@ public sealed class JournalSegmentSeedTests : IsolatedStorageTestBase
         var onDisk = SegmentLength(1);
         await using var restarted = await StallableJournal.CreateAsync(Dir, groupCommit, cancellationToken);
 
-        _ = await Assert.That(restarted.Journal.ActiveSegmentWrittenBytes).IsEqualTo(onDisk);
+        _ = await Assert.That(restarted.Journal.EventLoop.ActiveSegmentWrittenBytes).IsEqualTo(onDisk);
         _ = await Assert.That(onDisk).IsGreaterThan(JournalFraming.FileHeaderSize);
     }
 

@@ -51,8 +51,6 @@ internal static class BinaryJournalCodec
 
     private const string UnknownJournalOpcodeMessage = "Unknown journal opcode.";
 
-    internal static int ComputeFrameBodyLength(JournalRecord record) => EncodeContext.From(record).BodyLength;
-
     internal static JournalRecord Decode(byte[] frameBuffer, int frameLength)
     {
         ArgumentOutOfRangeException.ThrowIfGreaterThan(frameLength, frameBuffer.Length);

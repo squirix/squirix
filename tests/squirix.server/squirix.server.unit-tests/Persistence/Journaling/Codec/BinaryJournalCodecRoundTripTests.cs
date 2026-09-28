@@ -174,9 +174,8 @@ public sealed class BinaryJournalCodecRoundTripTests
         var prepared = BinaryJournalCodec.PrepareEncode(record);
 
         // Golden frame-body lengths from the documented wire layout
-        // (FixedPrefixSize 25 + UTF-8 key bytes + operation payload), not from
-        // BinaryJournalCodec.ComputeFrameBodyLength: both helpers share the same
-        // EncodeContext.From path, so comparing them could never fail.
+        // (FixedPrefixSize 25 + UTF-8 key bytes + operation payload), not recomputed
+        // through EncodeContext.From: comparing the helper with itself could never fail.
         var expectedBodyLength = operation switch
         {
             // 25 prefix + 11 key ("ns" + "codec-key") + 22 payload:

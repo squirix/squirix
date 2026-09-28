@@ -510,10 +510,10 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
 
         for (var i = 0; i < 16_384 && journal.CurrentSegmentIndex == 1; i++)
         {
-            if (journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes)
+            if (journal.EventLoop.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes)
                 break;
 
-            if (journal.ActiveSegmentWrittenBytes + fillFrameLen > maxBytes)
+            if (journal.EventLoop.ActiveSegmentWrittenBytes + fillFrameLen > maxBytes)
                 break;
 
             await journal.AppendPutUnderGateAsync(fillKey, fillPayload, cancellationToken);
@@ -521,7 +521,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         }
 
         _ = await Assert.That(journal.CurrentSegmentIndex).IsEqualTo(1);
-        _ = await Assert.That(journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes).IsTrue();
+        _ = await Assert.That(journal.EventLoop.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes).IsTrue();
     }
 
     private static int FrameLength(ReadOnlyMemory<byte> payload, CacheKey key)
@@ -534,7 +534,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
             Key = key,
             PutEntryBytes = payload,
         };
-        return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
+        return JournalFraming.FrameTotalLength(BinaryJournalCodec.PrepareEncode(record).BodyLength);
     }
 
     private static string SegmentPath(string dir, int i) => NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(i)}{FileExtensions.Journal}");

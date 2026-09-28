@@ -75,7 +75,7 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
         await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
 
         _ = await Assert.That(idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out _)).IsFalse();
-        _ = await Assert.That(idempotencyStore.ReserveIntent(OperationId, Fingerprint)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
+        _ = await Assert.That(idempotencyStore.ReserveIntent(OperationId, Fingerprint, null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
     }
 
     /// <summary>Replay supersedes the write-ahead started marker with the durable outcome when both frames exist.</summary>

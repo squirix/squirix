@@ -303,7 +303,7 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
     private static async Task FillSegmentAsync(StallableJournal journal, CancellationToken cancellationToken)
     {
         var fillFrame = FrameLength("fill", FillPayload);
-        while (journal.Journal.ActiveSegmentWrittenBytes + (2L * fillFrame) <= MaxBytes)
+        while (journal.Journal.EventLoop.ActiveSegmentWrittenBytes + (2L * fillFrame) <= MaxBytes)
             await AppendDurablyAsync(journal, "fill", FillPayload, cancellationToken);
     }
 
@@ -317,7 +317,7 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
             Key = CacheKey.Default(key),
             PutEntryBytes = new byte[payloadLength],
         };
-        return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
+        return JournalFraming.FrameTotalLength(BinaryJournalCodec.PrepareEncode(record).BodyLength);
     }
 
     private static string Keys(params string[] keys)

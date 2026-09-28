@@ -137,8 +137,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public long UsedBytes => EventLoop.JournalTotalBytes;
 
-    internal long ActiveSegmentWrittenBytes => EventLoop.ActiveSegmentWrittenBytes;
-
     /// <summary>Gets the last join wait granted to the journal thread after the shutdown budget; 5 seconds unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The floor is not positive.</exception>
     internal TimeSpan GraceJoinFloor

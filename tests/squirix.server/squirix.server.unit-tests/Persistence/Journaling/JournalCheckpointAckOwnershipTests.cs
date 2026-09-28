@@ -68,7 +68,7 @@ public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
         var marked = registry.TryMarkInFlight(ack);
         var removedByCaller = registry.Remove(ack);
         var markedTwice = registry.TryMarkInFlight(ack);
-        var trackedWhileInFlight = registry.TakeAll(new ObjectDisposedException(nameof(JournalCoordinator)));
+        var trackedWhileInFlight = registry.TakeAll(new ObjectDisposedException(nameof(JournalCoordinator)), out _);
         registry.Complete(ack);
 
         _ = await Assert.That(marked).IsTrue();
@@ -112,7 +112,7 @@ public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
         var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         registry.Add(pending);
 
-        var drained = registry.TakeAll(reason);
+        var drained = registry.TakeAll(reason, out _);
         var singleAck = await Assert.That(drained).HasSingleItem();
         _ = await Assert.That(singleAck).IsSameReferenceAs(pending);
 

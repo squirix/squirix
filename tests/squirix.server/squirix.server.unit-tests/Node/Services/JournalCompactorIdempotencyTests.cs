@@ -127,8 +127,8 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
         await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
 
         _ = await Assert.That(idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out _)).IsFalse();
-        _ = await Assert.That(idempotencyStore.ReserveIntent(OperationId, Fingerprint)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
-        var mismatch = NodeExceptionAssert.For<ServerOpIdMismatchException>().Throws(idempotencyStore, static value => _ = value.ReserveIntent(OperationId, "other-fingerprint"));
+        _ = await Assert.That(idempotencyStore.ReserveIntent(OperationId, Fingerprint, null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
+        var mismatch = NodeExceptionAssert.For<ServerOpIdMismatchException>().Throws(idempotencyStore, static value => _ = value.ReserveIntent(OperationId, "other-fingerprint", null, out _));
         _ = await Assert.That(mismatch.Message).IsEqualTo(ServerOpIdMismatchException.StableDetail);
     }
 

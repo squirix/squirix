@@ -63,7 +63,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         IJournalCoordinatorState state = fake;
         var pipeline = CreatePipeline(fake);
         var reason = new InvalidOperationException("pipeline failed");
-        _ = state.DurabilityAcks.TakeAll(reason);
+        _ = state.DurabilityAcks.TakeAll(reason, out _);
 
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.EnqueueFlushAsync(cancellationToken));
         _ = await Assert.That(thrown).IsSameReferenceAs(reason);

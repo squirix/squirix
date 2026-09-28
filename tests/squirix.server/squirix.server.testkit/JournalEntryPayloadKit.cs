@@ -14,7 +14,7 @@ public static class JournalEntryPayloadKit
     {
         var prepared = JournalEntryPayload.PrepareEncode(entry);
         using var buffer = JournalEntryPayload.Encode(in prepared);
-        return FixtureBufferKit.CopyToOwned(buffer.Span);
+        return FixtureBufferKit.CopyToOwned(buffer.Memory.Span);
     }
 
     /// <summary>Encodes a Put journal payload for the given cache value into an exact-size owned buffer.</summary>

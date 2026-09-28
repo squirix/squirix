@@ -62,7 +62,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     public async Task ConcurrentReservationUnknownOutcome(CancellationToken cancellationToken)
     {
         var store = CreateStore();
-        _ = store.ReserveIntent(ValidOperationId, "fp-1");
+        _ = store.ReserveIntent(ValidOperationId, "fp-1", null, out _);
         var coordinator = new RpcMutationIdempotencyCoordinator(store);
         var flag = new ExecFlag();
 
@@ -288,13 +288,13 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         var store = CreateStore();
         store.ReleaseIntent(ValidOperationId, "fp-1");
 
-        _ = store.ReserveIntent(ValidOperationId, "fp-1");
+        _ = store.ReserveIntent(ValidOperationId, "fp-1", null, out _);
         store.ReleaseIntent(ValidOperationId, "fp-2");
-        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1")).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
+        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
 
         store.RecordSuccess(ValidOperationId, "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
         store.ReleaseIntent(ValidOperationId, "fp-1");
-        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1")).IsEqualTo(IdempotencyReserveResult.AlreadyCompleted);
+        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyCompleted);
     }
 
     /// <summary>Releasing a started record restored without a fingerprint is a no-op.</summary>
@@ -305,7 +305,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         store.RestoreStarted(ValidOperationId, DateTime.UtcNow);
         store.ReleaseIntent(ValidOperationId, "fp-1");
 
-        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1")).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
+        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
     }
 
     /// <summary>Releasing a started reservation lets the operation be reserved again.</summary>
@@ -314,10 +314,10 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     {
         var store = CreateStore();
 
-        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1")).IsEqualTo(IdempotencyReserveResult.Acquired);
+        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.Acquired);
         store.ReleaseIntent(ValidOperationId, "fp-1");
 
-        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1")).IsEqualTo(IdempotencyReserveResult.Acquired);
+        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.Acquired);
     }
 
     /// <summary>Reserving an intent acquires execution ownership; a second reservation sees the started record.</summary>
@@ -326,8 +326,8 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     {
         var store = CreateStore();
 
-        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1")).IsEqualTo(IdempotencyReserveResult.Acquired);
-        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1")).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
+        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.Acquired);
+        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
         _ = await Assert.That(store.TryReplay(ValidOperationId, "fp-1", TryAddAsyncResponse.Parser, out _)).IsFalse();
     }
 
@@ -336,9 +336,9 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     public async Task ReserveIntentRejectsFingerprintMismatch()
     {
         var store = CreateStore();
-        _ = store.ReserveIntent(ValidOperationId, "fp-1");
+        _ = store.ReserveIntent(ValidOperationId, "fp-1", null, out _);
 
-        var ex = NodeExceptionAssert.For<ServerOpIdMismatchException>().Throws(store, static value => _ = value.ReserveIntent(ValidOperationId, "fp-2"));
+        var ex = NodeExceptionAssert.For<ServerOpIdMismatchException>().Throws(store, static value => _ = value.ReserveIntent(ValidOperationId, "fp-2", null, out _));
 
         _ = await Assert.That(ex.Message).IsEqualTo(ServerOpIdMismatchException.StableDetail);
     }
@@ -351,7 +351,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         store.RestoreStarted(ValidOperationId, "fp-1", DateTime.UtcNow);
         store.RestoreStarted(ValidOperationId, "fp-2", DateTime.UtcNow);
 
-        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1")).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
+        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
     }
 
     /// <summary>A completed outcome restored during replay supersedes a previously restored started record.</summary>
@@ -376,7 +376,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         store.RestoreStarted(ValidOperationId, DateTime.UtcNow);
 
         _ = await Assert.That(store.TryReplay(ValidOperationId, "fp-1", TryAddAsyncResponse.Parser, out _)).IsFalse();
-        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1")).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
+        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
     }
 
     /// <summary>Recording a success replaces the write-ahead intent with a replayable completed outcome.</summary>
@@ -384,10 +384,10 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     public async Task SuccessAfterIntentReplayable()
     {
         var store = CreateStore();
-        _ = store.ReserveIntent(ValidOperationId, "fp-1");
+        _ = store.ReserveIntent(ValidOperationId, "fp-1", null, out _);
         store.RecordSuccess(ValidOperationId, "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
 
-        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1")).IsEqualTo(IdempotencyReserveResult.AlreadyCompleted);
+        _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyCompleted);
         var replayed = store.TryReplay(ValidOperationId, "fp-1", TryAddAsyncResponse.Parser, out var response);
         _ = await Assert.That(replayed).IsTrue();
         _ = await Assert.That(response).IsNotNull();

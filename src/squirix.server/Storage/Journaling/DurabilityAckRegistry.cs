@@ -50,11 +50,6 @@ internal sealed class DurabilityAckRegistry
 
     /// <summary>Drains all tracked checkpoints for failure propagation and closes the registry.</summary>
     /// <param name="failure">Failure reason propagated to tracked acks and late arrivals.</param>
-    /// <returns>Checkpoints pending or in flight at drain time.</returns>
-    internal List<TaskCompletionSource> TakeAll(Exception failure) => TakeAll(failure, out _);
-
-    /// <summary>Drains all tracked checkpoints for failure propagation and closes the registry.</summary>
-    /// <param name="failure">Failure reason propagated to tracked acks and late arrivals.</param>
     /// <param name="inFlightCount">Number of drained checkpoints whose fsync was running; they end the returned list.</param>
     /// <returns>Checkpoints pending at drain time, followed by the checkpoints in flight.</returns>
     internal List<TaskCompletionSource> TakeAll(Exception failure, out int inFlightCount)

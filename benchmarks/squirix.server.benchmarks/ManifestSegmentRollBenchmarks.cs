@@ -84,7 +84,7 @@ public class ManifestSegmentRollBenchmarks
         var fillFrameLen = FrameLength(fillPayload, fillKey);
         const long maxBytes = 1024L * 1024L;
 
-        while (pipelined.ActiveSegmentWrittenBytes + fillFrameLen + overflowFrameLen <= maxBytes)
+        while (pipelined.EventLoop.ActiveSegmentWrittenBytes + fillFrameLen + overflowFrameLen <= maxBytes)
             await pipelined.AppendPutUnderGateAsync(fillKey, fillPayload, cancellationToken).ConfigureAwait(false);
 
         await pipelined.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
@@ -100,6 +100,6 @@ public class ManifestSegmentRollBenchmarks
             Key = key,
             PutEntryBytes = payload,
         };
-        return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
+        return JournalFraming.FrameTotalLength(BinaryJournalCodec.PrepareEncode(record).BodyLength);
     }
 }
