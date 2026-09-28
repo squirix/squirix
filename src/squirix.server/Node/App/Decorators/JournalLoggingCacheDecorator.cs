@@ -21,8 +21,15 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     private readonly IJournalCoordinator _journal;
     private readonly INodeLocator _ring;
     private readonly string _self;
+    private readonly TimeProvider _timeProvider;
 
-    internal JournalLoggingCacheDecorator(string self, INodeLocator ring, ILogicalNamespacedCache<T> inner, IJournalCoordinator journal, DurableMutationExecutor durableMutations)
+    internal JournalLoggingCacheDecorator(
+        string self,
+        INodeLocator ring,
+        ILogicalNamespacedCache<T> inner,
+        IJournalCoordinator journal,
+        DurableMutationExecutor durableMutations,
+        TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(self);
         ArgumentNullException.ThrowIfNull(ring);
@@ -34,7 +41,10 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         _inner = inner;
         _journal = journal;
         _executor = durableMutations;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
+
+    private DateTime UtcNow => _timeProvider.GetUtcNow().UtcDateTime;
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.GetEntryAsync(cacheName, key, cancellationToken);
@@ -82,9 +92,10 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             return;
         }
 
-        var prepared = JournalEntryPayload.PrepareEncode(entry);
+        var durable = ResolveExpiration(entry);
+        var prepared = JournalEntryPayload.PrepareEncode(durable);
         EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
-        await SetEntryWithPreparedPayloadAsync(operationId, cacheName, key, entry, prepared, cancellationToken).ConfigureAwait(false);
+        await SetEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, prepared, cancellationToken).ConfigureAwait(false);
     }
 
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
@@ -93,7 +104,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             return _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
 
         var cacheKey = new CacheKey(cacheName, key);
-        var expiresUtc = DateTime.UtcNow.SaturatedAdd(expiration);
+        var expiresUtc = UtcNow.SaturatedAdd(expiration);
         return _executor.ExecuteAsync(
             cacheKey,
             static (_, _) => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
@@ -109,9 +120,10 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         if (!IsLocalOwner(cacheName, key))
             return _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
 
-        var prepared = JournalEntryPayload.PrepareEncode(entry);
+        var durable = ResolveExpiration(entry);
+        var prepared = JournalEntryPayload.PrepareEncode(durable);
         EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
-        return TryAddEntryWithPreparedPayloadAsync(operationId, cacheName, key, entry, prepared, cancellationToken);
+        return TryAddEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, prepared, cancellationToken);
     }
 
     public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
@@ -127,6 +139,14 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
         return await UpdateWithPreparedPayloadAsync(operationId, cacheName, key, value, prepared, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Fixes a relative expiration to an absolute deadline on this decorator's clock. The journal frame and the
+    /// in-memory apply must both receive the resolved entry, so replay restores the exact deadline memory holds.
+    /// </summary>
+    /// <param name="entry">The entry to write.</param>
+    /// <returns>The entry with only an absolute deadline.</returns>
+    internal NodeCacheEntry<T> ResolveExpiration(NodeCacheEntry<T> entry) => JournalEntryExpirationMaterializer.ForDurableWrite(entry, UtcNow);
 
     internal async ValueTask SetEntryWithPreparedPayloadAsync(
         string operationId,

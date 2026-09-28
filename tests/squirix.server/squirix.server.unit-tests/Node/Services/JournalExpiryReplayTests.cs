@@ -36,7 +36,6 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     private const string Self = "node-a";
 
     private static readonly TimeSpan Downtime = TimeSpan.FromMinutes(8);
-    private static readonly TimeSpan JournalDeadlinePrecision = TimeSpan.FromMilliseconds(1);
     private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(10);
 
     private readonly Meter _testMeter = new("test");
@@ -49,11 +48,11 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     [Test]
     public async Task AddReplaysWriteTimeDeadline(CancellationToken cancellationToken)
     {
-        var window = await WriteAsync(
+        var written = await WriteAsync(
             static async (cache, ct) => _ = await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: Ttl), ct),
             cancellationToken);
 
-        await AssertReplayedDeadlineAsync(window, cancellationToken);
+        await AssertReplayedDeadlineAsync(written, cancellationToken);
     }
 
     /// <summary>A put record whose deadline already passed is skipped on replay instead of failing recovery.</summary>
@@ -84,11 +83,11 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     [Test]
     public async Task SetReplaysWriteTimeDeadline(CancellationToken cancellationToken)
     {
-        var window = await WriteAsync(
+        var written = await WriteAsync(
             static (cache, ct) => cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: Ttl), ct),
             cancellationToken);
 
-        await AssertReplayedDeadlineAsync(window, cancellationToken);
+        await AssertReplayedDeadlineAsync(written, cancellationToken);
     }
 
     /// <summary>A touch replays with its write-time deadline, not one re-anchored to the restart clock.</summary>
@@ -96,7 +95,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     [Test]
     public async Task TouchReplaysWriteTimeDeadline(CancellationToken cancellationToken)
     {
-        var window = await WriteAsync(
+        var written = await WriteAsync(
             static async (cache, ct) =>
             {
                 _ = await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), ct);
@@ -104,7 +103,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
             },
             cancellationToken);
 
-        await AssertReplayedDeadlineAsync(window, cancellationToken);
+        await AssertReplayedDeadlineAsync(written, cancellationToken);
     }
 
     /// <summary>An update of a relative-TTL entry replays with the original write-time deadline.</summary>
@@ -112,7 +111,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     [Test]
     public async Task UpdateReplaysWriteTimeDeadline(CancellationToken cancellationToken)
     {
-        var window = await WriteAsync(
+        var written = await WriteAsync(
             static async (cache, ct) =>
             {
                 await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v1", expiration: Ttl), ct);
@@ -120,7 +119,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
             },
             cancellationToken);
 
-        await AssertReplayedDeadlineAsync(window, cancellationToken);
+        await AssertReplayedDeadlineAsync(written, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -130,18 +129,18 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
         base.DisposeManaged();
     }
 
-    private async Task AssertReplayedDeadlineAsync((DateTime Before, DateTime After) window, CancellationToken cancellationToken)
+    private async Task AssertReplayedDeadlineAsync((DateTime WriteStart, DateTime? MemoryDeadline) written, CancellationToken cancellationToken)
     {
-        // Restart after a downtime that is shorter than the TTL: the entry must still be live and keep its original deadline.
-        var restartClock = new FakeTimeProvider(new DateTimeOffset(window.After.Add(Downtime), TimeSpan.Zero));
+        var deadline = written.WriteStart.Add(Ttl);
+        _ = await Assert.That(written.MemoryDeadline).IsEqualTo(deadline);
+
+        // Restart after a downtime that is shorter than the TTL: the entry must still be live and keep the deadline memory held.
+        var restartClock = new FakeTimeProvider(new DateTimeOffset(written.WriteStart.Add(Downtime), TimeSpan.Zero));
         var recovered = await RecoverAsync(CreatePersistence(), restartClock, cancellationToken);
 
         var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
-        _ = await Assert.That(entry!.ExpiresUtc).IsNotNull();
-
-        // The journal stores deadlines at millisecond precision, so the lower bound allows for the truncated fraction.
-        _ = await Assert.That(entry.ExpiresUtc!.Value).IsBetween(window.Before.Add(Ttl).Subtract(JournalDeadlinePrecision), window.After.Add(Ttl));
+        _ = await Assert.That(entry!.ExpiresUtc).IsEqualTo(deadline);
     }
 
     private PersistenceOptions CreatePersistence() => new()
@@ -167,7 +166,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
         return cache;
     }
 
-    private async Task<(DateTime Before, DateTime After)> WriteAsync(
+    private async Task<(DateTime WriteStart, DateTime? MemoryDeadline)> WriteAsync(
         Func<JournalLoggingCacheDecorator<string>, CancellationToken, ValueTask> mutate,
         CancellationToken cancellationToken)
     {
@@ -178,17 +177,22 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true));
-        var physical = new PhysicalCache<string>();
+
+        // Start the write clock at real time so replay does not skip the entry as expired, aligned to the whole
+        // millisecond the journal stores deadlines at, so the replayed deadline compares exactly.
+        var now = DateTimeOffset.UtcNow;
+        var writeClock = new FakeTimeProvider(now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMillisecond)));
+        var physical = new PhysicalCache<string>(writeClock);
         var cache = new JournalLoggingCacheDecorator<string>(
             Self,
             RocksDoubles.CreateOwnerLocator(Self),
             new ClientCache<string>(physical, physical),
             journal,
-            new DurableMutationExecutor(journal));
+            new DurableMutationExecutor(journal),
+            writeClock);
 
-        var before = DateTime.UtcNow;
         await mutate(cache, cancellationToken);
-        var after = DateTime.UtcNow;
-        return (before, after);
+        var memory = await physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        return (writeClock.GetUtcNow().UtcDateTime, memory?.ExpiresUtc);
     }
 }

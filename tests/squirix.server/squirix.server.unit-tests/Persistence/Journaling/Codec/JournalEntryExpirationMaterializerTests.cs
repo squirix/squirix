@@ -14,6 +14,28 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 [Immutable]
 public sealed class JournalEntryExpirationMaterializerTests
 {
+    /// <summary>ForDurableWrite resolves a relative TTL against the given instant and keeps the earliest deadline.</summary>
+    [Test]
+    public async Task DurableWriteUsesEarliestDeadline()
+    {
+        var write = DateTime.Parse("2020-01-01T00:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
+
+        var relativeWins = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromSeconds(30), ExpiresUtc = write.AddMinutes(5) };
+        var resolvedRelative = JournalEntryExpirationMaterializer.ForDurableWrite(relativeWins, write);
+
+        _ = await Assert.That(resolvedRelative.Expiration).IsNull();
+        _ = await Assert.That(resolvedRelative.ExpiresUtc).IsEqualTo(write.AddSeconds(30));
+
+        var absoluteWins = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMinutes(5), ExpiresUtc = write.AddSeconds(10) };
+        var resolvedAbsolute = JournalEntryExpirationMaterializer.ForDurableWrite(absoluteWins, write);
+
+        _ = await Assert.That(resolvedAbsolute.Expiration).IsNull();
+        _ = await Assert.That(resolvedAbsolute.ExpiresUtc).IsEqualTo(write.AddSeconds(10));
+
+        var absoluteOnly = new NodeCacheEntry<string> { Value = "v", ExpiresUtc = write.AddSeconds(10) };
+        _ = await Assert.That(JournalEntryExpirationMaterializer.ForDurableWrite(absoluteOnly, write)).IsSameReferenceAs(absoluteOnly);
+    }
+
     /// <summary>Verifies replay skips relative TTL entries using the journal record timestamp.</summary>
     [Test]
     public async Task IsExpiredUsesRelativeRecoveryTimestamp()
