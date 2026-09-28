@@ -179,15 +179,24 @@ public sealed class ExpirationAddSetTests : ClockTestBase
         _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
     }
 
-    /// <summary>Verifies value-based SetAsync does not drop expiration when overwriting an existing expiring entry.</summary>
+    /// <summary>Verifies value-based SetAsync without expiration clears the TTL when overwriting an existing expiring entry.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SetAsyncValueDropReplacesExpiringEntry(CancellationToken cancellationToken)
+    public async Task SetAsyncWithoutExpiryClearsTtl(CancellationToken cancellationToken)
     {
         var cache = await Client.GetCacheAsync<string>("expiration-insert-value-overwrite-public-extra", cancellationToken);
-        await cache.SetAsync("k", "v1", Expiry.In(TimeSpan.FromSeconds(10)), cancellationToken);
+        var ttl = TimeSpan.FromSeconds(10);
+        await cache.SetAsync("k", "v1", Expiry.In(ttl), cancellationToken);
         await cache.SetAsync("k", "v2", cancellationToken: cancellationToken);
+
         var expiration = await cache.GetExpirationAsync("k", cancellationToken);
-        _ = await Assert.That(expiration.Value > TimeSpan.Zero).IsTrue();
+        _ = await Assert.That(expiration.Found).IsTrue();
+        _ = await Assert.That(expiration.HasExpiration).IsFalse();
+
+        // The overwritten entry must outlive the TTL the first write set.
+        Clock.Advance(ttl + TimeSpan.FromSeconds(1));
+        var value = await cache.GetValueAsync("k", cancellationToken);
+        _ = await Assert.That(value.Found).IsTrue();
+        _ = await Assert.That(value.Value).IsEqualTo("v2");
     }
 }

@@ -11,7 +11,8 @@ namespace Squirix;
 /// Expired entries are treated as absent by all read and mutation methods.
 /// When <c language="csharp">options</c> is <see langword="null" />, or <see cref="CacheEntryOptions" /> specifies neither
 /// <see cref="CacheEntryOptions.Expiration" /> nor <see cref="CacheEntryOptions.ExpiresAt" />, the write stores the entry
-/// without expiration metadata and the entry does not expire by TTL.
+/// without expiration metadata and the entry does not expire by TTL. <see cref="SetAsync" /> without expiration therefore
+/// clears any TTL the key had before: the overwritten entry becomes non-expiring.
 /// </remarks>
 public interface ICache<T>
 {
@@ -74,7 +75,10 @@ public interface ICache<T>
     /// <summary>Creates or overwrites the value for the key.</summary>
     /// <param name="key">Cache key.</param>
     /// <param name="value">Value to store.</param>
-    /// <param name="options">Entry options. When <see langword="null" /> or without expiration fields, the entry does not expire by TTL.</param>
+    /// <param name="options">
+    /// Entry options. When <see langword="null" /> or without expiration fields, the entry does not expire by TTL, and any TTL
+    /// the key had before is cleared.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the value has been stored.</returns>
     Task SetAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default);

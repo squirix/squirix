@@ -37,6 +37,10 @@ When `options` is omitted or null, or neither `CacheEntryOptions.Expiration` nor
 the entry is stored **without expiration** and **does not expire by TTL**. Pass an explicit relative or absolute expiration
 when you need TTL eviction.
 
+`SetAsync` overwrites the whole entry, including its expiration: a `SetAsync` without expiration on a key that already has
+a TTL **clears that TTL**, and the key no longer expires. To change only the value and keep the current expiration, use
+`UpdateAsync`.
+
 Out of scope for v0.1: batch, scan, watch, counters, tag invalidation, compare-and-set.
 
 Configuration (`SquirixClientOptions`): endpoints, JWT bearer token provider, custom serializer.

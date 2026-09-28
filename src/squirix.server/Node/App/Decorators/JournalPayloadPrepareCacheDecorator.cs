@@ -45,9 +45,10 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
         if (!IsLocalOwner(cacheName, key))
             return _journal.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
 
-        var prepared = JournalEntryPayload.PrepareEncode(entry);
+        var durable = _journal.ResolveExpiration(entry);
+        var prepared = JournalEntryPayload.PrepareEncode(durable);
         EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
-        return _journal.SetEntryWithPreparedPayloadAsync(operationId, cacheName, key, entry, prepared, cancellationToken);
+        return _journal.SetEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, prepared, cancellationToken);
     }
 
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
@@ -58,9 +59,10 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
         if (!IsLocalOwner(cacheName, key))
             return _journal.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
 
-        var prepared = JournalEntryPayload.PrepareEncode(entry);
+        var durable = _journal.ResolveExpiration(entry);
+        var prepared = JournalEntryPayload.PrepareEncode(durable);
         EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
-        return _journal.TryAddEntryWithPreparedPayloadAsync(operationId, cacheName, key, entry, prepared, cancellationToken);
+        return _journal.TryAddEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, prepared, cancellationToken);
     }
 
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) =>

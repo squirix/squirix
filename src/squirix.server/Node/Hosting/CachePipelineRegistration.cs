@@ -103,7 +103,8 @@ internal static class CachePipelineRegistration
                 sp.GetRequiredService<INodeLocator>(),
                 sp.GetRequiredService<ClientCache<object?>>(),
                 sp.GetRequiredService<IJournalCoordinator>(),
-                sp.GetRequiredService<DurableMutationExecutor>()));
+                sp.GetRequiredService<DurableMutationExecutor>(),
+                sp.GetService<TimeProvider>()));
             _ = services.AddSingleton(static sp => new JournalPayloadPrepareCacheDecorator<object?>(
                 sp.GetRequiredService<TopologyOptions>().NodeId,
                 sp.GetRequiredService<INodeLocator>(),
