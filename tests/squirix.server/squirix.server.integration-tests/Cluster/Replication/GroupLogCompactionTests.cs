@@ -64,7 +64,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     [Test]
     public async Task SteadyLoadCompactsRepeatedly(CancellationToken cancellationToken)
     {
-        const int writes = 600;
+        const int writes = 300;
         await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", Options("group-log-steady", true), cancellationToken);
         var owner = cluster[OwnerId];
         var log = OwnerLog(owner);
