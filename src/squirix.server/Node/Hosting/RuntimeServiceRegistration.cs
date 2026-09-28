@@ -54,7 +54,6 @@ internal static class RuntimeServiceRegistration
             _ = services.AddSingleton<ILocalCacheSnapshotReader<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
             _ = services.AddSingleton<ISnapshotEntryCapture>(static sp => new LocalCacheSnapshotCapture<object?>(sp.GetRequiredService<ILocalCacheSnapshotReader<object?>>()));
 
-            _ = services.AddSingleton<ICacheRuntime, CacheRuntime>();
             _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
             _ = services.AddSingleton<IGrpcCacheOperations<object?>, CacheOperations<object?>>();
             _ = services.AddSingleton(static sp => new RpcMutationIdempotencyStore(

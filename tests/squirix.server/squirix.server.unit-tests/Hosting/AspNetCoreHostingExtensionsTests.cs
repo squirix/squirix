@@ -10,7 +10,6 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
-using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
@@ -215,7 +214,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
             cancellationToken: cancellationToken);
 
         await using (var app = builder.Build())
-            _ = app.Services.GetRequiredService<ICacheRuntime>();
+            _ = app.Services.GetRequiredService<ILogicalNamespacedCache<object?>>();
 
         _ = await Assert.That(state.CallbackCount).IsEqualTo(1);
     }
