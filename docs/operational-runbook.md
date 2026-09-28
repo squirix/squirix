@@ -254,7 +254,9 @@ existing RF=1 data to RF>1. When startup refuses:
    the activated topology.
 
 `squirix-server doctor` reads the stamp and the replica group metadata without starting the node. With persistence
-enabled and a data directory configured, it prints:
+enabled, it inspects the data directory the node would start on: `--data-dir` / `DataDirectory` when set, otherwise the
+default `{LocalApplicationData}/squirix/{ClusterId}/{NodeId}` (`{SQUIRIX_TEST_ROOT}/{ClusterId}/{NodeId}` when that
+test-only variable is set), reported as `Persistence: enabled (data dir: {path}, default)`. It prints:
 
 - `topology fingerprint: {hex}` and `configuration generation: {n}` for the configured topology;
 - `topology stamp: not activated` when the directory has no stamp (an RF=1 or never-started node);
@@ -273,7 +275,9 @@ When any line reports `MISMATCH`, `UNREADABLE`, or `MISSING`, doctor prints the 
 MISMATCH, UNREADABLE, or MISSING lines above.` to standard error, and exits with code 1, the same code as a failed
 `validate-config`. Otherwise, including `topology stamp: not activated`, it exits with code 0. Run it with the settings
 the node will start with, including the same internode mTLS environment, so the configured fingerprint matches what
-startup computes.
+startup computes. When no data directory is set and the default one cannot be resolved because local application data
+is not available, doctor prints `Persistence: enabled (data dir: unavailable; {reason})` and exits with code 1, because
+startup fails the same way; set `--data-dir` or `DataDirectory`.
 
 ## Upgrade
 

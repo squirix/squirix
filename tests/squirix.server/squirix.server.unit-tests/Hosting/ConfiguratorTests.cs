@@ -93,6 +93,25 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
         _ = await Assert.That(target.ConfigurationGeneration).IsEqualTo(9u);
     }
 
+    /// <summary>ResolveEffectiveDataDirectory falls back to the per-node directory under the test root hosting uses.</summary>
+    [Test]
+    public async Task EffectiveDataDirFallsBackToDefault()
+    {
+        var testRoot = Environment.GetEnvironmentVariable("SQUIRIX_TEST_ROOT");
+        _ = await Assert.That(string.IsNullOrWhiteSpace(testRoot)).IsFalse();
+
+        var options = new SquirixServerOptions { ClusterId = "cluster-a", NodeId = "node-a" };
+        _ = await Assert.That(Configurator.ResolveEffectiveDataDirectory(options)).IsEqualTo(Path.GetFullPath(Path.Join(testRoot, "cluster-a", "node-a")));
+    }
+
+    /// <summary>ResolveEffectiveDataDirectory returns the configured data directory as a full path.</summary>
+    [Test]
+    public async Task EffectiveDataDirUsesConfiguredDirectory()
+    {
+        var options = new SquirixServerOptions { ClusterId = "cluster-a", NodeId = "node-a", DataDirectory = Dir };
+        _ = await Assert.That(Configurator.ResolveEffectiveDataDirectory(options)).IsEqualTo(Path.GetFullPath(Dir));
+    }
+
     /// <summary>Ensures invalid peer topology returns structured errors.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

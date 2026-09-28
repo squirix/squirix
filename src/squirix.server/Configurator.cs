@@ -184,6 +184,24 @@ public static class Configurator
         };
     }
 
+    /// <summary>Resolves the data directory hosting uses for <paramref name="options" /> when persistence is enabled.</summary>
+    /// <param name="options">Server options carrying the optional data directory and the cluster and node identifiers.</param>
+    /// <returns>
+    /// The validated <see cref="SquirixServerOptions.DataDirectory" /> when set; otherwise the default
+    /// <c language="csharp">SQUIRIX_TEST_ROOT/&lt;cluster&gt;/&lt;node&gt;</c> when that variable is set, else
+    /// <c language="csharp">LocalApplicationData/squirix/&lt;cluster&gt;/&lt;node&gt;</c>.
+    /// </returns>
+    /// <exception cref="ArgumentException">Thrown when the configured data directory or an identifier is not a safe path.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when no data directory is set and LocalApplicationData is not available.</exception>
+    public static string ResolveEffectiveDataDirectory(SquirixServerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        return string.IsNullOrWhiteSpace(options.DataDirectory)
+            ? DefaultDataDirectory.Resolve(options.ClusterId, options.NodeId)
+            : FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
+    }
+
     /// <summary>Resolves a settings file path from an explicit path or the standard discovery order.</summary>
     /// <param name="explicitPath">Optional explicit settings path.</param>
     /// <returns>The resolved path when found; otherwise <see langword="null" />.</returns>

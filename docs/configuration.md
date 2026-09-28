@@ -229,7 +229,8 @@ Startup errors:
   the directory was activated with, or start the node on an empty data directory.
 
 `squirix-server doctor` reports the stamp next to the configured topology, and RF=1 journal state under an RF>1
-configuration, without starting the node; it exits with code 1 when it reports a mismatch. See
+configuration, without starting the node; it exits with code 1 when it reports a mismatch. Without `--data-dir` or
+`DataDirectory`, it checks the default data directory the node would use. See
 [operational-runbook.md](operational-runbook.md#activated-topology-stamp).
 
 ### Recovery startup (`WaitForRecovery`)

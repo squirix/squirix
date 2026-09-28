@@ -15,6 +15,9 @@ internal static class Program
 
     private static class SquirixServerProcess
     {
+        private const string DoctorDataDirectoryUnavailable =
+            "Persistence is enabled without a data directory and the default data directory cannot be resolved, so run would refuse to start; see the Persistence line above.";
+
         private const string DoctorReplicaMismatch =
             "Durable replica state in the data directory does not match the configured topology; see the MISMATCH, UNREADABLE, or MISSING lines above.";
 
@@ -77,8 +80,13 @@ internal static class Program
             await Console.Out.WriteLineAsync("  Configuration: valid").ConfigureAwait(false);
             await Console.Out.WriteLineAsync(Configurator.IsListenPortAvailable(options.Uri) ? "  Listen port: available" : "  Listen port: NOT available (already in use)")
                          .ConfigureAwait(false);
-            await WritePersistenceStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
-            var replicaMismatch = await WriteReplicaStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
+            var dataDirectory = await WritePersistenceStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
+
+            // Hosting fails startup when it cannot resolve the default data directory, so doctor fails the same way.
+            if (options.PersistenceEnabled && dataDirectory == null)
+                throw new InvalidOperationException(DoctorDataDirectoryUnavailable);
+
+            var replicaMismatch = await WriteReplicaStatusAsync(dataDirectory, options, CancellationToken.None).ConfigureAwait(false);
             return replicaMismatch ? throw new InvalidOperationException(DoctorReplicaMismatch) : 0;
         }
 
@@ -150,28 +158,38 @@ internal static class Program
             return 0;
         }
 
-        private static async Task WritePersistenceStatusAsync(SquirixServerOptions options, CancellationToken cancellationToken)
+        /// <summary>Writes the persistence lines and probes the data directory hosting uses, including the default one when none is set.</summary>
+        /// <param name="options">The loaded server options.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>
+        /// The inspected data directory; <see langword="null" /> when persistence is disabled, or when no data directory is set and
+        /// the default one cannot be resolved.
+        /// </returns>
+        private static async Task<string?> WritePersistenceStatusAsync(SquirixServerOptions options, CancellationToken cancellationToken)
         {
             if (!options.PersistenceEnabled)
             {
                 await Console.Out.WriteLineAsync("  Persistence: disabled").ConfigureAwait(false);
-                return;
+                return null;
             }
 
-            if (string.IsNullOrWhiteSpace(options.DataDirectory))
-            {
-                await Console.Out.WriteLineAsync("  Persistence: enabled (data dir: unavailable)").ConfigureAwait(false);
-                return;
-            }
-
-            var dataDirectory = options.DataDirectory;
-            await Console.Out.WriteLineAsync($"  Persistence: enabled (data dir: {dataDirectory})").ConfigureAwait(false);
-
-            var dataDirectoryPath = Configurator.ResolveValidatedDataDirectory(options.DataDirectory);
+            string dataDirectory;
             try
             {
-                _ = Directory.CreateDirectory(dataDirectoryPath);
-                var probe = Configurator.ResolveValidatedFilePath(Path.Join(dataDirectoryPath, ".squirix-doctor-probe"));
+                dataDirectory = Configurator.ResolveEffectiveDataDirectory(options);
+            }
+            catch (InvalidOperationException ex)
+            {
+                await Console.Out.WriteLineAsync($"  Persistence: enabled (data dir: unavailable; {ex.Message})").ConfigureAwait(false);
+                return null;
+            }
+
+            var source = string.IsNullOrWhiteSpace(options.DataDirectory) ? ", default" : string.Empty;
+            await Console.Out.WriteLineAsync($"  Persistence: enabled (data dir: {dataDirectory}{source})").ConfigureAwait(false);
+            try
+            {
+                _ = Directory.CreateDirectory(dataDirectory);
+                var probe = Configurator.ResolveValidatedFilePath(Path.Join(dataDirectory, ".squirix-doctor-probe"));
                 await File.WriteAllTextAsync(probe, string.Empty, cancellationToken).ConfigureAwait(false);
                 File.Delete(probe);
                 await Console.Out.WriteLineAsync("  Data directory access: writable").ConfigureAwait(false);
@@ -184,27 +202,24 @@ internal static class Program
             {
                 await Console.Out.WriteLineAsync($"  Data directory access: NOT writable ({ex.Message})").ConfigureAwait(false);
             }
+
+            return dataDirectory;
         }
 
         /// <summary>Writes the offline replica report lines for the doctor command.</summary>
+        /// <param name="dataDirectory">The data directory hosting uses, or <see langword="null" /> when persistence is disabled.</param>
         /// <param name="options">The loaded server options.</param>
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns><see langword="true" /> when the report found durable replica state that disagrees with the configured topology.</returns>
-        private static async Task<bool> WriteReplicaStatusAsync(SquirixServerOptions options, CancellationToken cancellationToken)
+        private static async Task<bool> WriteReplicaStatusAsync(string? dataDirectory, SquirixServerOptions options, CancellationToken cancellationToken)
         {
-            if (!options.PersistenceEnabled)
+            if (dataDirectory == null)
             {
                 await Console.Out.WriteLineAsync("  Replication: not activated (persistence disabled)").ConfigureAwait(false);
                 return false;
             }
 
-            if (string.IsNullOrWhiteSpace(options.DataDirectory))
-            {
-                await Console.Out.WriteLineAsync("  Replication: not activated (data directory unavailable)").ConfigureAwait(false);
-                return false;
-            }
-
-            var report = await ReplicaDoctor.BuildReportAsync(options, options.DataDirectory, cancellationToken).ConfigureAwait(false);
+            var report = await ReplicaDoctor.BuildReportAsync(options, dataDirectory, cancellationToken).ConfigureAwait(false);
             for (var i = 0; i < report.Lines.Count; i++)
                 await Console.Out.WriteLineAsync("  " + report.Lines[i]).ConfigureAwait(false);
 
@@ -218,7 +233,7 @@ internal static class Program
             await Console.Out.WriteLineAsync($"  Health endpoint: {options.Uri}/health").ConfigureAwait(false);
             await Console.Out.WriteLineAsync($"  Metrics endpoint: {options.Uri}/metrics").ConfigureAwait(false);
             await Console.Out.WriteLineAsync($"  Node ID: {options.NodeId}").ConfigureAwait(false);
-            await WritePersistenceStatusAsync(options, cancellationToken).ConfigureAwait(false);
+            _ = await WritePersistenceStatusAsync(options, cancellationToken).ConfigureAwait(false);
             await Console.Out.WriteLineAsync($"  Settings: {ResolveSettingsPath(command) ?? "<defaults>"}").ConfigureAwait(false);
             await Console.Out.WriteLineAsync().ConfigureAwait(false);
             await Console.Out.WriteLineAsync("Client:").ConfigureAwait(false);

@@ -36,6 +36,33 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         _ = await Assert.That(output).Contains("[Squirix.Server] Doctor", StringComparison.Ordinal);
     }
 
+    /// <summary>Verifies doctor without a data directory reads the stamp in the default data directory hosting uses and exits with code 1.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DoctorReportsDefaultDirMismatch(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-cmd-default-mismatch");
+        var settingsPath = await WriteSettingsAsync(dir, 2, cancellationToken, withDataDirectory: false);
+        var testRoot = Path.Join(dir, "root");
+        var dataDir = Path.GetFullPath(Path.Join(testRoot, "doctor-c", "n1"));
+        _ = Directory.CreateDirectory(dataDir);
+        var options = await Configurator.LoadAsync(settingsPath, cancellationToken);
+        var expected = TopologyFingerprint.CreateFromTopology(Configurator.ToClusterConfig(options), MtlsOptionsResolver.ResolveFromEnvironment());
+        var wrong = new byte[expected.Bytes.Length];
+        expected.Bytes.CopyTo(wrong);
+        wrong[0] ^= 0xFF;
+        await new ActivatedTopologyStampStore(dataDir).PublishAsync(
+            new ActivatedTopologyStamp { Generation = 5, Fingerprint = new ReadOnlyMemory<byte>(wrong), ReplicaCount = 2 },
+            cancellationToken);
+
+        var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, cancellationToken, testRoot: testRoot);
+
+        _ = await Assert.That(exitCode).IsEqualTo(1);
+        _ = await Assert.That(output).Contains($"  Persistence: enabled (data dir: {dataDir}, default)", StringComparison.Ordinal);
+        _ = await Assert.That(output).Contains("topology stamp: fingerprint MISMATCH", StringComparison.Ordinal);
+        _ = await Assert.That(output).Contains(MismatchError, StringComparison.Ordinal);
+    }
+
     /// <summary>Verifies doctor reports an empty RF&gt;1 data directory as not activated and exits with code 0.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -48,6 +75,25 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, cancellationToken);
 
         _ = await Assert.That(exitCode).IsEqualTo(0);
+        _ = await Assert.That(output).Contains("  topology stamp: not activated", StringComparison.Ordinal);
+        _ = await Assert.That(output).DoesNotContain("Error:", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies doctor without a data directory inspects an empty default data directory and exits with code 0.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DoctorReportsEmptyDefaultDir(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-cmd-default-empty");
+        var settingsPath = await WriteSettingsAsync(dir, 2, cancellationToken, withDataDirectory: false);
+        var testRoot = Path.Join(dir, "root");
+        var dataDir = Path.GetFullPath(Path.Join(testRoot, "doctor-c", "n1"));
+
+        var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, cancellationToken, testRoot: testRoot);
+
+        _ = await Assert.That(exitCode).IsEqualTo(0);
+        _ = await Assert.That(output).Contains($"  Persistence: enabled (data dir: {dataDir}, default)", StringComparison.Ordinal);
+        _ = await Assert.That(output).Contains("  Data directory access: writable", StringComparison.Ordinal);
         _ = await Assert.That(output).Contains("  topology stamp: not activated", StringComparison.Ordinal);
         _ = await Assert.That(output).DoesNotContain("Error:", StringComparison.Ordinal);
     }
@@ -197,7 +243,8 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         string? dataDir,
         bool persist,
         CancellationToken cancellationToken,
-        bool enableReplication = false)
+        bool enableReplication = false,
+        string? testRoot = null)
     {
         var hostDll = await FindHostDllAsync();
         var arguments = $"exec \"{hostDll}\" doctor --settings \"{settingsPath}\"";
@@ -207,7 +254,7 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
             arguments += " --persist";
         if (enableReplication)
             arguments += " --enable-replication";
-        return await RunHostAsync(arguments, cancellationToken);
+        return await RunHostAsync(arguments, cancellationToken, testRoot);
     }
 
     private static string? ResolveDotnetPath()
@@ -244,7 +291,7 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         return null;
     }
 
-    private static async Task<(int ExitCode, string Output)> RunHostAsync(string arguments, CancellationToken cancellationToken)
+    private static async Task<(int ExitCode, string Output)> RunHostAsync(string arguments, CancellationToken cancellationToken, string? testRoot = null)
     {
         var dotnetPath = ResolveDotnetPath() ?? "dotnet";
         var info = new ProcessStartInfo(dotnetPath, arguments)
@@ -253,6 +300,11 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+
+        // The child inherits this process's SQUIRIX_TEST_ROOT; a test that inspects the default data directory pins its own.
+        if (testRoot != null)
+            info.Environment["SQUIRIX_TEST_ROOT"] = testRoot;
+
         var started = Process.Start(info);
         using var process = await Assert.That(started).IsNotNull();
         var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
@@ -263,12 +315,18 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         return (process.ExitCode, output + errors);
     }
 
-    private static async Task<string> WriteSettingsAsync(string dir, int replicaCount, CancellationToken cancellationToken, bool replicationEnabled = true)
+    private static async Task<string> WriteSettingsAsync(
+        string dir,
+        int replicaCount,
+        CancellationToken cancellationToken,
+        bool replicationEnabled = true,
+        bool withDataDirectory = true)
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
         var dataDir = Path.Join(dir, "data").Replace('\\', '/');
-        var persistence = replicaCount > 1 ? $",\"PersistenceEnabled\":true,\"DataDirectory\":\"{dataDir}\"" : string.Empty;
+        var dataDirectory = withDataDirectory ? $",\"DataDirectory\":\"{dataDir}\"" : string.Empty;
+        var persistence = replicaCount > 1 ? $",\"PersistenceEnabled\":true{dataDirectory}" : string.Empty;
         if (replicationEnabled && replicaCount > 1)
             persistence += ",\"ReplicationEnabled\":true";
         var peers = replicaCount > 1 ? $",\"Peers\":[{{\"NodeId\":\"n1\",\"Uri\":\"{uriA.AbsoluteUri}\"}},{{\"NodeId\":\"n2\",\"Uri\":\"{uriB.AbsoluteUri}\"}}]" : string.Empty;
