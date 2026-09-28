@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Diagnostics.Metrics;
+using System.Globalization;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -264,9 +265,10 @@ internal static class ServerHostingComposition
     /// Thrown when the configured identity differs from the stamped one, or when an unstamped RF&gt;1 directory already holds RF=1 journal state.
     /// </exception>
     /// <remarks>
-    /// Nothing rewrites the stamp after first activation, so live and stopped topology changes against existing
-    /// replica state fail startup instead of splitting the replica set. Migrating an existing data directory to a
-    /// different activated topology, including RF=1 to RF&gt;1, is not supported in this release.
+    /// Nothing rewrites the stamp after first activation, so an RF&gt;1 restart with a changed topology fails startup
+    /// instead of splitting the replica set, and <see cref="EnsureNotActivatedAsync" /> refuses an RF=1 start on a
+    /// stamped directory. Migrating an existing data directory to a different activated topology, including RF=1 to
+    /// RF&gt;1 and RF&gt;1 to RF=1, is not supported in this release.
     /// </remarks>
     private static async Task EnsureActivatedTopologyAsync(
         string dataDir,
@@ -305,6 +307,28 @@ internal static class ServerHostingComposition
         }
     }
 
+    /// <summary>Refuses an RF=1 start on a data directory activated for replication.</summary>
+    /// <param name="dataDir">Exclusive node data directory.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the directory carries no activated topology stamp.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the directory carries an activated topology stamp.</exception>
+    /// <exception cref="System.IO.InvalidDataException">Thrown when the stamp is corrupt or unsupported.</exception>
+    /// <remarks>
+    /// Only RF&gt;1 activation writes the stamp, so any stamp means the directory holds replica group logs that an
+    /// RF=1 node would silently ignore. Runs before storage opens.
+    /// </remarks>
+    private static async Task EnsureNotActivatedAsync(string dataDir, CancellationToken cancellationToken)
+    {
+        var stamped = await new ActivatedTopologyStampStore(dataDir).ReadAsync(cancellationToken).ConfigureAwait(false);
+        if (stamped == null)
+            return;
+
+        throw new InvalidOperationException(
+            $"Data directory was activated for replica count {stamped.ReplicaCount.ToString(CultureInfo.InvariantCulture)} " +
+            $"(generation {stamped.Generation.ToString(CultureInfo.InvariantCulture)}); starting it as RF=1 is not supported in this release. " +
+            "Start the node with the replica count the directory was activated with, or on an empty data directory.");
+    }
+
     private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
     {
         _ = app.MapSquirixEndpoints(authEnabled);
@@ -334,6 +358,9 @@ internal static class ServerHostingComposition
     {
         if (persistence == null)
             return;
+
+        if (cluster.ReplicaCount <= 1)
+            await EnsureNotActivatedAsync(persistence.DataDir, cancellationToken).ConfigureAwait(false);
 
         _ = await services.AddPersistenceServicesAsync(persistence, serverMeter, args.WaitForRecovery, cancellationToken).ConfigureAwait(false);
 

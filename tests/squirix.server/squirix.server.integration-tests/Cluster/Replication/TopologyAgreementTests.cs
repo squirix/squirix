@@ -125,4 +125,22 @@ public sealed class TopologyAgreementTests : NodeIntegrationTestBase
             "Start the RF>1 node on an empty data directory, or migrate the data at the application level.",
             StringComparison.Ordinal);
     }
+
+    /// <summary>A data directory activated as RF=2 is refused as RF=1, whose startup would ignore the replica group logs.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RfTwoDataRejectedAsRfOne(CancellationToken cancellationToken)
+    {
+        var options = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = "topology-rf2-data" };
+
+        await using var cluster = await StartClusterAsync([new ClusterNode("n1", GetNextHttpUri()), new ClusterNode("n2", GetNextHttpUri())], options, cancellationToken);
+        await cluster.StopNodeAsync("n1");
+
+        var opt = new IntegrationStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = "topology-rf2-data" };
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", opt, cancellationToken));
+
+        _ = await Assert.That(exception.Message).IsEqualTo(
+            "Data directory was activated for replica count 2 (generation 1); starting it as RF=1 is not supported in this release. " +
+            "Start the node with the replica count the directory was activated with, or on an empty data directory.");
+    }
 }

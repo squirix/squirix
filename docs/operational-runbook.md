@@ -240,16 +240,19 @@ The first start of an RF>1 node with persistence enabled writes `topology.stamp`
 the configuration generation, the replica count, and the topology fingerprint (cluster id, replica count, virtual
 nodes, configuration generation, peer set, minimum cluster package version, and replication policy constants). Every
 later RF>1 start compares the configured topology with the stamp and refuses startup on any difference. RF=1 nodes
-never write or check it. See [configuration.md](configuration.md#activated-topology-stamp-topologystamp) for the
-fields and the exact startup errors.
+never write it, and an RF=1 start with persistence refuses a data directory that carries one. See
+[configuration.md](configuration.md#activated-topology-stamp-topologystamp) for the fields and the exact startup
+errors.
 
 Changing the activated topology of an existing data directory is not supported in this release, and neither is moving
-existing RF=1 data to RF>1. When startup refuses:
+existing RF=1 data to RF>1 or starting an RF>1 data directory as RF=1. When startup refuses:
 
-1. Read which field the error names: generation, replica count, or topology fingerprint.
+1. Read which field the error names: generation, replica count, or topology fingerprint. An RF=1 start on a stamped
+   directory names the replica count and generation the directory was activated with.
 2. If the change was not intended, restore the settings and package version the directory was activated with.
 3. If the change is intended, start the node on an empty data directory. For RF=1 data, either keep the node at RF=1
-   or start RF>1 on an empty data directory and migrate the data at the application level.
+   or start RF>1 on an empty data directory and migrate the data at the application level. For an RF>1 directory,
+   either start the node with the activated replica count or start RF=1 on an empty data directory.
 4. Do not edit or delete `topology.stamp` to force a start: the replica group state in the directory still belongs to
    the activated topology.
 
@@ -264,8 +267,11 @@ test-only variable is set), reported as `Persistence: enabled (data dir: {path},
   moving RF=1 data to RF>1 is not supported, so RF>1 startup is refused)` instead when RF>1 is configured and the
   directory holds cache journal segments but no stamp, the same condition under which startup refuses it;
 - `topology stamp: UNREADABLE ({reason})` when the stamp is corrupt or has an unsupported format;
-- otherwise one line each for `generation`, `replica count`, and `fingerprint`, either `match` or
-  `MISMATCH (stamped {value}, configured {value})`;
+- `topology stamp: MISMATCH (activated for replica count {n}, generation {g}; starting it as RF=1 is not supported, so
+  RF=1 startup is refused)` when RF=1 is configured and the directory carries a stamp, the same condition under which
+  RF=1 startup refuses it;
+- otherwise, under an RF>1 configuration, one line each for `generation`, `replica count`, and `fingerprint`, either
+  `match` or `MISMATCH (stamped {value}, configured {value})`;
 - one line per configured peer group: `group '{id}': no durable state`,
   `group '{id}': metadata UNREADABLE (checksum or format mismatch)`, or
   `group '{id}': term {t} commit {c} applied {a} apply-lag {n} fingerprint match|MISMATCH generation match|MISMATCH`.

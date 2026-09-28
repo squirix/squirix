@@ -43,8 +43,8 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-doctor-guards");
         const string? missingHex = null;
         const IReadOnlyList<string>? missingGroups = null;
-        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(BuildReportAsync(missingHex!, 5, 2, ["n1"], dir, cancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(BuildReportAsync(ExpectedHex(), 5, 2, missingGroups!, dir, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(ReplicaDoctorReportBuilder.BuildAsync(missingHex!, 5, 2, ["n1"], dir, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(ReplicaDoctorReportBuilder.BuildAsync(ExpectedHex(), 5, 2, missingGroups!, dir, cancellationToken));
     }
 
     /// <summary>Verifies an aligned stamp and generation report a match without mismatch.</summary>
@@ -190,7 +190,7 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-doctor-rf1-journal-rf1");
         await File.WriteAllBytesAsync(Path.Join(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}"), [1], cancellationToken);
 
-        var (hasMismatch, lines) = await BuildReportAsync(ExpectedHex(), 5, 1, ["n1"], dir, cancellationToken);
+        var (hasMismatch, lines) = await ReplicaDoctorReportBuilder.BuildAsync(ExpectedHex(), 5, 1, ["n1"], dir, cancellationToken);
 
         _ = await Assert.That(hasMismatch).IsFalse();
         _ = await Assert.That(string.Join('\n', lines)).Contains("topology stamp: not activated", StringComparison.Ordinal);
@@ -213,6 +213,26 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
             "(last used by an RF=1 node; moving RF=1 data to RF>1 is not supported, so RF>1 startup is refused)",
             StringComparison.Ordinal);
         _ = await Assert.That(text).DoesNotContain("not activated", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies a stamp under an RF=1 configuration reports the startup refusal as mismatch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReportsRfOneOnStampedDirAsMismatch(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-rf1-stamped");
+        var options = CreateOptions();
+        var mtls = new MtlsOptions();
+        await PublishStampAsync(dir, CorrectFingerprintBytes(options, mtls), 5, 2, cancellationToken);
+
+        var (hasMismatch, lines) = await ReplicaDoctorReportBuilder.BuildAsync(ExpectedHex(), 5, 1, ["n1"], dir, cancellationToken);
+
+        _ = await Assert.That(hasMismatch).IsTrue();
+        var text = string.Join('\n', lines);
+        _ = await Assert.That(text).Contains(
+            "topology stamp: MISMATCH (activated for replica count 2, generation 5; starting it as RF=1 is not supported, so RF=1 startup is refused)",
+            StringComparison.Ordinal);
+        _ = await Assert.That(text).DoesNotContain("replica count match", StringComparison.Ordinal);
     }
 
     /// <summary>Verifies undecodable group metadata reports an unreadable group as mismatch.</summary>
@@ -254,21 +274,6 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
             cancellationToken);
         return new ReplicaDoctorReport(hasMismatch, lines);
     }
-
-    /// <summary>Builds a replica doctor report from explicit inputs.</summary>
-    /// <param name="expectedHex">The expected topology fingerprint.</param>
-    /// <param name="generation">The configuration generation.</param>
-    /// <param name="replicaCount">The replica count.</param>
-    /// <param name="groupIds">The group identifiers.</param>
-    /// <param name="dir">The replica working directory.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    private static Task<(bool HasMismatch, List<string> Lines)> BuildReportAsync(
-        string expectedHex,
-        ulong generation,
-        int replicaCount,
-        IReadOnlyList<string> groupIds,
-        string dir,
-        CancellationToken cancellationToken) => ReplicaDoctorReportBuilder.BuildAsync(expectedHex, generation, replicaCount, groupIds, dir, cancellationToken);
 
     private static byte[] CorrectFingerprintBytes(SquirixServerOptions options, MtlsOptions mtls)
     {

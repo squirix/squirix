@@ -205,13 +205,15 @@ records the activated topology:
   generation, the peer set (each peer's node id, client URI, and internode URI), the minimum cluster package version,
   and the replication policy constants of the build.
 
-RF=1 nodes and nodes without persistence never write or check the stamp. Nothing rewrites the stamp after the first
-RF>1 start: every later RF>1 start compares the configured topology with it and refuses startup on any difference.
+Only RF>1 activation writes the stamp, and nodes without persistence never read it. Nothing rewrites the stamp after
+the first RF>1 start: every later RF>1 start compares the configured topology with it and refuses startup on any
+difference. An RF=1 start with persistence refuses any data directory that carries a stamp, because an RF=1 node would
+ignore the replica group logs in it.
 
 Changing the activated topology of an existing data directory is not supported in this release. That covers a new
 `ConfigurationGeneration` or `ReplicaCount`, a changed peer set, cluster id, or virtual node count, and an upgrade to a
 release whose minimum cluster package version or replication policy constants differ. Moving existing RF=1 data to
-RF>1 is not supported either.
+RF>1, or starting an RF>1 data directory as RF=1, is not supported either.
 
 Startup errors:
 
@@ -227,9 +229,13 @@ Startup errors:
   `replica count changed (stamped 2, configured 3)`, or, when both of those match, `topology fingerprint changed
   (stamped {hex}, configured {hex})` followed by the inputs that can cause it. Restore the settings and package version
   the directory was activated with, or start the node on an empty data directory.
+- `Data directory was activated for replica count {n} (generation {g}); starting it as RF=1 is not supported in this
+  release. Start the node with the replica count the directory was activated with, or on an empty data directory.` An
+  RF=1 start found a stamp, so the directory was activated as RF>1 and holds replica group logs. Restore the replica
+  count the directory was activated with, or start the RF=1 node on an empty data directory.
 
-`squirix-server doctor` reports the stamp next to the configured topology, and RF=1 journal state under an RF>1
-configuration, without starting the node; it exits with code 1 when it reports a mismatch. Without `--data-dir` or
+`squirix-server doctor` reports the stamp next to the configured topology, a stamp under an RF=1 configuration, and
+RF=1 journal state under an RF>1 configuration, without starting the node; it exits with code 1 when it reports a mismatch. Without `--data-dir` or
 `DataDirectory`, it checks the default data directory the node would use. See
 [operational-runbook.md](operational-runbook.md#activated-topology-stamp).
 

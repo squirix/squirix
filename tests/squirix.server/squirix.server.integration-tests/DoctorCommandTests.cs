@@ -194,6 +194,28 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         _ = await Assert.That(output).Contains(MismatchError, StringComparison.Ordinal);
     }
 
+    /// <summary>Verifies doctor reports a stamped data directory under an RF=1 configuration as the startup refusal and exits with code 1.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DoctorReportsRfOneOnStampedDir(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-cmd-rf1-stamped");
+        var settingsPath = await WriteSettingsAsync(dir, 1, cancellationToken);
+        var dataDir = Path.Join(dir, "data");
+        _ = Directory.CreateDirectory(dataDir);
+        await new ActivatedTopologyStampStore(dataDir).PublishAsync(
+            new ActivatedTopologyStamp { Generation = 5, Fingerprint = new ReadOnlyMemory<byte>(new byte[32]), ReplicaCount = 2 },
+            cancellationToken);
+
+        var (exitCode, output) = await RunDoctorAsync(settingsPath, dataDir, true, cancellationToken);
+
+        _ = await Assert.That(exitCode).IsEqualTo(1);
+        _ = await Assert.That(output).Contains(
+            "  topology stamp: MISMATCH (activated for replica count 2, generation 5; starting it as RF=1 is not supported, so RF=1 startup is refused)",
+            StringComparison.Ordinal);
+        _ = await Assert.That(output).Contains(MismatchError, StringComparison.Ordinal);
+    }
+
     /// <summary>Verifies the host help lists the replication opt-in switch.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
