@@ -150,6 +150,7 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration)
         {
             Log = sp.GetRequiredService<ILogger<ReplicaGroupCommitter>>(),
+            Clock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
         });
         _ = services.AddHostedService(static sp => new ReplicaGroupReadinessService(
             sp.GetRequiredService<ReplicaGroupCommitter>(),

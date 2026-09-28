@@ -97,6 +97,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
     }
 
+    /// <summary>Gets the time source that pins the expiration deadlines of prepared records and measures them at apply; the system clock unless set.</summary>
+    internal TimeProvider Clock { private get; init; } = TimeProvider.System;
+
     /// <summary>Gets the logger for lifecycle failures; the host logger unless set.</summary>
     internal ILogger Log { private get; init; } = LogManager.GetLogger<ReplicaGroupCommitter>();
 
@@ -483,8 +486,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             : [];
 
         // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
-        var pipeline = new ReplicaGroupCommitPipeline(_local, log, _gateway, members, _selfId, status, header);
-        var factory = new ReplicaMutationFactory(_local, _selfId, term);
+        var pipeline = new ReplicaGroupCommitPipeline(_local, log, _gateway, members, _selfId, status, header) { Clock = Clock };
+        var factory = new ReplicaMutationFactory(_local, _selfId, term, Clock);
         _coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(_locator.ReplicaCount, status.LastLogIndex, status.CommitIndex, MaxInFlight),
             pipeline,
@@ -614,6 +617,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         /// <remarks>Read by the committer under its gate, between commits, once the commit that last appended has completed.</remarks>
         internal ulong NextLogIndex => _prevLogIndex + 1;
 
+        /// <summary>Gets the time source measuring the pinned expiration deadlines at apply.</summary>
+        internal required TimeProvider Clock { private get; init; }
+
         /// <inheritdoc />
         public async ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
         {
@@ -663,7 +669,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             if (decoded is not { } apply)
                 throw new InvalidOperationException("Prepared mutation carries an undecodable canonical payload.");
 
-            _ = await ReplicaCacheApplier.ApplyAsync(_local, apply, cancellationToken).ConfigureAwait(false);
+            _ = await ReplicaCacheApplier.ApplyAsync(_local, apply, Clock, cancellationToken).ConfigureAwait(false);
         }
 
         /// <inheritdoc />

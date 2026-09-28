@@ -100,7 +100,7 @@ internal static class ReplicaOwnerTestKit
             throw new InvalidOperationException("The owned group log is not open.");
 
         var status = await log.GetStatusAsync(cancellationToken);
-        var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1);
+        var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1, TimeProvider.System);
         var index = status.LastLogIndex;
         foreach (var key in keys)
         {
