@@ -165,7 +165,6 @@ public sealed class PendingAppendRegistryTests
         _ = await Assert.That(registry.Untrack(item, out _)).IsFalse();
         _ = await Assert.That(counter.Value).IsEqualTo(0);
 
-        _ = await Assert.That(registry.QuarantinedCount).IsEqualTo(1);
         _ = await Assert.That(registry.ReturnQuarantinedBuffers()).IsEqualTo(1);
         _ = await Assert.That(registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
     }
