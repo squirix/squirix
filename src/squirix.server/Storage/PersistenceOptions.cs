@@ -68,6 +68,16 @@ internal sealed record PersistenceOptions
     [JsonInclude]
     internal int JournalWriteBatch { get; init; } = PersistenceOptionsDefaults.JournalWriteBatch;
 
+    /// <summary>Gets the number of entries in the group log this node owns that triggers its compaction.</summary>
+    [JsonPropertyName("replicaLogCompactionEntries")]
+    [JsonInclude]
+    internal int ReplicaLogCompactionEntries { get; init; } = PersistenceOptionsDefaults.ReplicaLogCompactionEntries;
+
+    /// <summary>Gets the size in megabytes of the group log this node owns that triggers its compaction.</summary>
+    [JsonPropertyName("replicaLogCompactionMb")]
+    [JsonInclude]
+    internal int ReplicaLogCompactionMb { get; init; } = PersistenceOptionsDefaults.ReplicaLogCompactionMb;
+
     /// <summary>Gets the number of manifest versions to retain before pruning older versions.</summary>
     [JsonPropertyName("manifestRetentionCount")]
     [JsonInclude]
@@ -108,6 +118,8 @@ internal sealed record PersistenceOptions
         RequirePositive(JournalStallDegradedThreshold, nameof(JournalStallDegradedThreshold));
         RequirePositive(JournalWriteBatch, nameof(JournalWriteBatch));
         RequirePositive(ManifestRetentionCount, nameof(ManifestRetentionCount));
+        RequirePositive(ReplicaLogCompactionEntries, nameof(ReplicaLogCompactionEntries));
+        RequirePositive(ReplicaLogCompactionMb, nameof(ReplicaLogCompactionMb));
         RequirePositive(SnapshotRetentionCount, nameof(SnapshotRetentionCount));
     }
 
@@ -142,6 +154,12 @@ internal sealed record PersistenceOptions
 
         /// <summary>Default sliding window in minutes for counting retention-cleanup failures.</summary>
         internal const int RetentionCleanupDegradedWindowMinutes = 15;
+
+        /// <summary>Default number of owned group log entries that triggers a compaction.</summary>
+        internal const int ReplicaLogCompactionEntries = 100_000;
+
+        /// <summary>Default owned group log size in megabytes that triggers a compaction.</summary>
+        internal const int ReplicaLogCompactionMb = 64;
 
         /// <summary>Default consecutive manifest retention-cleanup failures required to degrade readiness.</summary>
         internal const int RetentionCleanupDegradedWrites = 3;

@@ -286,6 +286,46 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             throw new InvalidOperationException($"Local group applied advance was refused: {result.RefusalCode}.");
     }
 
+    /// <summary>Compacts the owned group log through its commit index once it reaches a threshold and nothing still needs its entries.</summary>
+    /// <param name="policy">The compaction thresholds.</param>
+    /// <param name="durability">The node cache journal whose frames the applies appended.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The step outcome; only <see cref="ReplicaLogCompactionOutcome.Compacted" /> changes the log.</returns>
+    /// <remarks>
+    /// The thresholds, and advisorily the followers, are checked without the commit gate. Everything else is one step under it: no
+    /// write can append, commit, or apply between the checks and the compaction, so a steady write load cannot keep moving the commit
+    /// index past the applied one. A write arriving meanwhile waits for the step and then appends after the compacted log.
+    /// </remarks>
+    internal async Task<ReplicaLogCompactionOutcome> CompactOwnedLogAsync(
+        ReplicaLogCompactionPolicy policy,
+        IJournalDurabilityCoordinator durability,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(durability);
+        ThrowIfDisposed();
+        if (!_registry.TryGetLog(_selfId, out var log))
+            return ReplicaLogCompactionOutcome.NotReady;
+
+        var retention = await log.GetRetentionAsync(cancellationToken).ConfigureAwait(false);
+        if (!policy.IsReachedBy(in retention))
+            return ReplicaLogCompactionOutcome.BelowThreshold;
+
+        // An advisory check first, without the gate: a follower that is down or lagging then refuses the step without holding the
+        // gate for the whole follower wait on every pass. The decisive check runs again under the gate.
+        var eligibility = _registry.EligibilityFor(_selfId);
+        if (Volatile.Read(ref _coordinator) is { } running)
+        {
+            var observed = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+            if (await ReplicaLogCompactionStep.AwaitFollowersAsync(running, eligibility, observed.CommitIndex, Clock, cancellationToken).ConfigureAwait(false) is { } refused)
+                return refused;
+        }
+
+        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return _started && _coordinator is { } coordinator
+            ? await ReplicaLogCompactionStep.RunAsync(log, coordinator, eligibility, _applier.AppliedIndex, durability, Clock, cancellationToken).ConfigureAwait(false)
+            : ReplicaLogCompactionOutcome.NotReady;
+    }
+
     /// <summary>Verifies non-ready replica slots against the leader log so a restarted group regains its write quorum.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>

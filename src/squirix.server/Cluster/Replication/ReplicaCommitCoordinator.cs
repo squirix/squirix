@@ -96,6 +96,10 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         ShutdownBudget = ObserveTimeout;
     }
 
+    /// <summary>Gets a value indicating whether some locally appended entry is not applied to memory yet.</summary>
+    /// <remarks>The owner reads it under its commit gate, where no commit body runs, so only background follower observation can change it.</remarks>
+    internal bool HasPendingApply => !_pendingApply.IsEmpty;
+
     /// <summary>Gets the time source bounding the first wait of background follower observation; the system clock unless set.</summary>
     /// <remarks>Test seam: production coordinators keep the system clock.</remarks>
     internal TimeProvider ObserveTimeProvider { private get; init; } = TimeProvider.System;
@@ -227,7 +231,10 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// <summary>Returns the highest contiguous durable index recorded for one replica.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
     /// <returns>The replica match index.</returns>
-    /// <remarks>Test seam observing <see cref="ReplicaCommitQuorum.TryRecord" /> progress; production paths never poll it.</remarks>
+    /// <remarks>
+    /// Observes <see cref="ReplicaCommitQuorum.TryRecord" /> progress. The owner's log compaction reads it under the commit gate to keep
+    /// every entry a ready follower has not durably acknowledged yet.
+    /// </remarks>
     internal ulong MatchIndexFor(int replicaIndex) => _quorum.MatchIndexFor(replicaIndex);
 
     private async Task CollectMajorityAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)

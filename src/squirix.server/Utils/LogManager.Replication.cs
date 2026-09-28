@@ -64,4 +64,13 @@ internal static partial class LogManager
         Level = LogLevel.Warning,
         Message = "Replica group log maintenance failed and will be retried; the owned group log keeps its applied entries until it succeeds")]
     internal static partial void ReplicaLogMaintenanceRetry(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 4012, Level = LogLevel.Information, Message = "Replica group log compaction outcome changed to {Outcome}")]
+    internal static partial void ReplicaLogCompactionChanged(ILogger logger, string outcome);
+
+    [LoggerMessage(
+        EventId = 4013,
+        Level = LogLevel.Warning,
+        Message = "Replica group log compaction is stalled: its snapshot would exceed the maximum snapshot size until idempotency outcomes age out")]
+    internal static partial void ReplicaLogCompactionSnapshotTooLarge(ILogger logger);
 }

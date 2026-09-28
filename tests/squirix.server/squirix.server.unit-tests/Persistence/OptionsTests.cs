@@ -36,6 +36,8 @@ public sealed class OptionsTests
         _ = await Assert.That(o.JournalGroupCommitMaxWait).IsEqualTo(TimeSpan.Zero);
         _ = await Assert.That(o.JournalGroupCommitMaxBatch).IsEqualTo(32);
         _ = await Assert.That(o.IsJournalGroupCommitEnabled).IsFalse();
+        _ = await Assert.That(o.ReplicaLogCompactionMb).IsEqualTo(64);
+        _ = await Assert.That(o.ReplicaLogCompactionEntries).IsEqualTo(100_000);
     }
 
     /// <summary>
@@ -92,6 +94,8 @@ public sealed class OptionsTests
     [Arguments(nameof(PersistenceOptions.ManifestRetentionCount))]
     [Arguments(nameof(PersistenceOptions.SnapshotRetentionCount))]
     [Arguments(nameof(PersistenceOptions.JournalStallDegradedThreshold))]
+    [Arguments(nameof(PersistenceOptions.ReplicaLogCompactionMb))]
+    [Arguments(nameof(PersistenceOptions.ReplicaLogCompactionEntries))]
     public async Task ValidateRejectsNonPositiveScalars(string propertyName)
     {
         var options = CreateWithInvalidScalar(propertyName);
@@ -131,6 +135,8 @@ public sealed class OptionsTests
         nameof(PersistenceOptions.ManifestRetentionCount) => new PersistenceOptions { ManifestRetentionCount = 0 },
         nameof(PersistenceOptions.SnapshotRetentionCount) => new PersistenceOptions { SnapshotRetentionCount = 0 },
         nameof(PersistenceOptions.JournalStallDegradedThreshold) => new PersistenceOptions { JournalStallDegradedThreshold = TimeSpan.Zero },
+        nameof(PersistenceOptions.ReplicaLogCompactionMb) => new PersistenceOptions { ReplicaLogCompactionMb = 0 },
+        nameof(PersistenceOptions.ReplicaLogCompactionEntries) => new PersistenceOptions { ReplicaLogCompactionEntries = 0 },
         _ => throw new ArgumentOutOfRangeException(nameof(propertyName), propertyName, "Unsupported property name."),
     };
 }
