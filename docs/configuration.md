@@ -185,6 +185,43 @@ error is reported only after the persistence and mTLS prerequisite checks. RF=1 
 with or without it. The standalone host accepts `--enable-replication`; the settings key is
 `Squirix:Cluster:ReplicationEnabled`.
 
+### Activated topology stamp (`topology.stamp`)
+
+The first start of an RF>1 node with persistence enabled writes `topology.stamp` into the data directory. The stamp
+records the activated topology:
+
+- `ConfigurationGeneration`;
+- `ReplicaCount`;
+- the topology fingerprint, a SHA-256 digest over the cluster id, replica count, virtual nodes, configuration
+  generation, the peer set (each peer's node id, client URI, and internode URI), the minimum cluster package version,
+  and the replication policy constants of the build.
+
+RF=1 nodes and nodes without persistence never write or check the stamp. Nothing rewrites the stamp after the first
+RF>1 start: every later RF>1 start compares the configured topology with it and refuses startup on any difference.
+
+Changing the activated topology of an existing data directory is not supported in this release. That covers a new
+`ConfigurationGeneration` or `ReplicaCount`, a changed peer set, cluster id, or virtual node count, and an upgrade to a
+release whose minimum cluster package version or replication policy constants differ. Moving existing RF=1 data to
+RF>1 is not supported either.
+
+Startup errors:
+
+- `Data directory holds durable cache journal state but no activated topology stamp, so it was last used by an RF=1
+  node; moving existing RF=1 data to RF>1 is not supported in this release. Start the RF>1 node on an empty data
+  directory, or migrate the data at the application level.` An RF>1 start found cache journal segments but no stamp.
+  Point the RF>1 node at an empty data directory and reload the data through the client API, or keep running the
+  directory as RF=1.
+- `Configured topology does not match the activated topology stamp in the data directory: {changes}. Changing the
+  activated topology of an existing data directory is not supported in this release; start the node with the
+  configuration and package version the directory was activated with, or on an empty data directory.` `{changes}`
+  names each changed field with its stamped and configured values: `generation changed (stamped 1, configured 2)`,
+  `replica count changed (stamped 2, configured 3)`, or, when both of those match, `topology fingerprint changed
+  (stamped {hex}, configured {hex})` followed by the inputs that can cause it. Restore the settings and package version
+  the directory was activated with, or start the node on an empty data directory.
+
+`squirix-server doctor` reports the stamp next to the configured topology without starting the node; see
+[operational-runbook.md](operational-runbook.md#activated-topology-stamp).
+
 ### Recovery startup (`WaitForRecovery`)
 
 When persistence is enabled and `WaitForRecovery` is `true` (default), the node blocks serving until hosted journal

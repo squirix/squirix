@@ -234,6 +234,42 @@ Recovery triage:
 
 For corruption suspicion, prefer restoring from a known-good backup over manual file edits.
 
+## Activated topology stamp
+
+The first start of an RF>1 node with persistence enabled writes `topology.stamp` into the data directory. It records
+the configuration generation, the replica count, and the topology fingerprint (cluster id, replica count, virtual
+nodes, configuration generation, peer set, minimum cluster package version, and replication policy constants). Every
+later RF>1 start compares the configured topology with the stamp and refuses startup on any difference. RF=1 nodes
+never write or check it. See [configuration.md](configuration.md#activated-topology-stamp-topologystamp) for the
+fields and the exact startup errors.
+
+Changing the activated topology of an existing data directory is not supported in this release, and neither is moving
+existing RF=1 data to RF>1. When startup refuses:
+
+1. Read which field the error names: generation, replica count, or topology fingerprint.
+2. If the change was not intended, restore the settings and package version the directory was activated with.
+3. If the change is intended, start the node on an empty data directory. For RF=1 data, either keep the node at RF=1
+   or start RF>1 on an empty data directory and migrate the data at the application level.
+4. Do not edit or delete `topology.stamp` to force a start: the replica group state in the directory still belongs to
+   the activated topology.
+
+`squirix-server doctor` reads the stamp and the replica group metadata without starting the node. With persistence
+enabled and a data directory configured, it prints:
+
+- `topology fingerprint: {hex}` and `configuration generation: {n}` for the configured topology;
+- `topology stamp: not activated` when the directory has no stamp (an RF=1 or never-started node);
+- `topology stamp: UNREADABLE ({reason})` when the stamp is corrupt or has an unsupported format;
+- otherwise one line each for `generation`, `replica count`, and `fingerprint`, either `match` or
+  `MISMATCH (stamped {value}, configured {value})`;
+- one line per configured peer group: `group '{id}': no durable state`,
+  `group '{id}': metadata UNREADABLE (checksum or format mismatch)`, or
+  `group '{id}': term {t} commit {c} applied {a} apply-lag {n} fingerprint match|MISMATCH generation match|MISMATCH`.
+
+Doctor exits with code 0 even when it reports a mismatch; read the lines. Run it with the settings the node will start
+with, including the same internode mTLS environment, so the configured fingerprint matches what startup computes.
+Doctor does not check for RF=1 journal state: `topology stamp: not activated` on a directory that holds journal
+segments means an RF>1 start on it will be refused.
+
 ## Upgrade
 
 Before upgrade:
@@ -246,6 +282,9 @@ Before upgrade:
     - Non-loopback cache gRPC rejects missing/invalid JWT when auth is enabled.
     - Remote `/metrics` and `/health/ready/details` require the same JWT bearer credentials.
     - Operational routes are HTTPS-only on the primary listener.
+6. For RF>1 data directories, run `squirix-server doctor` from the target version against a backup copy of the data directory. A
+   `topology stamp: fingerprint MISMATCH` line means the target version refuses to start on that directory; see
+   [Activated topology stamp](#activated-topology-stamp).
 
 Compatible rolling upgrade:
 
