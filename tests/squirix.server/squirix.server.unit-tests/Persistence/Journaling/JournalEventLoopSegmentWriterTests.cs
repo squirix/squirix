@@ -71,7 +71,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(thrown.InnerException).IsTypeOf<JournalCapacityExceededException>();
         _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
         _ = await Assert.That(setup.Registry.PendingCount).IsEqualTo(0);
-        _ = await Assert.That(setup.Registry.QuarantinedCount).IsEqualTo(0L);
+        _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
     }
 
     /// <summary>
@@ -103,7 +103,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(failure?.InnerException).IsTypeOf<JournalCapacityExceededException>();
         _ = await Assert.That(counter.Value).IsEqualTo(0);
         _ = await Assert.That(registry.PendingCount).IsEqualTo(0);
-        _ = await Assert.That(registry.QuarantinedCount).IsEqualTo(0L);
+        _ = await Assert.That(registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
     }
 
     /// <summary>
@@ -153,7 +153,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(eventLoop.CurrentSegmentIndex).IsEqualTo(2);
         _ = await Assert.That(counter.Value).IsEqualTo(0);
         _ = await Assert.That(registry.PendingCount).IsEqualTo(0);
-        _ = await Assert.That(registry.QuarantinedCount).IsEqualTo(0L);
+        _ = await Assert.That(registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
     }
 
     /// <summary>A capacity failure on the append path faults the ack and releases the slot.</summary>

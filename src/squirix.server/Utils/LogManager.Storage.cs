@@ -47,10 +47,4 @@ internal static partial class LogManager
 
     [LoggerMessage(EventId = 1010, Level = LogLevel.Warning, Message = "Maintenance abort branch failed (suppressed); failing the journal pipeline with the original error")]
     internal static partial void MaintenanceAbortFailed(ILogger logger, Exception exception);
-
-    [LoggerMessage(EventId = 1007, Level = LogLevel.Information, Message = "Manual journal compaction finished.")]
-    internal static partial void ManualCompactionFinished(ILogger logger);
-
-    [LoggerMessage(EventId = 1006, Level = LogLevel.Information, Message = "Manual journal compaction starting (snapshotIndex={Index})")]
-    internal static partial void ManualCompactionStart(ILogger logger, int index);
 }

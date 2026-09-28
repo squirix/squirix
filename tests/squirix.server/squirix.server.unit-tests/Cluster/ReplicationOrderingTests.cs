@@ -29,20 +29,18 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
         var waiting = gate.EnterAsync(7, cancellation.Token);
         await cancellation.CancelAsync();
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, ReplicaMutationLease>(waiting);
-        _ = await Assert.That(gate.ActiveCount).IsEqualTo(1);
 
-        // ReSharper disable once DisposeOnUsingVariable — intentional early release: the test asserts the count drops before the scope ends.
+        // The canceled entry returned its capacity slot without freeing another one: an entry on the other stripe still waits for the first lease.
+        var otherStripe = gate.EnterAsync(8, cancellationToken);
+        _ = await Assert.That(otherStripe.IsCompleted).IsFalse();
+
+        // ReSharper disable once DisposeOnUsingVariable — intentional early release: the test asserts the waiting entry is admitted before the scope ends.
         first.Dispose();
-        _ = await Assert.That(gate.ActiveCount).IsEqualTo(0);
+        (await otherStripe).Dispose();
 
-        using var next = await gate.EnterAsync(7, cancellationToken);
-        _ = await Assert.That(gate.ActiveCount).IsEqualTo(1);
-
-        // ReSharper disable once DisposeOnUsingVariable — intentional early release: the test asserts the count drops before the scope ends.
-        next.Dispose();
-        _ = await Assert.That(gate.ActiveCount).IsEqualTo(0);
-        _ = await Assert.That(gate.MaxInFlight).IsEqualTo(1);
-        _ = await Assert.That(gate.StripeCount).IsEqualTo(2);
+        var next = gate.EnterAsync(7, cancellationToken);
+        _ = await Assert.That(next.IsCompletedSuccessfully).IsTrue();
+        (await next).Dispose();
     }
 
     /// <summary>Disposing the gate faults an entry queued on the capacity and one queued on a key stripe, and a lease still out returns its slot without a throw.</summary>
@@ -61,7 +59,6 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
         using var holder = await stripeGate.EnterAsync(0, cancellationToken);
         var onStripe = stripeGate.EnterAsync(0, CancellationToken.None);
         _ = await Assert.That(onStripe.IsCompleted).IsFalse();
-        _ = await Assert.That(stripeGate.ActiveCount).IsEqualTo(1);
 
         gate.Dispose();
         stripeGate.Dispose();
@@ -73,8 +70,6 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
         first.Dispose();
         second.Dispose();
         holder.Dispose();
-        _ = await Assert.That(gate.ActiveCount).IsEqualTo(0);
-        _ = await Assert.That(stripeGate.ActiveCount).IsEqualTo(0);
     }
 
     /// <summary>The final index cannot complete an append; the boundary stays refused.</summary>
@@ -156,7 +151,6 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
 
         // ReSharper disable once DisposeOnUsingVariable — intentional early release: the test asserts it succeeds after the gate is gone.
         lease.Dispose();
-        _ = await Assert.That(gate.ActiveCount).IsEqualTo(0);
     }
 
     /// <inheritdoc />

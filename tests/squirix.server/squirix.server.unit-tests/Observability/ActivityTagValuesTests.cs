@@ -30,7 +30,6 @@ public sealed class ActivityTagValuesTests : ServerUnitTestBase
     {
         _ = await Assert.That(ActivityTagValues.Int32(0)).IsSameReferenceAs(ActivityTagValues.Int32(0));
         _ = await Assert.That(ActivityTagValues.Int64(42)).IsSameReferenceAs(ActivityTagValues.Int32(42));
-        _ = await Assert.That(ActivityTagValues.UInt64(42)).IsSameReferenceAs(ActivityTagValues.Int32(42));
         _ = await Assert.That(ActivityTagValues.Int64(-7)).IsEqualTo("-7");
         _ = await Assert.That(ActivityTagValues.Int32(2048)).IsEqualTo("2048");
     }

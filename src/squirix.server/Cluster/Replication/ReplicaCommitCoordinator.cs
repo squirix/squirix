@@ -412,8 +412,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         // same-identity retries to this ambiguous outcome instead of re-executing (which could apply
         // twice if the original did commit), and the faulted _operations entry lets those retries
         // observe it. Releasing either pin early is unsafe; reclamation happens only via journal
-        // truncation (GroupIdempotencyState.ReleaseFromIndex). Size capacity for ambiguous-commit
-        // bursts and watch GroupIdempotencyState.UnresolvedCount.
+        // truncation (GroupIdempotencyState.ReleaseFromIndex). Size capacity for ambiguous-commit bursts.
     }
 
     private async Task ObserveRemainingFollowersAsync(List<Task<FollowerCompletion>> pending, PreparedReplicaMutation mutation)

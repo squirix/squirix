@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Concurrent;
-using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -69,21 +68,6 @@ internal static class ServerSerializerMetadata
         return ThrowMissingMetadata<T>();
     }
 
-    /// <summary>Serializes a value using runtime-type metadata when it differs from the declared type.</summary>
-    /// <param name="destination">Stream receiving the payload.</param>
-    /// <param name="value">Value to serialize.</param>
-    /// <param name="declaredType">Declared compile-time type.</param>
-    internal static void Serialize(Stream destination, object? value, Type declaredType)
-    {
-        var info = ResolveByEffectiveType(value, declaredType);
-
-        // Sync by IServerSerializer contract: callers pass already-buffered destinations,
-        // an async state machine per journal writing would be pure overhead.
-#pragma warning disable MA0045
-        JsonSerializer.Serialize(destination, value, info);
-#pragma warning restore MA0045
-    }
-
     /// <summary>Serializes a value to a <see cref="JsonElement" /> using runtime-type metadata when it differs.</summary>
     /// <param name="value">Value to serialize.</param>
     /// <param name="declaredType">Declared compile-time type.</param>
@@ -92,16 +76,6 @@ internal static class ServerSerializerMetadata
     {
         var info = ResolveByEffectiveType(value, declaredType);
         return JsonSerializer.SerializeToElement(value, info);
-    }
-
-    /// <summary>Serializes a value to UTF-8 bytes using runtime-type metadata when it differs.</summary>
-    /// <param name="value">Value to serialize.</param>
-    /// <param name="declaredType">Declared compile-time type.</param>
-    /// <returns>UTF-8 payload.</returns>
-    internal static byte[] SerializeToUtf8Bytes(object? value, Type declaredType)
-    {
-        var info = ResolveByEffectiveType(value, declaredType);
-        return JsonSerializer.SerializeToUtf8Bytes(value, info);
     }
 
     private static JsonTypeInfo ResolveByEffectiveType(object? value, Type declaredType)

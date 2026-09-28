@@ -65,8 +65,8 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         var block = CountManifestDataFiles(Dir);
         await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
 
-        await pipelined.WaitUntilAsync(static j => j.HasFlushLoopFailure, TimeSpan.FromSeconds(15), cancellationToken);
-        _ = await Assert.That(journal.HasFlushLoopFailure).IsTrue();
+        await pipelined.WaitUntilAsync(static j => j.GetJournalThreadFailure() != null, TimeSpan.FromSeconds(15), cancellationToken);
+        _ = await Assert.That(journal.GetJournalThreadFailure()).IsNotNull();
         _ = await Assert.That(new FileInfo(segmentOnePath).Length).IsEqualTo(bytesBefore);
         _ = await Assert.That(CountManifestDataFiles(Dir)).IsEqualTo(block);
         _ = await Assert.That(ContainsPutKey(Dir, 1, "overflow-key")).IsFalse();
@@ -264,8 +264,8 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(2)), [], cancellationToken);
         await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
 
-        await pipelined.WaitUntilAsync(static j => j.HasFlushLoopFailure, TimeSpan.FromSeconds(15), cancellationToken);
-        _ = await Assert.That(journal.HasFlushLoopFailure).IsTrue();
+        await pipelined.WaitUntilAsync(static j => j.GetJournalThreadFailure() != null, TimeSpan.FromSeconds(15), cancellationToken);
+        _ = await Assert.That(journal.GetJournalThreadFailure()).IsNotNull();
 
         // The manifest still advertises segment 1, but the roll already materialized segment 2.
         _ = await Assert.That((await ledger.ReadCurrentOrDefaultAsync(cancellationToken)).CurrentJournal).IsEqualTo(1);
@@ -304,7 +304,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
 
         _ = await Assert.That((await ledger.ReadCurrentOrDefaultAsync(cancellationToken)).CurrentJournal).IsEqualTo(2);
         _ = await Assert.That(ContainsPutKey(Dir, 2, "overflow-key")).IsTrue();
-        _ = await Assert.That(journal.HasFlushLoopFailure).IsFalse();
+        _ = await Assert.That(journal.GetJournalThreadFailure()).IsNull();
         return;
 
         static async ValueTask<bool> ConditionAsync(Ledger s, CancellationToken ct)
@@ -392,7 +392,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
 
         _ = await Assert.That((await ledger.ReadCurrentOrDefaultAsync(cancellationToken)).CurrentJournal).IsEqualTo(2);
         _ = await Assert.That(ContainsPutKey(Dir, 2, "overflow-key")).IsTrue();
-        _ = await Assert.That(journal.HasFlushLoopFailure).IsFalse();
+        _ = await Assert.That(journal.GetJournalThreadFailure()).IsNull();
         return;
 
         static async ValueTask<bool> ConditionAsync(Ledger s, CancellationToken ct)
@@ -510,10 +510,10 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
 
         for (var i = 0; i < 16_384 && journal.CurrentSegmentIndex == 1; i++)
         {
-            if (journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes)
+            if (journal.EventLoop.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes)
                 break;
 
-            if (journal.ActiveSegmentWrittenBytes + fillFrameLen > maxBytes)
+            if (journal.EventLoop.ActiveSegmentWrittenBytes + fillFrameLen > maxBytes)
                 break;
 
             await journal.AppendPutUnderGateAsync(fillKey, fillPayload, cancellationToken);
@@ -521,7 +521,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         }
 
         _ = await Assert.That(journal.CurrentSegmentIndex).IsEqualTo(1);
-        _ = await Assert.That(journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes).IsTrue();
+        _ = await Assert.That(journal.EventLoop.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes).IsTrue();
     }
 
     private static int FrameLength(ReadOnlyMemory<byte> payload, CacheKey key)
@@ -534,7 +534,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
             Key = key,
             PutEntryBytes = payload,
         };
-        return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
+        return JournalFraming.FrameTotalLength(BinaryJournalCodec.PrepareEncode(record).BodyLength);
     }
 
     private static string SegmentPath(string dir, int i) => NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(i)}{FileExtensions.Journal}");

@@ -49,7 +49,7 @@ public sealed class JournalGroupCommitFlushFailureTests : IsolatedStorageTestBas
 
         // The waiter is faulted before the journal thread latches the pipeline failure; joining the thread waits for the latch.
         _ = await Assert.That(await journal.DurabilityPipeline.TryJoinJournalThreadAsync(Bound)).IsTrue();
-        _ = await Assert.That(journal.HasFlushLoopFailure).IsTrue();
+        _ = await Assert.That(journal.GetJournalThreadFailure()).IsNotNull();
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAgainAsync(journal, key, cancellationToken).WaitAsync(Bound, TimeProvider.System, cancellationToken));
         _ = await Assert.That(writer.FlushCount).IsEqualTo(1);

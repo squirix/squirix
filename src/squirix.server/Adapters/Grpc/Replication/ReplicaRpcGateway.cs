@@ -53,7 +53,7 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway
 
     private static ReplicationEnvelopeHeader MapHeader(ReplicaRpcHeader header) => new()
     {
-        SchemaVersion = EnvelopeCodec.SchemaVersion,
+        SchemaVersion = EnvelopeSchema.Version,
         GroupId = header.GroupId,
         TopologyFingerprint = ByteString.CopyFrom(header.TopologyFingerprint.Span),
         ConfigurationGeneration = header.ConfigurationGeneration,

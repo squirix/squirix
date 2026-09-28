@@ -79,23 +79,6 @@ public sealed class AsyncLockOwnershipTests : ServerUnitTestBase
         asyncLock.Dispose();
     }
 
-    /// <summary>A try-lock on a held lock fails with a default holder and leaves the current holder's ownership holding.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task HeldLockRefusesTryLock(CancellationToken cancellationToken)
-    {
-        var asyncLock = new AsyncLock();
-        var holder = await asyncLock.LockAsync(cancellationToken);
-
-        _ = await Assert.That(asyncLock.TryLock(out var refused, cancellationToken)).IsFalse();
-        _ = await Assert.That(refused.Ownership.Holds(asyncLock)).IsFalse();
-        _ = await Assert.That(holder.Ownership.Holds(asyncLock)).IsTrue();
-
-        holder.Dispose();
-        _ = await Assert.That(holder.Ownership.Holds(asyncLock)).IsFalse();
-        asyncLock.Dispose();
-    }
-
     /// <summary>An ownership holds its lock from the acquisition until the holder releases, and never again once another acquisition takes the lock.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -109,7 +92,7 @@ public sealed class AsyncLockOwnershipTests : ServerUnitTestBase
         first.Dispose();
         _ = await Assert.That(ownership.Holds(asyncLock)).IsFalse();
 
-        _ = await Assert.That(asyncLock.TryLock(out var second, cancellationToken)).IsTrue();
+        var second = await asyncLock.LockAsync(cancellationToken);
         _ = await Assert.That(ownership.Holds(asyncLock)).IsFalse();
         _ = await Assert.That(second.Ownership.Holds(asyncLock)).IsTrue();
         _ = await Assert.That(second.Ownership).IsNotEqualTo(ownership);

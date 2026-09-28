@@ -17,7 +17,6 @@ internal static class ServerArchitectureFixtures
 {
     internal static readonly string[] ForbiddenGrpcTransportMapperMarkers =
     [
-        "ICacheRuntime",
         "ILogicalNamespacedCache",
         "ICacheApi<",
         "LocalCache<",

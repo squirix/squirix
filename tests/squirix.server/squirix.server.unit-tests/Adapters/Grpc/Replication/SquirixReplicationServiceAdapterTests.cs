@@ -101,7 +101,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 
         var header = new ReplicationEnvelopeHeader
         {
-            SchemaVersion = EnvelopeCodec.SchemaVersion,
+            SchemaVersion = EnvelopeSchema.Version,
             SenderNodeId = peer.NodeId,
             LeaderNodeId = peer.NodeId,
         };
@@ -184,7 +184,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         using var fixture = await CreateAdapterAsync(cancellationToken);
         var request = new GetReplicaStatusRequest
         {
-            Header = new ReplicationEnvelopeHeader { SchemaVersion = EnvelopeCodec.SchemaVersion, SenderNodeId = " " },
+            Header = new ReplicationEnvelopeHeader { SchemaVersion = EnvelopeSchema.Version, SenderNodeId = " " },
         };
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
@@ -208,7 +208,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 
         var header = new ReplicationEnvelopeHeader
         {
-            SchemaVersion = EnvelopeCodec.SchemaVersion,
+            SchemaVersion = EnvelopeSchema.Version,
             SenderNodeId = peer.NodeId,
             TopologyFingerprint = ByteString.CopyFrom(1, 2, 3),
             ConfigurationGeneration = 999UL,

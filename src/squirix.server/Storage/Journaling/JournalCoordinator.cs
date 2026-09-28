@@ -107,8 +107,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public JournalDurabilityGroupCommit? GroupCommit { get; }
 
-    public bool HasFlushLoopFailure => _flushLoopFailure.Read() != null;
-
     public long HighWaterBytes => EventLoop.Policy.HighWaterBytes;
 
     public QuiescenceGate InFlightApplyGate { get; } = new();
@@ -138,8 +136,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     public AsyncManualResetEvent StartupGate { get; }
 
     public long UsedBytes => EventLoop.JournalTotalBytes;
-
-    internal long ActiveSegmentWrittenBytes => EventLoop.ActiveSegmentWrittenBytes;
 
     /// <summary>Gets the last join wait granted to the journal thread after the shutdown budget; 5 seconds unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The floor is not positive.</exception>

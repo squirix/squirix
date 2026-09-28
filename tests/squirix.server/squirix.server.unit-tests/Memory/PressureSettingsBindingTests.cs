@@ -1,4 +1,3 @@
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -28,7 +27,7 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
         };
 
         var serializer = new ServerJsonSerializer();
-        var json = Encoding.UTF8.GetString(serializer.SerializeToUtf8Bytes(original));
+        var json = serializer.SerializeToElement(original).GetRawText();
         var restored = serializer.Deserialize<PressureOptions>(json);
         _ = await Assert.That(restored).IsNotNull();
         restored.Validate();

@@ -39,9 +39,6 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
     public int CurrentSegmentIndex { get; }
 
     /// <inheritdoc />
-    public bool HasFlushLoopFailure => false;
-
-    /// <inheritdoc />
     public long HighWaterBytes => 0;
 
     /// <inheritdoc />

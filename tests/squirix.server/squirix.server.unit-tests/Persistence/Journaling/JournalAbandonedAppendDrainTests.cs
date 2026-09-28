@@ -69,8 +69,8 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
         var pending = StartDurableAppends(journal, payload, AppendDurableAsync, cancellationToken);
 
-        await pipelined.WaitUntilAsync(static j => j.HasFlushLoopFailure, TimeSpan.FromSeconds(15), cancellationToken);
-        _ = await Assert.That(journal.HasFlushLoopFailure).IsTrue();
+        await pipelined.WaitUntilAsync(static j => j.GetJournalThreadFailure() != null, TimeSpan.FromSeconds(15), cancellationToken);
+        _ = await Assert.That(journal.GetJournalThreadFailure()).IsNotNull();
 
         var all = Task.WhenAll(pending);
         await all.WaitUntilAsync(static t => t.IsCompleted, TimeSpan.FromSeconds(30), cancellationToken);
@@ -140,7 +140,7 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
             cancellationToken);
         _ = await Assert.That(thrown).IsSameReferenceAs(gate.Original);
 
-        await pipelined.WaitUntilAsync(static j => j.HasFlushLoopFailure, TimeSpan.FromSeconds(15), cancellationToken);
+        await pipelined.WaitUntilAsync(static j => j.GetJournalThreadFailure() != null, TimeSpan.FromSeconds(15), cancellationToken);
 
         var all = Task.WhenAll(pending);
         await all.WaitUntilAsync(static t => t.IsCompleted, TimeSpan.FromSeconds(30), cancellationToken);
@@ -259,10 +259,10 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
 
         for (var i = 0; i < 16_384 && journal.CurrentSegmentIndex == 1; i++)
         {
-            if (journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes)
+            if (journal.EventLoop.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes)
                 break;
 
-            if (journal.ActiveSegmentWrittenBytes + fillFrameLen > maxBytes)
+            if (journal.EventLoop.ActiveSegmentWrittenBytes + fillFrameLen > maxBytes)
                 break;
 
             await journal.AppendPutUnderGateAsync(fillKey, fillPayload, cancellationToken);
@@ -270,7 +270,7 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         }
 
         _ = await Assert.That(journal.CurrentSegmentIndex).IsEqualTo(1);
-        _ = await Assert.That(journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes).IsTrue();
+        _ = await Assert.That(journal.EventLoop.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes).IsTrue();
     }
 
     private static int FrameLength(ReadOnlyMemory<byte> payload, CacheKey key)
@@ -283,7 +283,7 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
             Key = key,
             PutEntryBytes = payload,
         };
-        return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
+        return JournalFraming.FrameTotalLength(BinaryJournalCodec.PrepareEncode(record).BodyLength);
     }
 
     private static void QueueFlushWait(List<Task> pending, IJournalCoordinator journal, CancellationToken cancellationToken) =>

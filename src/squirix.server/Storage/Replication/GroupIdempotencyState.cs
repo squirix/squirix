@@ -66,29 +66,6 @@ internal sealed class GroupIdempotencyState
     {
     }
 
-    /// <summary>Gets the number of retained unresolved reservations.</summary>
-    /// <remarks>
-    /// Unresolved reservations pin capacity until they resolve or their journal index is truncated
-    /// (see <see cref="ReleaseFromIndex" />); monitor this count to size capacity for ambiguous-commit bursts.
-    /// </remarks>
-    internal int UnresolvedCount
-    {
-        get
-        {
-            lock (_sync)
-            {
-                var count = 0;
-                foreach (var pair in _records)
-                {
-                    if (pair.Value.IsUnresolved)
-                        count++;
-                }
-
-                return count;
-            }
-        }
-    }
-
     /// <summary>Gets the maximum number of retained idempotency records.</summary>
     private int Capacity { get; }
 

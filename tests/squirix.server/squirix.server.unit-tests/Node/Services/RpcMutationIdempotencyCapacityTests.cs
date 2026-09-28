@@ -93,7 +93,7 @@ public sealed class RpcMutationIdempotencyCapacityTests : IsolatedStorageTestBas
 
         var first = await NodeAsyncAssert.ThrowsAsync<RpcException>(ExecuteBigPutAsync(coordinator, executor, journal.Journal, memory, attempts, value, cancellationToken));
         var retry = await NodeAsyncAssert.ThrowsAsync<RpcException>(ExecuteBigPutAsync(coordinator, executor, journal.Journal, memory, attempts, value, cancellationToken));
-        var failed = journal.Journal.HasFlushLoopFailure;
+        var failed = journal.Journal.GetJournalThreadFailure() != null;
         await journal.ShutdownAsync();
 
         _ = await Assert.That(failed).IsFalse();
@@ -166,7 +166,7 @@ public sealed class RpcMutationIdempotencyCapacityTests : IsolatedStorageTestBas
                 PutEntryBytes = JournalEntryPayloadKit.EncodePut(value),
                 MutationOperationId = OperationId,
             };
-            var frame = JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
+            var frame = JournalFraming.FrameTotalLength(BinaryJournalCodec.PrepareEncode(record).BodyLength);
             if (frame == target)
                 return value;
 

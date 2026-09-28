@@ -60,7 +60,7 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
         journal.Writer.Write.Release();
         await journal.Journal.AwaitDurabilityCommitAsync(cancellationToken);
         var usedAfterBacklog = journal.Journal.UsedBytes;
-        var failed = journal.Journal.HasFlushLoopFailure;
+        var failed = journal.Journal.GetJournalThreadFailure() != null;
         await journal.ShutdownAsync();
 
         _ = await Assert.That(pendingCount).IsEqualTo(4);
@@ -96,7 +96,7 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
         journal.Writer.Write.Release();
         await journal.Journal.AwaitDurabilityCommitAsync(cancellationToken);
         var segmentIndex = journal.Journal.CurrentSegmentIndex;
-        var failed = journal.Journal.HasFlushLoopFailure;
+        var failed = journal.Journal.GetJournalThreadFailure() != null;
         await journal.ShutdownAsync();
 
         _ = await Assert.That(pendingCount).IsEqualTo(40);
@@ -180,7 +180,7 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
         var refused = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(
             journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("big"), new byte[MaxBytes + 1024L], cancellationToken));
         await AppendDurablyAsync(journal, "b", SmallPayload, cancellationToken);
-        var failed = journal.Journal.HasFlushLoopFailure;
+        var failed = journal.Journal.GetJournalThreadFailure() != null;
         await journal.ShutdownAsync();
 
         _ = await Assert.That(refused.Message).Contains("segment size");
@@ -207,7 +207,7 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
         await AppendDurablyAsync(restarted, "roll", (2 * FillPayload) + 1024, cancellationToken);
         var segmentIndex = restarted.Journal.CurrentSegmentIndex;
         var segmentCount = restarted.Journal.EventLoop.JournalSegmentCount;
-        var failed = restarted.Journal.HasFlushLoopFailure;
+        var failed = restarted.Journal.GetJournalThreadFailure() != null;
         await restarted.ShutdownAsync();
 
         _ = await Assert.That(segmentIndex).IsEqualTo(2);
@@ -281,7 +281,7 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
         var pendingCount = journal.Journal.PendingAppends.PendingCount;
         journal.Writer.Write.Release();
         await journal.Journal.AwaitDurabilityCommitAsync(cancellationToken);
-        var failed = journal.Journal.HasFlushLoopFailure;
+        var failed = journal.Journal.GetJournalThreadFailure() != null;
         await journal.ShutdownAsync();
 
         _ = await Assert.That(queued).IsEqualTo(1);
@@ -303,7 +303,7 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
     private static async Task FillSegmentAsync(StallableJournal journal, CancellationToken cancellationToken)
     {
         var fillFrame = FrameLength("fill", FillPayload);
-        while (journal.Journal.ActiveSegmentWrittenBytes + (2L * fillFrame) <= MaxBytes)
+        while (journal.Journal.EventLoop.ActiveSegmentWrittenBytes + (2L * fillFrame) <= MaxBytes)
             await AppendDurablyAsync(journal, "fill", FillPayload, cancellationToken);
     }
 
@@ -317,7 +317,7 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
             Key = CacheKey.Default(key),
             PutEntryBytes = new byte[payloadLength],
         };
-        return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
+        return JournalFraming.FrameTotalLength(BinaryJournalCodec.PrepareEncode(record).BodyLength);
     }
 
     private static string Keys(params string[] keys)
@@ -342,7 +342,7 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
             journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("roll"), new byte[(2 * FillPayload) + 1024], cancellationToken));
         _ = await Assert.That(refused.Message).Contains("segment count");
         await AppendDurablyAsync(journal, "fits", FillPayload, cancellationToken);
-        return journal.Journal.HasFlushLoopFailure;
+        return journal.Journal.GetJournalThreadFailure() != null;
     }
 
     /// <summary>Writes a segment holding only its file header, as a roll target pre-created before a crash.</summary>

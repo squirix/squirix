@@ -248,8 +248,6 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
 
         public int CurrentSegmentIndex => 0;
 
-        public bool HasFlushLoopFailure => false;
-
         public long HighWaterBytes => 0;
 
         public QuiescenceGate InFlightApplyGate { get; } = new();

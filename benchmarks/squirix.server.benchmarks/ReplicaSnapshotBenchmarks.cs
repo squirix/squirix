@@ -108,7 +108,8 @@ public class ReplicaSnapshotBenchmarks
     {
         var dir = ThrowHelper.Required(_dir, "Benchmark source directory was not initialized.");
         var store = new GroupSnapshotStore(dir, GroupId);
-        _ = ThrowHelper.RequiredValue(await store.ReadPublishedAsync(CancellationToken.None).ConfigureAwait(false), "Published snapshot was not found.");
+        if (await store.ReadPublishedAsync(CancellationToken.None).ConfigureAwait(false) == null)
+            throw new InvalidOperationException("Published snapshot was not found.");
     }
 
     /// <summary>Rebuilds the source log before each write iteration without a published snapshot, so every run measures the first publish path.</summary>

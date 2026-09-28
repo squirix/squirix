@@ -134,7 +134,7 @@ public sealed class RpcMutationIdempotencyStoreCapTests : DisposableServerUnitTe
         var execution = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _ = store.ReserveIntent("op-1", "fp-1", execution, out _);
 
-        _ = store.ReserveIntent("op-2", "fp-2");
+        _ = store.ReserveIntent("op-2", "fp-2", null, out _);
 
         _ = await Assert.That(store.RecordCount).IsEqualTo(1);
         _ = await Assert.That(store.ExecutionCount).IsEqualTo(0);

@@ -26,7 +26,7 @@ internal static class SquirixReplicationAdapterTestHelpers
 
     internal static ReplicationEnvelopeHeader CreateValidHeader(string? senderNodeId = "node-a") => new()
     {
-        SchemaVersion = EnvelopeCodec.SchemaVersion,
+        SchemaVersion = EnvelopeSchema.Version,
         SenderNodeId = senderNodeId,
         LeaderNodeId = senderNodeId,
         Term = 7,

@@ -29,7 +29,6 @@ internal sealed class PendingAppendRegistry
     private long _pendingBytes;
     private int _pendingCount;
     private List<byte[]> _quarantine = [];
-    private long _quarantinedCount;
 
     /// <summary>Gets the latched pipeline failure once any drain ran; otherwise <see langword="null" />.</summary>
     internal Exception? Failure
@@ -49,9 +48,6 @@ internal sealed class PendingAppendRegistry
 
     /// <summary>Gets the number of appends tracked and not yet released. Same update and read rules as <see cref="PendingBytes" />.</summary>
     internal int PendingCount => Volatile.Read(ref _pendingCount);
-
-    /// <summary>Gets the total number of buffers ever quarantined by drains (cumulative).</summary>
-    internal long QuarantinedCount => Interlocked.Read(ref _quarantinedCount);
 
     /// <summary>
     /// Returns whether a drain took any staged item (see <see cref="IsAbandoned" />).
@@ -289,7 +285,6 @@ internal sealed class PendingAppendRegistry
             _appends.Clear();
             Volatile.Write(ref _pendingBytes, 0L);
             Volatile.Write(ref _pendingCount, 0);
-            _ = Interlocked.Add(ref _quarantinedCount, taken.Count);
             return taken;
         }
     }

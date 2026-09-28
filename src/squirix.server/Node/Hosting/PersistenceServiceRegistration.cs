@@ -100,14 +100,6 @@ internal static class PersistenceServiceRegistration
         _ = services.AddSingleton<IJournalCompactionStatus>(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());
         _ = services.AddHostedService(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());
 
-        _ = services.AddSingleton(static sp => new JournalCompactionController(
-            sp.GetRequiredService<PersistenceOptions>(),
-            sp.GetRequiredService<Ledger>(),
-            sp.GetRequiredService<ISnapshotReader>(),
-            sp.GetRequiredService<IExclusiveMaintenanceExecutor>(),
-            sp.GetRequiredService<Coordinator>(),
-            sp.GetRequiredService<ILogger<JournalCompactionController>>()));
-
         _ = services.AddHostedService<JournalMetricsExporterService>();
     }
 

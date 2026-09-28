@@ -30,7 +30,6 @@ internal static class RuntimeServiceRegistration
             _ = services.AddSingleton<RemoteInvocationContextAccessor>();
             _ = services.AddSingleton<IRemoteInvocationScopeFactory>(static sp => sp.GetRequiredService<RemoteInvocationContextAccessor>());
             _ = services.AddSingleton<IRemoteInvocationState>(static sp => sp.GetRequiredService<RemoteInvocationContextAccessor>());
-            _ = services.AddSingleton<IServerSerializer>(static sp => new ServerMetricsSerializer(new ServerJsonSerializer(), sp.GetRequiredService<Meter>()));
             _ = services.AddHttpContextAccessor();
             _ = services.AddSingleton<IBackpressureClientIdResolver>(static sp => new HttpContextClientIdResolver(sp.GetRequiredService<IHttpContextAccessor>()));
             _ = services.AddSingleton<IBackpressureGate>(static sp => new AdmissionGate(sp.GetRequiredService<AdmissionOptions>(), sp.GetRequiredService<BackpressureMetrics>()));
@@ -54,7 +53,6 @@ internal static class RuntimeServiceRegistration
             _ = services.AddSingleton<ILocalCacheSnapshotReader<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
             _ = services.AddSingleton<ISnapshotEntryCapture>(static sp => new LocalCacheSnapshotCapture<object?>(sp.GetRequiredService<ILocalCacheSnapshotReader<object?>>()));
 
-            _ = services.AddSingleton<ICacheRuntime, CacheRuntime>();
             _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
             _ = services.AddSingleton<IGrpcCacheOperations<object?>, CacheOperations<object?>>();
             _ = services.AddSingleton(static sp => new RpcMutationIdempotencyStore(

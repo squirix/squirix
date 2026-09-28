@@ -48,15 +48,16 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
     {
         var state = new GroupIdempotencyState(1, TimeSpan.Zero);
         _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
-        _ = await Assert.That(state.UnresolvedCount).IsEqualTo(1);
+        _ = await Assert.That(state.IsUnresolved("client", "op-a")).IsTrue();
 
         state.Expire();
 
         _ = await Assert.That(state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 2, 1)).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
         _ = await Assert.That(state.Lookup("client", "op-a", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
-        _ = await Assert.That(state.UnresolvedCount).IsEqualTo(1);
+        _ = await Assert.That(state.IsUnresolved("client", "op-a")).IsTrue();
 
         _ = await Assert.That(state.TryReleaseUnresolved("client", "op-a", 1, 1)).IsTrue();
-        _ = await Assert.That(state.UnresolvedCount).IsEqualTo(0);
+        _ = await Assert.That(state.IsUnresolved("client", "op-a")).IsFalse();
+        _ = await Assert.That(state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 2, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
     }
 }

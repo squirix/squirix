@@ -89,13 +89,6 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         }
     }
 
-    /// <summary>Records a write-ahead intent for an operation about to execute; the caller replays a completed outcome or surfaces the ambiguous outcome to the RPC layer.</summary>
-    /// <param name="operationId">The operation identifier.</param>
-    /// <param name="fingerprint">The deterministic mutation fingerprint.</param>
-    /// <returns>The reservation outcome for this caller.</returns>
-    /// <exception cref="ServerOpIdMismatchException">When the stored fingerprint is non-null and differs.</exception>
-    internal IdempotencyReserveResult ReserveIntent(string operationId, string fingerprint) => ReserveIntent(operationId, fingerprint, null, out _);
-
     /// <summary>Records a write-ahead intent and tracks its execution so a retry can join it instead of reporting an unknown outcome.</summary>
     /// <param name="operationId">The operation identifier.</param>
     /// <param name="fingerprint">The deterministic mutation fingerprint.</param>

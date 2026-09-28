@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Http;
 using Rocks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
-using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
@@ -27,7 +26,6 @@ using TUnit.Core;
 [assembly: Rock(typeof(IServerClientPool), BuildType.Create)]
 [assembly: Rock(typeof(IServerCallPolicy), BuildType.Create)]
 [assembly: Rock(typeof(ILocalCacheStats), BuildType.Create)]
-[assembly: Rock(typeof(IServerSerializer), BuildType.Create)]
 [assembly: Rock(typeof(IJournalOperationTracer), BuildType.Create)]
 [assembly: Rock(typeof(IJournalOperationTraceScope), BuildType.Create)]
 [assembly: Rock(typeof(IExclusiveMaintenanceExecutor), BuildType.Create)]

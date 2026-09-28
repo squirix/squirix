@@ -67,8 +67,8 @@ Serializer swapping is safe only when encoders agree on payload shape:
 ## Diagnostics
 
 - Journal and snapshots store encoded payloads verbatim; encoder changes affect on-disk format.
-- Serializer metrics appear in the Prometheus scrape output when the `/metrics` endpoint is enabled
-  (`squirix_serializer_*`).
+- Client sessions record serializer metrics (`squirix_serializer_*`) on the client-side `Squirix` .NET meter; export
+  them from the client process with OpenTelemetry or a `MeterListener`. Server nodes do not record serializer metrics.
 
 ## Further reading
 

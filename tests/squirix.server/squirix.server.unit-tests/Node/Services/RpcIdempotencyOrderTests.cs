@@ -141,8 +141,6 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
 
         public int CurrentSegmentIndex => _inner.CurrentSegmentIndex;
 
-        public bool HasFlushLoopFailure => _inner.HasFlushLoopFailure;
-
         public long HighWaterBytes => _inner.HighWaterBytes;
 
         public QuiescenceGate InFlightApplyGate => _inner.InFlightApplyGate;

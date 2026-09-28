@@ -1,7 +1,7 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
-using Squirix.Server.Runtime;
+using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -31,14 +31,15 @@ internal static class TestNodeHostExtensions
             throw new InvalidOperationException($"No key owned by '{owner}' was found.");
         }
 
-        /// <summary>Resolves a namespaced cache from the node's runtime.</summary>
+        /// <summary>Resolves the node's logical namespaced cache after validating the cache name.</summary>
         /// <typeparam name="T">Cached value type.</typeparam>
         /// <param name="cacheName">Target cache namespace.</param>
         /// <returns>The requested cache.</returns>
         internal ILogicalNamespacedCache<T> GetCache<T>(string cacheName)
         {
             ArgumentNullException.ThrowIfNull(host);
-            return host.Services.GetRequiredService<ICacheRuntime>().GetCache<T>(cacheName);
+            _ = ServerCacheName.ParsePublic(cacheName);
+            return host.Services.GetRequiredService<ILogicalNamespacedCache<T>>();
         }
 
         /// <summary>Resolves a required service from the node's root service provider.</summary>

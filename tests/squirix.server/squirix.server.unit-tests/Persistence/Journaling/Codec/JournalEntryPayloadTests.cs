@@ -26,7 +26,7 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
         var entry = new NodeCacheEntry<IValueContract>(new DerivedValue { DerivedField = "journal-survives" });
         var prepared = JournalEntryPayload.PrepareEncode(entry);
         using var buffer = JournalEntryPayload.Encode(in prepared);
-        _ = await Assert.That(JournalEntryPayload.TryDecode<object?>(buffer.Span, out var roundTrip)).IsTrue();
+        _ = await Assert.That(JournalEntryPayload.TryDecode<object?>(buffer.Memory.Span, out var roundTrip)).IsTrue();
         _ = await Assert.That(roundTrip).IsNotNull();
         var element = await Assert.That(roundTrip.Value).IsTypeOf<JsonElement>();
         _ = await Assert.That(element.TryGetProperty("DerivedField", out var field) || element.TryGetProperty("derivedField", out field)).IsTrue();
@@ -42,7 +42,7 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
 
         // Golden lengths: flags (2) + version (8) + empty tags (2) + string value (1 + 4 + 5).
         _ = await Assert.That(prepared.EncodedLength).IsEqualTo(22);
-        _ = await Assert.That(lease.Span.Length).IsEqualTo(22);
+        _ = await Assert.That(lease.Memory.Span.Length).IsEqualTo(22);
         lease.Dispose();
         lease.Dispose();
         lease.Dispose();
@@ -59,7 +59,7 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
         // one tag (2 + 2 + 6 + 2 + 4) + string value (1 + 4 + 15).
         _ = await Assert.That(prepared.EncodedLength).IsEqualTo(54);
         using var buffer = JournalEntryPayload.Encode(in prepared);
-        _ = await Assert.That(JournalEntryPayload.TryDecode<string>(buffer.Span, out var roundTrip)).IsTrue();
+        _ = await Assert.That(JournalEntryPayload.TryDecode<string>(buffer.Memory.Span, out var roundTrip)).IsTrue();
         _ = await Assert.That(roundTrip).IsNotNull();
         _ = await Assert.That(roundTrip.Value).IsEqualTo(entry.Value);
         _ = await Assert.That(roundTrip.Version).IsEqualTo(entry.Version);
@@ -77,7 +77,7 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
         // Golden length: flags (2) + version (8) + empty tags (2) + string value (1 + 4 + 13).
         _ = await Assert.That(prepared.EncodedLength).IsEqualTo(30);
         using var buffer = JournalEntryPayload.Encode(in prepared);
-        _ = await Assert.That(JournalEntryPayload.TryDecode<string>(buffer.Span, out var roundTrip)).IsTrue();
+        _ = await Assert.That(JournalEntryPayload.TryDecode<string>(buffer.Memory.Span, out var roundTrip)).IsTrue();
         _ = await Assert.That(roundTrip).IsNotNull();
         _ = await Assert.That(roundTrip.Value).IsEqualTo("journal-value");
         _ = await Assert.That(roundTrip.Version).IsEqualTo(4);

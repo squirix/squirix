@@ -109,7 +109,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
         var other = new ReplicationEnvelopeHeader
         {
-            SchemaVersion = EnvelopeCodec.SchemaVersion,
+            SchemaVersion = EnvelopeSchema.Version,
             SenderNodeId = "node-a",
             LeaderNodeId = "node-b",
             GroupId = "node-a",
@@ -140,7 +140,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material, registry);
         var header = new ReplicationEnvelopeHeader
         {
-            SchemaVersion = EnvelopeCodec.SchemaVersion,
+            SchemaVersion = EnvelopeSchema.Version,
             SenderNodeId = "node-a",
             LeaderNodeId = "node-a",
             GroupId = groupId,

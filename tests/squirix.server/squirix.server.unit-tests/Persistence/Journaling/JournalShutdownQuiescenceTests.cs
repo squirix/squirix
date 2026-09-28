@@ -82,7 +82,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         await cts.CancelAsync();
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(journal.AwaitDurabilityCommitAsync(cts.Token));
 
-        _ = await Assert.That(coordinator.DurabilityAcks.TakeAll(new ObjectDisposedException(nameof(JournalCoordinator)))).IsEmpty();
+        _ = await Assert.That(coordinator.DurabilityAcks.TakeAll(new ObjectDisposedException(nameof(JournalCoordinator)), out _)).IsEmpty();
     }
 
     /// <summary>A join with no budget left records the timeout instead of hanging disposal.</summary>

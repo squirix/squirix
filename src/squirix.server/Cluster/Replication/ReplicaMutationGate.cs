@@ -13,25 +13,17 @@ internal sealed class ReplicaMutationGate : IDisposable
 {
     private readonly AsyncSemaphore _capacity;
     private readonly AsyncLock[] _stripes;
-    private int _activeCount;
 
     internal ReplicaMutationGate(int maxInFlight, int stripeCount = 64)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxInFlight);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(stripeCount);
 
-        MaxInFlight = maxInFlight;
         _capacity = new AsyncSemaphore(maxInFlight);
         _stripes = new AsyncLock[stripeCount];
         for (var i = 0; i < _stripes.Length; i++)
             _stripes[i] = new AsyncLock();
     }
-
-    internal int ActiveCount => Volatile.Read(ref _activeCount);
-
-    internal int MaxInFlight { get; }
-
-    internal int StripeCount => _stripes.Length;
 
     public void Dispose()
     {
@@ -59,7 +51,6 @@ internal sealed class ReplicaMutationGate : IDisposable
             throw;
         }
 
-        _ = Interlocked.Increment(ref _activeCount);
         return new ReplicaMutationLease(this, stripe);
     }
 
@@ -68,7 +59,6 @@ internal sealed class ReplicaMutationGate : IDisposable
     /// <remarks>Never throws: a lease still out when the gate was disposed keeps its stripe and slot until it returns them here.</remarks>
     internal void Exit(AsyncLockHolder stripe)
     {
-        _ = Interlocked.Decrement(ref _activeCount);
         stripe.Dispose();
         _capacity.Release();
     }

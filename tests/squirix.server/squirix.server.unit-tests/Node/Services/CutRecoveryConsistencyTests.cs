@@ -137,15 +137,15 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
         var fillFrameLen = PutFrameLength(fillPayload, FillKey);
         const long maxSegmentBytes = 1024L * 1024L;
 
-        while (journal.CurrentSegmentIndex == 1 && journal.ActiveSegmentWrittenBytes + overflowFrameLen <= maxSegmentBytes &&
-               journal.ActiveSegmentWrittenBytes + fillFrameLen <= maxSegmentBytes)
+        while (journal.CurrentSegmentIndex == 1 && journal.EventLoop.ActiveSegmentWrittenBytes + overflowFrameLen <= maxSegmentBytes &&
+               journal.EventLoop.ActiveSegmentWrittenBytes + fillFrameLen <= maxSegmentBytes)
         {
             await journal.AppendPutUnderGateAsync(FillKey, fillPayload, cancellationToken);
             await journal.AwaitDurabilityCommitAsync(cancellationToken);
         }
 
         _ = await Assert.That(journal.CurrentSegmentIndex).IsEqualTo(1);
-        _ = await Assert.That(journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxSegmentBytes).IsTrue();
+        _ = await Assert.That(journal.EventLoop.ActiveSegmentWrittenBytes + overflowFrameLen > maxSegmentBytes).IsTrue();
     }
 
     private static int PutFrameLength(ReadOnlyMemory<byte> payload, CacheKey key)
@@ -158,7 +158,7 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
             Key = key,
             PutEntryBytes = payload,
         };
-        return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(journalRecord));
+        return JournalFraming.FrameTotalLength(BinaryJournalCodec.PrepareEncode(journalRecord).BodyLength);
     }
 
     private async Task AssertTailRecoveredAfterSnapshotAsync(PersistenceOptions persistence, Ledger manifestStore, CancellationToken cancellationToken)

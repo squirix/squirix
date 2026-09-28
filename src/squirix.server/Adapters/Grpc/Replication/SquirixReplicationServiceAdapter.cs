@@ -309,7 +309,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         _ = PeerAuth.EnsureTrustedPeer(context, _mtlsOptions, _mtls, _remotePeerNodeIds, header.SenderNodeId, requireLeader ? header.LeaderNodeId : null);
 
         const string m = "Unsupported replication envelope schema version.";
-        return header.SchemaVersion != EnvelopeCodec.SchemaVersion ? throw new RpcException(new Status(StatusCode.InvalidArgument, m)) : header;
+        return header.SchemaVersion != EnvelopeSchema.Version ? throw new RpcException(new Status(StatusCode.InvalidArgument, m)) : header;
     }
 
     /// <summary>Enforces internal-listener + mTLS NodeId binding for closed replication RPCs.</summary>
