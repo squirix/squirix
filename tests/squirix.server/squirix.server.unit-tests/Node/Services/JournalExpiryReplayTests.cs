@@ -36,6 +36,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     private const string Self = "node-a";
 
     private static readonly TimeSpan Downtime = TimeSpan.FromMinutes(8);
+    private static readonly TimeSpan PastTtl = TimeSpan.FromMinutes(11);
     private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(10);
 
     private readonly Meter _testMeter = new("test");
@@ -50,6 +51,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     {
         var written = await WriteAsync(
             static async (cache, ct) => _ = await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: Ttl), ct),
+            TimeSpan.Zero,
             cancellationToken);
 
         await AssertReplayedDeadlineAsync(written, cancellationToken);
@@ -85,9 +87,38 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     {
         var written = await WriteAsync(
             static (cache, ct) => cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: Ttl), ct),
+            TimeSpan.Zero,
             cancellationToken);
 
         await AssertReplayedDeadlineAsync(written, cancellationToken);
+    }
+
+    /// <summary>A set without expiry clears a previous TTL, in memory and on replay alike.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SetWithoutExpiryClearsTtl(CancellationToken cancellationToken)
+    {
+        var written = await WriteAsync(
+            static async (cache, ct) =>
+            {
+                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v1", expiration: Ttl), ct);
+                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v2"), ct);
+            },
+            PastTtl,
+            cancellationToken);
+
+        // Memory is read after the clock passed the old TTL: the entry must still be there, without expiry.
+        _ = await Assert.That(written.Memory).IsNotNull();
+        _ = await Assert.That(written.Memory!.Value).IsEqualTo("v2");
+        _ = await Assert.That(written.Memory.ExpiresUtc).IsNull();
+
+        var restartClock = new FakeTimeProvider(new DateTimeOffset(written.WriteStart.Add(PastTtl), TimeSpan.Zero));
+        var recovered = await RecoverAsync(CreatePersistence(), restartClock, cancellationToken);
+
+        var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        _ = await Assert.That(entry).IsNotNull();
+        _ = await Assert.That(entry!.Value).IsEqualTo("v2");
+        _ = await Assert.That(entry.ExpiresUtc).IsNull();
     }
 
     /// <summary>A touch replays with its write-time deadline, not one re-anchored to the restart clock.</summary>
@@ -101,6 +132,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
                 _ = await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), ct);
                 _ = await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, ct);
             },
+            TimeSpan.Zero,
             cancellationToken);
 
         await AssertReplayedDeadlineAsync(written, cancellationToken);
@@ -117,6 +149,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
                 await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v1", expiration: Ttl), ct);
                 _ = await cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, "v2", ct);
             },
+            TimeSpan.Zero,
             cancellationToken);
 
         await AssertReplayedDeadlineAsync(written, cancellationToken);
@@ -129,10 +162,10 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
         base.DisposeManaged();
     }
 
-    private async Task AssertReplayedDeadlineAsync((DateTime WriteStart, DateTime? MemoryDeadline) written, CancellationToken cancellationToken)
+    private async Task AssertReplayedDeadlineAsync((DateTime WriteStart, NodeCacheEntry<string>? Memory) written, CancellationToken cancellationToken)
     {
         var deadline = written.WriteStart.Add(Ttl);
-        _ = await Assert.That(written.MemoryDeadline).IsEqualTo(deadline);
+        _ = await Assert.That(written.Memory?.ExpiresUtc).IsEqualTo(deadline);
 
         // Restart after a downtime that is shorter than the TTL: the entry must still be live and keep the deadline memory held.
         var restartClock = new FakeTimeProvider(new DateTimeOffset(written.WriteStart.Add(Downtime), TimeSpan.Zero));
@@ -166,8 +199,9 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
         return cache;
     }
 
-    private async Task<(DateTime WriteStart, DateTime? MemoryDeadline)> WriteAsync(
+    private async Task<(DateTime WriteStart, NodeCacheEntry<string>? Memory)> WriteAsync(
         Func<JournalLoggingCacheDecorator<string>, CancellationToken, ValueTask> mutate,
+        TimeSpan readAfter,
         CancellationToken cancellationToken)
     {
         var persistence = CreatePersistence();
@@ -191,8 +225,9 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
             new DurableMutationExecutor(journal),
             writeClock);
 
+        var writeStart = writeClock.GetUtcNow().UtcDateTime;
         await mutate(cache, cancellationToken);
-        var memory = await physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
-        return (writeClock.GetUtcNow().UtcDateTime, memory?.ExpiresUtc);
+        writeClock.Advance(readAfter);
+        return (writeStart, await physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken));
     }
 }
