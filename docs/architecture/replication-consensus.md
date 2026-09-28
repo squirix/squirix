@@ -132,6 +132,47 @@ covered by the published snapshot and preserves the log header and installable s
 Transport streaming and catch-up orchestration are intentionally deferred to M8-08. The snapshot storage contract is
 therefore internal to `Storage.Replication` and does not add a transport dependency.
 
+### Group log retention and compaction
+
+Only the owner of a replica group (its leader) maintains the group log it leads. Follower-held group logs are neither
+applied nor compacted until follower-side apply lands (#655).
+
+- **Applied index.** The owner applies every committed entry to memory in log order and tracks the index it reached.
+  A maintenance pass every 10 seconds waits until the node cache journal holds every applied entry durably, then
+  persists that index in the group log, which releases the applied payloads from memory. After a restart the owner
+  applies the committed entries above the persisted index again, in log order, before it serves writes.
+- **Trigger.** The same pass compacts the owned group log once `group.log` reaches `ReplicaLogCompactionMb` (default
+  64 MiB) or holds `ReplicaLogCompactionEntries` entries (default 100 000); see
+  [configuration](../configuration.md#persistence-host-defaults).
+- **Gated step.** The compaction runs as one step under the commit gate, so writes wait for it and continue after it.
+  It requires no uncommitted tail, every committed entry applied, every idempotency outcome resolved, and every
+  follower slot verified ready with a durable match index at the commit index. It then publishes `group.snapshot`
+  through the commit index and rewrites `group.log` to its header.
+- **Every follower must have caught up.** The leader has no follower repair or snapshot catch-up yet, so it keeps every
+  entry a follower may still need: a follower that is down, or that missed an entry, blocks compaction of the owner's
+  group log, which keeps growing until that follower is verified again.
+- **Snapshot size.** A snapshot carries the resolved idempotency outcomes of the covered entries. When they exceed the
+  64 MiB snapshot limit, compaction stalls with `snapshot_too_large` until the outcomes age out of idempotency
+  retention (one hour).
+
+Each pass reports its outcome through `squirix_replication_log_compactions_total` and
+`squirix_replication_log_compaction_skipped_total{reason}`, and the retained size through
+`squirix_replication_log_bytes`, `squirix_replication_log_retained_entries`, `squirix_replication_snapshot_index`,
+and the `replicaGroups` section of [readiness details](../diagnostics.md#readiness-details).
+
+### Replicated expiration deadlines
+
+The leader pins the effective absolute expiration deadline of every replicated record at prepare time:
+
+- **Touch:** prepare time plus the requested expiration.
+- **Set and TryAdd:** the earlier of the entry's absolute expiration and its relative expiration measured from
+  prepare time.
+
+Every apply of a record, including the re-apply after a restart, uses that deadline, so a replay never extends a TTL.
+A Touch applied after its deadline expires the entry. The operation fingerprint does not cover the deadline, so a
+retry keeps its identity. The canonical record encoding is version 2 and nodes refuse records of any other version:
+every node of a replica group must run the same replica log codec version.
+
 ## Consequences
 
 - Product election code and local promotion stay off until this ADR merges and model evidence is green.
