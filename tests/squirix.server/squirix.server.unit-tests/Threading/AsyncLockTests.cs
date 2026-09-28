@@ -30,12 +30,13 @@ public sealed class AsyncLockTests : ServerUnitTestBase
         await waiterCancellation.CancelAsync();
 
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, AsyncLockHolder>(waiter);
-        _ = await Assert.That(asyncLock.TryLock(out _, cancellationToken)).IsFalse();
+        _ = await Assert.That(holder.Ownership.Holds(asyncLock)).IsTrue();
 
         holder.Dispose();
 
-        _ = await Assert.That(asyncLock.TryLock(out var next, cancellationToken)).IsTrue();
-        next.Dispose();
+        var next = asyncLock.LockAsync(cancellationToken);
+        _ = await Assert.That(next.IsCompletedSuccessfully).IsTrue();
+        (await next).Dispose();
         asyncLock.Dispose();
     }
 
@@ -75,8 +76,6 @@ public sealed class AsyncLockTests : ServerUnitTestBase
 
         holder.Dispose();
         holder.Dispose();
-
-        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(asyncLock, cancellationToken, static (candidate, token) => { _ = candidate.TryLock(out _, token); });
     }
 
     /// <summary>Disposing the lock wakes a waiter parked on a cancelable token with ObjectDisposedException before the token fires.</summary>
@@ -100,17 +99,6 @@ public sealed class AsyncLockTests : ServerUnitTestBase
         holder.Dispose();
     }
 
-    /// <summary>Try-locking a disposed lock throws ObjectDisposedException.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public void DisposedTryLockThrows(CancellationToken cancellationToken)
-    {
-        var asyncLock = new AsyncLock();
-        asyncLock.Dispose();
-
-        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(asyncLock, cancellationToken, static (candidate, token) => { _ = candidate.TryLock(out _, token); });
-    }
-
     /// <summary>Releasing a holder after its lock was disposed under it (a bounded shutdown gave up waiting) is a no-op instead of a throw.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -123,7 +111,7 @@ public sealed class AsyncLockTests : ServerUnitTestBase
         holder.Dispose();
     }
 
-    /// <summary>A default holder (what <c language="csharp">TryLock</c> returns while the lock is held) compares without throwing.</summary>
+    /// <summary>A default holder compares without throwing.</summary>
     [Test]
     public async Task DefaultHolderEqualsDoesNotThrow()
     {
@@ -175,11 +163,12 @@ public sealed class AsyncLockTests : ServerUnitTestBase
 
         secondHolder.Dispose();
         var thirdHolder = await third;
-        _ = await Assert.That(asyncLock.TryLock(out _, cancellationToken)).IsFalse();
+        _ = await Assert.That(thirdHolder.Ownership.Holds(asyncLock)).IsTrue();
 
         thirdHolder.Dispose();
-        _ = await Assert.That(asyncLock.TryLock(out var free, cancellationToken)).IsTrue();
-        free.Dispose();
+        var free = asyncLock.LockAsync(cancellationToken);
+        _ = await Assert.That(free.IsCompletedSuccessfully).IsTrue();
+        (await free).Dispose();
         asyncLock.Dispose();
     }
 

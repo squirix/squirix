@@ -135,27 +135,6 @@ internal sealed class AsyncLock : IDisposable
         }
     }
 
-    /// <summary>Acquires the lock only when it is free.</summary>
-    /// <param name="holder">The holder that releases the lock when disposed, or <see langword="default"/> when the lock is held.</param>
-    /// <param name="cancellationToken">A canceled token refuses the acquisition with <see cref="OperationCanceledException"/>.</param>
-    /// <returns><see langword="true"/> when the lock was acquired.</returns>
-    internal bool TryLock(out AsyncLockHolder holder, CancellationToken cancellationToken)
-    {
-        lock (_sync)
-        {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            cancellationToken.ThrowIfCancellationRequested();
-            if (TryTakeFree(out var generation))
-            {
-                holder = new AsyncLockHolder(this, generation);
-                return true;
-            }
-        }
-
-        holder = default;
-        return false;
-    }
-
     private static void CancelWaiter(object? state, CancellationToken cancellationToken)
     {
         if (state is Waiter waiter)
