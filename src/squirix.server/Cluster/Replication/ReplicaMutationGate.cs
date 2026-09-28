@@ -19,14 +19,11 @@ internal sealed class ReplicaMutationGate : IDisposable
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxInFlight);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(stripeCount);
 
-        MaxInFlight = maxInFlight;
         _capacity = new AsyncSemaphore(maxInFlight);
         _stripes = new AsyncLock[stripeCount];
         for (var i = 0; i < _stripes.Length; i++)
             _stripes[i] = new AsyncLock();
     }
-
-    internal int MaxInFlight { get; }
 
     public void Dispose()
     {

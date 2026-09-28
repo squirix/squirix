@@ -41,7 +41,6 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
         var next = gate.EnterAsync(7, cancellationToken);
         _ = await Assert.That(next.IsCompletedSuccessfully).IsTrue();
         (await next).Dispose();
-        _ = await Assert.That(gate.MaxInFlight).IsEqualTo(1);
     }
 
     /// <summary>Disposing the gate faults an entry queued on the capacity and one queued on a key stripe, and a lease still out returns its slot without a throw.</summary>
