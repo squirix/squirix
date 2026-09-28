@@ -46,7 +46,8 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         var retention = await AwaitCompactedAsync(log, Threshold * 2, cancellationToken);
         var status = await log.GetStatusAsync(cancellationToken);
 
-        _ = await Assert.That(File.Exists(GroupStoragePaths.GetSnapshotPath(owner.DataDir, OwnerId))).IsTrue().Because("Compaction must publish group.snapshot.");
+        var logs = await DescribeLogsAsync(cluster, cancellationToken);
+        _ = await Assert.That(File.Exists(GroupStoragePaths.GetSnapshotPath(owner.DataDir, OwnerId))).IsTrue().Because($"Compaction must publish group.snapshot; {logs}.");
         _ = await Assert.That(retention.RetainedEntries <= Threshold * 2).IsTrue().Because("The group log must keep at most twice the threshold.");
         _ = await Assert.That(new FileInfo(GroupStoragePaths.GetLogPath(owner.DataDir, OwnerId)).Length).IsEqualTo(retention.LogBytes);
         _ = await Assert.That(status.LastLogIndex >= 200).IsTrue().Because("Every overwrite must stay counted in the log index.");
@@ -81,7 +82,8 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
                 _ = snapshots.Add(retention.SnapshotIndex);
         }
 
-        _ = await Assert.That(snapshots.Count >= 2).IsTrue().Because($"Compaction must fire repeatedly while writes go on; snapshot indexes seen: {snapshots.Count}.");
+        var logs = await DescribeLogsAsync(cluster, cancellationToken);
+        _ = await Assert.That(snapshots.Count >= 2).IsTrue().Because($"Compaction must fire repeatedly while writes go on; snapshot indexes seen: {snapshots.Count}; {logs}.");
         _ = await Assert.That(peak < writes / 2).IsTrue().Because($"The group log must stay bounded under load; peak retained entries: {peak}.");
     }
 
@@ -103,7 +105,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         var restarted = await cluster.StartNodeAsync(OwnerId, Options(scope, false), cancellationToken);
         var log = OwnerLog(restarted);
         var key = restarted.FindKeyOwnedBy(CacheName, OwnerId);
-        await VerifyAsync(restarted, cancellationToken);
+        await VerifyAsync(cluster, restarted, cancellationToken);
         var read = await restarted.GetCache<object?>(CacheName).GetValueAsync(CacheName, key, cancellationToken);
         var before = await log.GetStatusAsync(cancellationToken);
         var retention = await log.GetRetentionAsync(cancellationToken);
@@ -143,6 +145,20 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
                         .Because($"A follower that misses entries must block the compaction; outcome: {outcome}.");
         _ = await Assert.That(retention.SnapshotIndex).IsEqualTo(0UL);
         _ = await Assert.That(retention.RetainedEntries >= Threshold * 3).IsTrue();
+    }
+
+    /// <summary>Describes the last log index each node holds of the owned group log, for failure messages.</summary>
+    /// <param name="cluster">The running cluster.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The owner's and each follower's last log index of the owned group.</returns>
+    private static async Task<string> DescribeLogsAsync(TestCluster<IntegrationStartOptions> cluster, CancellationToken cancellationToken)
+    {
+        var owner = await OwnerLog(cluster[OwnerId]).GetStatusAsync(cancellationToken);
+        _ = cluster["node-b"].GetRequiredService<ReplicaGroupRegistry>().TryGetLog(OwnerId, out var first);
+        _ = cluster["node-c"].GetRequiredService<ReplicaGroupRegistry>().TryGetLog(OwnerId, out var second);
+        var b = await first!.GetStatusAsync(cancellationToken);
+        var c = await second!.GetStatusAsync(cancellationToken);
+        return $"owner last {owner.LastLogIndex} commit {owner.CommitIndex}, node-b last {b.LastLogIndex}, node-c last {c.LastLogIndex}";
     }
 
     private static NodeCacheEntry<object?> Entry(int version) => new() { Value = $"value-{version}", Version = version };
@@ -214,16 +230,22 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     }
 
     /// <summary>Verifies the restarted owner's replica slots, as its readiness service does, until every slot counts again.</summary>
+    /// <param name="cluster">The running cluster.</param>
     /// <param name="owner">The restarted group owner.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>An asynchronous operation.</returns>
-    private static async Task VerifyAsync(ITestNodeHost owner, CancellationToken cancellationToken)
+    /// <exception cref="TimeoutException">The owner did not verify every slot within the bound.</exception>
+    private static async Task VerifyAsync(TestCluster<IntegrationStartOptions> cluster, ITestNodeHost owner, CancellationToken cancellationToken)
     {
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(Bound);
+        var started = Stopwatch.GetTimestamp();
         var committer = owner.GetRequiredService<ReplicaGroupCommitter>();
-        while (await committer.VerifyReplicasAsync(deadline.Token) != ReplicaVerification.AllReady)
-            await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, deadline.Token);
+        while (await committer.VerifyReplicasAsync(cancellationToken) != ReplicaVerification.AllReady)
+        {
+            if (Stopwatch.GetElapsedTime(started) >= Bound)
+                throw new TimeoutException($"The restarted owner did not verify every replica slot; {await DescribeLogsAsync(cluster, cancellationToken)}.");
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, cancellationToken);
+        }
     }
 
     /// <summary>Reads the owned group's entry of <c language="csharp">/health/ready/details</c>.</summary>
