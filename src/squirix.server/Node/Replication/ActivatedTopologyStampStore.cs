@@ -12,9 +12,9 @@ namespace Squirix.Server.Node.Replication;
 
 /// <summary>Reads and atomically publishes the activated topology identity stamp.</summary>
 /// <remarks>
-/// The stamp freezes the topology a node was activated with. A restart whose configured identity
-/// differs is refused unless an offline bootstrap rewrote the stamp first, so live and stopped
-/// topology changes cannot slip in outside the single authorized migration path.
+/// The stamp freezes the topology a node was activated with. Nothing rewrites it after first activation,
+/// so a restart whose configured identity differs is refused and live or stopped topology changes cannot
+/// slip in against existing replica state.
 /// </remarks>
 [Immutable]
 internal sealed class ActivatedTopologyStampStore

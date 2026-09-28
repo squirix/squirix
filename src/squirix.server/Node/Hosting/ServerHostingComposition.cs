@@ -173,8 +173,7 @@ internal static class ServerHostingComposition
     /// Composition root for Cluster child namespaces (parent Cluster must not reference them).
     /// </summary>
     /// <remarks>
-    /// Repair and bootstrap planning stay registered on every node, including RF=1 and foundation-only
-    /// hosts: activation discovers them when a stopped cluster is seeded for RF&gt;1, and the idle repair
+    /// The repair service stays registered on every node, including RF=1 and foundation-only hosts: the idle
     /// service parks on its queue read without burning a thread.
     /// </remarks>
     /// <param name="services">DI service collection.</param>
@@ -187,7 +186,6 @@ internal static class ServerHostingComposition
         _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
         _ = services.AddSingleton(static _ => new ReplicaRepairService(RepairQueueCapacity));
         _ = services.AddHostedService(static sp => sp.GetRequiredService<ReplicaRepairService>());
-        _ = services.AddSingleton(static _ => new BootstrapPlanner());
         if (!args.FoundationOnly && cluster.ReplicaCount <= 1)
             return;
         _ = services.AddSingleton(static sp => new SquirixReplicationServiceAdapter(
