@@ -71,11 +71,14 @@ internal static class Program
             await Console.Out.WriteLineAsync($"  URL: {options.Uri}").ConfigureAwait(false);
             await Console.Out.WriteLineAsync($"  Peers: {(options.Peers.Count == 0 ? 1 : options.Peers.Count).ToString(CultureInfo.InvariantCulture)} configured")
                          .ConfigureAwait(false);
+
+            // Reported with the settings it describes, before the data directory checks: a replica mismatch error must not
+            // follow a "valid" line that only means the settings loaded.
+            await Console.Out.WriteLineAsync("  Configuration: valid").ConfigureAwait(false);
             await Console.Out.WriteLineAsync(Configurator.IsListenPortAvailable(options.Uri) ? "  Listen port: available" : "  Listen port: NOT available (already in use)")
                          .ConfigureAwait(false);
             await WritePersistenceStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
             var replicaMismatch = await WriteReplicaStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
-            await Console.Out.WriteLineAsync("  Configuration: valid").ConfigureAwait(false);
             return replicaMismatch ? throw new InvalidOperationException(DoctorReplicaMismatch) : 0;
         }
 

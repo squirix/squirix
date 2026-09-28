@@ -78,6 +78,8 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         _ = await Assert.That(output).Contains(Convert.ToHexString(wrong), StringComparison.Ordinal);
         _ = await Assert.That(output).Contains(expectedHex, StringComparison.Ordinal);
         _ = await Assert.That(output).Contains(MismatchError, StringComparison.Ordinal);
+        _ = await Assert.That(output.IndexOf("  Configuration: valid", StringComparison.Ordinal))
+                        .IsBetween(0, output.IndexOf("topology stamp:", StringComparison.Ordinal));
     }
 
     /// <summary>Verifies doctor reports durable group term, commit, and apply lag.</summary>
