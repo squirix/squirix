@@ -7,6 +7,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Replication;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
 using TUnit.Assertions;
@@ -18,6 +19,10 @@ namespace Squirix.Server.IntegrationTests;
 /// <summary>Verifies the standalone server host doctor command reports replica diagnostics.</summary>
 public sealed class DoctorCommandTests : NodeIntegrationTestBase
 {
+    private const string MismatchError =
+        "[Squirix.Server] Error: Durable replica state in the data directory does not match the configured topology; " +
+        "see the MISMATCH, UNREADABLE, or MISSING lines above.";
+
     /// <summary>Verifies doctor honors the replication opt-in passed on the command line.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -31,7 +36,23 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         _ = await Assert.That(output).Contains("[Squirix.Server] Doctor", StringComparison.Ordinal);
     }
 
-    /// <summary>Verifies doctor reports a stamped fingerprint disagreeing with settings.</summary>
+    /// <summary>Verifies doctor reports an empty RF&gt;1 data directory as not activated and exits with code 0.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DoctorReportsEmptyDataDirectory(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-cmd-empty");
+        var settingsPath = await WriteSettingsAsync(dir, 2, cancellationToken);
+        _ = Directory.CreateDirectory(Path.Join(dir, "data"));
+
+        var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, cancellationToken);
+
+        _ = await Assert.That(exitCode).IsEqualTo(0);
+        _ = await Assert.That(output).Contains("  topology stamp: not activated", StringComparison.Ordinal);
+        _ = await Assert.That(output).DoesNotContain("Error:", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies doctor reports a stamped fingerprint disagreeing with settings and exits with code 1.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task DoctorReportsFingerprintMismatch(CancellationToken cancellationToken)
@@ -52,10 +73,11 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
 
         var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, cancellationToken);
 
-        _ = await Assert.That(exitCode).IsEqualTo(0);
+        _ = await Assert.That(exitCode).IsEqualTo(1);
         _ = await Assert.That(output).Contains("topology stamp: fingerprint MISMATCH", StringComparison.Ordinal);
         _ = await Assert.That(output).Contains(Convert.ToHexString(wrong), StringComparison.Ordinal);
         _ = await Assert.That(output).Contains(expectedHex, StringComparison.Ordinal);
+        _ = await Assert.That(output).Contains(MismatchError, StringComparison.Ordinal);
     }
 
     /// <summary>Verifies doctor reports durable group term, commit, and apply lag.</summary>
@@ -84,7 +106,8 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
 
         _ = await Assert.That(exitCode).IsEqualTo(0);
         _ = await Assert.That(output).Contains("group 'n1': term 9 commit 10 applied 7 apply-lag 3", StringComparison.Ordinal);
-        _ = await Assert.That(output).Contains("fingerprint match", StringComparison.Ordinal);
+        _ = await Assert.That(output).Contains("topology stamp: fingerprint match", StringComparison.Ordinal);
+        _ = await Assert.That(output).DoesNotContain("Error:", StringComparison.Ordinal);
     }
 
     /// <summary>Verifies doctor reports inactive replication when persistence is disabled.</summary>
@@ -100,6 +123,27 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         _ = await Assert.That(exitCode).IsEqualTo(0);
         _ = await Assert.That(output).Contains("[Squirix.Server] Doctor", StringComparison.Ordinal);
         _ = await Assert.That(output).Contains("Replication: not activated (persistence disabled)", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies doctor reports unstamped RF=1 journal state under an RF&gt;1 configuration and exits with code 1.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DoctorReportsRfOneJournalState(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-cmd-rf1");
+        var settingsPath = await WriteSettingsAsync(dir, 2, cancellationToken);
+        var dataDir = Path.Join(dir, "data");
+        _ = Directory.CreateDirectory(dataDir);
+        await File.WriteAllBytesAsync(Path.Join(dataDir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}"), [1], cancellationToken);
+
+        var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, cancellationToken);
+
+        _ = await Assert.That(exitCode).IsEqualTo(1);
+        _ = await Assert.That(output).Contains(
+            "  topology stamp: MISSING while the data directory holds durable cache journal state " +
+            "(last used by an RF=1 node; moving RF=1 data to RF>1 is not supported, so RF>1 startup is refused)",
+            StringComparison.Ordinal);
+        _ = await Assert.That(output).Contains(MismatchError, StringComparison.Ordinal);
     }
 
     /// <summary>Verifies the host help lists the replication opt-in switch.</summary>

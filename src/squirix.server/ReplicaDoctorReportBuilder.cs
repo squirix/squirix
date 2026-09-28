@@ -14,7 +14,8 @@ namespace Squirix.Server;
 /// <summary>Builds offline read-only replica diagnostics for the server doctor command.</summary>
 /// <remarks>
 /// The builder compares the configured topology identity against the activated stamp and the durable
-/// per-group metadata without opening logs, advancing terms, or writing anything. Expected identity
+/// per-group metadata, and flags unstamped RF=1 journal state under an RF&gt;1 configuration the same way
+/// startup refuses it, without opening logs, advancing terms, or writing anything. Expected identity
 /// arrives as primitives so this namespace never depends upward on cluster configuration types.
 /// </remarks>
 [Immutable]
@@ -132,10 +133,7 @@ internal static class ReplicaDoctorReportBuilder
         }
 
         if (stamped == null)
-        {
-            lines.Add("topology stamp: not activated");
-            return false;
-        }
+            return AppendUnstampedLine(dataDirectory, replicaCount, lines);
 
         var mismatch = false;
         if (stamped.Generation != expectedGeneration)
@@ -171,5 +169,20 @@ internal static class ReplicaDoctorReportBuilder
         }
 
         return mismatch;
+    }
+
+    private static bool AppendUnstampedLine(string dataDirectory, int replicaCount, List<string> lines)
+    {
+        // Mirrors the startup refusal: without a stamp, durable journal segments were written by an RF=1 node.
+        if (replicaCount > 1 && ActivatedTopologyStampStore.HasDurableCacheJournalState(dataDirectory))
+        {
+            lines.Add(
+                "topology stamp: MISSING while the data directory holds durable cache journal state " +
+                "(last used by an RF=1 node; moving RF=1 data to RF>1 is not supported, so RF>1 startup is refused)");
+            return true;
+        }
+
+        lines.Add("topology stamp: not activated");
+        return false;
     }
 }

@@ -258,6 +258,9 @@ enabled and a data directory configured, it prints:
 
 - `topology fingerprint: {hex}` and `configuration generation: {n}` for the configured topology;
 - `topology stamp: not activated` when the directory has no stamp (an RF=1 or never-started node);
+- `topology stamp: MISSING while the data directory holds durable cache journal state (last used by an RF=1 node;
+  moving RF=1 data to RF>1 is not supported, so RF>1 startup is refused)` instead when RF>1 is configured and the
+  directory holds cache journal segments but no stamp, the same condition under which startup refuses it;
 - `topology stamp: UNREADABLE ({reason})` when the stamp is corrupt or has an unsupported format;
 - otherwise one line each for `generation`, `replica count`, and `fingerprint`, either `match` or
   `MISMATCH (stamped {value}, configured {value})`;
@@ -265,10 +268,12 @@ enabled and a data directory configured, it prints:
   `group '{id}': metadata UNREADABLE (checksum or format mismatch)`, or
   `group '{id}': term {t} commit {c} applied {a} apply-lag {n} fingerprint match|MISMATCH generation match|MISMATCH`.
 
-Doctor exits with code 0 even when it reports a mismatch; read the lines. Run it with the settings the node will start
-with, including the same internode mTLS environment, so the configured fingerprint matches what startup computes.
-Doctor does not check for RF=1 journal state: `topology stamp: not activated` on a directory that holds journal
-segments means an RF>1 start on it will be refused.
+When any line reports `MISMATCH`, `UNREADABLE`, or `MISSING`, doctor prints the whole report, writes
+`[Squirix.Server] Error: Durable replica state in the data directory does not match the configured topology; see the
+MISMATCH, UNREADABLE, or MISSING lines above.` to standard error, and exits with code 1, the same code as a failed
+`validate-config`. Otherwise, including `topology stamp: not activated`, it exits with code 0. Run it with the settings
+the node will start with, including the same internode mTLS environment, so the configured fingerprint matches what
+startup computes.
 
 ## Upgrade
 
@@ -283,8 +288,8 @@ Before upgrade:
     - Remote `/metrics` and `/health/ready/details` require the same JWT bearer credentials.
     - Operational routes are HTTPS-only on the primary listener.
 6. For RF>1 data directories, run `squirix-server doctor` from the target version against a backup copy of the data directory. A
-   `topology stamp: fingerprint MISMATCH` line means the target version refuses to start on that directory; see
-   [Activated topology stamp](#activated-topology-stamp).
+   `topology stamp: fingerprint MISMATCH` line (doctor exits with code 1) means the target version refuses to start on
+   that directory; see [Activated topology stamp](#activated-topology-stamp).
 
 Compatible rolling upgrade:
 

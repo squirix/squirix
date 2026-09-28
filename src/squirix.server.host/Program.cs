@@ -15,6 +15,9 @@ internal static class Program
 
     private static class SquirixServerProcess
     {
+        private const string DoctorReplicaMismatch =
+            "Durable replica state in the data directory does not match the configured topology; see the MISMATCH, UNREADABLE, or MISSING lines above.";
+
         private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--persist] [--enable-replication] [--urls URL] [--data-dir PATH] [--settings PATH]\n" +
                                         "  init [--settings PATH]\n" + "  validate-config --settings PATH [--strict]\n" +
                                         "  doctor [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH]\n" + "  version\n" + "  help\n";
@@ -71,9 +74,9 @@ internal static class Program
             await Console.Out.WriteLineAsync(Configurator.IsListenPortAvailable(options.Uri) ? "  Listen port: available" : "  Listen port: NOT available (already in use)")
                          .ConfigureAwait(false);
             await WritePersistenceStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
-            await WriteReplicaStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
+            var replicaMismatch = await WriteReplicaStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
             await Console.Out.WriteLineAsync("  Configuration: valid").ConfigureAwait(false);
-            return 0;
+            return replicaMismatch ? throw new InvalidOperationException(DoctorReplicaMismatch) : 0;
         }
 
         private static int Help()
@@ -180,23 +183,29 @@ internal static class Program
             }
         }
 
-        private static async Task WriteReplicaStatusAsync(SquirixServerOptions options, CancellationToken cancellationToken)
+        /// <summary>Writes the offline replica report lines for the doctor command.</summary>
+        /// <param name="options">The loaded server options.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns><see langword="true" /> when the report found durable replica state that disagrees with the configured topology.</returns>
+        private static async Task<bool> WriteReplicaStatusAsync(SquirixServerOptions options, CancellationToken cancellationToken)
         {
             if (!options.PersistenceEnabled)
             {
                 await Console.Out.WriteLineAsync("  Replication: not activated (persistence disabled)").ConfigureAwait(false);
-                return;
+                return false;
             }
 
             if (string.IsNullOrWhiteSpace(options.DataDirectory))
             {
                 await Console.Out.WriteLineAsync("  Replication: not activated (data directory unavailable)").ConfigureAwait(false);
-                return;
+                return false;
             }
 
             var report = await ReplicaDoctor.BuildReportAsync(options, options.DataDirectory, cancellationToken).ConfigureAwait(false);
             for (var i = 0; i < report.Lines.Count; i++)
                 await Console.Out.WriteLineAsync("  " + report.Lines[i]).ConfigureAwait(false);
+
+            return report.HasMismatch;
         }
 
         private static async Task WriteRunServerStatusAsync(SquirixServerCommand command, SquirixServerOptions options, CancellationToken cancellationToken)

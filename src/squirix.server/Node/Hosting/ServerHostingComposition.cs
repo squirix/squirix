@@ -30,7 +30,6 @@ using Squirix.Server.Node.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
 
@@ -285,7 +284,7 @@ internal static class ServerHostingComposition
             // Only RF>1 activation writes the stamp, so a directory that already carries durable cache journal
             // state belonged to an RF=1 node. Stamping it as RF>1 would adopt data no replica group holds, and
             // moving RF=1 data to RF>1 is not supported, so refuse startup.
-            if (replicaCount > 1 && HasDurableCacheJournalState(dataDir))
+            if (replicaCount > 1 && ActivatedTopologyStampStore.HasDurableCacheJournalState(dataDir))
             {
                 throw new InvalidOperationException(
                     "Data directory holds durable cache journal state but no activated topology stamp, so it was last used by an RF=1 node; " +
@@ -305,11 +304,6 @@ internal static class ServerHostingComposition
                 "start the node with the configuration and package version the directory was activated with, or on an empty data directory.");
         }
     }
-
-    /// <summary>Determines whether the data directory already holds durable cache journal segments.</summary>
-    /// <param name="dataDir">Exclusive node data directory.</param>
-    /// <returns><see langword="true" /> when durable journal segments exist.</returns>
-    private static bool HasDurableCacheJournalState(string dataDir) => JournalReader.EnumerateSegments(dataDir, 1).Length > 0;
 
     private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
     {

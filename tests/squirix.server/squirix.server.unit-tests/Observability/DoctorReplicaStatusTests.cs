@@ -7,6 +7,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Replication;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -179,6 +180,39 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
 
         _ = await Assert.That(report.HasMismatch).IsTrue();
         _ = await Assert.That(string.Join('\n', report.Lines)).Contains("replica count MISMATCH", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies journal state under an RF=1 configuration stays an inactive replica set without mismatch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReportsRfOneJournalAtRfOneAsInactive(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-rf1-journal-rf1");
+        await File.WriteAllBytesAsync(Path.Join(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}"), [1], cancellationToken);
+
+        var (hasMismatch, lines) = await BuildReportAsync(ExpectedHex(), 5, 1, ["n1"], dir, cancellationToken);
+
+        _ = await Assert.That(hasMismatch).IsFalse();
+        _ = await Assert.That(string.Join('\n', lines)).Contains("topology stamp: not activated", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies unstamped RF=1 journal state under an RF&gt;1 configuration reports the startup refusal as mismatch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReportsRfOneJournalStateAsMismatch(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-rf1-journal");
+        await File.WriteAllBytesAsync(Path.Join(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}"), [1], cancellationToken);
+
+        var report = await BuildReportAsync(CreateOptions(), new MtlsOptions(), dir, cancellationToken);
+
+        _ = await Assert.That(report.HasMismatch).IsTrue();
+        var text = string.Join('\n', report.Lines);
+        _ = await Assert.That(text).Contains(
+            "topology stamp: MISSING while the data directory holds durable cache journal state " +
+            "(last used by an RF=1 node; moving RF=1 data to RF>1 is not supported, so RF>1 startup is refused)",
+            StringComparison.Ordinal);
+        _ = await Assert.That(text).DoesNotContain("not activated", StringComparison.Ordinal);
     }
 
     /// <summary>Verifies undecodable group metadata reports an unreadable group as mismatch.</summary>

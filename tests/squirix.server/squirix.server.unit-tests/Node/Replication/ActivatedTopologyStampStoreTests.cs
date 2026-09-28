@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Node.Replication;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -60,6 +61,33 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
         var description = Stamp(1, 2, 0x00).DescribeChange(Stamp(1, 3, 0x01));
 
         _ = await Assert.That(description).IsEqualTo("replica count changed (stamped 2, configured 3)");
+    }
+
+    /// <summary>Only journal segment files count as durable cache journal state; the stamp and other files do not.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task JournalStateDetectsSegmentFiles(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-stamp-journal-state");
+        await new ActivatedTopologyStampStore(dir).PublishAsync(
+            new ActivatedTopologyStamp { Generation = 1, Fingerprint = new byte[32], ReplicaCount = 2 },
+            cancellationToken);
+        await File.WriteAllBytesAsync(Path.Join(dir, "notes.txt"), [1], cancellationToken);
+
+        _ = await Assert.That(ActivatedTopologyStampStore.HasDurableCacheJournalState(dir)).IsFalse();
+
+        await File.WriteAllBytesAsync(Path.Join(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}"), [1], cancellationToken);
+
+        _ = await Assert.That(ActivatedTopologyStampStore.HasDurableCacheJournalState(dir)).IsTrue();
+    }
+
+    /// <summary>A data directory that does not exist yet holds no journal state.</summary>
+    [Test]
+    public async Task JournalStateFalseForMissingDirectory()
+    {
+        using var dir = new TempDirectory("squirix-stamp-journal-missing");
+
+        _ = await Assert.That(ActivatedTopologyStampStore.HasDurableCacheJournalState(Path.Join(dir, "absent"))).IsFalse();
     }
 
     /// <summary>Mismatched generation, replica count, or fingerprint never matches.</summary>
