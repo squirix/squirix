@@ -185,7 +185,7 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
     {
         Header = new ReplicationEnvelopeHeader
         {
-            SchemaVersion = EnvelopeCodec.SchemaVersion,
+            SchemaVersion = EnvelopeSchema.Version,
             GroupId = "g1",
             TopologyFingerprint = ByteString.CopyFrom(1, 2, 3, 4),
             ConfigurationGeneration = 1,
@@ -200,7 +200,7 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
     {
         Header = new ReplicationEnvelopeHeader
         {
-            SchemaVersion = EnvelopeCodec.SchemaVersion,
+            SchemaVersion = EnvelopeSchema.Version,
             GroupId = "g1",
             TopologyFingerprint = ByteString.CopyFrom(1, 2, 3, 4),
             ConfigurationGeneration = 1,
