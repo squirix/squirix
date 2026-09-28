@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Frozen;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
@@ -15,6 +18,28 @@ namespace Squirix.Server.UnitTests.LocalCache;
 [Immutable]
 public sealed class CacheDerivedMutationTests : ServerUnitTestBase
 {
+    /// <summary>Ensures ClientCache SetEntryAsync without expiration clears a previous TTL and tags instead of carrying them over.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ClientSetWithoutExpiryClearsTtl(CancellationToken cancellationToken)
+    {
+        var timeProvider = new FakeTimeProvider();
+        var physical = new PhysicalCache<string>(timeProvider);
+        var clientCache = new ClientCache<string>(physical, physical);
+        var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["tenant"] = "a" }.ToFrozenDictionary(StringComparer.Ordinal);
+        var expiring = new NodeCacheEntry<string>("old", expiration: TimeSpan.FromMinutes(10), tags: tags);
+        await clientCache.SetEntryAsync(UnitMutationOpIds.Default, "orders", "k", expiring, cancellationToken);
+
+        await clientCache.SetEntryAsync(UnitMutationOpIds.Default, "orders", "k", new NodeCacheEntry<string> { Value = "new" }, cancellationToken);
+        timeProvider.Advance(TimeSpan.FromMinutes(11));
+
+        var entry = await clientCache.GetEntryAsync("orders", "k", cancellationToken);
+        _ = await Assert.That(entry).IsNotNull();
+        _ = await Assert.That(entry!.Value).IsEqualTo("new");
+        _ = await Assert.That(entry.ExpiresUtc).IsNull();
+        _ = await Assert.That(entry.Tags).IsNull();
+    }
+
     /// <summary>Ensures ClientCache UpdateAsync preserves expiration through the adapter.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

@@ -58,8 +58,8 @@ on `ICache<T>`. `ContainsAsync` is not part of the v0.1 public client surface or
 can become stale immediately in a distributed cache; use `GetValueAsync` / `GetEntryAsync` instead.
 Writes accept a value plus optional `CacheEntryOptions`; `CacheEntry<T>` is a read model returned by lookup APIs, not a
 mutation parameter. When write options omit expiration (`options` is null, or neither `Expiration` nor `ExpiresAt` is
-set), the entry is stored without TTL and does not expire by time. Compare-and-set, counters, batch, scan, watch, and tag
-invalidation are not part of the v0.1 exported client surface.
+set), the entry is stored without TTL and does not expire by time; overwriting an expiring key that way clears its TTL.
+Compare-and-set, counters, batch, scan, watch, and tag invalidation are not part of the v0.1 exported client surface.
 
 The v0.1 gRPC service surface in `SquirixCache.proto` exposes ten unary cache RPCs. Mutations with expiration use
 `SetEntry` / `TryAddEntry` with `CacheEntryWire`; the client SDK maps them to public `SetAsync` / `TryAddAsync`.
