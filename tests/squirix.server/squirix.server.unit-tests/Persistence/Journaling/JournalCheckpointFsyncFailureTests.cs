@@ -58,7 +58,7 @@ public sealed class JournalCheckpointFsyncFailureTests : IsolatedStorageTestBase
         var thrown = await NodeAsyncAssert.ThrowsAsync<IOException>(pending.WaitAsync(Bound, TimeProvider.System, cancellationToken));
         _ = await Assert.That(thrown).IsSameReferenceAs(writer.Failure);
         _ = await Assert.That(await journal.DurabilityPipeline.TryJoinJournalThreadAsync(Bound)).IsTrue();
-        _ = await Assert.That(journal.HasFlushLoopFailure).IsTrue();
+        _ = await Assert.That(journal.GetJournalThreadFailure()).IsNotNull();
     }
 
     /// <summary>A failed checkpoint fsync faults the waiter with the I/O error and fails the journal pipeline.</summary>
@@ -81,7 +81,7 @@ public sealed class JournalCheckpointFsyncFailureTests : IsolatedStorageTestBase
 
         _ = await Assert.That(thrown).IsSameReferenceAs(writer.Failure);
         _ = await Assert.That(await journal.DurabilityPipeline.TryJoinJournalThreadAsync(Bound)).IsTrue();
-        _ = await Assert.That(journal.HasFlushLoopFailure).IsTrue();
+        _ = await Assert.That(journal.GetJournalThreadFailure()).IsNotNull();
     }
 
     private PersistenceOptions CreateOptions() => new()

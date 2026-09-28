@@ -156,7 +156,6 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
             _ = setups.AppendedBytes.Gets().Callback(() => journal.AppendedBytes);
             _ = setups.AppendedOps.Gets().Callback(() => journal.AppendedOps);
             _ = setups.CurrentSegmentIndex.Gets().Callback(() => journal.CurrentSegmentIndex);
-            _ = setups.HasFlushLoopFailure.Gets().Callback(() => journal.HasFlushLoopFailure);
             _ = setups.HighWaterBytes.Gets().Callback(() => journal.HighWaterBytes);
             _ = setups.InFlightApplyGate.Gets().Callback(() => journal.InFlightApplyGate);
             _ = setups.IsJournalGroupCommitEnabled.Gets().Callback(() => journal.IsJournalGroupCommitEnabled);

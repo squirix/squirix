@@ -107,8 +107,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public JournalDurabilityGroupCommit? GroupCommit { get; }
 
-    public bool HasFlushLoopFailure => _flushLoopFailure.Read() != null;
-
     public long HighWaterBytes => EventLoop.Policy.HighWaterBytes;
 
     public QuiescenceGate InFlightApplyGate { get; } = new();

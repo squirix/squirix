@@ -11,8 +11,6 @@ internal interface IJournalCoordinatorLifecycle
 
     int CurrentSegmentIndex { get; }
 
-    bool HasFlushLoopFailure { get; }
-
     bool IsJournalGroupCommitEnabled { get; }
 
     ulong NextSequence { get; }
