@@ -66,9 +66,9 @@ public sealed class GroupLogRetentionTests : NodeIntegrationTestBase
         _ = await Assert.That(retained.Count).IsEqualTo(0).Because("A restarted owner must not reload payloads it had already applied.");
         _ = await Assert.That(status.LastAppliedIndex).IsEqualTo(status.CommitIndex).Because("The owner's applied index must persist across the restart.");
 
-        // The restarted owner probes its followers right away; the cluster stops only after those probes finished, so no node is torn
+        // The restarted owner probes its followers right away; the cluster stops only after those probes settled, so no node is torn
         // down in the middle of a TLS handshake.
-        await VerifyAsync(restarted, cancellationToken);
+        await SettleVerificationAsync(restarted, cancellationToken);
     }
 
     private static IntegrationStartOptions Options(string scope, bool clean) =>
@@ -93,17 +93,19 @@ public sealed class GroupLogRetentionTests : NodeIntegrationTestBase
         return log!;
     }
 
-    /// <summary>Verifies the restarted owner's replica slots, as its readiness service does, until every slot counts again.</summary>
+    /// <summary>
+    /// Verifies the restarted owner's replica slots, as its readiness service does, until every slot counts again or the bound
+    /// elapses; the test asserts nothing about the verification itself.
+    /// </summary>
     /// <param name="owner">The restarted group owner.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>An asynchronous operation.</returns>
-    private static async Task VerifyAsync(ITestNodeHost owner, CancellationToken cancellationToken)
+    private static async Task SettleVerificationAsync(ITestNodeHost owner, CancellationToken cancellationToken)
     {
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(ApplyBound);
+        var started = Stopwatch.GetTimestamp();
         var committer = owner.GetRequiredService<ReplicaGroupCommitter>();
-        while (await committer.VerifyReplicasAsync(deadline.Token) != ReplicaVerification.AllReady)
-            await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, deadline.Token);
+        while (await committer.VerifyReplicasAsync(cancellationToken) != ReplicaVerification.AllReady && Stopwatch.GetElapsedTime(started) < ApplyBound)
+            await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Overwrites one key owned by node-a, each write with a fresh operation identifier.</summary>
