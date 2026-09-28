@@ -102,15 +102,17 @@ Example fragment:
 `Squirix:Cluster` is loaded by `Configurator` (`TryLoadFromFileAsync`, `LoadFromFileAsync`) for the
 standalone host, `AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()`.
 
-| Field            | Type   | Default                                | Validation                                                                                                                           |
-| ---------------- | ------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `NodeId`         | string | loader fallback                        | Required, non-empty, maximum 128 characters                                                                                          |
-| `ClusterId`      | string | loader fallback                        | Required, non-empty, maximum 128 characters                                                                                          |
-| `Uri`            | URI    | loader fallback                        | Absolute `https` origin URI (max 2048); rejects `http://`; no credentials, path, query, or fragment                                  |
-| `VirtualNodes`   | int    | `128`                                  | `> 0` and `<= 16384`                                                                                                                 |
-| `Peers`          | array  | runtime local-peer fallback when empty | When non-empty: must include local `NodeId`; peer ids and URIs must be unique; local peer `Uri` must match `Uri`; maximum 1024 peers |
-| `Peers[].NodeId` | string | none                                   | Required, non-empty, maximum 128 characters                                                                                          |
-| `Peers[].Uri`    | URI    | none                                   | Same validation as `Uri`                                                                                                             |
+| Field                     | Type   | Default                                | Validation                                                                                                                                                        |
+| ------------------------- | ------ | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NodeId`                  | string | loader fallback                        | Required, non-empty, maximum 128 characters                                                                                                                       |
+| `ClusterId`               | string | loader fallback                        | Required, non-empty, maximum 128 characters                                                                                                                       |
+| `Uri`                     | URI    | loader fallback                        | Absolute `https` origin URI (max 2048); rejects `http://`; no credentials, path, query, or fragment                                                               |
+| `VirtualNodes`            | int    | `128`                                  | `> 0` and `<= 16384`                                                                                                                                              |
+| `ReplicaCount`            | int    | `1`                                    | `1..5`, at most the peer count; RF>1 needs persistence, cluster mTLS, and `ReplicationEnabled`; see the [topology stamp](#activated-topology-stamp-topologystamp) |
+| `ConfigurationGeneration` | ulong  | `1`                                    | `> 0`; recorded in the [activated topology stamp](#activated-topology-stamp-topologystamp) on the first RF>1 start                                                |
+| `Peers`                   | array  | runtime local-peer fallback when empty | When non-empty: must include local `NodeId`; peer ids and URIs must be unique; local peer `Uri` must match `Uri`; maximum 1024 peers                              |
+| `Peers[].NodeId`          | string | none                                   | Required, non-empty, maximum 128 characters                                                                                                                       |
+| `Peers[].Uri`             | URI    | none                                   | Same validation as `Uri`                                                                                                                                          |
 
 CLI validation:
 
@@ -151,20 +153,27 @@ so gRPC clients and operational routes (`/health`, `/metrics`) share one TLS por
 Configure these through `await builder.AddSquirixServerAsync(...)`, `SquirixServer.StartAsync(...)`, or the `Squirix:Cluster`
 section in settings (mapped into the same options model).
 
-| Field                | Type     | Default                  | Validation                                                             |
-| -------------------- | -------- | ------------------------ | ---------------------------------------------------------------------- |
-| `ClusterId`          | string   | `cluster`                | Non-empty; validated with topology                                     |
-| `NodeId`             | string   | `node`                   | Non-empty; validated with topology                                     |
-| `Uri`                | `Uri`    | `https://localhost:5001` | Absolute HTTPS URI                                                     |
-| `Peers`              | peers    | empty (local added)      | `SquirixServerPeerOptions` `NodeId` / `Uri` topology rules             |
-| `VirtualNodes`       | int      | `128`                    | `1..16384`                                                             |
-| `PersistenceEnabled` | bool     | `false`                  | Any boolean                                                            |
-| `ReplicationEnabled` | bool     | `false`                  | Opt-in for RF>1 replication; RF>1 without it refuses startup           |
-| `WaitForRecovery`    | bool     | `true`                   | Any boolean; applies when persistence is enabled                       |
-| `DataDirectory`      | string?  | `null`                   | Optional path when persistence is enabled; requires `UsePersistence()` |
+| Field                     | Type    | Default                  | Validation                                                                                                                                                        |
+| ------------------------- | ------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ClusterId`               | string  | `cluster`                | Non-empty; validated with topology                                                                                                                                |
+| `NodeId`                  | string  | `node`                   | Non-empty; validated with topology                                                                                                                                |
+| `Uri`                     | `Uri`   | `https://localhost:5001` | Absolute HTTPS URI                                                                                                                                                |
+| `Peers`                   | peers   | empty (local added)      | `SquirixServerPeerOptions` `NodeId` / `Uri` topology rules                                                                                                        |
+| `VirtualNodes`            | int     | `128`                    | `1..16384`                                                                                                                                                        |
+| `ReplicaCount`            | int     | `1`                      | `1..5`, at most the peer count; RF>1 needs persistence, cluster mTLS, and `ReplicationEnabled`; see the [topology stamp](#activated-topology-stamp-topologystamp) |
+| `ConfigurationGeneration` | ulong   | `1`                      | `> 0`; recorded in the [activated topology stamp](#activated-topology-stamp-topologystamp) on the first RF>1 start                                                |
+| `PersistenceEnabled`      | bool    | `false`                  | Any boolean                                                                                                                                                       |
+| `ReplicationEnabled`      | bool    | `false`                  | Opt-in for RF>1 replication; RF>1 without it refuses startup                                                                                                      |
+| `WaitForRecovery`         | bool    | `true`                   | Any boolean; applies when persistence is enabled                                                                                                                  |
+| `DataDirectory`           | string? | `null`                   | Optional path when persistence is enabled; requires `UsePersistence()`                                                                                            |
 
 Call `options.UsePersistence()` (or `options.UsePersistence("./data")`) to enable journal/snapshot persistence. The standalone
 host accepts `--persist`; `--data-dir` requires `--persist`.
+
+`ReplicaCount` and `ConfigurationGeneration` have no CLI flag; the standalone host reads them from
+`Squirix:Cluster:ReplicaCount` and `Squirix:Cluster:ConfigurationGeneration`. The first RF>1 start records both in the
+[activated topology stamp](#activated-topology-stamp-topologystamp), and later RF>1 starts with a different value are
+refused.
 
 Example:
 
