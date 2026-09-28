@@ -22,6 +22,7 @@ using TUnit.Core;
 [assembly: Rock(typeof(ILogicalNamespacedCache<>), BuildType.Create)]
 [assembly: Rock(typeof(ISquirixServerEntryCachePipeline<>), BuildType.Create)]
 [assembly: Rock(typeof(IJournalCoordinator), BuildType.Create)]
+[assembly: Rock(typeof(IJournalDurabilityCoordinator), BuildType.Create)]
 [assembly: Rock(typeof(IFollowerLogFaultHooks), BuildType.Create)]
 [assembly: Rock(typeof(IServerClientPool), BuildType.Create)]
 [assembly: Rock(typeof(IServerCallPolicy), BuildType.Create)]

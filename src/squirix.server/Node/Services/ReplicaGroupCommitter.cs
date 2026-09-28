@@ -7,6 +7,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -28,6 +29,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(1);
 
+    private readonly ReplicaLeaderApplier _applier;
     private readonly AsyncLock _gate = new();
     private readonly IReplicaRpcGateway _gateway;
     private readonly ulong _generation;
@@ -72,6 +74,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _locator = locator;
         _gateway = gateway;
         _local = local;
+        _applier = new ReplicaLeaderApplier(local);
         _selfId = selfId;
         _topologyFingerprint = topologyFingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topologyFingerprint))
             : topologyFingerprint;
@@ -252,6 +255,35 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var mutation = await factory.PrepareUpdateAsync(operationId, cacheName, key, value, index, cancellationToken).ConfigureAwait(false);
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
         return ReplicaOutcomeCodec.DecodeApplied(outcome);
+    }
+
+    /// <summary>Persists the in-memory applied index of the owned group log once the cache journal holds every applied entry durably.</summary>
+    /// <param name="durability">The node cache journal whose frames the applies appended.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the durable applied index is at least the in-memory one read at the start.</returns>
+    /// <exception cref="InvalidOperationException">The owned group log refused the applied advance.</exception>
+    /// <remarks>
+    /// Runs outside the commit gate. Every entry at or below the applied index read here returned from its apply, which appends its
+    /// cache journal frame first, so the durability barrier awaited next covers all of them; only then does the log advance its applied
+    /// index and release the applied payloads, so a crash never leaves the log claiming an apply the cache journal lost. Nothing is
+    /// done while the durable applied index is already there.
+    /// </remarks>
+    internal async Task FlushAppliedAsync(IJournalDurabilityCoordinator durability, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(durability);
+        ThrowIfDisposed();
+        if (!_registry.TryGetLog(_selfId, out var log))
+            return;
+
+        var applied = _applier.AppliedIndex;
+        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        if (applied <= status.LastAppliedIndex)
+            return;
+
+        await durability.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
+        var result = await log.AdvanceAppliedAsync(applied, cancellationToken).ConfigureAwait(false);
+        if (!result.Success)
+            throw new InvalidOperationException($"Local group applied advance was refused: {result.RefusalCode}.");
     }
 
     /// <summary>Verifies non-ready replica slots against the leader log so a restarted group regains its write quorum.</summary>
@@ -471,6 +503,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // One read pairs the status with its tail: a commit left running by the disposed coordinator may still advance the log.
         var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
         var status = read.Status;
+
+        // Memory must hold every committed entry before the recovered tail reads its outcomes and before anything new is prepared.
+        await _applier.CatchUpAsync(log, status.LastAppliedIndex, status.CommitIndex, Clock, cancellationToken).ConfigureAwait(false);
+
         var term = Math.Max(1UL, status.CurrentTerm);
         var (members, header) = BuildMembership(term);
         var tail = ReplicaLeaderTail.From(read);
@@ -486,7 +522,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             : [];
 
         // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
-        var pipeline = new ReplicaGroupCommitPipeline(_local, log, _gateway, members, _selfId, status, header) { Clock = Clock };
+        var pipeline = new ReplicaGroupCommitPipeline(_applier, log, _gateway, members, _selfId, status, header) { Clock = Clock };
         var factory = new ReplicaMutationFactory(_local, _selfId, term, Clock);
         _coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(_locator.ReplicaCount, status.LastLogIndex, status.CommitIndex, MaxInFlight),
@@ -565,8 +601,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// </remarks>
     private sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     {
+        private readonly ReplicaLeaderApplier _applier;
         private readonly ReplicaRpcHeader _header;
-        private readonly ILogicalNamespacedCache<object?> _local;
         private readonly IFollowerLog _log;
         private readonly string[] _members;
         private readonly IReplicaRpcGateway _rpc;
@@ -578,7 +614,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         private ulong _prevLogTerm;
 
         /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitPipeline" /> class.</summary>
-        /// <param name="local">Local cache pipeline used for memory applies.</param>
+        /// <param name="applier">The committer's applier, which applies committed entries to memory in log order.</param>
         /// <param name="log">Owned group log for local durable appending.</param>
         /// <param name="rpc">Follower replication RPCs.</param>
         /// <param name="members">Ordered group members; index zero is this node.</param>
@@ -586,7 +622,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         /// <param name="status">Durable log status seeding previous and commit positions.</param>
         /// <param name="header">Replication envelope identity for follower calls.</param>
         internal ReplicaGroupCommitPipeline(
-            ILogicalNamespacedCache<object?> local,
+            ReplicaLeaderApplier applier,
             IFollowerLog log,
             IReplicaRpcGateway rpc,
             string[] members,
@@ -594,7 +630,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             FollowerLogStatus status,
             ReplicaRpcHeader header)
         {
-            ArgumentNullException.ThrowIfNull(local);
+            ArgumentNullException.ThrowIfNull(applier);
             ArgumentNullException.ThrowIfNull(log);
             ArgumentNullException.ThrowIfNull(rpc);
             ArgumentNullException.ThrowIfNull(members);
@@ -602,7 +638,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             if (members.Length == 0 || !string.Equals(members[0], selfId, StringComparison.Ordinal))
                 throw new ArgumentException("Group members must start with this node.", nameof(members));
 
-            _local = local;
+            _applier = applier;
             _log = log;
             _rpc = rpc;
             _members = members;
@@ -663,14 +699,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
 
         /// <inheritdoc />
-        public async ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            var decoded = ReplicaLogCodec.Decode(mutation.CanonicalPayload);
-            if (decoded is not { } apply)
-                throw new InvalidOperationException("Prepared mutation carries an undecodable canonical payload.");
-
-            _ = await ReplicaCacheApplier.ApplyAsync(_local, apply, Clock, cancellationToken).ConfigureAwait(false);
-        }
+        /// <remarks>Every entry the coordinator applies, its own and those a late majority commits, advances the committer's applied index.</remarks>
+        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
+            _applier.ApplyAsync(mutation.LogIndex, mutation.CanonicalPayload, Clock, cancellationToken);
 
         /// <inheritdoc />
         public void RecordLaggingReplica(int replicaIndex, ulong logIndex)

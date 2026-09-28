@@ -31,6 +31,7 @@ using Squirix.Server.Node.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
 
@@ -155,6 +156,13 @@ internal static class ServerHostingComposition
         _ = services.AddHostedService(static sp => new ReplicaGroupReadinessService(
             sp.GetRequiredService<ReplicaGroupCommitter>(),
             sp.GetRequiredService<ILogger<ReplicaGroupReadinessService>>(),
+            sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        _ = services.AddSingleton(new ReplicaLogCompactionOptions());
+        _ = services.AddHostedService(static sp => new ReplicaLogCompactionService(
+            sp.GetRequiredService<ReplicaGroupCommitter>(),
+            sp.GetRequiredService<IJournalCoordinator>(),
+            sp.GetRequiredService<ReplicaLogCompactionOptions>(),
+            sp.GetRequiredService<ILogger<ReplicaLogCompactionService>>(),
             sp.GetService<TimeProvider>() ?? TimeProvider.System));
         _ = services.AddSingleton<IReplicaStatusSource>(static sp => new ReplicaGroupStatusSource(
             sp.GetRequiredService<ReplicaGroupRegistry>(),

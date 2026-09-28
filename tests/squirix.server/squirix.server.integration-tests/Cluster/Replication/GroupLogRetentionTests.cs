@@ -2,9 +2,11 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
@@ -22,6 +24,9 @@ public sealed class GroupLogRetentionTests : NodeIntegrationTestBase
 
     /// <summary>Bounds the wait for the applied index to reach the commit index; a healthy owner applies within a few rounds.</summary>
     private static readonly TimeSpan ApplyBound = TimeSpan.FromSeconds(10);
+
+    /// <summary>The group log maintenance interval of the test nodes, far below the production default so the bound above holds.</summary>
+    private static readonly TimeSpan MaintenanceInterval = TimeSpan.FromMilliseconds(100);
 
     /// <summary>The owner's applied index follows its commit index, so no committed payload stays retained in memory.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -63,7 +68,20 @@ public sealed class GroupLogRetentionTests : NodeIntegrationTestBase
     }
 
     private static IntegrationStartOptions Options(string scope, bool clean) =>
-        new() { ReplicaCount = 3, UsePersistence = true, CleanTestDir = clean, ExtraScope = scope };
+        new() { ReplicaCount = 3, UsePersistence = true, CleanTestDir = clean, ExtraScope = scope, ServicesConfigure = ShortenMaintenance };
+
+    /// <summary>Replaces the group log maintenance schedule with <see cref="MaintenanceInterval" />.</summary>
+    /// <param name="services">The node service collection.</param>
+    private static void ShortenMaintenance(IServiceCollection services)
+    {
+        for (var i = services.Count - 1; i >= 0; i--)
+        {
+            if (services[i].ServiceType == typeof(ReplicaLogCompactionOptions))
+                services.RemoveAt(i);
+        }
+
+        _ = services.AddSingleton(new ReplicaLogCompactionOptions { Interval = MaintenanceInterval });
+    }
 
     private static IFollowerLog OwnerLog(ITestNodeHost owner)
     {
