@@ -57,6 +57,8 @@ public sealed class ClusterPackageVersionE2ETests : EndToEndTestBase
         var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
             cluster.StartNodeAsync(new ClusterNode("nodeLegacy", heldLeg.HttpUri), newTopology, new ClusterStartOptions { ReplicaCount = 2, DataDir = dirB }, cancellationToken));
 
-        _ = await Assert.That(exception.Message).Contains("offline bootstrap", StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains(": topology fingerprint changed (stamped ", StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains("minimum cluster package version", StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains("not supported in this release", StringComparison.Ordinal);
     }
 }

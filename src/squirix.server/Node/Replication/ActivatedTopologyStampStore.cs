@@ -6,15 +6,16 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Replication;
 
 /// <summary>Reads and atomically publishes the activated topology identity stamp.</summary>
 /// <remarks>
-/// The stamp freezes the topology a node was activated with. A restart whose configured identity
-/// differs is refused unless an offline bootstrap rewrote the stamp first, so live and stopped
-/// topology changes cannot slip in outside the single authorized migration path.
+/// The stamp freezes the topology a node was activated with. Nothing rewrites it after first activation,
+/// so a restart whose configured identity differs is refused and live or stopped topology changes cannot
+/// slip in against existing replica state.
 /// </remarks>
 [Immutable]
 internal sealed class ActivatedTopologyStampStore
@@ -37,6 +38,15 @@ internal sealed class ActivatedTopologyStampStore
 
     /// <summary>Gets the durable stamp path.</summary>
     internal string StampPath { get; }
+
+    /// <summary>Determines whether a data directory holds durable cache journal segments.</summary>
+    /// <param name="dataDirectory">Node data directory.</param>
+    /// <returns><see langword="true" /> when durable journal segments exist.</returns>
+    /// <remarks>
+    /// Only RF&gt;1 activation writes the stamp, so journal segments in a directory without a stamp were written by an
+    /// RF=1 node. Startup refuses such a directory as RF&gt;1 and the server doctor reports it the same way.
+    /// </remarks>
+    internal static bool HasDurableCacheJournalState(string dataDirectory) => JournalReader.EnumerateSegments(dataDirectory, 1).Length > 0;
 
     /// <summary>Flushes a stamp and atomically replaces the published version.</summary>
     /// <param name="stamp">Stamp to publish.</param>

@@ -11,9 +11,14 @@ public sealed class SquirixServerOptions
     public string ClusterId { get; set; } = "cluster";
 
     /// <summary>
-    /// Gets or sets the stopped-topology configuration generation.
-    /// Must be greater than zero. Changing an activated RF&gt;1 topology is unsupported.
+    /// Gets or sets the configuration generation of the cluster topology.
+    /// Default is <c language="csharp">1</c>; must be greater than zero.
     /// </summary>
+    /// <remarks>
+    /// The generation is an input of the topology fingerprint. The first RF&gt;1 start with persistence records it in the
+    /// activated topology stamp of the data directory, and every later RF&gt;1 start on that directory refuses a different
+    /// value: changing the activated topology of an existing data directory is not supported.
+    /// </remarks>
     public ulong ConfigurationGeneration { get; set; } = 1;
 
     /// <summary>Gets or sets an optional persistence data directory override.</summary>
@@ -30,8 +35,14 @@ public sealed class SquirixServerOptions
 
     /// <summary>
     /// Gets or sets the replica factor including the original owner.
-    /// Default is <c language="csharp">1</c>. Values greater than one are planning-only until replication activation.
+    /// Default is <c language="csharp">1</c>; must be between 1 and 5 and cannot exceed the number of configured peers.
     /// </summary>
+    /// <remarks>
+    /// A value greater than one activates replication. It requires persistence (see <see cref="UsePersistence" />), which
+    /// <see cref="Validate()" /> checks, and at host startup also cluster mTLS material and the <see cref="ReplicationEnabled" />
+    /// opt-in; startup is refused when any of them is missing. The first RF&gt;1 start records the replica count in the
+    /// activated topology stamp of the data directory, and every later RF&gt;1 start on that directory refuses a different value.
+    /// </remarks>
     public int ReplicaCount { get; set; } = 1;
 
     /// <summary>

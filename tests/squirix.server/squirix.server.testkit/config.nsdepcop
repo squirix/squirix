@@ -71,7 +71,7 @@
   <Disallowed From="Squirix.Server.TestKit.Mtls.*" To="Squirix.Server.TestKit.Benchmarks.*" />
   <Disallowed From="Squirix.Server.TestKit.Mtls.*" To="Squirix.Server.TestKit.Replication.*" />
 
-  <!-- Replication kits drive follower logs and offline bootstrap below the node composition layer. -->
+  <!-- Replication kits drive follower logs below the node composition layer. -->
   <Disallowed From="Squirix.Server.TestKit.Replication.*" To="Squirix.Server.Adapters.*" />
   <Disallowed From="Squirix.Server.TestKit.Replication.*" To="Squirix.Server.Node.Hosting.*" />
   <Disallowed From="Squirix.Server.TestKit.Replication.*" To="Squirix.Server.Node.App.*" />

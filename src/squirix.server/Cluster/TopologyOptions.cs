@@ -32,7 +32,7 @@ internal sealed class TopologyOptions
     /// <summary>Gets a value indicating whether quorum reads require majority confirmation. Always disabled until quorum-read activation.</summary>
     internal bool QuorumReadsEnabled { get; init; }
 
-    /// <summary>Gets the stopped-topology configuration generation (must be greater than zero).</summary>
+    /// <summary>Gets the configuration generation of the cluster topology (must be greater than zero).</summary>
     internal ulong ConfigurationGeneration { get; init; } = 1;
 
     internal required string NodeId { get; init; } = "node";

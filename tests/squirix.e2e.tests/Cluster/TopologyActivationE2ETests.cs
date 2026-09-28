@@ -12,10 +12,10 @@ using TUnit.Core;
 
 namespace Squirix.E2ETests.Cluster;
 
-/// <summary>Activated topology changes are rejected outside the offline bootstrap path.</summary>
+/// <summary>Activated topology changes against an existing data directory are rejected at startup.</summary>
 public sealed class TopologyActivationE2ETests : EndToEndTestBase
 {
-    /// <summary>A live cluster refuses a restarted node whose peer set was never bootstrapped.</summary>
+    /// <summary>A live cluster refuses a restarted node whose peer set differs from the activated one.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task LiveActivatedRfTopologyChangeIsRejected(CancellationToken cancellationToken)
@@ -32,15 +32,16 @@ public sealed class TopologyActivationE2ETests : EndToEndTestBase
         _ = await cluster.StartNodeAsync("nodeB", optionsB, cancellationToken);
         await cluster.StopNodeAsync("nodeA");
 
-        // NodeB stays live while nodeA restarts with a peer set that was never bootstrapped.
+        // NodeB stays live while nodeA restarts with a peer set that differs from the activated one.
         ClusterNode[] changedTopology = [new("nodeA", heldA.HttpUri), new("nodeC", heldC.HttpUri)];
         var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
             cluster.StartNodeAsync(new ClusterNode("nodeA", heldA.HttpUri), changedTopology, optionsA, cancellationToken));
 
-        _ = await Assert.That(exception.Message).Contains("offline bootstrap", StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains(": topology fingerprint changed (stamped ", StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains("not supported in this release", StringComparison.Ordinal);
     }
 
-    /// <summary>A stopped cluster refuses a restart with a generation that was never bootstrapped.</summary>
+    /// <summary>A stopped cluster refuses a restart with a generation that differs from the activated one.</summary>
     /// <remarks>
     /// #239 mandates the name "StoppedActivatedRfTopologyChangeIsRejected"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test to satisfy the analyzer changes nothing about the covered behavior.
@@ -61,10 +62,11 @@ public sealed class TopologyActivationE2ETests : EndToEndTestBase
         await cluster.StopNodeAsync("nodeA");
         await cluster.StopNodeAsync("nodeB");
 
-        // The whole cluster is stopped, yet the generation change without a bootstrap is refused.
+        // The whole cluster is stopped, yet the generation change is refused.
         var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
             cluster.StartNodeAsync("nodeA", new ClusterStartOptions { ReplicaCount = 2, DataDir = dirA, ConfigurationGeneration = 2 }, cancellationToken));
 
-        _ = await Assert.That(exception.Message).Contains("offline bootstrap", StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains(": generation changed (stamped 1, configured 2). ", StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains("not supported in this release", StringComparison.Ordinal);
     }
 }

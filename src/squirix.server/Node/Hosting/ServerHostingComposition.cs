@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Diagnostics.Metrics;
+using System.Globalization;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -30,7 +31,6 @@ using Squirix.Server.Node.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
 
@@ -173,8 +173,7 @@ internal static class ServerHostingComposition
     /// Composition root for Cluster child namespaces (parent Cluster must not reference them).
     /// </summary>
     /// <remarks>
-    /// Repair and bootstrap planning stay registered on every node, including RF=1 and foundation-only
-    /// hosts: activation discovers them when a stopped cluster is seeded for RF&gt;1, and the idle repair
+    /// The repair service stays registered on every node, including RF=1 and foundation-only hosts: the idle
     /// service parks on its queue read without burning a thread.
     /// </remarks>
     /// <param name="services">DI service collection.</param>
@@ -187,7 +186,6 @@ internal static class ServerHostingComposition
         _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
         _ = services.AddSingleton(static _ => new ReplicaRepairService(RepairQueueCapacity));
         _ = services.AddHostedService(static sp => sp.GetRequiredService<ReplicaRepairService>());
-        _ = services.AddSingleton(static _ => new BootstrapPlanner());
         if (!args.FoundationOnly && cluster.ReplicaCount <= 1)
             return;
         _ = services.AddSingleton(static sp => new SquirixReplicationServiceAdapter(
@@ -263,10 +261,14 @@ internal static class ServerHostingComposition
     /// <param name="replicaCount">Configured replica factor.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the configured identity is authorized.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when the configured identity differs from the stamped one.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the configured identity differs from the stamped one, or when an unstamped RF&gt;1 directory already holds RF=1 journal state.
+    /// </exception>
     /// <remarks>
-    /// Only an offline bootstrap rewrites the stamp, so live and stopped topology changes outside
-    /// the authorized migration path fail startup instead of splitting the replica set.
+    /// Nothing rewrites the stamp after first activation, so an RF&gt;1 restart with a changed topology fails startup
+    /// instead of splitting the replica set, and <see cref="EnsureNotActivatedAsync" /> refuses an RF=1 start on a
+    /// stamped directory. Migrating an existing data directory to a different activated topology, including RF=1 to
+    /// RF&gt;1 and RF&gt;1 to RF=1, is not supported in this release.
     /// </remarks>
     private static async Task EnsureActivatedTopologyAsync(
         string dataDir,
@@ -281,13 +283,15 @@ internal static class ServerHostingComposition
         if (stamped == null)
         {
             // A truly empty data directory is a first activation: record the configured identity and proceed.
-            // A directory that already carries durable cache journal state belonged to an RF=1 node; starting it
-            // as RF>1 without an offline bootstrap would silently authorize an unauthorized topology transition,
-            // so refuse startup and require BootstrapPlanner to rewrite the stamp first.
-            if (replicaCount > 1 && HasDurableCacheJournalState(dataDir))
+            // Only RF>1 activation writes the stamp, so a directory that already carries durable cache journal
+            // state belonged to an RF=1 node. Stamping it as RF>1 would adopt data no replica group holds, and
+            // moving RF=1 data to RF>1 is not supported, so refuse startup.
+            if (replicaCount > 1 && ActivatedTopologyStampStore.HasDurableCacheJournalState(dataDir))
             {
                 throw new InvalidOperationException(
-                    "Activated topology identity is missing while durable cache journal state exists; the RF=1 to RF>1 transition requires an offline bootstrap.");
+                    "Data directory holds durable cache journal state but no activated topology stamp, so it was last used by an RF=1 node; " +
+                    "moving existing RF=1 data to RF>1 is not supported in this release. " +
+                    "Start the RF>1 node on an empty data directory, or migrate the data at the application level.");
             }
 
             await store.PublishAsync(current, cancellationToken).ConfigureAwait(false);
@@ -297,14 +301,33 @@ internal static class ServerHostingComposition
         if (!stamped.Matches(current))
         {
             throw new InvalidOperationException(
-                $"Activated topology identity changed without an offline bootstrap (RF=1 to RF>1): stamped generation {stamped.Generation}, replica count {stamped.ReplicaCount}; configured generation {generation}, replica count {replicaCount}.");
+                $"Configured topology does not match the activated topology stamp in the data directory: {stamped.DescribeChange(current)}. " +
+                "Changing the activated topology of an existing data directory is not supported in this release; " +
+                "start the node with the configuration and package version the directory was activated with, or on an empty data directory.");
         }
     }
 
-    /// <summary>Determines whether the data directory already holds durable cache journal segments.</summary>
+    /// <summary>Refuses an RF=1 start on a data directory activated for replication.</summary>
     /// <param name="dataDir">Exclusive node data directory.</param>
-    /// <returns><see langword="true" /> when durable journal segments exist.</returns>
-    private static bool HasDurableCacheJournalState(string dataDir) => JournalReader.EnumerateSegments(dataDir, 1).Length > 0;
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the directory carries no activated topology stamp.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the directory carries an activated topology stamp.</exception>
+    /// <exception cref="System.IO.InvalidDataException">Thrown when the stamp is corrupt or unsupported.</exception>
+    /// <remarks>
+    /// Only RF&gt;1 activation writes the stamp, so any stamp means the directory holds replica group logs that an
+    /// RF=1 node would silently ignore. Runs before storage opens.
+    /// </remarks>
+    private static async Task EnsureNotActivatedAsync(string dataDir, CancellationToken cancellationToken)
+    {
+        var stamped = await new ActivatedTopologyStampStore(dataDir).ReadAsync(cancellationToken).ConfigureAwait(false);
+        if (stamped == null)
+            return;
+
+        throw new InvalidOperationException(
+            $"Data directory was activated for replica count {stamped.ReplicaCount.ToString(CultureInfo.InvariantCulture)} " +
+            $"(generation {stamped.Generation.ToString(CultureInfo.InvariantCulture)}); starting it as RF=1 is not supported in this release. " +
+            "Start the node with the replica count the directory was activated with, or on an empty data directory.");
+    }
 
     private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
     {
@@ -335,6 +358,9 @@ internal static class ServerHostingComposition
     {
         if (persistence == null)
             return;
+
+        if (cluster.ReplicaCount <= 1)
+            await EnsureNotActivatedAsync(persistence.DataDir, cancellationToken).ConfigureAwait(false);
 
         _ = await services.AddPersistenceServicesAsync(persistence, serverMeter, args.WaitForRecovery, cancellationToken).ConfigureAwait(false);
 
@@ -481,23 +507,8 @@ internal static class ServerHostingComposition
             ArgumentNullException.ThrowIfNull(cluster);
             ArgumentNullException.ThrowIfNull(source);
 
-            var dataDir = string.IsNullOrWhiteSpace(source.DataDir) ? GetDefaultDataDir(cluster.ClusterId, cluster.NodeId) : source.DataDir;
+            var dataDir = string.IsNullOrWhiteSpace(source.DataDir) ? DefaultDataDirectory.Resolve(cluster.ClusterId, cluster.NodeId) : source.DataDir;
             return source with { DataDir = dataDir };
-        }
-
-        private static string GetDefaultDataDir(string clusterId, string nodeId)
-        {
-            var testRoot = EnvVariables.ReadString("SQUIRIX_TEST_ROOT");
-            if (!string.IsNullOrWhiteSpace(testRoot))
-                return PathEx.Combine(testRoot, clusterId, nodeId);
-
-            var dir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (string.IsNullOrWhiteSpace(dir) && !OperatingSystem.IsWindows())
-                dir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create);
-
-            return string.IsNullOrWhiteSpace(dir) ? throw new InvalidOperationException(
-                    "Cannot determine default data directory: LocalApplicationData is not available. Set PersistenceOptions.DataDir explicitly or define the HOME / XDG_DATA_HOME environment variable.")
-                : PathEx.Combine(dir, "squirix", clusterId, nodeId);
         }
     }
 
