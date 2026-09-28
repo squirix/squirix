@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 
@@ -22,6 +23,7 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
     private readonly IJournalDurabilityCoordinator _durability;
     private readonly TimeSpan _interval;
     private readonly ILogger<ReplicaLogCompactionService> _log;
+    private readonly ReplicationMetrics _metrics;
     private readonly ReplicaLogCompactionPolicy _policy;
     private readonly TimeProvider _timeProvider;
 
@@ -33,6 +35,7 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
     /// <param name="durability">The node cache journal the group applies write to.</param>
     /// <param name="options">The maintenance schedule.</param>
     /// <param name="policy">The compaction thresholds.</param>
+    /// <param name="metrics">The replication metrics counting compactions and skipped compactions.</param>
     /// <param name="log">Logger reporting compaction outcome changes and failed passes.</param>
     /// <param name="timeProvider">Time source for the delay between passes.</param>
     internal ReplicaLogCompactionService(
@@ -40,18 +43,21 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
         IJournalDurabilityCoordinator durability,
         ReplicaLogCompactionOptions options,
         ReplicaLogCompactionPolicy policy,
+        ReplicationMetrics metrics,
         ILogger<ReplicaLogCompactionService> log,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(committer);
         ArgumentNullException.ThrowIfNull(durability);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(metrics);
         ArgumentNullException.ThrowIfNull(log);
         ArgumentNullException.ThrowIfNull(timeProvider);
         _committer = committer;
         _durability = durability;
         _interval = options.Interval;
         _policy = policy;
+        _metrics = metrics;
         _log = log;
         _timeProvider = timeProvider;
     }
@@ -90,11 +96,17 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
 
     private void Report(ReplicaLogCompactionOutcome outcome)
     {
+        var name = ReplicaLogCompactionOutcomeNames.Of(outcome);
+        var group = _committer.GroupId;
+        if (outcome == ReplicaLogCompactionOutcome.Compacted)
+            _metrics.ReportCompaction(group, group);
+        else if (outcome != ReplicaLogCompactionOutcome.BelowThreshold)
+            _metrics.ReportCompactionSkipped(group, group, name);
+
         if (outcome == _reported)
             return;
 
         _reported = outcome;
-        var name = ReplicaLogCompactionOutcomeNames.Of(outcome);
         if (outcome == ReplicaLogCompactionOutcome.SnapshotTooLarge)
             LogManager.ReplicaLogCompactionSnapshotTooLarge(_log);
         else

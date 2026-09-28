@@ -15,4 +15,5 @@ namespace Squirix.Server.Adapters.Rest;
 [JsonSerializable(typeof(HealthMemoryPressureDetails))]
 [JsonSerializable(typeof(HealthJournalDiskDetails))]
 [JsonSerializable(typeof(HealthRetentionCleanupDetails))]
+[JsonSerializable(typeof(HealthReplicaGroupDetails))]
 internal sealed partial class RestJsonSerializerContext : JsonSerializerContext;

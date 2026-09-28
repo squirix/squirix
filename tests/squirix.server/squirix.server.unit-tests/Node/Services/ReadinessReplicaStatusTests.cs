@@ -9,6 +9,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -130,6 +131,30 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
 
         _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
         _ = await Assert.That(result.Description).Contains("minority", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies the status source reports the retained size of each served group log, and readiness stays healthy.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StatusCarriesLogRetention(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-readiness-retention");
+        await using var registry = new ReplicaGroupRegistry(dir, ["node-a"], 3, ReadOnlyMemory<byte>.Of(9), 1);
+        await registry.OpenAsync(cancellationToken);
+        _ = registry.TryGetLog("node-a", out var log);
+        var entry = new FollowerLogEntry(1, 1, ReadOnlyMemory<byte>.Of(1, 2, 3));
+        _ = await log!.AppendAsync(new FollowerLogAppendRequest("node-a", 1, 0, 0, 0, ReadOnlyMemory<FollowerLogEntry>.Of(entry)), cancellationToken);
+        var source = new ReplicaGroupStatusSource(registry, CreateTopology(3), new MtlsOptions(), "node-a");
+        using var scope = new CheckScope(source);
+
+        var snapshots = await source.GetSnapshotsAsync(cancellationToken);
+        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+
+        var retention = await log.GetRetentionAsync(cancellationToken);
+        _ = await Assert.That(snapshots).HasSingleItem();
+        _ = await Assert.That((snapshots[0].LogBytes, snapshots[0].RetainedEntries, snapshots[0].SnapshotIndex)).IsEqualTo((retention.LogBytes, 1, 0UL));
+        _ = await Assert.That(snapshots[0].LogBytes > 0).IsTrue();
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
     }
 
     /// <summary>Verifies an owned group with majority contact reports healthy.</summary>

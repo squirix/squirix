@@ -63,6 +63,7 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
             return null;
 
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        var retention = await log.GetRetentionAsync(cancellationToken).ConfigureAwait(false);
         var eligibility = _registry.EligibilityFor(groupId);
         var readyMembers = 0;
         for (var replica = 0; replica < eligibility.ReplicaCount; replica++)
@@ -88,6 +89,11 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
             ReplicaTopologyMatch.MatchesGeneration(status.ConfigurationGeneration, _topology.ConfigurationGeneration),
             status.Readiness == FollowerLogReadiness.Ready,
             string.Equals(groupId, _nodeId, StringComparison.Ordinal),
-            readyMembers * 2 > eligibility.ReplicaCount);
+            readyMembers * 2 > eligibility.ReplicaCount)
+        {
+            LogBytes = retention.LogBytes,
+            RetainedEntries = retention.RetainedEntries,
+            SnapshotIndex = retention.SnapshotIndex,
+        };
     }
 }

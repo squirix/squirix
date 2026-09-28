@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -49,6 +50,13 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         _ = await Assert.That(retention.RetainedEntries <= Threshold * 2).IsTrue().Because("The group log must keep at most twice the threshold.");
         _ = await Assert.That(new FileInfo(GroupStoragePaths.GetLogPath(owner.DataDir, OwnerId)).Length).IsEqualTo(retention.LogBytes);
         _ = await Assert.That(status.LastLogIndex >= 200).IsTrue().Because("Every overwrite must stay counted in the log index.");
+
+        var reported = await ReadyDetailsGroupAsync(owner, cancellationToken);
+        _ = await Assert.That(reported.GetProperty("snapshotIndex").GetUInt64()).IsEqualTo(retention.SnapshotIndex);
+        _ = await Assert.That(reported.GetProperty("retainedEntries").GetInt32()).IsEqualTo(retention.RetainedEntries);
+        _ = await Assert.That(reported.GetProperty("logBytes").GetInt64()).IsEqualTo(retention.LogBytes);
+        var metrics = await HttpClient.GetStringAsync(new Uri(owner.Uri, "/metrics"), cancellationToken);
+        _ = await Assert.That(metrics).Contains("squirix_replication_log_compactions_total{", StringComparison.Ordinal);
     }
 
     /// <summary>Under a steady write load the owner keeps compacting while writes go on, so the gated step fires between commits.</summary>
@@ -216,5 +224,23 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         var committer = owner.GetRequiredService<ReplicaGroupCommitter>();
         while (await committer.VerifyReplicasAsync(deadline.Token) != ReplicaVerification.AllReady)
             await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, deadline.Token);
+    }
+
+    /// <summary>Reads the owned group's entry of <c language="csharp">/health/ready/details</c>.</summary>
+    /// <param name="owner">The group owner.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The <c language="csharp">replicaGroups</c> element of the owned group.</returns>
+    /// <exception cref="InvalidOperationException">The details report no entry for the owned group.</exception>
+    private async Task<JsonElement> ReadyDetailsGroupAsync(ITestNodeHost owner, CancellationToken cancellationToken)
+    {
+        var text = await HttpClient.GetStringAsync(new Uri(owner.Uri, "/health/ready/details"), cancellationToken);
+        using var document = JsonDocument.Parse(text);
+        foreach (var group in document.RootElement.GetProperty("replicaGroups").EnumerateArray())
+        {
+            if (string.Equals(group.GetProperty("groupId").GetString(), OwnerId, StringComparison.Ordinal))
+                return group.Clone();
+        }
+
+        throw new InvalidOperationException("The readiness details report no entry for the owned group.");
     }
 }

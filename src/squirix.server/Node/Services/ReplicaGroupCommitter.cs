@@ -36,7 +36,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private readonly ILogicalNamespacedCache<object?> _local;
     private readonly IReplicaGroupLocator _locator;
     private readonly ReplicaGroupRegistry _registry;
-    private readonly string _selfId;
     private readonly ReadOnlyMemory<byte> _topologyFingerprint;
     private ReplicaCommitCoordinator? _coordinator;
     private int _disposed;
@@ -75,7 +74,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _gateway = gateway;
         _local = local;
         _applier = new ReplicaLeaderApplier(local);
-        _selfId = selfId;
+        GroupId = selfId;
         _topologyFingerprint = topologyFingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topologyFingerprint))
             : topologyFingerprint;
         _generation = generation;
@@ -102,6 +101,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     /// <summary>Gets the time source that pins the expiration deadlines of prepared records and measures them at apply; the system clock unless set.</summary>
     internal TimeProvider Clock { private get; init; } = TimeProvider.System;
+
+    /// <summary>Gets the identifier of the owned replica group, which is this node's identifier.</summary>
+    internal string GroupId { get; }
 
     /// <summary>Gets the logger for lifecycle failures; the host logger unless set.</summary>
     internal ILogger Log { private get; init; } = LogManager.GetLogger<ReplicaGroupCommitter>();
@@ -272,7 +274,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(durability);
         ThrowIfDisposed();
-        if (!_registry.TryGetLog(_selfId, out var log))
+        if (!_registry.TryGetLog(GroupId, out var log))
             return;
 
         var applied = _applier.AppliedIndex;
@@ -303,7 +305,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(durability);
         ThrowIfDisposed();
-        if (!_registry.TryGetLog(_selfId, out var log))
+        if (!_registry.TryGetLog(GroupId, out var log))
             return ReplicaLogCompactionOutcome.NotReady;
 
         var retention = await log.GetRetentionAsync(cancellationToken).ConfigureAwait(false);
@@ -312,7 +314,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         // An advisory check first, without the gate: a follower that is down or lagging then refuses the step without holding the
         // gate for the whole follower wait on every pass. The decisive check runs again under the gate.
-        var eligibility = _registry.EligibilityFor(_selfId);
+        var eligibility = _registry.EligibilityFor(GroupId);
         if (Volatile.Read(ref _coordinator) is { } running)
         {
             var observed = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
@@ -341,10 +343,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     internal async Task<ReplicaVerification> VerifyReplicasAsync(CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
-        if (!_registry.TryGetLog(_selfId, out var log))
+        if (!_registry.TryGetLog(GroupId, out var log))
             return ReplicaVerification.Blocked;
 
-        var eligibility = _registry.EligibilityFor(_selfId);
+        var eligibility = _registry.EligibilityFor(GroupId);
         var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
         var status = read.Status;
         if (status.Readiness != FollowerLogReadiness.Ready)
@@ -420,7 +422,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         // StartAsync may have verified some of these slots while this call waited for the gate: an older verdict
         // must not demote them.
-        var eligibility = _registry.EligibilityFor(_selfId);
+        var eligibility = _registry.EligibilityFor(GroupId);
         for (var i = 1; i < probed.Length; i++)
         {
             if (eligibility.CanCountInWriteQuorum(i))
@@ -492,7 +494,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
                 _ => throw new InvalidOperationException("Replica group committer is not started."),
             };
         }
-        catch (Exception) when (write is { } retry && _registry.TryGetLog(_selfId, out var log) && log.Idempotency.IsUnresolved(retry.Scope, retry.OperationId))
+        catch (Exception) when (write is { } retry && _registry.TryGetLog(GroupId, out var log) && log.Idempotency.IsUnresolved(retry.Scope, retry.OperationId))
         {
             // A retry of an operation whose entry is appended but not yet committed (possibly by the process before a restart) must
             // neither re-execute nor be told it failed: its outcome stays unknown until a commit resolves the entry, which the retry
@@ -503,7 +505,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     private bool HasWriteMajority()
     {
-        var eligibility = _registry.EligibilityFor(_selfId);
+        var eligibility = _registry.EligibilityFor(GroupId);
         var ready = 0;
         for (var i = 0; i < eligibility.ReplicaCount; i++)
         {
@@ -525,8 +527,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     private async Task StartAsync(CancellationToken cancellationToken)
     {
-        if (!_registry.TryGetLog(_selfId, out var log))
-            throw new InvalidOperationException($"This node does not serve its owned replica group '{_selfId}'.");
+        if (!_registry.TryGetLog(GroupId, out var log))
+            throw new InvalidOperationException($"This node does not serve its owned replica group '{GroupId}'.");
 
         if (_coordinator != null)
         {
@@ -554,7 +556,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // A restart with durable progress leaves every slot recovering. Verify the leader's own log and every follower against its
         // last entry before the first commit, so the quorum is built from verified slots only. An uncommitted tail is recovered by the
         // coordinator and commits once verified slots hold it; followers lacking it are re-sent it by verification, outside this gate.
-        var eligibility = _registry.EligibilityFor(_selfId);
+        var eligibility = _registry.EligibilityFor(GroupId);
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, in status, _topologyFingerprint, _generation);
         var results = eligibility.CanCountInWriteQuorum(0)
             ? await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility), members, header, status, ProbeTimeout, cancellationToken)
@@ -562,8 +564,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             : [];
 
         // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
-        var pipeline = new ReplicaGroupCommitPipeline(_applier, log, _gateway, members, _selfId, status, header) { Clock = Clock };
-        var factory = new ReplicaMutationFactory(_local, _selfId, term, Clock);
+        var pipeline = new ReplicaGroupCommitPipeline(_applier, log, _gateway, members, GroupId, status, header) { Clock = Clock };
+        var factory = new ReplicaMutationFactory(_local, GroupId, term, Clock);
         _coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(_locator.ReplicaCount, status.LastLogIndex, status.CommitIndex, MaxInFlight),
             pipeline,
@@ -585,8 +587,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private (string[] Members, ReplicaRpcHeader Header) BuildMembership(ulong term)
     {
         var members = new string[_locator.ReplicaCount];
-        _locator.GetReplicaGroup(_selfId, members);
-        return (members, new ReplicaRpcHeader(_selfId, _topologyFingerprint, _generation, term, _selfId, _selfId));
+        _locator.GetReplicaGroup(GroupId, members);
+        return (members, new ReplicaRpcHeader(GroupId, _topologyFingerprint, _generation, term, GroupId, GroupId));
     }
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);

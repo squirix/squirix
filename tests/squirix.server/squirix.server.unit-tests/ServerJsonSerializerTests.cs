@@ -54,7 +54,8 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
                 new HealthCoordinationDetails(new HealthLeaseDetails(false, 0, 0, 0), new HealthWatchDetails(false, 0, 0, 0)),
                 new HealthMemoryPressureDetails("normal", 1024, 128, 3, 0, false),
                 new HealthRetentionCleanupDetails(false, 0, 0, null),
-                journalDiskDetails));
+                journalDiskDetails,
+                [new HealthReplicaGroupDetails("node-a", 4096, 12, 18)]));
         var healthElement = JsonSerializer.SerializeToElement(health, RestJsonSerializerContext.Default.HealthReadyDetailsResponse);
 
         _ = await Assert.That(healthElement.TryGetProperty("journalBacklogOps", out var backlog)).IsTrue();
@@ -80,6 +81,12 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
         _ = await Assert.That(leases.TryGetProperty("renewals", out _)).IsFalse();
         _ = await Assert.That(healthElement.TryGetProperty("retentionCleanup", out var retentionCleanup)).IsTrue();
         _ = await Assert.That(retentionCleanup.GetProperty("degraded").GetBoolean()).IsFalse();
+        _ = await Assert.That(healthElement.TryGetProperty("replicaGroups", out var replicaGroups)).IsTrue();
+        var group = replicaGroups[0];
+        _ = await Assert.That(group.GetProperty("groupId").GetString()).IsEqualTo("node-a");
+        _ = await Assert.That(group.GetProperty("logBytes").GetInt64()).IsEqualTo(4096L);
+        _ = await Assert.That(group.GetProperty("retainedEntries").GetInt32()).IsEqualTo(12);
+        _ = await Assert.That(group.GetProperty("snapshotIndex").GetUInt64()).IsEqualTo(18UL);
         _ = await Assert.That(healthElement.TryGetProperty("JournalBacklogOps", out _)).IsFalse();
     }
 

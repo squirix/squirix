@@ -163,6 +163,7 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<IJournalCoordinator>(),
             sp.GetRequiredService<ReplicaLogCompactionOptions>(),
             ReplicaLogCompactionPolicy.From(sp.GetRequiredService<PersistenceOptions>()),
+            sp.GetRequiredService<ReplicationMetrics>(),
             sp.GetRequiredService<ILogger<ReplicaLogCompactionService>>(),
             sp.GetService<TimeProvider>() ?? TimeProvider.System));
         _ = services.AddSingleton<IReplicaStatusSource>(static sp => new ReplicaGroupStatusSource(

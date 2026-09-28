@@ -33,6 +33,9 @@ public sealed class MetricsEndpointTests : NodeIntegrationTestBase
         _ = await Assert.That(body).Contains("squirix_replication_commit_index{", StringComparison.Ordinal);
         _ = await Assert.That(body).Contains("squirix_replication_topology_match{", StringComparison.Ordinal);
         _ = await Assert.That(body).Contains("squirix_replication_status_reports_total{", StringComparison.Ordinal);
+        _ = await Assert.That(body).Contains("squirix_replication_log_bytes{", StringComparison.Ordinal);
+        _ = await Assert.That(body).Contains("squirix_replication_log_retained_entries{", StringComparison.Ordinal);
+        _ = await Assert.That(body).Contains("squirix_replication_snapshot_index{", StringComparison.Ordinal);
         _ = await Assert.That(body).Contains("scope=\"replication\"", StringComparison.Ordinal);
     }
 }
