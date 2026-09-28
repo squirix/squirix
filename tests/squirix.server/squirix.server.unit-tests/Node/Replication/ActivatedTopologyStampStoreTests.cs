@@ -15,6 +15,53 @@ namespace Squirix.Server.UnitTests.Node.Replication;
 /// <summary>Activated topology stamp persistence and boundary enforcement.</summary>
 public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
 {
+    /// <summary>Matching identities describe no change.</summary>
+    [Test]
+    public async Task DescribeChangeEmptyWhenMatching()
+    {
+        var description = Stamp(1, 2, 0x5A).DescribeChange(Stamp(1, 2, 0x5A));
+
+        _ = await Assert.That(description).IsEmpty();
+    }
+
+    /// <summary>A fingerprint-only change is named with both hex digests and the inputs that can cause it.</summary>
+    [Test]
+    public async Task DescribeChangeNamesFingerprintOnly()
+    {
+        var description = Stamp(4, 3, 0xAB).DescribeChange(Stamp(4, 3, 0x0C));
+
+        _ = await Assert.That(description).IsEqualTo(
+            $"topology fingerprint changed (stamped {Hex(0xAB)}, configured {Hex(0x0C)}) while generation and replica count match, " +
+            "so the cluster id, virtual nodes, peers (including internode addresses), minimum cluster package version, or replication policy constants differ");
+    }
+
+    /// <summary>A generation change is named with both values; the fingerprint that hashes it is not.</summary>
+    [Test]
+    public async Task DescribeChangeNamesGeneration()
+    {
+        var description = Stamp(1, 2, 0x00).DescribeChange(Stamp(2, 2, 0x01));
+
+        _ = await Assert.That(description).IsEqualTo("generation changed (stamped 1, configured 2)");
+    }
+
+    /// <summary>Generation and replica count changes are both named in field order.</summary>
+    [Test]
+    public async Task DescribeChangeNamesGenerationAndCount()
+    {
+        var description = Stamp(1, 2, 0x00).DescribeChange(Stamp(3, 3, 0x01));
+
+        _ = await Assert.That(description).IsEqualTo("generation changed (stamped 1, configured 3); replica count changed (stamped 2, configured 3)");
+    }
+
+    /// <summary>A replica count change is named with both values; the fingerprint that hashes it is not.</summary>
+    [Test]
+    public async Task DescribeChangeNamesReplicaCount()
+    {
+        var description = Stamp(1, 2, 0x00).DescribeChange(Stamp(1, 3, 0x01));
+
+        _ = await Assert.That(description).IsEqualTo("replica count changed (stamped 2, configured 3)");
+    }
+
     /// <summary>Mismatched generation, replica count, or fingerprint never matches.</summary>
     [Test]
     public async Task MatchesRejectsDifferences()
@@ -98,4 +145,16 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadAsync(cancellationToken));
     }
+
+    private static byte[] Filled(byte value)
+    {
+        var fingerprint = GC.AllocateUninitializedArray<byte>(32);
+        fingerprint.AsSpan().Fill(value);
+        return fingerprint;
+    }
+
+    private static string Hex(byte value) => Convert.ToHexString(Filled(value));
+
+    private static ActivatedTopologyStamp Stamp(ulong generation, int replicaCount, byte fingerprint) =>
+        new() { Generation = generation, Fingerprint = Filled(fingerprint), ReplicaCount = replicaCount };
 }

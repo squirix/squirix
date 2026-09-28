@@ -261,10 +261,13 @@ internal static class ServerHostingComposition
     /// <param name="replicaCount">Configured replica factor.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the configured identity is authorized.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when the configured identity differs from the stamped one.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the configured identity differs from the stamped one, or when an unstamped RF&gt;1 directory already holds RF=1 journal state.
+    /// </exception>
     /// <remarks>
-    /// Only an offline bootstrap rewrites the stamp, so live and stopped topology changes outside
-    /// the authorized migration path fail startup instead of splitting the replica set.
+    /// Nothing rewrites the stamp after first activation, so live and stopped topology changes against existing
+    /// replica state fail startup instead of splitting the replica set. Migrating an existing data directory to a
+    /// different activated topology, including RF=1 to RF&gt;1, is not supported in this release.
     /// </remarks>
     private static async Task EnsureActivatedTopologyAsync(
         string dataDir,
@@ -279,13 +282,15 @@ internal static class ServerHostingComposition
         if (stamped == null)
         {
             // A truly empty data directory is a first activation: record the configured identity and proceed.
-            // A directory that already carries durable cache journal state belonged to an RF=1 node; starting it
-            // as RF>1 without an offline bootstrap would silently authorize an unauthorized topology transition,
-            // so refuse startup and require BootstrapPlanner to rewrite the stamp first.
+            // Only RF>1 activation writes the stamp, so a directory that already carries durable cache journal
+            // state belonged to an RF=1 node. Stamping it as RF>1 would adopt data no replica group holds, and
+            // moving RF=1 data to RF>1 is not supported, so refuse startup.
             if (replicaCount > 1 && HasDurableCacheJournalState(dataDir))
             {
                 throw new InvalidOperationException(
-                    "Activated topology identity is missing while durable cache journal state exists; the RF=1 to RF>1 transition requires an offline bootstrap.");
+                    "Data directory holds durable cache journal state but no activated topology stamp, so it was last used by an RF=1 node; " +
+                    "moving existing RF=1 data to RF>1 is not supported in this release. " +
+                    "Start the RF>1 node on an empty data directory, or migrate the data at the application level.");
             }
 
             await store.PublishAsync(current, cancellationToken).ConfigureAwait(false);
@@ -295,7 +300,9 @@ internal static class ServerHostingComposition
         if (!stamped.Matches(current))
         {
             throw new InvalidOperationException(
-                $"Activated topology identity changed without an offline bootstrap (RF=1 to RF>1): stamped generation {stamped.Generation}, replica count {stamped.ReplicaCount}; configured generation {generation}, replica count {replicaCount}.");
+                $"Configured topology does not match the activated topology stamp in the data directory: {stamped.DescribeChange(current)}. " +
+                "Changing the activated topology of an existing data directory is not supported in this release; " +
+                "start the node with the configuration and package version the directory was activated with, or on an empty data directory.");
         }
     }
 
