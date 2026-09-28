@@ -43,20 +43,10 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
         _ = await Assert.That(fromString["value"]).IsEqualTo(7);
 
         var element = serializer.SerializeToElement(original);
-        var fromElement = serializer.Deserialize<Dictionary<string, int>>(element);
-        _ = await Assert.That(fromElement!["value"]).IsEqualTo(7);
+        _ = await Assert.That(element.GetProperty("value").GetInt32()).IsEqualTo(7);
 
-        var utf8 = serializer.SerializeToUtf8Bytes(original);
-        var fromBytes = serializer.Deserialize<Dictionary<string, int>>(utf8.AsSpan());
+        var fromBytes = serializer.Deserialize<Dictionary<string, int>>("""{"value":7}"""u8);
         _ = await Assert.That(fromBytes!["value"]).IsEqualTo(7);
-
-        await using var stream = new MemoryStream(utf8);
-        var fromStream = serializer.Deserialize<Dictionary<string, int>>(stream);
-        _ = await Assert.That(fromStream!["value"]).IsEqualTo(7);
-
-        await using var destination = new MemoryStream();
-        serializer.Serialize(destination, original);
-        _ = await Assert.That(destination.Length > 0).IsTrue();
     }
 
     /// <summary>Inner NotSupportedException failures are recorded and rethrown.</summary>
@@ -64,9 +54,9 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     public void SerializeFailureFromInnerIsRethrown()
     {
         var innerExpectations = new IServerSerializerCreateExpectations();
-        _ = innerExpectations.Setups.SerializeToUtf8Bytes(Arg.Any<string?>()).Throws<NotSupportedException>();
+        _ = innerExpectations.Setups.SerializeToElement(Arg.Any<string?>()).Throws<NotSupportedException>();
         var serializer = new ServerMetricsSerializer(innerExpectations.Instance(), TestMeter);
-        _ = NodeExceptionAssert.For<NotSupportedException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
+        _ = NodeExceptionAssert.For<NotSupportedException>().Throws(serializer, static value => value.SerializeToElement("x"));
     }
 
     /// <summary>IOException failures are recorded and rethrown.</summary>
@@ -74,9 +64,9 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     public void SerializeIoFailureFromInnerIsRethrown()
     {
         var innerExpectations = new IServerSerializerCreateExpectations();
-        _ = innerExpectations.Setups.SerializeToUtf8Bytes(Arg.Any<string?>()).Throws<IOException>();
+        _ = innerExpectations.Setups.SerializeToElement(Arg.Any<string?>()).Throws<IOException>();
         var serializer = new ServerMetricsSerializer(innerExpectations.Instance(), TestMeter);
-        _ = NodeExceptionAssert.For<IOException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
+        _ = NodeExceptionAssert.For<IOException>().Throws(serializer, static value => value.SerializeToElement("x"));
     }
 
     /// <summary>Unhandled exception types are not filtered by the metrics decorator.</summary>
@@ -84,8 +74,8 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     public void UnhandledExceptionBypassesFailureFilter()
     {
         var innerExpectations = new IServerSerializerCreateExpectations();
-        _ = innerExpectations.Setups.SerializeToUtf8Bytes(Arg.Any<string?>()).Throws<InvalidCastException>();
+        _ = innerExpectations.Setups.SerializeToElement(Arg.Any<string?>()).Throws<InvalidCastException>();
         var serializer = new ServerMetricsSerializer(innerExpectations.Instance(), TestMeter);
-        _ = NodeExceptionAssert.For<InvalidCastException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
+        _ = NodeExceptionAssert.For<InvalidCastException>().Throws(serializer, static value => value.SerializeToElement("x"));
     }
 }

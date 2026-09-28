@@ -44,21 +44,6 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
         }
     }
 
-    public T? Deserialize<T>(JsonElement payload, JsonTypeInfo<T>? typeInfo = null)
-    {
-        var start = Stopwatch.GetTimestamp();
-        try
-        {
-            var result = _inner.Deserialize(payload, typeInfo);
-            Record(OpDeserialize, true, start);
-            return result;
-        }
-        catch (Exception ex) when (TryRecordSerializerFailure(OpDeserialize, ex, start))
-        {
-            throw;
-        }
-    }
-
     public T? Deserialize<T>(ReadOnlySpan<byte> payload, JsonTypeInfo<T>? typeInfo = null)
     {
         var start = Stopwatch.GetTimestamp();
@@ -74,56 +59,12 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
         }
     }
 
-    public T? Deserialize<T>(Stream payload, JsonTypeInfo<T>? typeInfo = null)
-    {
-        var start = Stopwatch.GetTimestamp();
-        try
-        {
-            var result = _inner.Deserialize(payload, typeInfo);
-            Record(OpDeserialize, true, start);
-            return result;
-        }
-        catch (Exception ex) when (TryRecordSerializerFailure(OpDeserialize, ex, start))
-        {
-            throw;
-        }
-    }
-
-    public void Serialize<T>(Stream destination, T? value, JsonTypeInfo<T>? typeInfo = null)
-    {
-        var start = Stopwatch.GetTimestamp();
-        try
-        {
-            _inner.Serialize(destination, value, typeInfo);
-            Record(OpSerialize, true, start);
-        }
-        catch (Exception ex) when (TryRecordSerializerFailure(OpSerialize, ex, start))
-        {
-            throw;
-        }
-    }
-
     public JsonElement SerializeToElement<T>(T? value, JsonTypeInfo<T>? typeInfo = null)
     {
         var start = Stopwatch.GetTimestamp();
         try
         {
             var result = _inner.SerializeToElement(value, typeInfo);
-            Record(OpSerialize, true, start);
-            return result;
-        }
-        catch (Exception ex) when (TryRecordSerializerFailure(OpSerialize, ex, start))
-        {
-            throw;
-        }
-    }
-
-    public byte[] SerializeToUtf8Bytes<T>(T? value, JsonTypeInfo<T>? typeInfo = null)
-    {
-        var start = Stopwatch.GetTimestamp();
-        try
-        {
-            var result = _inner.SerializeToUtf8Bytes(value, typeInfo);
             Record(OpSerialize, true, start);
             return result;
         }
