@@ -207,6 +207,15 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
+    public async Task<GroupCompactionOutcome> CompactThroughAsync(ulong index, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        return IsDisposed || Readiness != FollowerLogReadiness.Ready ? GroupCompactionOutcome.NotReady
+            : await FollowerLogSnapshot.CompactThroughAsync(_journal, this, index, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -261,6 +270,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         var status = CaptureStatus();
         return status.LastLogIndex == status.CommitIndex ? new FollowerLogTail(status, 0UL, [])
             : new FollowerLogTail(status, TermAt(status.CommitIndex), _journal.CollectUncommittedTail(status.CommitIndex));
+    }
+
+    /// <inheritdoc />
+    async ValueTask<FollowerLogRetention> IFollowerLog.GetRetentionAsync(CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return new FollowerLogRetention(_logLength, _journal.EntryOffsets.Count, _journal.Entries.Count, _journal.SnapshotBaseline.LastIncludedIndex);
     }
 
     /// <inheritdoc />
@@ -2104,6 +2120,43 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
 
             return new GroupCompactionResult(true, journal.Snapshot.SnapshotPath, string.Empty);
+        }
+
+        /// <summary>Publishes a snapshot through <paramref name="index" /> and compacts the log prefix it covers.</summary>
+        /// <param name="journal">The paired in-memory journal state.</param>
+        /// <param name="owner">The log being compacted.</param>
+        /// <param name="index">The index to compact through.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The compaction outcome.</returns>
+        /// <remarks>
+        /// Runs under the log gate. Every refusal happens before anything durable changes and leaves readiness untouched: only a prefix
+        /// that is committed and applied is compacted, and never while an entry of it still has an unresolved idempotency outcome, which
+        /// the snapshot cannot carry. The snapshot is published before the compaction core rewrites the log, so a crash between the two
+        /// recovers from the snapshot plus the old log.
+        /// </remarks>
+        internal static async Task<GroupCompactionOutcome> CompactThroughAsync(FollowerLogJournal journal, IFollowerLogContext owner, ulong index, CancellationToken cancellationToken)
+        {
+            var eligible = index != 0UL && index == owner.Meta.CommitIndex && index == owner.Meta.LastAppliedIndex && index <= owner.LastLogIndex &&
+                index >= journal.SnapshotBaseline.LastIncludedIndex;
+            if (!eligible)
+                return GroupCompactionOutcome.NotReady;
+
+            if (owner.Idempotency.HasUnresolvedThrough(index))
+                return GroupCompactionOutcome.UnresolvedOutcome;
+
+            var snapshot = BuildSnapshot(journal, owner, index);
+            try
+            {
+                await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
+            }
+            catch (GroupSnapshotTooLargeException)
+            {
+                return GroupCompactionOutcome.SnapshotTooLarge;
+            }
+
+            owner.RestoreBaseline(new SnapshotBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm));
+            var compacted = await CompactAsync(journal, owner, cancellationToken).ConfigureAwait(false);
+            return compacted.Success ? GroupCompactionOutcome.Compacted : GroupCompactionOutcome.NotReady;
         }
 
         internal static async Task<GroupSnapshotInstallResult> InstallAsync(

@@ -23,7 +23,8 @@ internal interface IFollowerLogSnapshotStore
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the snapshot is durably published.</returns>
     /// <exception cref="ArgumentNullException">Thrown when the snapshot committed outcomes are null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when the snapshot violates its boundary invariants or exceeds the configured maximum size.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the snapshot violates its boundary invariants.</exception>
+    /// <exception cref="GroupSnapshotTooLargeException">Thrown before anything is written when the snapshot exceeds the configured maximum size.</exception>
     /// <remarks>
     /// Callers must serialize publication per instance. Implementations may write to a fixed per-group temp path with
     /// exclusive access, so concurrent calls can fail with an <see cref="IOException" /> or overwrite each other.

@@ -95,7 +95,8 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the snapshot is durably published.</returns>
     /// <exception cref="ArgumentNullException">Thrown when the snapshot committed outcomes are null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when the snapshot violates its boundary invariants or exceeds the configured maximum size.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the snapshot violates its boundary invariants.</exception>
+    /// <exception cref="GroupSnapshotTooLargeException">Thrown before anything is written when the snapshot exceeds the configured maximum size.</exception>
     /// <remarks>
     ///     <para>
     ///     Callers must serialize publication per instance: concurrent calls to <see cref="PublishAsync" /> on the same
@@ -117,7 +118,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         fileLength += payloadLength;
         fileLength += GroupSnapshotCodec.Crc32ByteCount;
         if (fileLength > _maxSnapshotBytes)
-            throw new InvalidOperationException($"Replica group snapshot exceeds the maximum configured size of {_maxSnapshotBytes} bytes.");
+            throw new GroupSnapshotTooLargeException($"Replica group snapshot exceeds the maximum configured size of {_maxSnapshotBytes} bytes.");
 
         cancellationToken.ThrowIfCancellationRequested();
         var fileLengthBytes = int.CreateChecked(fileLength);
