@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.IO;
 using System.Text;
 using Squirix.Server.Utils;
@@ -33,8 +34,16 @@ internal static class GroupStoragePaths
     internal static string EncodeGroupSegment(string groupId)
     {
         ArgumentNullException.ThrowIfNull(groupId);
-        var utf8 = Encoding.UTF8.GetBytes(groupId);
-        return DirectoryPrefix + Convert.ToHexString(utf8);
+        var rented = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetMaxByteCount(groupId.Length));
+        try
+        {
+            var written = Encoding.UTF8.GetBytes(groupId, rented);
+            return DirectoryPrefix + Convert.ToHexString(rented.AsSpan(0, written));
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.ReturnCleared(rented);
+        }
     }
 
     /// <summary>Resolves the group directory under the storage root, throwing when the path would escape it.</summary>
