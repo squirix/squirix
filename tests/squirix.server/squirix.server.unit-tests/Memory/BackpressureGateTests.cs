@@ -72,6 +72,30 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
         }
     }
 
+    /// <summary>Verifies releasing a lease after the gate was disposed does not throw and keeps the in-flight gauge consistent.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LeaseReleaseAfterGateDisposeDoesNotThrow(CancellationToken cancellationToken)
+    {
+        var gate = new AdmissionGate(
+            new AdmissionOptions
+            {
+                MaxInFlight = 1,
+                MaxQueue = 1,
+                SlowdownThreshold = 1,
+                RejectThreshold = 1,
+                MaxSlowdownDelay = TimeSpan.Zero,
+                MaxQueueWait = TimeSpan.FromMilliseconds(200),
+            },
+            new BackpressureMetrics(_testMeter));
+        var (decision, lease) = await gate.AcquireAsync("grpc", "get", "grpc:client-a", cancellationToken);
+        _ = await Assert.That(decision.IsAccepted).IsTrue();
+
+        gate.Dispose();
+        lease.Dispose();
+        lease.Dispose();
+    }
+
     /// <summary>Verifies concurrent acquire and release does not exceed configured in-flight capacity.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

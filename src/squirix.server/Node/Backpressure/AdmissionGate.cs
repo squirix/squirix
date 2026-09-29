@@ -90,7 +90,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         // AcquireLease, while the lease still holds one slot and one in-flight unit that must
         // be returned here.
         AdjustInFlight(-1);
-        _ = _slots.Release();
+        ReleaseSlot();
     }
 
     private async ValueTask<(Decision Decision, Lease Lease)> AcquireFromSlotOrQueueAsync(
@@ -198,8 +198,22 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     {
         _ = Interlocked.Decrement(ref client.InFlightRef);
         AdjustInFlight(-1);
-        _ = _slots.Release();
+        ReleaseSlot();
         RemoveIdleClient(clientId, client);
+    }
+
+    private void ReleaseSlot()
+    {
+        try
+        {
+            _ = _slots.Release();
+        }
+        catch (ObjectDisposedException)
+        {
+            // A lease can outlive the gate (for example an operation that finishes after the host disposed the container).
+            // Disposal may also race this call, so a disposed-state check before Release would not be safe. The semaphore
+            // is gone and nothing can wait on it anymore, so there is no slot left to return; releasing a lease must not throw.
+        }
     }
 
     private void RemoveIdleClient(string clientId, ClientState client)
