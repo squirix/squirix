@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server;
 
@@ -75,10 +76,11 @@ public sealed class SquirixServer : IAsyncDisposable
         return new SquirixServer(handle);
     }
 
-    [Immutable]
-    private sealed class ApplicationHandle : IAsyncDisposable
+    internal sealed class ApplicationHandle : IAsyncDisposable
     {
         private readonly WebApplication _app;
+        private readonly TaskCompletionSource _disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _disposeStarted;
 
         internal ApplicationHandle(WebApplication app)
         {
@@ -86,8 +88,39 @@ public sealed class SquirixServer : IAsyncDisposable
             _app = app;
         }
 
-        /// <summary>Ends the server application and releases the owned ASP.NET Core host.</summary>
+        /// <summary>Stops the server application, then releases the owned ASP.NET Core host; repeated and concurrent calls share one disposal.</summary>
         /// <returns>A task that completes when the application is disposed.</returns>
-        public ValueTask DisposeAsync() => _app.DisposeAsync();
+        public ValueTask DisposeAsync() =>
+            Interlocked.Exchange(ref _disposeStarted, 1) != 0 ? new ValueTask(_disposed.Task) : DisposeCoreAsync();
+
+        private async ValueTask DisposeCoreAsync()
+        {
+            try
+            {
+                var logger = _app.Logger;
+                try
+                {
+                    // The host bounds StopAsync by HostOptions.ShutdownTimeout, so no extra token is needed.
+                    await _app.StopAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+#pragma warning disable CA1031 // Disposal must not throw: a failed stop is logged and the host is still disposed.
+                catch (Exception ex)
+#pragma warning restore CA1031
+                {
+                    LogManager.HostStopFailedOnDispose(logger, ex);
+                }
+                finally
+                {
+                    await _app.DisposeAsync().ConfigureAwait(false);
+                }
+
+                _disposed.SetResult();
+            }
+            catch (Exception ex)
+            {
+                _disposed.SetException(ex);
+                throw;
+            }
+        }
     }
 }

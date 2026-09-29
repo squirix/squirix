@@ -53,4 +53,7 @@ internal static partial class LogManager
 
     [LoggerMessage(EventId = 3016, Level = LogLevel.Error, Message = "Journal dispose failed during host shutdown; host disposal continues with the manifest ledger and the remaining services")]
     internal static partial void JournalDisposeFailedOnHostShutdown(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 3017, Level = LogLevel.Error, Message = "Host stop failed during server disposal; the host is disposed regardless")]
+    internal static partial void HostStopFailedOnDispose(ILogger logger, Exception exception);
 }
