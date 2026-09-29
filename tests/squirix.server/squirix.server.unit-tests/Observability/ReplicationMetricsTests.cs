@@ -93,6 +93,20 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
         _ = await Assert.That(Count(records, "squirix_replication_log_compaction_skipped_total", "snapshot_too_large")).IsEqualTo(1);
     }
 
+    /// <summary>Verifies each refused inconsistent log record is counted once on the owned group.</summary>
+    [Test]
+    public async Task CountsInconsistentRecords()
+    {
+        using var meter = new Meter("Squirix");
+        using var listener = CreateListener(meter, out var records);
+        var metrics = new ReplicationMetrics(meter);
+
+        metrics.ReportInconsistentRecord("node-a", "node-a");
+        metrics.ReportInconsistentRecord("node-a", "node-a");
+
+        _ = await Assert.That(Count(records, "squirix_replication_inconsistent_records_total", null)).IsEqualTo(2);
+    }
+
     private static int Count(List<MeasurementRecord> records, string name, string? reason)
     {
         var count = 0;

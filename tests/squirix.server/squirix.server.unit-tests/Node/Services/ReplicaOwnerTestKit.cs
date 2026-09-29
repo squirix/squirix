@@ -104,14 +104,28 @@ internal static class ReplicaOwnerTestKit
     /// <param name="keys">Keys of the uncommitted conditional adds, in log order.</param>
     /// <returns>An asynchronous operation.</returns>
     /// <exception cref="InvalidOperationException">The owned group log is not open or refused the tail.</exception>
-    internal static async Task SeedTailAsync(string dir, ulong currentTerm, CancellationToken cancellationToken, params string[] keys)
+    internal static Task SeedTailAsync(string dir, ulong currentTerm, CancellationToken cancellationToken, params string[] keys) =>
+        SeedTailAsync(dir, currentTerm, new StubCache(), cancellationToken, keys);
+
+    /// <summary>
+    /// Appends conditional adds of the given keys to the owned group log without committing them, each decided against
+    /// <paramref name="decisionCache" />, then raises the log's current term.
+    /// </summary>
+    /// <param name="dir">Node data directory holding the seeded, committed group.</param>
+    /// <param name="currentTerm">Current term of the log after the tail; above one, the tail is of an older term.</param>
+    /// <param name="decisionCache">The memory the leader read when it decided the adds: a key it holds makes its add decide false.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <param name="keys">Keys of the uncommitted conditional adds, in log order.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="InvalidOperationException">The owned group log is not open or refused the tail.</exception>
+    internal static async Task SeedTailAsync(string dir, ulong currentTerm, ILogicalNamespacedCache<object?> decisionCache, CancellationToken cancellationToken, params string[] keys)
     {
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         if (!registry.TryGetLog("n1", out var log))
             throw new InvalidOperationException("The owned group log is not open.");
 
         var status = await log.GetStatusAsync(cancellationToken);
-        var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1, TimeProvider.System);
+        var factory = new ReplicaMutationFactory(decisionCache, "n1", 1, TimeProvider.System);
         var index = status.LastLogIndex;
         foreach (var key in keys)
         {

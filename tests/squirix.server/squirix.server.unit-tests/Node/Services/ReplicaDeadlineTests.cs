@@ -29,9 +29,11 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
     {
         var clock = new FakeTimeProvider();
         var prepared = clock.GetUtcNow().UtcDateTime;
-        var factory = new ReplicaMutationFactory(NewCache(clock), "g1", 1UL, clock);
+        var cache = NewCache(clock);
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock);
+        await ApplyAsync(cache, factory.PrepareSet("op-0", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 1UL), cancellationToken);
 
-        var touch = Decode(await factory.PrepareTouchAsync("op-1", CacheName, Key, Expiration, 1UL, cancellationToken));
+        var touch = Decode(await factory.PrepareTouchAsync("op-1", CacheName, Key, Expiration, 2UL, cancellationToken));
 
         _ = await Assert.That(touch.ExpiresUtcTicks).IsEqualTo(prepared.Add(Expiration).Ticks);
     }
@@ -39,25 +41,25 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
     /// <summary>A Touch applied later than its prepare keeps the pinned deadline instead of extending it from the apply time.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task TouchAppliesRemainingDeadline(CancellationToken cancellationToken)
+    public async Task TouchAppliesPinnedDeadline(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider();
         var cache = NewCache(clock);
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock);
-        _ = await ApplyAsync(cache, factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 1UL), clock, cancellationToken);
+        await ApplyAsync(cache, factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 1UL), cancellationToken);
         var deadline = clock.GetUtcNow().UtcDateTime.Add(Expiration);
         var touch = await factory.PrepareTouchAsync("op-2", CacheName, Key, Expiration, 2UL, cancellationToken);
 
         clock.Advance(TimeSpan.FromMinutes(2));
-        _ = await Assert.That(await ApplyAsync(cache, touch, clock, cancellationToken)).IsTrue();
+        await ApplyAsync(cache, touch, cancellationToken);
         clock.Advance(TimeSpan.FromMinutes(2));
-        _ = await Assert.That(await ApplyAsync(cache, touch, clock, cancellationToken)).IsTrue();
+        await ApplyAsync(cache, touch, cancellationToken);
 
         var entry = await cache.GetEntryAsync(CacheName, Key, cancellationToken);
         _ = await Assert.That(entry?.ExpiresUtc).IsEqualTo(deadline);
     }
 
-    /// <summary>A Touch applied after its deadline is clamped to one tick instead of being skipped, so the entry expires.</summary>
+    /// <summary>A Touch applied after its pinned deadline writes that deadline, so the entry is expired instead of being kept alive from the apply time.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task PastTouchDeadlineExpiresEntry(CancellationToken cancellationToken)
@@ -65,15 +67,12 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
         var clock = new FakeTimeProvider();
         var cache = NewCache(clock);
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock);
-        _ = await ApplyAsync(cache, factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 1UL), clock, cancellationToken);
+        await ApplyAsync(cache, factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 1UL), cancellationToken);
         var touch = await factory.PrepareTouchAsync("op-2", CacheName, Key, TimeSpan.FromMinutes(1), 2UL, cancellationToken);
 
         clock.Advance(TimeSpan.FromMinutes(10));
-        _ = await Assert.That(await ApplyAsync(cache, touch, clock, cancellationToken)).IsTrue();
-        var clamped = await cache.GetEntryAsync(CacheName, Key, cancellationToken);
-        _ = await Assert.That(clamped?.ExpiresUtc).IsEqualTo(clock.GetUtcNow().UtcDateTime.AddTicks(1));
+        await ApplyAsync(cache, touch, cancellationToken);
 
-        clock.Advance(TimeSpan.FromTicks(1));
         var read = await cache.GetValueAsync(CacheName, Key, cancellationToken);
         _ = await Assert.That(read.Found).IsFalse().Because("A Touch whose deadline passed must expire the entry, not leave it untouched.");
     }
@@ -84,7 +83,9 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
     public async Task TouchFingerprintIgnoresPrepareTime(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider();
-        var factory = new ReplicaMutationFactory(NewCache(clock), "g1", 1UL, clock);
+        var cache = NewCache(clock);
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock);
+        await ApplyAsync(cache, factory.PrepareSet("op-0", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 1UL), cancellationToken);
 
         var first = await factory.PrepareTouchAsync("op-1", CacheName, Key, Expiration, 1UL, cancellationToken);
         clock.Advance(TimeSpan.FromHours(1));
@@ -111,10 +112,10 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
 
         clock.Advance(TimeSpan.FromMinutes(1));
         var first = NewCache(clock);
-        _ = await Assert.That(await ApplyAsync(first, write, clock, cancellationToken)).IsTrue();
+        await ApplyAsync(first, write, cancellationToken);
         clock.Advance(TimeSpan.FromMinutes(3));
         var replayed = NewCache(clock);
-        _ = await Assert.That(await ApplyAsync(replayed, write, clock, cancellationToken)).IsTrue();
+        await ApplyAsync(replayed, write, cancellationToken);
 
         _ = await Assert.That((await first.GetEntryAsync(CacheName, Key, cancellationToken))?.ExpiresUtc).IsEqualTo(deadline);
         _ = await Assert.That((await replayed.GetEntryAsync(CacheName, Key, cancellationToken))?.ExpiresUtc).IsEqualTo(deadline);
@@ -137,8 +138,8 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
         _ = await Assert.That(Decode(never).ExpiresUtcTicks).IsEqualTo(0L);
     }
 
-    private static Task<bool> ApplyAsync(ILogicalNamespacedCache<object?> cache, PreparedReplicaMutation mutation, TimeProvider clock, CancellationToken cancellationToken) =>
-        ReplicaCacheApplier.ApplyAsync(cache, Decode(mutation), clock, cancellationToken);
+    private static Task ApplyAsync(ILogicalNamespacedCache<object?> cache, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
+        ReplicaCacheApplier.ApplyAsync(cache, Decode(mutation), cancellationToken);
 
     private static ReplicaLogRecord Decode(PreparedReplicaMutation mutation) =>
         ReplicaLogCodec.Decode(mutation.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));

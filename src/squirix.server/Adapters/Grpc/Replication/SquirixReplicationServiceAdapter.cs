@@ -272,7 +272,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         entry.MutationPayload.ToByteArray(),
         entry.OutcomePayload.ToByteArray(),
         entry.ExpiresUtcTicks,
-        entry.CreatedUtcTicks,
+        entry.DecidedUtcTicks,
         entry.ResolvedUtcTicks,
         entry.PayloadChecksum);
 

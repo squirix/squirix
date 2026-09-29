@@ -19,10 +19,10 @@ internal static class ReplicaLogCodec
 {
     /// <summary>The canonical encoding version.</summary>
     /// <remarks>
-    /// Version 2 carries an absolute expiration deadline for every mutation kind; version 1 carried a relative duration for Touch.
-    /// Records of any other version are refused, so every node of a replica group must run the same encoding version.
+    /// Version 3 carries the outcome and the effect the leader decided: the resulting entry of an upserting mutation and its pinned
+    /// absolute deadline. Records of any other version are refused, so every node of a replica group must run the same encoding version.
     /// </remarks>
-    private const ushort Version = 2;
+    private const ushort Version = 3;
 
     /// <summary>Decodes canonical bytes back to a record.</summary>
     /// <param name="bytes">The canonical payload bytes.</param>
@@ -87,7 +87,7 @@ internal static class ReplicaLogCodec
             WriteBytes(writer, record.MutationPayload.Span);
             WriteBytes(writer, record.OutcomePayload.Span);
             writer.Write(record.ExpiresUtcTicks);
-            writer.Write(record.CreatedUtcTicks);
+            writer.Write(record.DecidedUtcTicks);
             writer.Write(record.ResolvedUtcTicks);
             writer.Write(record.PayloadChecksum);
         }
@@ -159,7 +159,7 @@ internal static class ReplicaLogCodec
                 middle.Mutation,
                 middle.Outcome,
                 tail.ExpiresUtcTicks,
-                tail.CreatedUtcTicks,
+                tail.DecidedUtcTicks,
                 tail.ResolvedUtcTicks,
                 tail.PayloadChecksum);
         }
@@ -296,7 +296,7 @@ internal static class ReplicaLogCodec
         private sealed record MiddleSection(byte[] Key, string MutationKind, byte[] Mutation, byte[] Outcome);
 
         [Immutable]
-        private sealed record TailSection(long ExpiresUtcTicks, long CreatedUtcTicks, long ResolvedUtcTicks, uint PayloadChecksum);
+        private sealed record TailSection(long ExpiresUtcTicks, long DecidedUtcTicks, long ResolvedUtcTicks, uint PayloadChecksum);
 
         /// <summary>Exact-size owned byte buffer helper for decoder output.</summary>
         /// <remarks>

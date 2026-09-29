@@ -29,7 +29,7 @@ message ReplicaLogEntry {
   bytes mutation_payload = 10;
   bytes outcome_payload = 11;
   int64 expires_utc_ticks = 12;
-  int64 created_utc_ticks = 13;
+  int64 decided_utc_ticks = 13;
   int64 resolved_utc_ticks = 14;
   uint32 payload_checksum = 15;
 }

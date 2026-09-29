@@ -46,7 +46,7 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway
         MutationPayload = ByteString.CopyFrom(record.MutationPayload.Span),
         OutcomePayload = ByteString.CopyFrom(record.OutcomePayload.Span),
         ExpiresUtcTicks = record.ExpiresUtcTicks,
-        CreatedUtcTicks = record.CreatedUtcTicks,
+        DecidedUtcTicks = record.DecidedUtcTicks,
         ResolvedUtcTicks = record.ResolvedUtcTicks,
         PayloadChecksum = record.PayloadChecksum,
     };

@@ -6,6 +6,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
@@ -29,7 +30,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(1);
 
-    private readonly ReplicaLeaderApplier _applier;
+    private readonly Lazy<ReplicaLeaderApplier> _applier;
     private readonly AsyncLock _gate = new();
     private readonly IReplicaRpcGateway _gateway;
     private readonly ulong _generation;
@@ -73,7 +74,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _locator = locator;
         _gateway = gateway;
         _local = local;
-        _applier = new ReplicaLeaderApplier(local);
+        _applier = new Lazy<ReplicaLeaderApplier>(() => new ReplicaLeaderApplier(local, selfId, Log, Metrics), LazyThreadSafetyMode.ExecutionAndPublication);
         GroupId = selfId;
         _topologyFingerprint = topologyFingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topologyFingerprint))
             : topologyFingerprint;
@@ -99,7 +100,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
     }
 
-    /// <summary>Gets the time source that pins the expiration deadlines of prepared records and measures them at apply; the system clock unless set.</summary>
+    /// <summary>Gets the time source that pins the expiration deadlines of prepared records; the system clock unless set.</summary>
+    /// <remarks>Only the prepare of a mutation reads it. Applying a record never does.</remarks>
     internal TimeProvider Clock { private get; init; } = TimeProvider.System;
 
     /// <summary>Gets the identifier of the owned replica group, which is this node's identifier.</summary>
@@ -107,6 +109,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     /// <summary>Gets the logger for lifecycle failures; the host logger unless set.</summary>
     internal ILogger Log { private get; init; } = LogManager.GetLogger<ReplicaGroupCommitter>();
+
+    /// <summary>Gets the replication metrics counting the inconsistent log records the committer refuses to apply; none are counted unless set.</summary>
+    internal ReplicationMetrics? Metrics { private get; init; }
 
     /// <summary>Gets the longest wait for an in-flight commit on dispose; 30 seconds unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
@@ -120,6 +125,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             field = value;
         }
     }
+
+    private ReplicaLeaderApplier Applier => _applier.Value;
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
@@ -277,7 +284,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (!_registry.TryGetLog(GroupId, out var log))
             return;
 
-        var applied = _applier.AppliedIndex;
+        var applied = Applier.AppliedIndex;
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         if (applied <= status.LastAppliedIndex)
             return;
@@ -324,7 +331,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         return _started && _coordinator is { } coordinator
-            ? await ReplicaLogCompactionStep.RunAsync(log, coordinator, eligibility, _applier.AppliedIndex, durability, Clock, cancellationToken).ConfigureAwait(false)
+            ? await ReplicaLogCompactionStep.RunAsync(log, coordinator, eligibility, Applier.AppliedIndex, durability, Clock, cancellationToken).ConfigureAwait(false)
             : ReplicaLogCompactionOutcome.NotReady;
     }
 
@@ -478,8 +485,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
                 await StartAsync(cancellationToken).ConfigureAwait(false);
 
             // Refused before anything is appended: a write that cannot reach a majority would leave an uncommitted local tail.
-            // Dropping the started state re-probes the followers on the next write. Outcomes are prepared from live memory, so an
-            // entry that is appended but not yet applied would make the prepared outcome disagree with the log-order apply: such a
+            // Dropping the started state re-probes the followers on the next write. Decisions are prepared from live memory, so an
+            // entry that is appended but not yet applied would leave the decision blind to its effect: such a
             // write fails definitely and may be retried; only this gate appends, so the check cannot go stale before the prepare.
             var majority = write == null || HasWriteMajority();
             var applied = write == null || (majority && await TryApplyPendingAsync().ConfigureAwait(false));
@@ -546,8 +553,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
         var status = read.Status;
 
-        // Memory must hold every committed entry before the recovered tail reads its outcomes and before anything new is prepared.
-        await _applier.CatchUpAsync(log, status.LastAppliedIndex, status.CommitIndex, Clock, cancellationToken).ConfigureAwait(false);
+        // Memory must hold every committed entry before anything new is prepared.
+        await Applier.CatchUpAsync(log, status.LastAppliedIndex, status.CommitIndex, cancellationToken).ConfigureAwait(false);
 
         var term = Math.Max(1UL, status.CurrentTerm);
         var (members, header) = BuildMembership(term);
@@ -564,7 +571,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             : [];
 
         // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
-        var pipeline = new ReplicaGroupCommitPipeline(_applier, log, _gateway, members, GroupId, status, header) { Clock = Clock };
+        var pipeline = new ReplicaGroupCommitPipeline(Applier, log, _gateway, members, GroupId, status, header);
         var factory = new ReplicaMutationFactory(_local, GroupId, term, Clock);
         _coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(_locator.ReplicaCount, status.LastLogIndex, status.CommitIndex, MaxInFlight),
@@ -572,7 +579,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             NoOpCommitHooks.Instance,
             log.Idempotency,
             eligibility,
-            tail.IsEmpty ? null : new ReplicaRecoveredTail(tail.Entries, term, factory))
+            Applier.RecoverTail(tail, term, factory))
         {
             ShutdownLeakReporter = budget => LogManager.ReplicaCoordinatorLeakedOnShutdown(Log, budget),
         };
@@ -695,9 +702,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         /// <remarks>Read by the committer under its gate, between commits, once the commit that last appended has completed.</remarks>
         internal ulong NextLogIndex => _prevLogIndex + 1;
 
-        /// <summary>Gets the time source measuring the pinned expiration deadlines at apply.</summary>
-        internal required TimeProvider Clock { private get; init; }
-
         /// <inheritdoc />
         public async ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
         {
@@ -743,7 +747,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         /// <inheritdoc />
         /// <remarks>Every entry the coordinator applies, its own and those a late majority commits, advances the committer's applied index.</remarks>
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
-            _applier.ApplyAsync(mutation.LogIndex, mutation.CanonicalPayload, Clock, cancellationToken);
+            _applier.ApplyAsync(mutation.LogIndex, mutation.CanonicalPayload, cancellationToken);
 
         /// <inheritdoc />
         public void RecordLaggingReplica(int replicaIndex, ulong logIndex)

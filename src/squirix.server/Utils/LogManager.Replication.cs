@@ -73,4 +73,11 @@ internal static partial class LogManager
         Level = LogLevel.Warning,
         Message = "Replica group log compaction is stalled: its snapshot would exceed the maximum snapshot size until idempotency outcomes age out")]
     internal static partial void ReplicaLogCompactionSnapshotTooLarge(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 4014,
+        Level = LogLevel.Error,
+        Message =
+            "Replica group {GroupId} refused an inconsistent log record and did not apply it; the entry stays pending, writes are refused, and the record needs operator attention")]
+    internal static partial void ReplicaInconsistentRecord(ILogger logger, string groupId, Exception exception);
 }

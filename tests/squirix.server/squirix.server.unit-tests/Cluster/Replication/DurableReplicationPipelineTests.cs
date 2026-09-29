@@ -433,7 +433,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
     /// <summary>
     /// A recovered entry keeps its idempotency pin: a same-identity retry before the commit reports an unknown outcome without
-    /// appending anything, and after the commit it replays the outcome read right before the entry's apply.
+    /// appending anything, and after the commit it replays the outcome the record carries.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -454,7 +454,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             _ = await Assert.That(await coordinator.ApplyCommittedAsync()).IsTrue();
             var replayed = await coordinator.CommitAsync(retry, TimeSpan.FromSeconds(5), cancellationToken);
 
-            await SequenceAssert.EqualAsync<byte>([102], replayed.ToArray());
+            await SequenceAssert.EqualAsync<byte>([7], replayed.ToArray());
             await SequenceAssert.EqualAsync(["commit:2", "apply:2"], pipeline.Trace, StringComparer.Ordinal);
         }
         finally
@@ -588,7 +588,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     private static FollowerLogEntry TailEntry(ulong logIndex, ulong term, string operationId)
     {
         // The canonical record carries the identity CreateMutation uses, so a same-identity retry matches the recovered pin.
-        var record = new ReplicaLogRecord(logIndex, term, operationId, "client", new byte[] { 1, 2, 3 }, "UserMutation", "cache", Encoding.UTF8.GetBytes("k"), "Set", new byte[] { 4 }, ReadOnlyMemory<byte>.Empty, 0, 0, 0, 0);
+        var record = new ReplicaLogRecord(logIndex, term, operationId, "client", new byte[] { 1, 2, 3 }, "UserMutation", "cache", Encoding.UTF8.GetBytes("k"), "Set", new byte[] { 4 }, new byte[] { 7 }, 0, 0, 0, 0);
         return new FollowerLogEntry(logIndex, term, ReplicaLogCodec.Encode(in record));
     }
 
@@ -891,14 +891,11 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             true);
     }
 
-    /// <summary>Rebuilds recovered entries from their canonical record; the outcome read before the apply is the log index plus 100.</summary>
+    /// <summary>Rebuilds recovered entries from their canonical record, taking the outcome the record carries.</summary>
     [Immutable]
     private sealed class TailRebuilder : IReplicaTailRebuilder
     {
         internal static TailRebuilder Instance { get; } = new();
-
-        public ValueTask<ReadOnlyMemory<byte>> ReadOutcomeAsync(PreparedReplicaMutation entry, CancellationToken cancellationToken) =>
-            ValueTask.FromResult<ReadOnlyMemory<byte>>(new[] { Convert.ToByte(entry.LogIndex + 100) });
 
         public PreparedReplicaMutation Rebuild(FollowerLogEntry entry)
         {
@@ -906,7 +903,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
                 throw new InvalidOperationException("Test tail entry is undecodable.");
 
             var identity = new ReplicaOperationIdentity("group-a", record.OperationScope, record.OperationId, record.OperationFingerprint);
-            return new PreparedReplicaMutation(identity, entry.Term, entry.LogIndex, new ReplicaMutationPayload(entry.Payload, ReadOnlyMemory<byte>.Empty, 42));
+            return new PreparedReplicaMutation(identity, entry.Term, entry.LogIndex, new ReplicaMutationPayload(entry.Payload, record.OutcomePayload, 42));
         }
     }
 }

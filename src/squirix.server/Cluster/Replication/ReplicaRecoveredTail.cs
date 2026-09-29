@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 
@@ -19,14 +17,13 @@ internal sealed class ReplicaRecoveredTail
 {
     private readonly ulong _currentTerm;
     private readonly IReadOnlyList<FollowerLogEntry> _entries;
-    private readonly IReplicaTailRebuilder _rebuilder;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaRecoveredTail" /> class.</summary>
     /// <param name="entries">The uncommitted leader log entries, contiguous and in index order.</param>
     /// <param name="currentTerm">The leader's current term.</param>
-    /// <param name="rebuilder">Rebuilds the prepared form and the outcome of each entry.</param>
+    /// <param name="rebuilder">Rebuilds the prepared form, outcome included, of each entry.</param>
     /// <exception cref="ArgumentException"><paramref name="entries" /> is empty or not contiguous.</exception>
-    /// <exception cref="System.IO.InvalidDataException">An entry payload is not a canonical replica log record.</exception>
+    /// <exception cref="System.IO.InvalidDataException">An entry payload is not a canonical replica log record, or the record is inconsistent.</exception>
     internal ReplicaRecoveredTail(IReadOnlyList<FollowerLogEntry> entries, ulong currentTerm, IReplicaTailRebuilder rebuilder)
     {
         ArgumentNullException.ThrowIfNull(entries);
@@ -44,7 +41,6 @@ internal sealed class ReplicaRecoveredTail
         }
 
         _entries = entries;
-        _rebuilder = rebuilder;
         _currentTerm = currentTerm;
         Mutations = mutations;
     }
@@ -55,7 +51,7 @@ internal sealed class ReplicaRecoveredTail
     /// <summary>Gets the last recovered log index.</summary>
     internal ulong LastIndex => _entries[^1].LogIndex;
 
-    /// <summary>Gets the prepared form of every recovered entry, in index order, with empty outcome payloads.</summary>
+    /// <summary>Gets the prepared form of every recovered entry, in index order, with the outcome payloads of their records.</summary>
     internal IReadOnlyList<PreparedReplicaMutation> Mutations { get; }
 
     /// <summary>Determines whether a majority-backed index may be committed under the current-term rule.</summary>
@@ -70,9 +66,4 @@ internal sealed class ReplicaRecoveredTail
     /// <param name="index">Log index.</param>
     /// <returns><see langword="true" /> when the index is recovered.</returns>
     internal bool Covers(ulong index) => index >= FirstIndex && index <= LastIndex;
-
-    /// <summary>Reads the outcome of a recovered entry from live memory, right before its apply.</summary>
-    /// <param name="entry">Recovered entry about to be applied.</param>
-    /// <returns>The canonical outcome payload.</returns>
-    internal ValueTask<ReadOnlyMemory<byte>> ReadOutcomeAsync(PreparedReplicaMutation entry) => _rebuilder.ReadOutcomeAsync(entry, CancellationToken.None);
 }

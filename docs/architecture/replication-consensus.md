@@ -160,18 +160,38 @@ Each pass reports its outcome through `squirix_replication_log_compactions_total
 `squirix_replication_log_bytes`, `squirix_replication_log_retained_entries`, `squirix_replication_snapshot_index`,
 and the `replicaGroups` section of [readiness details](../diagnostics.md#readiness-details).
 
-### Replicated expiration deadlines
+### Replicated mutation effects
 
-The leader pins the effective absolute expiration deadline of every replicated record at prepare time:
+The leader decides every replicated mutation once, at prepare time, from one read of the key and one reading of its
+clock. The record carries the decision: the outcome (the applied flag and, for a remove, the removed entry), the
+effect, and the pinned absolute expiration deadline.
 
-- **Touch:** prepare time plus the requested expiration.
-- **Set and TryAdd:** the earlier of the entry's absolute expiration and its relative expiration measured from
-  prepare time.
+| Kind             | Applied when              | Effect when applied                     | Effect otherwise |
+|------------------|---------------------------|-----------------------------------------|------------------|
+| Set              | always                    | write the entry                         | not possible     |
+| TryAdd           | the key is absent         | write the entry                         | nothing          |
+| Update           | the key is live           | write the entry with the new value      | nothing          |
+| Touch            | the key is live           | write the entry with the new deadline   | nothing          |
+| RemoveExpiration | the live entry has one    | write the entry without a deadline      | nothing          |
+| Remove           | the key is live           | delete the key                          | delete the key   |
 
-Every apply of a record, including the re-apply after a restart, uses that deadline, so a replay never extends a TTL.
-A Touch applied after its deadline expires the entry. The operation fingerprint does not cover the deadline, so a
-retry keeps its identity. The canonical record encoding is version 2 and nodes refuse records of any other version:
-every node of a replica group must run the same replica log codec version.
+An upserted entry is written exactly as decided: value, absolute deadline, version and tags. The deadline of Set and
+TryAdd is the earlier of the entry's absolute expiration and its relative expiration measured from prepare time; the
+deadline of Touch is prepare time plus the requested expiration.
+
+Applying a record never reads a clock and never re-checks liveness or preconditions, so the apply of the same
+committed prefix, at any time and on any node clock, yields identical entries. A restart re-applies the committed
+entries above the durable applied index with the same result, and a recovered uncommitted tail reports the outcome its
+record carries. The client outcome, the durable record outcome and the group idempotency outcome are always the same
+bytes. The operation fingerprint is computed from the request, not from the decision, so a retry keeps its identity.
+
+A record whose effect contradicts its outcome is never applied. The entry stays pending: the client of its own commit
+gets `COMMIT_OUTCOME_UNKNOWN`, its idempotency outcome stays unresolved, later writes are refused with
+`replica_apply_pending`, and a restart refuses to start the committer. Each refusal is logged at error level and counted
+by `squirix_replication_inconsistent_records_total`.
+
+The canonical record encoding is version 3 and nodes refuse records of any other version: every node of a replica group
+must run the same replica log codec version.
 
 ## Consequences
 
