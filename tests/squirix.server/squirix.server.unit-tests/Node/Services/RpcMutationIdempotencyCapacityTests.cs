@@ -27,7 +27,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// record no outcome for it.
 /// </summary>
 /// <remarks>
-/// Append admission refuses such a frame before it enters the ring (#703), in plain and group commit mode alike: a plain append returns
+/// Append admission refuses such a frame before it enters the ring, in plain and group commit mode alike: a plain append returns
 /// once its frame is on the ring and has no write ack that could carry a later rejection by the journal thread.
 /// </remarks>
 [Immutable]

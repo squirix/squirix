@@ -11,8 +11,8 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>
-/// Tracks admitted journal appends so a dead or wedged journal thread cannot leave them hanging
-/// (issue #569). The journal thread and a failure drain race for each entry through a single lock:
+/// Tracks admitted journal appends so a dead or wedged journal thread cannot leave them hanging.
+/// The journal thread and a failure drain race for each entry through a single lock:
 /// whoever removes the entry owns the buffer release, the counter-decrement, and the ack.
 /// Drained buffers are quarantined inside the registry until the journal thread is joined, closing
 /// the check-then-write race where the thread could write into an already returned buffer.

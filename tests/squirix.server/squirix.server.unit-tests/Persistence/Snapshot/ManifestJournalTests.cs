@@ -16,7 +16,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
-/// <summary>Regression tests for snapshot manifest journal-pointer consistency (issue #441).</summary>
+/// <summary>Regression tests for snapshot manifest journal-pointer consistency.</summary>
 [Immutable]
 public sealed class ManifestJournalTests : IsolatedStorageTestBase
 {

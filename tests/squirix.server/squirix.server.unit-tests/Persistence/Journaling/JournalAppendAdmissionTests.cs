@@ -19,7 +19,7 @@ using TUnit.Core;
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>
-/// Append admission (issue #703): a plain append has no write ack, so a frame the journal thread might reject for capacity is refused to
+/// Append admission: a plain append has no write ack, so a frame the journal thread might reject for capacity is refused to
 /// its caller before it enters the ring, from producer-side reads of the journal thread's counters.
 /// </summary>
 [Immutable]

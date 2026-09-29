@@ -18,8 +18,8 @@ namespace Squirix.Server.UnitTests.LocalCache;
 /// Multi-threaded load tests for the invariants of a single-lock <see cref="PhysicalCache{T}" />.
 /// The former design (a lock-free store plus a separately locked eviction index) could diverge
 /// under contention - a key present in one structure but not the other - which showed up as ghost
-/// entries that eviction could never reclaim (issues #444 and #387) and as single-shot CAS
-/// mutations quietly failing on a live key (issue #444). Merging both into one node per key under a
+/// entries that eviction could never reclaim and as single-shot CAS
+/// mutations quietly failing on a live key. Merging both into one node per key under a
 /// single lock makes those failure modes structurally impossible; these tests hammer the cache to
 /// prove it under load.
 /// </summary>

@@ -71,7 +71,7 @@ public sealed class CrossNodeExpirationTests : CrossNodeClockTestBase
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "remote-remove-expiration-race");
 
         // The base expiration (60s) vastly exceeds any scheduling delay, so the remote persist cannot
-        // race an expiry; removal is proven by the metadata assertions below (#412).
+        // race an expiry; removal is proven by the metadata assertions below.
         await Cluster.CacheA.SetAsync(key, "v", TwoNodeSupport.Options(TimeSpan.FromSeconds(60)), cancellationToken);
         Clock.Advance(TimeSpan.FromMilliseconds(250));
         _ = await Assert.That(await Cluster.CacheB.RemoveExpirationAsync(key, cancellationToken)).IsTrue();
@@ -134,7 +134,7 @@ public sealed class CrossNodeExpirationTests : CrossNodeClockTestBase
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-touch-race");
 
         // The base expiration (60s) vastly exceeds any scheduling delay, so the remote touch cannot
-        // race an expiry; the extension is proven by the remaining-TTL metadata below (#412).
+        // race an expiry; the extension is proven by the remaining-TTL metadata below.
         await Cluster.CacheA.SetAsync(key, "v", TwoNodeSupport.Options(TimeSpan.FromSeconds(60)), cancellationToken);
         Clock.Advance(TimeSpan.FromMilliseconds(250));
         _ = await Assert.That(await Cluster.CacheB.TouchAsync(key, TimeSpan.FromSeconds(10), cancellationToken)).IsTrue();

@@ -10,7 +10,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// A durable log record carries the mutation but not the outcome its prepare observed. A recovered entry is applied in
 /// log order after every predecessor, and its outcome is read again right before that apply, from the memory the log-order
 /// apply sees. That memory equals what the original prepare observed only for a tail appended while writes were refused
-/// with applies pending (#682), and only once the durable applied index (#650) exists; until then the rebuilt outcome may
+/// with applies pending, and only once the durable applied index exists; until then the rebuilt outcome may
 /// differ from the one the prepare observed.
 /// </remarks>
 internal interface IReplicaTailRebuilder

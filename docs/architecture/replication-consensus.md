@@ -135,7 +135,7 @@ therefore internal to `Storage.Replication` and does not add a transport depende
 ### Group log retention and compaction
 
 Only the owner of a replica group (its leader) maintains the group log it leads. Follower-held group logs are neither
-applied nor compacted until follower-side apply lands (#655).
+applied nor compacted until follower-side apply lands.
 
 - **Applied index.** The owner applies every committed entry to memory in log order and tracks the index it reached.
   A maintenance pass every 10 seconds waits until the node cache journal holds every applied entry durably, then

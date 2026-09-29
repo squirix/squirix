@@ -22,7 +22,7 @@ using TUnit.Core;
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>
-/// Abandoned ring items (issue #569): when the journal thread can no longer complete admitted
+/// Abandoned ring items: when the journal thread can no longer complete admitted
 /// appends, their uncancellable acks must fail and the queued-appends counter must return to
 /// baseline instead of hanging and leaking.
 /// </summary>

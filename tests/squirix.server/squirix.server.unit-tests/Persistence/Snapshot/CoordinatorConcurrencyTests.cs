@@ -17,7 +17,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
-/// <summary>Concurrent trigger evaluation in the snapshot coordinator (issue #450 S4).</summary>
+/// <summary>Concurrent trigger evaluation in the snapshot coordinator.</summary>
 [Immutable]
 public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
 {

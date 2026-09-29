@@ -46,7 +46,7 @@ public sealed class FailoverE2ETests : EndToEndTestBase
 
     /// <summary>Rejoined former leader catches up before regaining eligibility.</summary>
     /// <remarks>
-    /// #237 mandates the name "RejoinedFormerLeaderCatchesUpBeforeEligibility"; it is shortened here because SQR0005
+    /// The mandated name is "RejoinedFormerLeaderCatchesUpBeforeEligibility"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test
     /// to satisfy the analyzer changes nothing about the covered behavior.
     /// </remarks>
@@ -105,21 +105,21 @@ public sealed class FailoverE2ETests : EndToEndTestBase
 
     /// <summary>Controlled leader stop recovers reads and writes on the majority within five seconds.</summary>
     /// <remarks>
-    /// #237 mandates the name "LeaderStopRecoversOnMajorityWithinFiveSeconds"; it is shortened here because SQR0005
+    /// The mandated name is "LeaderStopRecoversOnMajorityWithinFiveSeconds"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test
     /// to satisfy the analyzer changes nothing about the covered behavior.
     /// The stopped node ("nodeA") now actually owns the test key, so this exercises a real leader loss instead of
-    /// an unrelated node's stop; automatic failover is not yet wired into production (see #646), so the test skips
+    /// an unrelated node's stop; automatic failover is not yet wired into production, so the test skips
     /// until that lands rather than asserting a recovery the cluster cannot currently perform.
     /// </remarks>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <exception cref="SkipTestException">Thrown until automatic failover is wired into production (#646).</exception>
+    /// <exception cref="SkipTestException">Thrown until automatic failover is wired into production.</exception>
     [Test]
     public async Task MajorityRecoversWithinFiveSeconds(CancellationToken cancellationToken)
     {
         throw new SkipTestException("Automatic failover is not yet wired into production; see #646.");
 
-#pragma warning disable CS0162 // Unreachable code: intentional, kept ready to run once #646 lands.
+#pragma warning disable CS0162 // Unreachable code: intentional, kept ready to run once automatic failover is wired into production.
         await using var cluster = await HostedCluster.StartThreeNodeAsync(
             nameof(MajorityRecoversWithinFiveSeconds),
             new MultiNodeStartOptions { ReplicaCount = 3 },

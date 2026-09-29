@@ -190,7 +190,7 @@ internal sealed class JournalDurabilityCoordinator
         }
 
         // The caller keeps the mutation gate until End is applied, so the wait ignores cancellation: End resyncs the capacity counters
-        // (in either direction), and append admission reads them under the gate (issue #703). A producer admitted while End is still on
+        // (in either direction), and append admission reads them under the gate. A producer admitted while End is still on
         // the ring would be checked against the pre-compaction layout. The wait cannot hang: the journal thread completes or faults the
         // tracked End ack, and a pipeline failure or disposal faults it through the pending-append drain.
         await publisher.AwaitAckAsync(end, CancellationToken.None).ConfigureAwait(false);

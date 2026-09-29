@@ -227,7 +227,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     /// Dispose racing <see cref="ServerCallPolicy.ExecuteAsync{TState,T}" /> must never surface an
     /// <see cref="ObjectDisposedException" /> raised from SemaphoreSlim internals: the
     /// claim-then-recheck ordering makes racing callers observe disposal through the policy's own
-    /// post-enter check (or the drain gate) instead of a disposed concurrency semaphore. See issue #423.
+    /// post-enter check (or the drain gate) instead of a disposed concurrency semaphore.
     /// </summary>
     [Test]
     public async Task DisposeRacingExecuteStaysClean()

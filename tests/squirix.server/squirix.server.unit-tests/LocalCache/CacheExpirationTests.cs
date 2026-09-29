@@ -62,7 +62,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         _ = await Assert.That((await cache.GetValueAsync(CacheKey.Default("k"), cancellationToken)).Value).IsEqualTo("new");
     }
 
-    /// <summary>When the absolute deadline is earlier than the relative one, the absolute one wins (issue #445).</summary>
+    /// <summary>When the absolute deadline is earlier than the relative one, the absolute one wins.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task EarliestAbsoluteDeadlineWins(CancellationToken cancellationToken)
@@ -84,7 +84,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         _ = await Assert.That((await cache.GetValueAsync(CacheKey.Default("k"), cancellationToken)).Found).IsFalse();
     }
 
-    /// <summary>Both relative and absolute expiration are respected; the earlier deadline wins (issue #445).</summary>
+    /// <summary>Both relative and absolute expiration are respected; the earlier deadline wins.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task EarliestDeadlineWins(CancellationToken cancellationToken)

@@ -20,7 +20,7 @@ public sealed class PointerFileTests : IsolatedStorageTestBase
     /// <summary>
     /// The post-abrupt-shutdown lease wait must cover the <c language="csharp">man-current.next</c> staging file, not only
     /// <c language="csharp">man-current</c>: a draining writer handle on the staging file is what blocks offline compact and
-    /// recovery on Windows after a force-kill style shutdown (issue #396).
+    /// recovery on Windows after a force-kill style shutdown.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="SkipTestException">Thrown when the environment cannot satisfy the test precondition.</exception>

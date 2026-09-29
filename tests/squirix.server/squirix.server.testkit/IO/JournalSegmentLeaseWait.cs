@@ -50,7 +50,7 @@ public static class JournalSegmentLeaseWait
         // The manifest pointer writer stages each update in man-current.next with an exclusive
         // (FileShare.None) handle before renaming it into place; an abrupt shutdown can leave a draining
         // handle on it. Probe with the same exclusive mode, so the staging file is shareable by the writer
-        // during the offline compact that skipped reading it (issue #396).
+        // during the offline compact that skipped reading it.
         var join = Path.Join(dataDir, ManifestCurrentStagingFileName);
         if (!File.Exists(join))
             return true;

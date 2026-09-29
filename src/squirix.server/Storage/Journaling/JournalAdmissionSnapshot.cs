@@ -3,7 +3,7 @@ using Squirix.Server.Attributes;
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>
-/// One producer-side read of the journal capacity state that append admission checks a frame against (issue #703). The fields are listed in
+/// One producer-side read of the journal capacity state that append admission checks a frame against. The fields are listed in
 /// read order: the pending counters first, then the journal thread's flags, then its counters.
 /// </summary>
 /// <param name="PendingBytes">Summed frame length of the appends admitted and not yet written.</param>

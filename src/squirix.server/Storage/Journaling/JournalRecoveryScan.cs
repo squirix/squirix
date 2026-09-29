@@ -41,7 +41,7 @@ internal static class JournalRecoveryScan
         var currentJournal = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
         PrepareSegmentForSequenceScan(options, currentJournal);
 
-        // The roll target may have been pre-created before its manifest publish (issue #439); a torn
+        // The roll target may have been pre-created before its manifest publish; a torn
         // leftover there must not fail the sequence scan, so repair it the same way.
         PrepareSegmentForSequenceScan(options, currentJournal + 1);
     }

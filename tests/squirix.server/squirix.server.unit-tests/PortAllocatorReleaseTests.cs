@@ -10,7 +10,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests;
 
-/// <summary>Pins that releasing a held port returns only once the port can be bound, so a bind right after the release cannot fail on a system that frees a closed listener late (issue 738).</summary>
+/// <summary>Pins that releasing a held port returns only once the port can be bound, so a bind right after the release cannot fail on a system that frees a closed listener late.</summary>
 public sealed class PortAllocatorReleaseTests
 {
     /// <summary>The release polls until the closed hold's port reports bindable, then returns.</summary>

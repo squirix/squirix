@@ -32,7 +32,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     /// startup gate. The coordinator must block on that gate and only then check replay, so a retry arriving before
     /// recovery finishes replays the restored record instead of re-executing the mutation. This deterministically
     /// simulates the race: the store stays empty and the gate stays closed while ExecuteAsync is in flight, then
-    /// recovery restores the record and the gate opens. Regression guard for issue #320.
+    /// recovery restores the record and the gate opens.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

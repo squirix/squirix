@@ -17,7 +17,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
-/// <summary>Unit tests for the accounting of a physical insert racing another write of the same key in <see cref="MemoryAdmissionCacheDecorator{T}" /> (issue 732).</summary>
+/// <summary>Unit tests for the accounting of a physical insert racing another write of the same key in <see cref="MemoryAdmissionCacheDecorator{T}" />.</summary>
 [Immutable]
 public sealed class AdmissionCacheDecoratorInsertRaceTests : DisposableServerUnitTestBase
 {

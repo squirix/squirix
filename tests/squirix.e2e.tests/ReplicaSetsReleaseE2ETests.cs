@@ -38,21 +38,21 @@ public sealed class ReplicaSetsReleaseE2ETests : EndToEndTestBase
 
     /// <summary>Controlled leader stop recovers RF=3 reads and writes on the majority within five seconds.</summary>
     /// <remarks>
-    /// #239 mandates the name "RfThreeLeaderStopRecoversWithinFiveSeconds"; it is shortened here because SQR0005
+    /// The mandated name is "RfThreeLeaderStopRecoversWithinFiveSeconds"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test to satisfy the analyzer changes nothing about the covered behavior.
     /// The stopped node ("nodeA") now owns the test key, so this would exercise a real leader loss instead of an
-    /// unrelated node's stop. Automatic failover is not yet wired into production (#646: no PreVote/RequestVote
+    /// unrelated node's stop. Automatic failover is not yet wired into production (no PreVote/RequestVote
     /// RPCs, both activation flags stay off), so the cluster cannot currently recover from this, and the test
-    /// skips instead of asserting a recovery that cannot happen. Un-skip once #646 lands.
+    /// skips instead of asserting a recovery that cannot happen. Un-skip once automatic failover is wired into production.
     /// </remarks>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <exception cref="SkipTestException">Always thrown until automatic failover is wired into production (#646).</exception>
+    /// <exception cref="SkipTestException">Always thrown until automatic failover is wired into production.</exception>
     [Test]
     public async Task RfThreeLeaderStopRecoversInFiveSeconds(CancellationToken cancellationToken)
     {
         throw new SkipTestException("Automatic failover is not yet wired into production; see #646.");
 
-#pragma warning disable CS0162 // Unreachable code: intentional, kept ready to run once #646 lands.
+#pragma warning disable CS0162 // Unreachable code: intentional, kept ready to run once automatic failover is wired into production.
         var options = new MultiNodeStartOptions { ReplicaCount = 3 };
         await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(RfThreeLeaderStopRecoversInFiveSeconds), options, true, cancellationToken);
         var uriB = cluster.GetUri("nodeB");
@@ -77,7 +77,7 @@ public sealed class ReplicaSetsReleaseE2ETests : EndToEndTestBase
 
     /// <summary>RF=2 refuses new mutations after mirror loss while committed data stays readable.</summary>
     /// <remarks>
-    /// #239 mandates the name "RfTwoCurrentReadFailsWhenMirrorUnavailable"; the behavior is a refused mutation
+    /// The mandated name is "RfTwoCurrentReadFailsWhenMirrorUnavailable"; the behavior is a refused mutation
     /// with a preserved local read, so the test name describes that contract (mandated name documented here for
     /// traceability). Renaming a test to satisfy the analyzer changes nothing about the covered behavior.
     /// </remarks>

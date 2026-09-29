@@ -60,7 +60,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         ["origin"] = "repro",
     }.ToFrozenDictionary();
 
-    /// <summary>Try-add stores entry tags so reads and snapshot capture observe them (issue #421).</summary>
+    /// <summary>Try-add stores entry tags so reads and snapshot capture observe them.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task AddPreservesTags(CancellationToken cancellationToken)
@@ -73,7 +73,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         await AssertTagsEqualAsync(TestTags, entry.Tags);
     }
 
-    /// <summary>Durable-recovery insert restores entry tags after restart/recovery (issue #421).</summary>
+    /// <summary>Durable-recovery insert restores entry tags after restart/recovery.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task DurableRecoveryInsertPreservesTags(CancellationToken cancellationToken)
@@ -86,7 +86,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         await AssertTagsEqualAsync(TestTags, entry.Tags);
     }
 
-    /// <summary>Live enumeration exposes tags to the snapshot capture bridge (issue #421).</summary>
+    /// <summary>Live enumeration exposes tags to the snapshot capture bridge.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task EnumerateLiveYieldsTags(CancellationToken cancellationToken)
@@ -139,7 +139,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>Set stores entry tags so reads and snapshot capture observe them (issue #421).</summary>
+    /// <summary>Set stores entry tags so reads and snapshot capture observe them.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task SetAsyncPreservesTags(CancellationToken cancellationToken)
@@ -256,7 +256,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         _ = await Assert.That(await cache.UpdateAsync(key, "same", cancellationToken)).IsTrue();
     }
 
-    /// <summary>Value-only update keeps the original entry tags (issue #421).</summary>
+    /// <summary>Value-only update keeps the original entry tags.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task UpdateKeepsOriginalTags(CancellationToken cancellationToken)

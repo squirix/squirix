@@ -116,7 +116,7 @@ internal sealed class JournalEventLoopSegmentWriter
         try
         {
             // Rejected before the roll decision: a roll can never make a frame larger than an empty segment fit, so each retry
-            // after a completed roll would roll again, one new segment and manifest publication each (issue #749).
+            // after a completed roll would roll again, one new segment and manifest publication each.
             _owner.Policy.EnsureFitsEmptySegmentOrThrow(item.FrameLength);
             EnsureSegmentOpen();
             var needsRoll = ShouldRollSegmentForAppend(item.FrameLength);
@@ -143,7 +143,7 @@ internal sealed class JournalEventLoopSegmentWriter
             FailAppendWorkItem(item, ex);
 
             // An ack-less append was already reported queued to its producer and nobody observes its outcome: dropping it
-            // here would let the next durability checkpoint report it durable (issue #703). The pipeline fails loudly instead,
+            // here would let the next durability checkpoint report it durable. The pipeline fails loudly instead,
             // because the journal thread loop latches this exception type through FailPipeline.
             return item.Ack == null ? throw new InvalidOperationException(AcklessCapacityRejectionMessage, ex) : true;
         }
@@ -169,7 +169,7 @@ internal sealed class JournalEventLoopSegmentWriter
 
         // The roll target segment is created durably before the manifest advertises
         // CurrentJournal = target, so a crash can never leave the manifest ahead of the last
-        // available segment (issue #439). The active segment stays on the old full segment until
+        // available segment. The active segment stays on the old full segment until
         // the manifest publication succeeds, which keeps deferring appending via ShouldRollSegmentForAppend.
         var targetSegmentIndex = _roll.CurrentSegmentIndex + 1;
         var targetPath = _rollTarget.BuildRollTargetPath();
@@ -394,7 +394,7 @@ internal sealed class JournalEventLoopSegmentWriter
 
     /// <summary>
     /// Durably provisions the next journal segment before its roll manifest is published, so a crash can
-    /// never leave the manifest ahead of the last available segment (issue #439). All members run on the
+    /// never leave the manifest ahead of the last available segment. All members run on the
     /// dedicated <c language="csharp">squirix-journal-io</c> thread.
     /// </summary>
     [Immutable]

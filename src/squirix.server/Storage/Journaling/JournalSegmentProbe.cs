@@ -6,7 +6,7 @@ namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>
 /// What the journal thread will find when it opens a segment that is not open yet (at startup and after a maintenance end), so that append
-/// admission can read it before that open (issue #703).
+/// admission can read it before that open.
 /// </summary>
 /// <param name="ActiveBytesAfterOpen">Active segment length right after the open: the file length, or the file header size for a missing or empty file, because that open writes the header.</param>
 /// <param name="OpenCreatesSegment">Whether the file is missing, so the open creates it and adds a segment the journal thread does not check against the segment count limit.</param>

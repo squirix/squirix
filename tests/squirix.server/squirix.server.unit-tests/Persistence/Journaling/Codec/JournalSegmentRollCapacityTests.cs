@@ -13,7 +13,7 @@ using TUnit.Core;
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 
 /// <summary>
-/// Tests for Pipelined journal segment roll capacity enforcement, and for append admission (issue #703): the journal thread's own
+/// Tests for Pipelined journal segment roll capacity enforcement, and for append admission: the journal thread's own
 /// capacity comparisons, widened by bounds for the appends still ahead of a frame.
 /// </summary>
 [Immutable]
@@ -130,7 +130,7 @@ public sealed class JournalSegmentRollCapacityTests
 
     /// <summary>
     /// A frame that fills an empty segment exactly (file header plus frame equal to the segment size) fits; one byte more never fits any
-    /// segment and is refused, whatever the journal state (issue #749).
+    /// segment and is refused, whatever the journal state.
     /// </summary>
     [Test]
     public async Task EmptySegmentFitRefusesPastSegmentSize()

@@ -18,8 +18,7 @@ namespace Squirix.Server.LocalCache;
 /// eviction-order bookkeeping used to be two independently synchronized structures (a lock-free
 /// <c language="csharp">ConcurrentDictionary</c> plus a separately locked index). Any interleaving of concurrent
 /// inserts, removals, expirations, and evictions across those two structures could leave them
-/// out of sync - a key present in one but not the other (see issue #444, and the eviction-race
-/// family it extends, #387). Merging both into one <see cref="Node" /> per key, mutated only
+/// out of sync - a key present in one but not the other. Merging both into one <see cref="Node" /> per key, mutated only
 /// inside <see cref="_lock" />, makes that class of bug structurally impossible: there is no
 /// second structure left to diverge from.
 /// </remarks>

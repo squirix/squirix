@@ -13,7 +13,7 @@ using TUnit.Core;
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>
-/// Append admission reads the journal thread's capacity state before the journal thread opens the current segment (issue #703), so at
+/// Append admission reads the journal thread's capacity state before the journal thread opens the current segment, so at
 /// startup and after a maintenance end the active segment counter and the open flag must already describe what that open will find.
 /// </summary>
 [Immutable]

@@ -37,7 +37,7 @@ internal static class CachePipelineRegistration
     /// <summary>
     /// Outermost decorator runs first: Tracing → DomainError → Validation → Backpressure → Deadline → Metrics → Memory.
     /// Backpressure stays outside Deadline on purpose: admission shaping (slowdown plus queue wait) must not
-    /// consume the operation execution budget, otherwise a saturated node times out work that never ran (#456).
+    /// consume the operation execution budget, otherwise a saturated node times out work that never ran.
     /// Validation stays outside Backpressure so invalid requests are rejected before taking an admission slot.
     /// </summary>
     /// <param name="services">Service collection receiving the decorator chain registrations.</param>

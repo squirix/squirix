@@ -12,7 +12,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
-/// <summary>Idempotency-outcome appends must serialize behind the mutation gate (issue #419).</summary>
+/// <summary>Idempotency-outcome appends must serialize behind the mutation gate.</summary>
 [Immutable]
 public sealed class JournalIdempotencyGateTests : IsolatedStorageTestBase
 {

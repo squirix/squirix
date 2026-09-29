@@ -418,7 +418,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     void IJournalCoordinatorAppendState.EnsureAppendAdmission(int frameLength)
     {
-        // Conservative admission (issue #703): a frame admitted here is never rejected for capacity by the journal thread. The caller holds
+        // Conservative admission: a frame admitted here is never rejected for capacity by the journal thread. The caller holds
         // the mutation gate (AllocateSequence refused it otherwise), and the check runs synchronously up to this append's own Track, so no
         // other producer is admitted in between; meanwhile, the journal thread only moves appends out of the pending set.
         // - Read order: pending counters, then the journal thread's flags, then its counters. The journal thread accounts a frame's bytes (and

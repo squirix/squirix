@@ -11,7 +11,7 @@ namespace Squirix.Server.UnitTests.Utils;
 
 /// <summary>
 /// Loggers handed out by <see cref="LogManager" /> write to the host logger factory configured when they log, so components built before the
-/// host configures logging (the journal is built while the host is composed) are not left with a null logger (issue 715). Not run in parallel:
+/// host configures logging (the journal is built while the host is composed) are not left with a null logger. Not run in parallel:
 /// the configured factory is process-wide.
 /// </summary>
 [Immutable]
