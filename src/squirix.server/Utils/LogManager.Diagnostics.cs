@@ -56,4 +56,7 @@ internal static partial class LogManager
 
     [LoggerMessage(EventId = 3017, Level = LogLevel.Error, Message = "Host stop failed during server disposal; the host is disposed regardless")]
     internal static partial void HostStopFailedOnDispose(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 3018, Level = LogLevel.Error, Message = "Releasing the server application after a failed startup failed; the startup failure is reported instead")]
+    internal static partial void HostDisposeFailedAfterStartFailure(ILogger logger, Exception exception);
 }

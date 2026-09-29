@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
@@ -36,6 +37,16 @@ public sealed class SquirixServer : IAsyncDisposable
     /// <returns>A task that completes when the server host is disposed.</returns>
     public ValueTask DisposeAsync() => _handle.DisposeAsync();
 
+    /// <summary>Starts the Squirix server host runtime using discovered settings or ephemeral defaults.</summary>
+    /// <param name="configure">Optional callback applied to server options before startup.</param>
+    /// <param name="cancellationToken">Cancellation token for server startup.</param>
+    /// <returns>A server host lifetime handle.</returns>
+    internal static async ValueTask<SquirixServer> StartAsync(Action<SquirixServerOptions>? configure, CancellationToken cancellationToken = default)
+    {
+        var handle = await BuildAppHandleAsync(configure, cancellationToken).ConfigureAwait(false);
+        return new SquirixServer(handle);
+    }
+
     /// <summary>Starts the squirix node server application with default production logging and cluster settings resolution.</summary>
     /// <param name="configure">Optional callback applied to server options before startup.</param>
     /// <param name="cancellationToken">Cancellation token for server startup.</param>
@@ -63,20 +74,7 @@ public sealed class SquirixServer : IAsyncDisposable
         _ = await builder.AddSquirixServerAsync(target => Configurator.CopyOptions(options, target), loadDiscoveredSettings: false, cancellationToken: cancellationToken)
                          .ConfigureAwait(false);
         var app = builder.Build();
-        _ = app.MapSquirixServer();
-
-        await app.StartAsync(cancellationToken).ConfigureAwait(false);
-        return new ApplicationHandle(app);
-    }
-
-    /// <summary>Starts the Squirix server host runtime using discovered settings or ephemeral defaults.</summary>
-    /// <param name="configure">Optional callback applied to server options before startup.</param>
-    /// <param name="cancellationToken">Cancellation token for server startup.</param>
-    /// <returns>A server host lifetime handle.</returns>
-    private static async ValueTask<SquirixServer> StartAsync(Action<SquirixServerOptions>? configure, CancellationToken cancellationToken = default)
-    {
-        var handle = await BuildAppHandleAsync(configure, cancellationToken).ConfigureAwait(false);
-        return new SquirixServer(handle);
+        return await ApplicationHandle.StartApplicationAsync(app, static application => application.MapSquirixServer(), cancellationToken).ConfigureAwait(false);
     }
 
     [ThreadSafe]
@@ -102,8 +100,60 @@ public sealed class SquirixServer : IAsyncDisposable
             return new ValueTask(_disposed.Task);
         }
 
+        /// <summary>
+        /// Configures and starts a built application. When configuration or startup fails, whatever already started is stopped and the application is
+        /// released, then the original exception is rethrown; a cleanup failure is logged and never replaces it.
+        /// </summary>
+        /// <param name="app">The built application; ownership transfers to the returned handle or is released on failure.</param>
+        /// <param name="configure">Callback applied to the built application before it starts.</param>
+        /// <param name="cancellationToken">Cancellation token for startup only; cleanup does not observe it.</param>
+        /// <returns>A handle owning the started application.</returns>
+        internal static async ValueTask<ApplicationHandle> StartApplicationAsync(WebApplication app, Action<WebApplication> configure, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(app);
+            ArgumentNullException.ThrowIfNull(configure);
+            var handle = new ApplicationHandle(app);
+            var logger = app.Logger;
+#pragma warning disable CA1031 // The original startup failure is rethrown; cleanup and its logging must never replace it.
+            try
+            {
+                configure(app);
+                await app.StartAsync(cancellationToken).ConfigureAwait(false);
+                return handle;
+            }
+            catch
+            {
+                try
+                {
+                    await handle.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception cleanupException)
+                {
+                    LogCleanupFailure(logger, cleanupException);
+                }
+
+                throw;
+            }
+#pragma warning restore CA1031
+        }
+
+        private static void LogCleanupFailure(ILogger logger, Exception cleanupException)
+        {
+#pragma warning disable CA1031 // A failing logger must not replace the startup failure that is being rethrown.
+            try
+            {
+                LogManager.HostDisposeFailedAfterStartFailure(logger, cleanupException);
+            }
+            catch (Exception loggingException)
+            {
+                Trace.TraceError("Logging the failed-startup cleanup failed: {0}", loggingException);
+            }
+#pragma warning restore CA1031
+        }
+
         private async Task RunDisposeAsync()
         {
+#pragma warning disable CA1031 // A failed stop is logged and disposal continues; any other failure is delivered to every caller through the shared task.
             try
             {
                 var logger = _app.Logger;
@@ -113,9 +163,7 @@ public sealed class SquirixServer : IAsyncDisposable
                     // It is a cancellation request rather than a hard deadline, so no extra bound is added here.
                     await _app.StopAsync(CancellationToken.None).ConfigureAwait(false);
                 }
-#pragma warning disable CA1031 // Disposal must not throw: a failed stop is logged and the host is still disposed.
                 catch (Exception ex)
-#pragma warning restore CA1031
                 {
                     LogManager.HostStopFailedOnDispose(logger, ex);
                 }
@@ -126,12 +174,11 @@ public sealed class SquirixServer : IAsyncDisposable
 
                 _disposed.SetResult();
             }
-#pragma warning disable CA1031 // The failure is delivered to every caller through the shared task.
             catch (Exception ex)
-#pragma warning restore CA1031
             {
                 _disposed.SetException(ex);
             }
+#pragma warning restore CA1031
         }
     }
 }
