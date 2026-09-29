@@ -16,7 +16,7 @@ using TUnit.Core;
 namespace Squirix.Server.IntegrationTests;
 
 /// <summary>
-/// General regression guard for issue 461. MS DI does not dispose IDisposable/IAsyncDisposable singletons that are
+/// General regression guard for disposable singleton registrations. MS DI does not dispose IDisposable/IAsyncDisposable singletons that are
 /// registered through the instance overloads of AddSingleton (for example, AddSingleton(runtime)). Such a service
 /// must be registered through the factory overload so the host owns its disposal on shutdown. This rule scans the
 /// server composition (not just persistence) and fails for any disposable service that the composition registers via

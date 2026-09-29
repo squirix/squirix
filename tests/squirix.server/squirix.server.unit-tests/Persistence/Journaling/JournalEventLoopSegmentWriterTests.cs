@@ -55,7 +55,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
     /// <summary>
     /// An ack-less append rejected for capacity on the unbatched path releases its slot and buffer, then throws instead of
-    /// being dropped silently (issue #703).
+    /// being dropped silently.
     /// </summary>
     [Test]
     public async Task AckLessAppendCapacityRejectionThrows()
@@ -76,7 +76,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
     /// <summary>
     /// An ack-less append the journal thread rejects for capacity fails the pipeline through the event loop instead of being
-    /// dropped while a later checkpoint reports it durable (issue #703). Its slot and buffer are released by the journal thread.
+    /// dropped while a later checkpoint reports it durable. Its slot and buffer are released by the journal thread.
     /// </summary>
     [Test]
     public async Task AckLessCapacityRejectionFailsPipeline()
@@ -108,7 +108,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
     /// <summary>
     /// An ack-less frame larger than an empty segment, bypassing producer admission, fails the pipeline on the journal thread without a
-    /// roll: no new segment and no roll publication (issue #749).
+    /// roll: no new segment and no roll publication.
     /// </summary>
     [Test]
     public async Task AckLessOversizedFrameFailsPipeline()
@@ -123,7 +123,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
     /// <summary>
     /// An ack-less append deferred for a roll that, once the roll completes, needs another roll the segment count forbids is released and
-    /// fails the pipeline through the event loop instead of being dropped (issue #703).
+    /// fails the pipeline through the event loop instead of being dropped.
     /// </summary>
     [Test]
     public async Task AckLessRollRejectionFailsPipeline()
@@ -224,7 +224,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
     /// <summary>
     /// A frame larger than an empty segment, bypassing producer admission, is rejected through its ack before the journal thread decides
-    /// to roll: a roll can never make it fit, so no new segment is created and no roll is published (issue #749).
+    /// to roll: a roll can never make it fit, so no new segment is created and no roll is published.
     /// </summary>
     [Test]
     public async Task OversizedFrameFaultsAckWithoutRoll()

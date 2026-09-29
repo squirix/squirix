@@ -23,7 +23,7 @@ using TUnit.Core;
 namespace Squirix.Server.IntegrationTests;
 
 /// <summary>
-/// The journal host is the only owner of the journal lifetime (issue 714). Every other registration that exposes the journal hands out a
+/// The journal host is the only owner of the journal lifetime. Every other registration that exposes the journal hands out a
 /// decorator the container disposes first; if it passed the dispose through, a journal whose dispose throws (a leaked journal I/O thread)
 /// would abort the container and skip the manifest ledger, the replica group registry, and its follower logs.
 /// </summary>

@@ -18,7 +18,7 @@ public sealed class LeaderAuthorityTests : ServerUnitTestBase
 {
     /// <summary>A failed quorum confirmation rejects the current read instead of serving stale state.</summary>
     /// <remarks>
-    /// #236 mandates the name "FailedQuorumConfirmationRejectsCurrentRead"; it is shortened here because SQR0005
+    /// The mandated name is "FailedQuorumConfirmationRejectsCurrentRead"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test
     /// to satisfy the analyzer changes nothing about the covered behavior.
     /// </remarks>
@@ -62,7 +62,7 @@ public sealed class LeaderAuthorityTests : ServerUnitTestBase
     /// <summary>A read waits until the applied index reaches the read index.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <remarks>
-    /// #236 mandates the name "ReadWaitsUntilAppliedIndexReachesReadIndex"; it is shortened here because SQR0005
+    /// The mandated name is "ReadWaitsUntilAppliedIndexReachesReadIndex"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test
     /// to satisfy the analyzer changes nothing about the covered behavior.
     /// </remarks>

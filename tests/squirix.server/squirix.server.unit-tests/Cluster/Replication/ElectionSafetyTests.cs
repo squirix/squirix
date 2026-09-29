@@ -24,7 +24,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
     /// <summary>At most one vote is granted per term and candidates with stale logs are rejected.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <remarks>
-    /// #235 mandates the name "GrantsAtMostOneVotePerTermAndRejectsStaleLog"; it is shortened here because SQR0005
+    /// The mandated name is "GrantsAtMostOneVotePerTermAndRejectsStaleLog"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test
     /// to satisfy the analyzer changes nothing about the covered behavior.
     /// </remarks>
@@ -74,7 +74,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
     /// <summary>A pre-vote probe never persists or inflates the durable term.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <remarks>
-    /// #235 mandates the name "IsolatedFollowerCannotInflateTermByPreVote"; it is shortened here because SQR0005
+    /// The mandated name is "IsolatedFollowerCannotInflateTermByPreVote"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test
     /// to satisfy the analyzer changes nothing about the covered behavior.
     /// </remarks>

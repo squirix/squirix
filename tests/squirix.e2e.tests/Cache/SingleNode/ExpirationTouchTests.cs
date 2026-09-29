@@ -108,7 +108,7 @@ public sealed class ExpirationTouchTests : ClockTestBase
 
         // Deterministic crossing of the original deadline: the original TTL (2s) elapses while the
         // touch-installed fresh 60-second window keeps the entry alive; that window is far beyond any
-        // scheduling delay, so neither the touch nor the final read can race an expiry (#412).
+        // scheduling delay, so neither the touch nor the final read can race an expiry.
         await cache.SetAsync("k", "v", Expiry.In(TimeSpan.FromSeconds(2)), cancellationToken);
         Clock.Advance(TimeSpan.FromMilliseconds(250));
         _ = await Assert.That(await cache.TouchAsync("k", TimeSpan.FromSeconds(60), cancellationToken)).IsTrue();

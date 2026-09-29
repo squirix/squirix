@@ -15,7 +15,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests;
 
-/// <summary>Protects the hold-open internal mTLS port discipline that keeps parallel multi-node tests from colliding (see #612).</summary>
+/// <summary>Protects the hold-open internal mTLS port discipline that keeps parallel multi-node tests from colliding.</summary>
 public sealed class ClusterIdentityInternalPortTests
 {
     /// <summary>Parallel cluster owners must receive distinct internal ports.</summary>

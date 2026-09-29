@@ -18,7 +18,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// <summary>
 /// The snapshot capture bridge must carry entry tags from the live store into snapshot-ready
 /// entries; losing them here silently drops user metadata on every snapshot-based recovery
-/// while journal-only replay preserves it. See issue #421.
+/// while journal-only replay preserves it.
 /// </summary>
 [Immutable]
 public sealed class SnapshotCaptureBridgeTests : ServerUnitTestBase

@@ -33,6 +33,8 @@ internal sealed class ClientPool : IClientPool
     /// </summary>
     private static readonly ILogger Logger = NullLogger.Instance;
 
+    private static readonly BootstrapConnectOptions DefaultConnectOptions = new(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
+
     private static readonly Action<ILogger, string, Exception?> LogPolicyDisposeFailed = LoggerMessage.Define<string>(
         LogLevel.Debug,
         new EventId(4001, "ClientPoolPolicyDisposeFailed"),
@@ -61,32 +63,24 @@ internal sealed class ClientPool : IClientPool
         BootstrapConnectOptions? connectOptions = null,
         TimeProvider? timeProvider = null)
     {
-        _connectOptions = connectOptions ?? new BootstrapConnectOptions(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
+        _connectOptions = connectOptions ?? DefaultConnectOptions;
         _timeProvider = timeProvider ?? TimeProvider.System;
-        var ids = new string[peers.Length];
+        _nodeIds = RegisterPeers(peers, policyFactory, handler, GrpcTransportEndpoints.CreateChannelHandler, interceptor, callCredentials);
+        BootstrapNodeIds = _nodeIds;
+    }
 
-        for (var i = 0; i < peers.Length; i++)
-        {
-            var p = peers[i];
-            GrpcTransportEndpoints.RequireHttps(p.Uri);
-            var opts = new GrpcChannelOptions
-            {
-                Credentials = callCredentials == null ? null : ChannelCredentials.Create(new SslCredentials(), callCredentials),
-                HttpHandler = handler ?? GrpcTransportEndpoints.CreateChannelHandler(),
-                MaxReceiveMessageSize = MaxReceiveMessageSizeBytes,
-                MaxSendMessageSize = MaxSendMessageSizeBytes,
-            };
-            var channel = GrpcChannel.ForAddress(p.Uri, opts);
-            var invoker = channel.CreateCallInvoker();
-            if (interceptor != null)
-                invoker = invoker.Intercept(interceptor);
-            _channels[p.NodeId] = channel;
-            _cacheClients[p.NodeId] = new SquirixCacheService.SquirixCacheServiceClient(invoker);
-            _policies[p.NodeId] = policyFactory.Invoke(p.NodeId);
-            ids[i] = p.NodeId;
-        }
-
-        _nodeIds = ids;
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ClientPool" /> class whose per-peer HTTP handlers come from
+    /// <paramref name="ownedHandlerFactory" /> (test seam for handler ownership).
+    /// </summary>
+    /// <param name="peers">Bootstrap peers.</param>
+    /// <param name="policyFactory">Per-peer call policy factory.</param>
+    /// <param name="ownedHandlerFactory">Creates one handler per peer in place of the default transport handler; the pool disposes each one.</param>
+    internal ClientPool(Peer[] peers, Func<string, ICallPolicy> policyFactory, Func<HttpMessageHandler> ownedHandlerFactory)
+    {
+        _connectOptions = DefaultConnectOptions;
+        _timeProvider = TimeProvider.System;
+        _nodeIds = RegisterPeers(peers, policyFactory, null, ownedHandlerFactory, null, null);
         BootstrapNodeIds = _nodeIds;
     }
 
@@ -192,6 +186,43 @@ internal sealed class ClientPool : IClientPool
     {
         for (var i = 0; i < _nodeIds.Length; i++)
             _policies[_nodeIds[i]].BeginDrain();
+    }
+
+    private string[] RegisterPeers(
+        Peer[] peers,
+        Func<string, ICallPolicy> policyFactory,
+        HttpMessageHandler? sharedHandler,
+        Func<HttpMessageHandler> ownedHandlerFactory,
+        Interceptor? interceptor,
+        CallCredentials? callCredentials)
+    {
+        var ids = new string[peers.Length];
+
+        for (var i = 0; i < peers.Length; i++)
+        {
+            var p = peers[i];
+            GrpcTransportEndpoints.RequireHttps(p.Uri);
+            var opts = new GrpcChannelOptions
+            {
+                Credentials = callCredentials == null ? null : ChannelCredentials.Create(new SslCredentials(), callCredentials),
+                HttpHandler = sharedHandler ?? ownedHandlerFactory.Invoke(),
+
+                // The pool owns and disposes the handlers it creates; a caller-supplied handler is shared by every channel and stays caller-owned.
+                DisposeHttpClient = sharedHandler == null,
+                MaxReceiveMessageSize = MaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = MaxSendMessageSizeBytes,
+            };
+            var channel = GrpcChannel.ForAddress(p.Uri, opts);
+            var invoker = channel.CreateCallInvoker();
+            if (interceptor != null)
+                invoker = invoker.Intercept(interceptor);
+            _channels[p.NodeId] = channel;
+            _cacheClients[p.NodeId] = new SquirixCacheService.SquirixCacheServiceClient(invoker);
+            _policies[p.NodeId] = policyFactory.Invoke(p.NodeId);
+            ids[i] = p.NodeId;
+        }
+
+        return ids;
     }
 
     private async ValueTask<Exception?> WarmPeerAsync(GrpcChannel channel, BootstrapConnectOptions connectOptions, CancellationToken cancellationToken)

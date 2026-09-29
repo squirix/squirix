@@ -99,7 +99,8 @@ internal sealed class ServerClientPool : IServerClientPool
         string nodeId,
         bool interNodeMtlsEnabled,
         MtlsCertificate? certificate,
-        Func<string, HttpMessageHandler>? peerHandlerFactory)
+        Func<string, HttpMessageHandler>? peerHandlerFactory,
+        Func<MtlsCertificate?, string, HttpMessageHandler> ownedHandlerFactory)
     {
         HttpMessageHandler? ownedHandler = null;
         try
@@ -117,19 +118,22 @@ internal sealed class ServerClientPool : IServerClientPool
                 }
                 else
                 {
-                    ownedHandler = ServerGrpcEndpoints.CreateMtlsHandler(certificate, nodeId);
+                    ownedHandler = ownedHandlerFactory.Invoke(certificate, nodeId);
                     peerHandler = ownedHandler;
                 }
             }
             else
             {
-                ownedHandler = ServerGrpcEndpoints.CreateChannelHandler();
+                ownedHandler = ownedHandlerFactory.Invoke(null, nodeId);
                 peerHandler = ownedHandler;
             }
 
             var options = new GrpcChannelOptions
             {
                 HttpHandler = peerHandler,
+
+                // The channel disposes the handler the pool created; a peerHandlerFactory handler stays owned by the factory's caller.
+                DisposeHttpClient = ownedHandler != null,
                 MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
             };
@@ -152,7 +156,9 @@ internal sealed class ServerClientPool : IServerClientPool
     {
         var mtlsOptions = args.MtlsOptions ?? new MtlsOptions();
         var address = ClusterPeerChannelAddress.Resolve(peer, mtlsOptions, args.InterNodeMtlsEnabled);
-        var channel = GrpcChannel.ForAddress(address, CreateChannelOptions(peer.NodeId, args.InterNodeMtlsEnabled, args.Certificate, args.PeerHandlerFactory));
+        var ownedHandlerFactory = args.OwnedHandlerFactory ?? ServerGrpcEndpoints.CreateOwnedHandler;
+        var options = CreateChannelOptions(peer.NodeId, args.InterNodeMtlsEnabled, args.Certificate, args.PeerHandlerFactory, ownedHandlerFactory);
+        var channel = GrpcChannel.ForAddress(address, options);
         var invoker = channel.CreateCallInvoker();
         if (args.InternalOwnerInterceptor != null)
             invoker = invoker.Intercept(args.InternalOwnerInterceptor);
@@ -202,6 +208,13 @@ internal sealed class ServerClientPool : IServerClientPool
         /// <summary>Creates the default HTTP handler for HTTPS gRPC channels.</summary>
         /// <returns>A handler suitable for secure gRPC transport.</returns>
         internal static SocketsHttpHandler CreateChannelHandler() => new();
+
+        /// <summary>Creates the handler a pool owns for one peer: mTLS when <paramref name="certificate" /> is supplied, plain HTTPS otherwise.</summary>
+        /// <param name="certificate">Loaded cluster mTLS material, or <see langword="null" /> for plain HTTPS.</param>
+        /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
+        /// <returns>A handler owned by the caller.</returns>
+        internal static SocketsHttpHandler CreateOwnedHandler(MtlsCertificate? certificate, string expectedPeerNodeId) =>
+            certificate == null ? CreateChannelHandler() : CreateMtlsHandler(certificate, expectedPeerNodeId);
 
         /// <summary>Creates an outbound cluster mTLS HTTP handler that presents the local node certificate.</summary>
         /// <param name="certificate">Loaded cluster mTLS certificate.</param>

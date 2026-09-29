@@ -11,7 +11,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
-/// <summary>Visibility of follower-log readiness to lock-free external pollers (issue #450 S5).</summary>
+/// <summary>Visibility of follower-log readiness to lock-free external pollers.</summary>
 [Immutable]
 public sealed class FollowerReadinessTests : ServerUnitTestBase
 {

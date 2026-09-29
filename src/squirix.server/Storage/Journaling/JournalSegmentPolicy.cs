@@ -39,7 +39,7 @@ internal sealed class JournalSegmentPolicy
 
     /// <summary>
     /// Upper bound on the segments the journal thread adds, from a producer-side read up to and including the roll of an incoming frame, for
-    /// the backlog admitted ahead of it and for its own roll (issue #703). The open of a missing current segment is not included.
+    /// the backlog admitted ahead of it and for its own roll. The open of a missing current segment is not included.
     /// </summary>
     /// <param name="pendingBytes">Summed frame length of the appends admitted and not yet written.</param>
     /// <param name="pendingCount">Number of the appends admitted and not yet written.</param>
@@ -63,7 +63,7 @@ internal sealed class JournalSegmentPolicy
     }
 
     /// <summary>
-    /// Refuses an append before it enters the ring when the journal thread might reject it for capacity (issue #703): a plain append has
+    /// Refuses an append before it enters the ring when the journal thread might reject it for capacity: a plain append has
     /// no ack to carry that rejection back to its caller. Uses the journal thread's own comparisons, widened by upper bounds for the
     /// appends still ahead of this one: their bytes, one header each (a roll or the open of a missing or empty segment), and the
     /// segments they can add (see <see cref="BoundNewSegments" />). The caller supplies a consistent read and holds the mutation gate
@@ -99,7 +99,7 @@ internal sealed class JournalSegmentPolicy
 
     /// <summary>
     /// Refuses a frame that does not fit even an empty segment (a file header plus the frame exceed the segment size): no roll can ever
-    /// make it fit. Shared by append admission and the journal thread (issue #749).
+    /// make it fit. Shared by append admission and the journal thread.
     /// </summary>
     /// <param name="incomingFrameBytes">Length of the frame to place.</param>
     /// <exception cref="JournalCapacityExceededException">The frame never fits an empty segment.</exception>

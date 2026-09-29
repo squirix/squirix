@@ -155,7 +155,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
 
     /// <summary>
     /// Cancelling a maintenance caller once End is on the ring does not end its wait: the caller keeps the mutation gate until End is
-    /// applied, so no append is admitted against the capacity counters End is about to resync (issue #703).
+    /// applied, so no append is admitted against the capacity counters End is about to resync.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

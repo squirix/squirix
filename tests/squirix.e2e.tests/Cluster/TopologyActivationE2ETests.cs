@@ -43,7 +43,7 @@ public sealed class TopologyActivationE2ETests : EndToEndTestBase
 
     /// <summary>A stopped cluster refuses a restart with a generation that differs from the activated one.</summary>
     /// <remarks>
-    /// #239 mandates the name "StoppedActivatedRfTopologyChangeIsRejected"; it is shortened here because SQR0005
+    /// The mandated name is "StoppedActivatedRfTopologyChangeIsRejected"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test to satisfy the analyzer changes nothing about the covered behavior.
     /// </remarks>
     /// <param name="cancellationToken">The test cancellation token.</param>

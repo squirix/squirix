@@ -72,7 +72,7 @@ public sealed class JournalEntryExpirationMaterializerTests
         _ = await Assert.That(restored.ExpiresUtc).IsEqualTo(memory);
     }
 
-    /// <summary>Recovery insert uses the earliest of the absolute and relative deadlines (issue #445).</summary>
+    /// <summary>Recovery insert uses the earliest of the absolute and relative deadlines.</summary>
     [Test]
     public async Task RecoveryInsertUsesEarliestDeadline()
     {
@@ -100,7 +100,7 @@ public sealed class JournalEntryExpirationMaterializerTests
         _ = await Assert.That(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.MaxValue, writtenUnixMs)).IsFalse();
     }
 
-    /// <summary>ForJournalWrite keeps the earliest of the relative and absolute deadlines (issue #445).</summary>
+    /// <summary>ForJournalWrite keeps the earliest of the relative and absolute deadlines.</summary>
     [Test]
     public async Task WriteMaterializesEarliestDeadline()
     {

@@ -14,7 +14,7 @@ public sealed class PerformanceEvidenceTests : NodeIntegrationTestBase
 {
     /// <summary>The percentage gate requires a matching machine fingerprint before comparing values.</summary>
     /// <remarks>
-    /// #239 mandates the name "PercentageGateRequiresMatchingMachineFingerprint"; it is shortened here because
+    /// The mandated name is "PercentageGateRequiresMatchingMachineFingerprint"; it is shortened here because
     /// SQR0005 limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test to satisfy the analyzer changes nothing about the covered
     /// behavior.
     /// </remarks>

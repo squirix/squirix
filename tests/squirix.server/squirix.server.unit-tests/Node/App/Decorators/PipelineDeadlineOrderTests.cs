@@ -16,7 +16,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
-/// <summary>Verifies admission shaping runs outside the pipeline deadline (issue #456).</summary>
+/// <summary>Verifies admission shaping runs outside the pipeline deadline.</summary>
 public sealed class PipelineDeadlineOrderTests : ServerUnitTestBase
 {
     /// <summary>Admission observes the caller token, while execution underneath still runs under the pipeline deadline.</summary>

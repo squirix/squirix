@@ -17,8 +17,8 @@ public sealed class ClusterPackageVersionE2ETests : EndToEndTestBase
 {
     /// <summary>A peer with a mismatched package version cannot reach readiness on an activated topology.</summary>
     /// <remarks>
-    /// #239 covers this scenario under a preview-pinned test name; it is worded version-agnostically here
-    /// (see the issue for the original name): no test binds to a specific preview version, only to the
+    /// The scenario was specified under a preview-pinned test name; it is worded version-agnostically here:
+    /// no test binds to a specific preview version, only to the
     /// functional package homogeneity requirement. A distinct version cannot be injected at E2E level by
     /// design: the minimum version is a compile-time constant, and the node startup options expose no version
     /// input. The isolated variation (identical topology, only the version differs) is covered by

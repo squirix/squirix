@@ -8,7 +8,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// election timer. <see cref="CheckWrite" /> already gates production write readiness (see
 /// <c language="csharp">ReplicaReadiness</c>); <see cref="CheckRead" /> is consulted only by
 /// tests and by <c language="csharp">FailoverActivationGate</c>'s quorum-read path until that
-/// path is wired into production (see #646).
+/// path is wired into production.
 /// </remarks>
 internal static class LeaderAuthorityGate
 {

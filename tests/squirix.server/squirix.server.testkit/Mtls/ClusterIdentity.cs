@@ -20,6 +20,7 @@ public sealed class ClusterIdentity : IDisposable
 {
     private readonly Dictionary<string, HeldPort> _internalPorts = [with(StringComparer.Ordinal)];
     private readonly List<X509Certificate2> _ownedCertificates = [];
+    private readonly PeerHandlers _peerHandlers = new();
     private TestBundle? _bundle;
     private X509Certificate2? _untrustedCertificateAuthority;
     private int _disposed;
@@ -32,6 +33,9 @@ public sealed class ClusterIdentity : IDisposable
 
         foreach (var held in _internalPorts.Values)
             held.Dispose();
+
+        // Peer handlers present the client certificates released below, so they go first.
+        _peerHandlers.Dispose();
 
         for (var i = _ownedCertificates.Count - 1; i >= 0; i--)
             _ownedCertificates[i].Dispose();
@@ -186,7 +190,7 @@ public sealed class ClusterIdentity : IDisposable
         var notAfter = DateTimeOffset.UtcNow.AddHours(-1);
         var expiredCertificate = TrackCertificate(TestCertificates.CreatePeerCertificate(clusterCa, nodeId, notBefore, notAfter));
         var clientCertificate = TrackCertificate(TestCertificates.LoadExportableCertificate(expiredCertificate));
-        return new NodeMtlsStartup(options, material, new HandlerFactory(clientCertificate, material.TrustAnchor!).Create);
+        return new NodeMtlsStartup(options, material, new HandlerFactory(_peerHandlers, clientCertificate, material.TrustAnchor!).Create);
     }
 
     private NodeMtlsStartup CreateUntrustedInboundServerStartup(string nodeId, MtlsOptions options, MtlsCertificate material)
@@ -216,7 +220,7 @@ public sealed class ClusterIdentity : IDisposable
     {
         var untrustedCa = GetOrCreateUntrustedCertificateAuthority();
         var untrustedClientCertificate = TrackCertificate(TestCertificates.CreatePeerCertificate(untrustedCa, nodeId));
-        return new NodeMtlsStartup(options, material, new HandlerFactory(untrustedClientCertificate, material.TrustAnchor!).Create);
+        return new NodeMtlsStartup(options, material, new HandlerFactory(_peerHandlers, untrustedClientCertificate, material.TrustAnchor!).Create);
     }
 
     private HeldPort GetOrAllocateInternalPort(string nodeId, HashSet<int> excludedPorts)
@@ -298,7 +302,7 @@ public sealed class ClusterIdentity : IDisposable
         return profile switch
         {
             TestNodeProfile.Normal => new NodeMtlsStartup(options, certificate, null),
-            TestNodeProfile.NoOutboundClientCertificate => new NodeMtlsStartup(options, certificate, new NoClientCertificateHandlerFactory(certificate.TrustAnchor!).Create),
+            TestNodeProfile.NoOutboundClientCertificate => new NodeMtlsStartup(options, certificate, new NoClientCertificateHandlerFactory(_peerHandlers, certificate.TrustAnchor!).Create),
             TestNodeProfile.UntrustedOutboundClientCertificate => CreateUntrustedOutboundStartup(cluster.NodeId, options, certificate),
             TestNodeProfile.UntrustedInboundServerCertificate => CreateUntrustedInboundServerStartup(cluster.NodeId, options, certificate),
             TestNodeProfile.ExpiredPeerCertificate => CreateExpiredPeerStartup(cluster.NodeId, options, certificate),
@@ -323,9 +327,9 @@ public sealed class ClusterIdentity : IDisposable
         /// <exception cref="InvalidOperationException">Thrown if no internal listener port can be allocated within the attempt budget.</exception>
         /// <remarks>
         /// The port stays bound (with exclusive address use) until the caller releases it just before
-        /// Kestrel binds, mirroring the primary-port discipline from #499. A bare probe-and-release
+        /// Kestrel binds, mirroring the primary listen port discipline. A bare probe-and-release
         /// leaves a TOCTOU window across certificate generation and sequential node startup where a
-        /// parallel test can grab the same internal port (see #612).
+        /// parallel test can grab the same internal port.
         /// </remarks>
         internal static HeldPort AllocateInternalPort(HashSet<int> excludedPorts)
         {
@@ -350,28 +354,76 @@ public sealed class ClusterIdentity : IDisposable
     private sealed class HandlerFactory
     {
         private readonly X509CertificateCollection _clientCertificates;
+        private readonly PeerHandlers _owner;
         private readonly X509Certificate2 _trustAnchor;
 
-        internal HandlerFactory(X509Certificate2 clientCertificate, X509Certificate2 trustAnchor)
+        internal HandlerFactory(PeerHandlers owner, X509Certificate2 clientCertificate, X509Certificate2 trustAnchor)
         {
+            _owner = owner;
             _clientCertificates = [clientCertificate];
             _trustAnchor = trustAnchor;
         }
 
-        internal SocketsHttpHandler Create(string peerNodeId) => TestCertificates.CreateMtlsHandler(_clientCertificates, _trustAnchor, peerNodeId);
+        internal SocketsHttpHandler Create(string peerNodeId) => _owner.Track(TestCertificates.CreateMtlsHandler(_clientCertificates, _trustAnchor, peerNodeId));
     }
 
     [Immutable]
     private sealed class NoClientCertificateHandlerFactory
     {
+        private readonly PeerHandlers _owner;
         private readonly X509Certificate2 _trustAnchor;
 
-        internal NoClientCertificateHandlerFactory(X509Certificate2 trustAnchor)
+        internal NoClientCertificateHandlerFactory(PeerHandlers owner, X509Certificate2 trustAnchor)
         {
+            _owner = owner;
             _trustAnchor = trustAnchor;
         }
 
-        internal SocketsHttpHandler Create(string peerNodeId) => TestCertificates.CreateCaTrustingHandlerNoClientCert(_trustAnchor, peerNodeId);
+        internal SocketsHttpHandler Create(string peerNodeId) => _owner.Track(TestCertificates.CreateCaTrustingHandlerNoClientCert(_trustAnchor, peerNodeId));
+    }
+
+    /// <summary>Per-peer handlers the outbound handler factories create; the cluster client pool leaves them to the factory's owner.</summary>
+    [Mutable]
+    private sealed class PeerHandlers : IDisposable
+    {
+        private readonly Lock _gate = new();
+        private readonly List<HttpMessageHandler> _handlers = [];
+        private int _disposed;
+
+        /// <inheritdoc />
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 1)
+                return;
+
+            lock (_gate)
+            {
+                for (var i = _handlers.Count - 1; i >= 0; i--)
+                    _handlers[i].Dispose();
+
+                _handlers.Clear();
+            }
+        }
+
+        /// <summary>Takes ownership of a handler created for one peer.</summary>
+        /// <param name="handler">The handler created for one peer.</param>
+        /// <returns>The same handler, disposed when the owning identity is disposed.</returns>
+        /// <exception cref="ObjectDisposedException">Thrown when the owning identity has already been disposed.</exception>
+        internal SocketsHttpHandler Track(SocketsHttpHandler handler)
+        {
+            lock (_gate)
+            {
+                if (Volatile.Read(ref _disposed) == 1)
+                {
+                    handler.Dispose();
+                    throw new ObjectDisposedException(nameof(ClusterIdentity));
+                }
+
+                _handlers.Add(handler);
+            }
+
+            return handler;
+        }
     }
 
     /// <summary>Shared cluster CA and per-node mTLS material for multi-node integration and smoke tests.</summary>

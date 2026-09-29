@@ -6,7 +6,7 @@ suitable for appending to $GITHUB_OUTPUT. Exits 1 on unknown suites.
 
 The mapping lives here (not inline in the composite action) so job logs show
 only the selected suite: inline case comments used to echo every suite's
-filter into every job log, which misled #611 into a filter-mismatch report.
+filter into every job log, which once led to a misdiagnosed filter-mismatch report.
 """
 
 import sys

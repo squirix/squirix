@@ -81,7 +81,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
         try
         {
             // Disposal outranks draining so callers observe the same failure mode as before the
-            // claim-then-recheck reorder; the post-enter recheck is what closes the #423 race.
+            // claim-then-recheck reorder; the post-enter recheck is what closes the race with a concurrent dispose.
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             ThrowIfDraining();
             cancellationToken.ThrowIfCancellationRequested();

@@ -81,6 +81,7 @@ public abstract class SmokeTestBase : IDisposable
         new GrpcChannelOptions
         {
             HttpHandler = LoopbackHttp.CreateHandler(),
+            DisposeHttpClient = true,
             MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
             MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
         });

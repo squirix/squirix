@@ -15,7 +15,7 @@ using TUnit.Core;
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>
-/// Deterministic coverage for the pending-append drain race (issue #569): removal decides ownership,
+/// Deterministic coverage for the pending-append drain race: removal decides ownership,
 /// so a drain racing an enqueue failure can never double-release the buffer or the counter slot.
 /// </summary>
 [Immutable]

@@ -33,7 +33,7 @@ public sealed class CallPolicyTests
     /// <see cref="ObjectDisposedException" /> raised from SemaphoreSlim internals: the
     /// claim-then-recheck ordering makes racing callers observe disposal through the policy's own
     /// post-enter check (or the drain gate) instead of a disposed concurrency semaphore.
-    /// Mirrors the server-side regression test for issue #423.
+    /// Mirrors the server-side regression test for the same race.
     /// </summary>
     [Test]
     public async Task DisposeRacingExecuteStaysClean()

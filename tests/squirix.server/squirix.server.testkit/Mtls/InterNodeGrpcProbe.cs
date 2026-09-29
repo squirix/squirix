@@ -26,6 +26,7 @@ public static class InterNodeGrpcProbe
             new GrpcChannelOptions
             {
                 HttpHandler = LoopbackHttp.CreateHandler(),
+                DisposeHttpClient = true,
                 MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
             });

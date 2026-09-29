@@ -15,7 +15,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests;
 
-/// <summary>Integration coverage for on-disk journal quota hard-limit rejection (issue #164).</summary>
+/// <summary>Integration coverage for on-disk journal quota hard-limit rejection.</summary>
 public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
 {
     /// <summary>

@@ -25,7 +25,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     /// <summary>The reroute budget and the transport retry loop observe the same absolute deadline.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <remarks>
-    /// #236 mandates the name "RerouteAndTransportRetriesShareAbsoluteDeadline"; it is shortened here because SQR0005
+    /// The mandated name is "RerouteAndTransportRetriesShareAbsoluteDeadline"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test
     /// to satisfy the analyzer changes nothing about the covered behavior.
     /// </remarks>
