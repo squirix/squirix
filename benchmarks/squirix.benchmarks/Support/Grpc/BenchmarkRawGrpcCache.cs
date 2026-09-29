@@ -44,6 +44,7 @@ internal sealed class BenchmarkRawGrpcCache : IDisposable
             new GrpcChannelOptions
             {
                 HttpHandler = LoopbackHttp.CreateHandler(),
+                DisposeHttpClient = true,
             });
 
         return new BenchmarkRawGrpcCache(channel, new SquirixCacheService.SquirixCacheServiceClient(channel), cacheName);
