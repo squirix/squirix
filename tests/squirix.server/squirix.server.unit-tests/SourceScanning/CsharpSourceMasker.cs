@@ -1,6 +1,6 @@
 using System;
 
-namespace Squirix.Server.UnitTests.Architecture;
+namespace Squirix.Server.UnitTests.SourceScanning;
 
 /// <summary>Blanks C# comments and string and char literal text with spaces so textual architecture scans only see code.</summary>
 /// <remarks>

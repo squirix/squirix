@@ -210,7 +210,8 @@
       From="/^Squirix\.Server\.UnitTests$/"
       To="/^Squirix\.Server\.UnitTests\.(?!Support(?:\.|$)).+$/" />
 
-  <!-- Top-level areas are siblings: each depends only on its own subtree and Support, never on a sibling area or the root
+  <!-- Architecture checks may use the textual source scanners in UnitTests.SourceScanning (the reverse is not allowed).
+       Top-level areas are siblings: each depends only on its own subtree and Support, never on a sibling area or the root
        namespace (the root is not implicitly visible to areas; shared helpers go to Support).
        NsDepCop regex has no back-reference between From/To, so enumerate one rule per area. -->
   <Disallowed
@@ -221,7 +222,7 @@
       To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:ApiSnapshots|Support)(?:\.|$)).*)$/" />
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Architecture(?:\.|$)/"
-      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Architecture|Support)(?:\.|$)).*)$/" />
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Architecture|SourceScanning|Support)(?:\.|$)).*)$/" />
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Cluster(?:\.|$)/"
       To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Cluster|Support)(?:\.|$)).*)$/" />
@@ -249,6 +250,9 @@
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Persistence(?:\.|$)/"
       To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Persistence|Support)(?:\.|$)).*)$/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.SourceScanning(?:\.|$)/"
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:SourceScanning|Support)(?:\.|$)).*)$/" />
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Threading(?:\.|$)/"
       To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Threading|Support)(?:\.|$)).*)$/" />
