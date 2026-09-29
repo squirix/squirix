@@ -4,23 +4,9 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.LocalCache;
-using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
-using Squirix.Server.Node.Observability;
-using Squirix.Server.Node.Services;
-using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.Compaction;
-using Squirix.Server.Storage.Journaling.Read;
-using Squirix.Server.Storage.Manifest;
-using Squirix.Server.Storage.Snapshot.Binary;
-using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -36,9 +22,8 @@ namespace Squirix.Server.UnitTests.Node.Services;
 [Immutable]
 public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
 {
-    private const string CacheName = "cache";
-    private const string Key = "k";
-    private const string Self = "node-a";
+    private const string CacheName = JournalReplayKit.CacheName;
+    private const string Key = JournalReplayKit.Key;
 
     private static readonly TimeSpan ExtendedTtl = TimeSpan.FromHours(3);
     private static readonly TimeSpan OriginalTtl = TimeSpan.FromHours(1);
@@ -48,6 +33,8 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
 
     /// <inheritdoc />
     protected override string TempDirectoryName => "squirix-journal-decided-replay";
+
+    private JournalReplayKit Kit => new(Dir, _testMeter);
 
     /// <summary>Removing the expiration before the deadline keeps the key without a deadline across a restart after the original deadline.</summary>
     /// <param name="compact">Whether the journal is compacted before recovery.</param>
@@ -65,7 +52,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
             },
             cancellationToken);
 
-        var recovered = await RecoverAsync(compact, cancellationToken);
+        var recovered = await Kit.RecoverAsync(TimeProvider.System, compact, cancellationToken);
 
         var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
@@ -74,15 +61,20 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
     }
 
     /// <summary>Removing the expiration after a snapshot cut keeps the key without a deadline although the snapshot entry has since expired.</summary>
+    /// <param name="compact">Whether the journal is compacted before recovery.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SnapshotThenPersistInTailSurvivesRestart(CancellationToken cancellationToken)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task SnapshotThenPersistInTailSurvivesRestart(bool compact, CancellationToken cancellationToken)
     {
-        _ = await WriteSnapshotThenTailAsync(
+        _ = await Kit.WriteSnapshotThenTailAsync(
+            PastStart,
+            OriginalTtl,
             static async (cache, ct) => _ = await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, ct),
             cancellationToken);
 
-        var recovered = await RecoverAsync(false, cancellationToken);
+        var recovered = await Kit.RecoverAsync(TimeProvider.System, compact, cancellationToken);
 
         var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
@@ -90,15 +82,20 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
     }
 
     /// <summary>Extending the expiration after a snapshot cut keeps the key until the extended deadline although the snapshot entry has since expired.</summary>
+    /// <param name="compact">Whether the journal is compacted before recovery.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SnapshotThenTouchInTailSurvivesRestart(CancellationToken cancellationToken)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task SnapshotThenTouchInTailSurvivesRestart(bool compact, CancellationToken cancellationToken)
     {
-        var start = await WriteSnapshotThenTailAsync(
+        var start = await Kit.WriteSnapshotThenTailAsync(
+            PastStart,
+            OriginalTtl,
             static async (cache, ct) => _ = await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, ct),
             cancellationToken);
 
-        var recovered = await RecoverAsync(false, cancellationToken);
+        var recovered = await Kit.RecoverAsync(TimeProvider.System, compact, cancellationToken);
 
         var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
@@ -110,18 +107,21 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
     [Test]
     public async Task TouchAfterDeadlineIsNotJournaled(CancellationToken cancellationToken)
     {
-        var memory = await WriteWithClockAsync(
+        var memory = await Kit.WriteAsync(
             static async (cache, clock, ct) =>
             {
                 await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: OriginalTtl), ct);
                 clock.Advance(OriginalTtl + TimeSpan.FromMinutes(1));
                 _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, ct)).IsFalse();
             },
+            TimeSpan.Zero,
+            PastStart,
+            0,
             cancellationToken);
 
         _ = await Assert.That(memory.Memory).IsNull();
-        _ = await Assert.That(CountJournalRecords(cancellationToken)).IsEqualTo(1);
-        var recovered = await RecoverAsync(false, cancellationToken);
+        _ = await Assert.That(Kit.CountJournalRecords(cancellationToken)).IsEqualTo(1);
+        var recovered = await Kit.RecoverAsync(TimeProvider.System, false, cancellationToken);
         _ = await Assert.That(await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
     }
 
@@ -141,7 +141,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
             },
             cancellationToken);
 
-        var recovered = await RecoverAsync(compact, cancellationToken);
+        var recovered = await Kit.RecoverAsync(TimeProvider.System, compact, cancellationToken);
 
         var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
@@ -165,7 +165,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
             },
             cancellationToken);
 
-        var recovered = await RecoverAsync(compact, cancellationToken);
+        var recovered = await Kit.RecoverAsync(TimeProvider.System, compact, cancellationToken);
 
         var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
@@ -190,7 +190,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
             },
             cancellationToken);
 
-        var recovered = await RecoverAsync(compact, cancellationToken);
+        var recovered = await Kit.RecoverAsync(TimeProvider.System, compact, cancellationToken);
 
         var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
@@ -207,141 +207,9 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
         base.DisposeManaged();
     }
 
-    private static JournalLoggingCacheDecorator<string> CreateDecorator(IJournalCoordinator journal, PhysicalCache<string> physical, TimeProvider clock) => new(
-        Self,
-        RocksDoubles.CreateOwnerLocator(Self),
-        new ClientCache<string>(physical, physical),
-        journal,
-        new DurableMutationExecutor(journal),
-        clock);
-
-    private static FakeTimeProvider CreateWriteClock()
-    {
-        // Aligned to the whole millisecond the journal stores deadlines at, so a replayed deadline compares exactly.
-        var now = DateTimeOffset.UtcNow.Add(PastStart);
-        return new FakeTimeProvider(now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMillisecond)));
-    }
-
-    private int CountJournalRecords(CancellationToken cancellationToken)
-    {
-        var count = 0;
-        using var records = JournalReadPath.ReadAll(Dir, 1, cancellationToken);
-        while (records.MoveNext())
-            count++;
-
-        return count;
-    }
-
-    private PersistenceOptions CreatePersistence() => new()
-    {
-        DataDir = Dir,
-        JournalMaxSegmentMb = 1,
-        FlushInterval = 5,
-        ManifestRetentionCount = 1,
-    };
-
-    private async Task<PhysicalCache<string>> RecoverAsync(bool compact, CancellationToken cancellationToken)
-    {
-        var persistence = CreatePersistence();
-        using var manifestStore = new Ledger(persistence);
-        if (compact)
-            await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(), cancellationToken);
-
-        var cache = new PhysicalCache<string>();
-        var dependencies = new RecoveryDependencies<string>(
-            persistence,
-            manifestStore,
-            cache,
-            new AsyncManualResetEvent(true),
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
-            StoreFactory.CreateReader());
-        await new RecoveryService<string>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<string>>.Instance, dependencies).StartAsync(cancellationToken);
-        return cache;
-    }
-
     private async Task<DateTime> WriteAsync(Func<JournalLoggingCacheDecorator<string>, CancellationToken, ValueTask> mutate, CancellationToken cancellationToken)
     {
-        var written = await WriteWithClockAsync((cache, _, ct) => mutate(cache, ct), cancellationToken);
+        var written = await Kit.WriteAsync(mutate, TimeSpan.Zero, PastStart, 0, cancellationToken);
         return written.WriteStart;
-    }
-
-    /// <summary>Runs the mutation against a local-owner decorator whose clock starts two hours in the past.</summary>
-    /// <param name="mutate">The mutation to journal.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The write clock start and the entry memory holds afterwards.</returns>
-    private async Task<(DateTime WriteStart, NodeCacheEntry<string>? Memory)> WriteWithClockAsync(
-        Func<JournalLoggingCacheDecorator<string>, FakeTimeProvider, CancellationToken, ValueTask> mutate,
-        CancellationToken cancellationToken)
-    {
-        var persistence = CreatePersistence();
-        using var manifestStore = new Ledger(persistence);
-        await using var journal = JournalCoordinatorFactory.Create(
-            persistence,
-            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true));
-        var writeClock = CreateWriteClock();
-        var physical = new PhysicalCache<string>(writeClock);
-        var cache = CreateDecorator(journal, physical, writeClock);
-
-        var writeStart = writeClock.GetUtcNow().UtcDateTime;
-        await mutate(cache, writeClock, cancellationToken);
-        return (writeStart, await physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken));
-    }
-
-    /// <summary>Writes an entry with the original deadline, cuts a snapshot that holds it, then runs the tail mutation after the cut.</summary>
-    /// <param name="tail">The mutation journaled after the snapshot cut.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The write clock start; the original deadline has passed on the recovery clock and any extended deadline has not.</returns>
-    private async Task<DateTime> WriteSnapshotThenTailAsync(Func<JournalLoggingCacheDecorator<string>, CancellationToken, ValueTask> tail, CancellationToken cancellationToken)
-    {
-        var persistence = CreatePersistence();
-        using var manifestStore = new Ledger(persistence);
-        await using var journal = JournalCoordinatorFactory.Create(
-            persistence,
-            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true));
-        var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
-        var writeClock = CreateWriteClock();
-        var physical = new PhysicalCache<string>(writeClock);
-        var cache = CreateDecorator(journal, physical, writeClock);
-
-        var writeStart = writeClock.GetUtcNow().UtcDateTime;
-        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: OriginalTtl), cancellationToken);
-        var snapshotted = await physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
-        _ = await Assert.That(snapshotted).IsNotNull();
-
-        var cut = (manifestStore, writer: StoreFactory.CreateWriter(persistence), entry: snapshotted!, coordinator);
-        _ = await coordinator.ExecuteSnapshotCutAsync(
-            cut,
-            static (state, _, _) => new ValueTask<(int ReplayFromSegment, ulong NextSequence)>((state.coordinator.CurrentSegmentIndex, state.coordinator.NextSequence)),
-            static async (state, seqAtFlush, boundary, ct) =>
-            {
-                var previous = await state.manifestStore.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false);
-                var nextIndex = (previous.LastSnapshot?.Index ?? 0) + 1;
-                var entry = new NodeCacheEntry<object?> { Value = state.entry.Value, Version = state.entry.Version, ExpiresUtc = state.entry.ExpiresUtc };
-                var path = await state.writer.WriteSingleAsync(nextIndex, new CacheKey(CacheName, Key), entry, ct).ConfigureAwait(false);
-                var updated = new State
-                {
-                    Format = previous.Format,
-                    CurrentJournal = previous.CurrentJournal,
-                    NextSequence = boundary.NextSequence,
-                    LastSnapshot = new SnapshotRef
-                    {
-                        Index = nextIndex,
-                        Path = path,
-                        CreatedUtc = DateTime.UtcNow,
-                        LastAppliedSequence = seqAtFlush,
-                        ReplayFromJournalSegment = boundary.ReplayFromSegment,
-                    },
-                };
-                await state.manifestStore.WriteAsync(updated, ct).ConfigureAwait(false);
-                return updated.LastSnapshot;
-            },
-            cancellationToken);
-
-        await tail(cache, cancellationToken);
-        return writeStart;
     }
 }

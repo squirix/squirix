@@ -83,7 +83,8 @@ internal static class BinaryJournalTestSegmentWriter
     /// <param name="index">The segment index.</param>
     /// <param name="opcodeWire">The raw opcode byte of the frame.</param>
     /// <param name="key">The cache key of the frame.</param>
-    internal static void WriteRawOpcodeSegment(string dir, int index, byte opcodeWire, string key)
+    /// <param name="followedBy">Valid records written after the raw frame in the same segment.</param>
+    internal static void WriteRawOpcodeSegment(string dir, int index, byte opcodeWire, string key, ReadOnlySpan<JournalRecord> followedBy = default)
     {
         const int fixedPrefixSize = BinaryJournalCodec.FixedPrefixSize;
         var nsBytes = Encoding.UTF8.GetBytes(CacheKey.Default(key).Namespace);
@@ -104,6 +105,9 @@ internal static class BinaryJournalTestSegmentWriter
         var frame = new byte[JournalFraming.FrameTotalLength(body.Length)];
         JournalFraming.WriteFrame(frame, body);
         RandomAccess.Write(handle, frame, offset);
+        offset += frame.Length;
+        for (var i = 0; i < followedBy.Length; i++)
+            WriteRecordFrame(handle, ref offset, followedBy[i]);
     }
 
     internal static void WriteJournalSegment(string dir, int index, JournalRecord record)

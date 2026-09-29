@@ -10,6 +10,7 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Threading;
@@ -107,6 +108,33 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
         _ = await Assert.That(await harness.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, "k", TimeSpan.FromMinutes(1), cancellationToken)).IsTrue();
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before + 1);
+
+        var (operation, journaled) = ReadLastRecord(harness.Dir, cancellationToken);
+        _ = await Assert.That(operation).IsEqualTo(JournalOperationKind.Put);
+        _ = await Assert.That(journaled).IsNotNull();
+        _ = await Assert.That(journaled!.Value).IsEqualTo("v");
+        _ = await Assert.That(journaled.Version).IsEqualTo(1);
+        _ = await Assert.That(journaled.ExpiresUtc > DateTime.UtcNow).IsTrue();
+    }
+
+    /// <summary>With a raw reader the decision read bypasses the cache read path, so the memory apply is the only access that counts for eviction.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DecisionReadLeavesEvictionOrderAlone(CancellationToken cancellationToken)
+    {
+        await using var harness = await CreateHarnessAsync(Self, cancellationToken, true);
+        var withDeadline = new NodeCacheEntry<string>("v", expiresUtc: DateTime.UtcNow.AddHours(1));
+        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", withDeadline, cancellationToken)).IsTrue();
+
+        _ = await Assert.That(await harness.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, "k", TimeSpan.FromHours(2), cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "w", cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, "k", cancellationToken)).IsTrue();
+
+        var callsBeforeRead = harness.Inner.GetEntryCalls;
+        var entry = await harness.Inner.GetEntryAsync(CacheName, "k", cancellationToken);
+        _ = await Assert.That(callsBeforeRead).IsEqualTo(0);
+        _ = await Assert.That(entry!.Value).IsEqualTo("w");
+        _ = await Assert.That(entry.ExpiresUtc).IsNull();
     }
 
     /// <summary>Touch returns false without journaling when the key is missing.</summary>
@@ -203,12 +231,28 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before);
     }
 
+    private static (JournalOperationKind Operation, NodeCacheEntry<string>? Entry) ReadLastRecord(string dir, CancellationToken cancellationToken)
+    {
+        NodeCacheEntry<string>? none = null;
+        var last = (Operation: JournalOperationKind.WaitForStartup, Entry: none);
+        using var records = JournalReadPath.ReadAll(dir, 1, cancellationToken);
+        while (records.MoveNext())
+        {
+            // The reader reuses its frame buffer, so the entry is decoded before the next record is read.
+            _ = JournalEntryPayload.TryDecode<string>(records.Current.PutEntryBytes.Span, out var entry);
+            last = (records.Current.Operation, entry);
+        }
+
+        return last;
+    }
+
     private static NodeCacheEntry<string> CreateEntry(string value) => new() { Value = value, Version = 1 };
 
     /// <summary>Creates a journal-logging decorator harness for the given owner.</summary>
     /// <param name="owner">The cache owner.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    private static async Task<Harness> CreateHarnessAsync(string owner, CancellationToken cancellationToken)
+    /// <param name="useRawReader">Whether the decorator reads the decision entry through the physical cache raw reader.</param>
+    private static async Task<Harness> CreateHarnessAsync(string owner, CancellationToken cancellationToken, bool useRawReader = false)
     {
         var dir = new TempDirectory("squirix-journal-logging-decorator");
         var options = new PersistenceOptions
@@ -223,7 +267,8 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         var physical = new PhysicalCache<string>();
         var inner = new RecordingLogicalCache(physical);
         var executor = new DurableMutationExecutor(journal);
-        var cache = new JournalLoggingCacheDecorator<string>(Self, RocksDoubles.CreateOwnerLocator(owner), inner, journal, executor);
+        var rawReader = useRawReader ? physical.RawReader : null;
+        var cache = new JournalLoggingCacheDecorator<string>(Self, RocksDoubles.CreateOwnerLocator(owner), inner, journal, executor, null, rawReader);
         return new Harness(dir, manifestStore, journal, inner, cache);
     }
 
@@ -266,6 +311,8 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
         internal JournalLoggingCacheDecorator<string> Cache { get; }
 
+        internal string Dir => _dir;
+
         internal RecordingLogicalCache Inner { get; }
 
         internal IJournalCoordinator Journal { get; }
@@ -301,12 +348,17 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             _inner = new ClientCache<string>(physical, physical);
         }
 
+        internal int GetEntryCalls { get; private set; }
+
         internal int RemoveCalls { get; private set; }
 
         internal int SetCalls { get; private set; }
 
-        public virtual ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            _inner.GetEntryAsync(cacheName, key, cancellationToken);
+        public virtual ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+        {
+            GetEntryCalls++;
+            return _inner.GetEntryAsync(cacheName, key, cancellationToken);
+        }
 
         public virtual ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             _inner.GetValueAsync(cacheName, key, cancellationToken);
