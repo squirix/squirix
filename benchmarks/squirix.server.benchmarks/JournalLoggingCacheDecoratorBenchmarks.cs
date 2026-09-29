@@ -14,7 +14,10 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
-/// <summary>Allocation cost of conditional durable mutations, touches and expiration removals through <see cref="JournalLoggingCacheDecorator{T}" /> with group commit off.</summary>
+/// <summary>
+/// Allocation cost of conditional durable mutations, touches and expiration removals through <see cref="JournalLoggingCacheDecorator{T}" />
+/// with group commit off.
+/// </summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5)]
 public class JournalLoggingCacheDecoratorBenchmarks
