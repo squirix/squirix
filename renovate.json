@@ -1,0 +1,8 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Batch dependency updates into one weekly window instead of opening pull requests as soon as releases appear. Security fixes still arrive immediately.",
+  "schedule": ["* 0-8 * * 1"],
+  "lockFileMaintenance": {
+    "schedule": ["* 0-8 * * 1"]
+  }
+}
