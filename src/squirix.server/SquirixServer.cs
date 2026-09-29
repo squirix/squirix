@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server;
 
@@ -28,7 +29,10 @@ public sealed class SquirixServer : IAsyncDisposable
     /// <returns>A server host lifetime handle.</returns>
     public static ValueTask<SquirixServer> StartAsync(CancellationToken cancellationToken = default) => StartAsync(null, cancellationToken);
 
-    /// <summary>Ends this server host handle and releases the owned server application.</summary>
+    /// <summary>
+    /// Ends this server host handle and releases the owned server application. The host is stopped gracefully within the host shutdown timeout,
+    /// stop failures are logged rather than thrown, and then the host is released.
+    /// </summary>
     /// <returns>A task that completes when the server host is disposed.</returns>
     public ValueTask DisposeAsync() => _handle.DisposeAsync();
 
@@ -75,10 +79,12 @@ public sealed class SquirixServer : IAsyncDisposable
         return new SquirixServer(handle);
     }
 
-    [Immutable]
-    private sealed class ApplicationHandle : IAsyncDisposable
+    [ThreadSafe]
+    internal sealed class ApplicationHandle : IAsyncDisposable
     {
         private readonly WebApplication _app;
+        private readonly TaskCompletionSource _disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _disposeStarted;
 
         internal ApplicationHandle(WebApplication app)
         {
@@ -86,8 +92,46 @@ public sealed class SquirixServer : IAsyncDisposable
             _app = app;
         }
 
-        /// <summary>Ends the server application and releases the owned ASP.NET Core host.</summary>
+        /// <summary>Stops the server application, then releases the owned ASP.NET Core host; repeated and concurrent calls share one disposal.</summary>
         /// <returns>A task that completes when the application is disposed.</returns>
-        public ValueTask DisposeAsync() => _app.DisposeAsync();
+        public ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposeStarted, 1) == 0)
+                _ = RunDisposeAsync();
+
+            return new ValueTask(_disposed.Task);
+        }
+
+        private async Task RunDisposeAsync()
+        {
+            try
+            {
+                var logger = _app.Logger;
+                try
+                {
+                    // Host.StopAsync cancels this token after HostOptions.ShutdownTimeout; the hosted services honour it.
+                    // It is a cancellation request rather than a hard deadline, so no extra bound is added here.
+                    await _app.StopAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+#pragma warning disable CA1031 // Disposal must not throw: a failed stop is logged and the host is still disposed.
+                catch (Exception ex)
+#pragma warning restore CA1031
+                {
+                    LogManager.HostStopFailedOnDispose(logger, ex);
+                }
+                finally
+                {
+                    await _app.DisposeAsync().ConfigureAwait(false);
+                }
+
+                _disposed.SetResult();
+            }
+#pragma warning disable CA1031 // The failure is delivered to every caller through the shared task.
+            catch (Exception ex)
+#pragma warning restore CA1031
+            {
+                _disposed.SetException(ex);
+            }
+        }
     }
 }
