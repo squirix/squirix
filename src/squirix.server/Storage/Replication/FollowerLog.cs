@@ -2145,6 +2145,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 return GroupCompactionOutcome.UnresolvedOutcome;
 
             var snapshot = BuildSnapshot(journal, owner, index);
+
+            // Checked before the snapshot is published: the compaction core would refuse the same restore only after the baseline moved,
+            // failing readiness, while a refusal here changes nothing.
+            var retainedLogIndexes = CollectRetainedLogIndexes(CollectRetainedTail(journal, index));
+            if (!owner.Idempotency.WouldRestoreFit(snapshot.CommittedOutcomes, retainedLogIndexes))
+                return GroupCompactionOutcome.NotReady;
+
             try
             {
                 await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
