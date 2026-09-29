@@ -25,11 +25,22 @@ i64 unixMs
 u8  opcode           // Put=1, Remove=2, IdempotencyOutcome=5, PutWithMutationOperationId=6, RemoveWithMutationOperationId=7, IdempotencyStarted=10
 u16 namespaceLen
 u16 keyLen
-u32 payloadLen       // Put: cache-entry blob length (CacheEntryCodec); IdempotencyOutcome: structured payload; else 0
+u32 payloadLen       // per opcode, see below
 [namespace utf8]
 [key utf8]
 [payload bytes]      // Put: binary cache-entry blob (see snapshot-format.md)
 ```
+
+## Payload by opcode
+
+| Opcode | Name                          | Payload                                                       |
+|--------|-------------------------------|---------------------------------------------------------------|
+| 1      | Put                           | cache-entry blob (`CacheEntryCodec`)                          |
+| 2      | Remove                        | empty (`payloadLen = 0`)                                      |
+| 5      | IdempotencyOutcome            | structured idempotency outcome                                |
+| 6      | PutWithMutationOperationId    | mutation operation id prefix, then the cache-entry blob       |
+| 7      | RemoveWithMutationOperationId | mutation operation id prefix only                             |
+| 10     | IdempotencyStarted            | structured write-ahead idempotency intent                     |
 
 ## Cache-entry frames
 
