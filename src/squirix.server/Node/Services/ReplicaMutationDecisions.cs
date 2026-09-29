@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using Google.Protobuf;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
@@ -80,20 +81,10 @@ internal static class ReplicaMutationDecisions
 
     private static DateTime ExpiresAt(DateTime now, TimeSpan expiration) => now.SaturatedAdd(expiration);
 
-    /// <summary>Pins a deadline to whole milliseconds, the precision the journal and the snapshots store, so every copy of the entry agrees. It rounds up, so an entry never lives shorter than it was asked to.</summary>
+    /// <summary>Pins a deadline to whole milliseconds, the precision the journal and the snapshots store, so every copy of the entry agrees.</summary>
     /// <param name="expiresUtc">The deadline, or <see langword="null" /> for none.</param>
-    /// <returns>The UTC ticks rounded up to a millisecond and clamped to the largest whole millisecond a date can hold; zero for none.</returns>
-    private static long PinnedTicks(DateTime? expiresUtc)
-    {
-        if (expiresUtc == null)
-            return 0;
-
-        var ticks = expiresUtc.Value.Ticks;
-        var remainder = ticks % TimeSpan.TicksPerMillisecond;
-        var rounded = remainder == 0 ? ticks : ticks + (TimeSpan.TicksPerMillisecond - remainder);
-        var largest = DateTime.MaxValue.Ticks - (DateTime.MaxValue.Ticks % TimeSpan.TicksPerMillisecond);
-        return Math.Min(Math.Max(rounded, TimeSpan.TicksPerMillisecond), largest);
-    }
+    /// <returns>The UTC ticks of the pinned deadline; zero for none.</returns>
+    private static long PinnedTicks(DateTime? expiresUtc) => JournalEntryExpirationMaterializer.PinToJournalPrecision(expiresUtc)?.Ticks ?? 0;
 
     private static ReplicaDecision Unchanged() => new([], ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty), 0);
 

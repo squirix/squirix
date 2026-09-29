@@ -18,11 +18,32 @@ internal static class JournalEntryExpirationMaterializer
     internal static NodeCacheEntry<T> ForDurableWrite<T>(NodeCacheEntry<T> entry, DateTime utcNow)
     {
         if (entry.Expiration is not { } relative)
-            return entry;
+            return PinAbsoluteOnly(entry);
 
         var relativeDeadline = utcNow.SaturatedAdd(relative);
         var effective = entry.ExpiresUtc is { } absolute && absolute < relativeDeadline ? absolute : relativeDeadline;
-        return new NodeCacheEntry<T>(entry.Value, entry.Version, effective, tags: entry.Tags);
+        return new NodeCacheEntry<T>(entry.Value, entry.Version, PinToJournalPrecision(effective), tags: entry.Tags);
+    }
+
+    /// <summary>
+    /// Pins a deadline to whole milliseconds, the precision the journal and the snapshots store, so every copy of the entry agrees.
+    /// It rounds up, so an entry never lives shorter than it was asked to.
+    /// </summary>
+    /// <param name="expiresUtc">The deadline, or <see langword="null" /> for none.</param>
+    /// <returns>
+    /// The deadline rounded up to a whole millisecond and clamped to the largest whole millisecond a date can hold, and at least one
+    /// millisecond of ticks; <see langword="null" /> for none.
+    /// </returns>
+    internal static DateTime? PinToJournalPrecision(DateTime? expiresUtc)
+    {
+        if (expiresUtc is not { } deadline)
+            return null;
+
+        var ticks = deadline.Ticks;
+        var remainder = ticks % TimeSpan.TicksPerMillisecond;
+        var rounded = remainder == 0 ? ticks : ticks + (TimeSpan.TicksPerMillisecond - remainder);
+        var largest = DateTime.MaxValue.Ticks - (DateTime.MaxValue.Ticks % TimeSpan.TicksPerMillisecond);
+        return new DateTime(Math.Min(Math.Max(rounded, TimeSpan.TicksPerMillisecond), largest), DateTimeKind.Utc);
     }
 
     internal static (DateTime? ExpiresUtc, TimeSpan? Expiration) ForJournalWrite(DateTime? expiresUtc, TimeSpan? expiration)
@@ -62,5 +83,11 @@ internal static class JournalEntryExpirationMaterializer
 
         var writtenAt = DateTimeOffset.FromUnixTimeMilliseconds(writtenUnixMs).UtcDateTime;
         return writtenAt.SaturatedAdd(relative) <= DateTime.UtcNow;
+    }
+
+    private static NodeCacheEntry<T> PinAbsoluteOnly<T>(NodeCacheEntry<T> entry)
+    {
+        var pinned = PinToJournalPrecision(entry.ExpiresUtc);
+        return pinned == entry.ExpiresUtc ? entry : new NodeCacheEntry<T>(entry.Value, entry.Version, pinned, tags: entry.Tags);
     }
 }
