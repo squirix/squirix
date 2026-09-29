@@ -3,6 +3,7 @@ using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Attributes;
@@ -334,7 +335,7 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
             };
             var manifestStore = new Ledger(options);
             var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
-            var journal = JournalCoordinatorFactory.Create(options, manifest, manifestStore, new AsyncManualResetEvent(true));
+            var journal = JournalCoordinatorFactory.Create(options, manifest, manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
             return new Harness(manifestStore, journal, clock);
         }
 

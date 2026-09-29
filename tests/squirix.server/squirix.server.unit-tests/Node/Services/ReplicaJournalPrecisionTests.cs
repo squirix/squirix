@@ -104,7 +104,8 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLogger.Instance);
         var physical = new PhysicalCache<object?>(clock);
         var cache = new JournalLoggingCacheDecorator<object?>(
             Self,

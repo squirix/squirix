@@ -93,7 +93,8 @@ internal sealed class JournalReplayKit
             Persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLogger.Instance);
         var physical = new PhysicalCache<string>(clock);
         var cache = new JournalLoggingCacheDecorator<string>(
             Self,

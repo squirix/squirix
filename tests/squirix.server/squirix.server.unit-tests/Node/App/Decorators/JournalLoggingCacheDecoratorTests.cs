@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -263,7 +264,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             ManifestRetentionCount = 1,
         };
         var manifestStore = new Ledger(options);
-        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true));
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
         var physical = new PhysicalCache<string>();
         var inner = new RecordingLogicalCache(physical);
         var executor = new DurableMutationExecutor(journal);
@@ -286,7 +287,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             ManifestRetentionCount = 1,
         };
         var manifestStore = new Ledger(options);
-        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true));
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
         var physical = new PhysicalCache<string>();
         var inner = new RaceSimulatingInnerCache(physical);
         var executor = new DurableMutationExecutor(journal);

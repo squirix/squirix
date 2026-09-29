@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
@@ -50,7 +51,8 @@ public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBas
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLogger.Instance);
         var idempotency = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var writer = StoreFactory.CreateWriter(persistence);
 

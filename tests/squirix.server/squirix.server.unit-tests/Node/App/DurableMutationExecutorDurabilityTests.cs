@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
@@ -40,7 +41,8 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLogger.Instance);
         var executor = new DurableMutationExecutor(journal);
         var applyState = new ApplyCounter(false);
 
@@ -80,7 +82,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         };
 
         using var manifestStore = new Ledger(options);
-        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true));
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
 
         try
         {
@@ -121,7 +123,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         };
 
         using var manifestStore = new Ledger(options);
-        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true));
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
 
         try
         {

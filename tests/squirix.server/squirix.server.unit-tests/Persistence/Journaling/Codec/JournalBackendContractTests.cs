@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -58,7 +59,7 @@ public sealed class JournalBackendContractTests
         var manifestStore = new Ledger(options);
         var gate = new AsyncManualResetEvent(true);
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None);
-        var coordinator = JournalCoordinatorFactory.Create(options, manifest, manifestStore, gate);
+        var coordinator = JournalCoordinatorFactory.Create(options, manifest, manifestStore, gate, NullLogger.Instance);
         return new CoordinatorContext(dir, options, manifestStore, coordinator);
     }
 

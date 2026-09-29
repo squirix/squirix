@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -35,7 +36,7 @@ public sealed class JournalIdempotencyGateTests : IsolatedStorageTestBase
         var persistence = CreatePersistence(Dir);
         using var ledger = new Ledger(persistence);
         var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(persistence, manifest, ledger, new AsyncManualResetEvent(true));
+        await using var journal = JournalCoordinatorFactory.Create(persistence, manifest, ledger, new AsyncManualResetEvent(true), NullLogger.Instance);
 
         var snapshotState = (await Assert.That(journal).IsTypeOf<IJournalCoordinatorSnapshotState>())!;
         var gateGuard = await snapshotState.MutationGate.LockAsync(cancellationToken);

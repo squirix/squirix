@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -63,7 +64,8 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
                 persistence,
                 await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
                 manifestStore,
-                new AsyncManualResetEvent(true));
+                new AsyncManualResetEvent(true),
+                NullLogger.Instance);
             var live = new NodeCacheEntry<object?>("earlier");
             var expired = new NodeCacheEntry<object?>("later", expiresUtc: DateTime.UtcNow.AddMinutes(-1));
             await journal.AppendPutUnderGateAsync(new CacheKey(CacheName, Key), JournalEntryPayloadKit.Encode(live), cancellationToken);
@@ -88,7 +90,8 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
                 persistence,
                 await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
                 manifestStore,
-                new AsyncManualResetEvent(true));
+                new AsyncManualResetEvent(true),
+                NullLogger.Instance);
             var expired = new NodeCacheEntry<object?>("v", expiresUtc: DateTime.UtcNow.AddMinutes(-1));
             await journal.AppendPutUnderGateAsync(new CacheKey(CacheName, Key), JournalEntryPayloadKit.Encode(expired), cancellationToken);
             await journal.AwaitDurabilityCommitAsync(cancellationToken);

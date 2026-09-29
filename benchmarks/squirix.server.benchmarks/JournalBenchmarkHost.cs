@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -44,7 +45,7 @@ internal sealed class JournalBenchmarkHost : IAsyncDisposable
         var manifestStore = new Ledger(persistence);
         var gate = new AsyncManualResetEvent(true);
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-        var coordinator = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, gate);
+        var coordinator = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, gate, NullLogger.Instance);
         return new JournalBenchmarkHost(dir, coordinator, manifestStore);
     }
 }
