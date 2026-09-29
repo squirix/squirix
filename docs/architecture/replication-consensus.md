@@ -190,6 +190,12 @@ gets `COMMIT_OUTCOME_UNKNOWN`, its idempotency outcome stays unresolved, later w
 `replica_apply_pending`, and a restart refuses to start the committer. Each refusal is logged at error level and counted
 by `squirix_replication_inconsistent_records_total`.
 
+Update, Touch and RemoveExpiration apply by writing the whole decided entry, so under memory pressure the write is admitted
+like an insert: if the key was lazily removed between the decision and the apply, the admission can refuse it after the
+majority. The entry then stays pending and later writes are refused with `replica_apply_pending` until the pressure clears.
+Pinned deadlines are whole milliseconds, the precision of the cache journal, so a journal recovery and a log re-apply write
+the same entry.
+
 The canonical record encoding is version 3 and nodes refuse records of any other version: every node of a replica group
 must run the same replica log codec version.
 
