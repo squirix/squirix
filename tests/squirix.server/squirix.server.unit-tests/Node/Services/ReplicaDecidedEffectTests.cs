@@ -121,6 +121,21 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         _ = await Assert.That((await harness.RawAsync(cancellationToken))?.Value).IsEqualTo("a");
     }
 
+    /// <summary>A sub-millisecond TTL is rounded up to the next whole millisecond, so the entry is still live when it is decided.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SubMillisecondTtlRoundsUp(CancellationToken cancellationToken)
+    {
+        var harness = new Harness(new FakeTimeProvider());
+        var prepared = harness.Factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, TimeSpan.FromTicks(5000)), 1UL);
+
+        await harness.ApplyAsync(prepared, cancellationToken);
+
+        var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload);
+        _ = await Assert.That(record?.ExpiresUtcTicks).IsEqualTo(harness.Now.Ticks + TimeSpan.TicksPerMillisecond);
+        _ = await Assert.That((await harness.Cache.GetEntryAsync(CacheName, Key, cancellationToken))?.Value).IsEqualTo("v");
+    }
+
     /// <summary>A touch decided while the key was live writes the decided deadline even when the key expired before the apply.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
