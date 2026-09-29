@@ -21,6 +21,12 @@ internal sealed class ServerClientPoolArgs
 
     internal MtlsOptions? MtlsOptions { get; init; }
 
+    /// <summary>
+    /// Gets an optional replacement for the handlers the pool creates and owns itself, given the mTLS material
+    /// (<see langword="null" /> for plain HTTPS) and the peer node id (test seam for handler ownership).
+    /// </summary>
+    internal Func<MtlsCertificate?, string, HttpMessageHandler>? OwnedHandlerFactory { get; init; }
+
     internal Func<string, HttpMessageHandler>? PeerHandlerFactory { get; init; }
 
     internal required Func<string, IServerCallPolicy> PolicyFactory { get; init; }
