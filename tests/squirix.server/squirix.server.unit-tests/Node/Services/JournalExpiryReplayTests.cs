@@ -57,6 +57,31 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
         await AssertReplayedDeadlineAsync(written, cancellationToken);
     }
 
+    /// <summary>An expired put record removes the earlier value of the key instead of leaving it live.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredPutRemovesEarlierValue(CancellationToken cancellationToken)
+    {
+        var persistence = CreatePersistence();
+        using (var manifestStore = new Ledger(persistence))
+        {
+            await using var journal = JournalCoordinatorFactory.Create(
+                persistence,
+                await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+                manifestStore,
+                new AsyncManualResetEvent(true));
+            var live = new NodeCacheEntry<object?>("earlier");
+            var expired = new NodeCacheEntry<object?>("later", expiresUtc: DateTime.UtcNow.AddMinutes(-1));
+            await journal.AppendPutUnderGateAsync(new CacheKey(CacheName, Key), JournalEntryPayloadKit.Encode(live), cancellationToken);
+            await journal.AppendPutUnderGateAsync(new CacheKey(CacheName, Key), JournalEntryPayloadKit.Encode(expired), cancellationToken);
+            await journal.AwaitDurabilityCommitAsync(cancellationToken);
+        }
+
+        var recovered = await RecoverAsync(persistence, new FakeTimeProvider(DateTimeOffset.UtcNow), cancellationToken);
+
+        _ = await Assert.That(await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
+    }
+
     /// <summary>A put record whose deadline already passed is skipped on replay instead of failing recovery.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

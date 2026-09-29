@@ -123,7 +123,11 @@ internal sealed class RecoveryService<T> : IHostedService
                     throw CreateJournalDecodeFailure();
 
                 if (JournalEntryExpirationMaterializer.IsExpiredForRecovery(entry!.ExpiresUtc, entry.Expiration, record.UnixMs))
+                {
+                    // The expired put supersedes the earlier value of the key, as journal compaction folds it.
+                    _ = await _localCache.RemoveRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
                     break;
+                }
 
                 entry = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry, record.UnixMs);
                 await _localCache.InsertRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
