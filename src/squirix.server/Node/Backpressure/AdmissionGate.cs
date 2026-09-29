@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Node.Backpressure;
 
@@ -15,7 +16,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     private readonly RateLimiter? _nodeRateLimiter;
     private readonly IDisposable _observerRegistration;
     private readonly AdmissionOptions _options;
-    private readonly SemaphoreSlim _slots;
+    private readonly AsyncSemaphore _slots;
     private readonly TimeProvider _timeProvider;
     private int _disposed;
     private int _inFlight;
@@ -27,7 +28,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _options = options;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _options.Validate();
-        _slots = new SemaphoreSlim(_options.MaxInFlight, _options.MaxInFlight);
+        _slots = new AsyncSemaphore(_options.MaxInFlight);
         _nodeRateLimiter = RateLimiter.Create(_options.NodeRateLimitPerSecond, _options.NodeRateLimitBurst);
         _observerRegistration = _metrics.RegisterObservers(ObserveInFlight, ObserveQueueDepth, ObserveTrackedClients);
     }
@@ -90,7 +91,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         // AcquireLease, while the lease still holds one slot and one in-flight unit that must
         // be returned here.
         AdjustInFlight(-1);
-        _ = _slots.Release();
+        _slots.Release();
     }
 
     private async ValueTask<(Decision Decision, Lease Lease)> AcquireFromSlotOrQueueAsync(
@@ -100,7 +101,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         ClientState client,
         CancellationToken cancellationToken)
     {
-        return await _slots.WaitAsync(0, cancellationToken).ConfigureAwait(false) ? (Decision.Accepted(), AcquireLease(clientId, client))
+        return _slots.TryAcquire() ? (Decision.Accepted(), AcquireLease(clientId, client))
             : await WaitInQueueAsync(transport, operation, clientId, client, cancellationToken).ConfigureAwait(false);
     }
 
@@ -198,7 +199,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     {
         _ = Interlocked.Decrement(ref client.InFlightRef);
         AdjustInFlight(-1);
-        _ = _slots.Release();
+        _slots.Release();
         RemoveIdleClient(clientId, client);
     }
 
@@ -242,6 +243,13 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
                 _metrics.AddQueueTimeout(transport, operation);
                 _metrics.AddReject(transport, operation, "queue_wait_timeout");
                 return (Decision.Rejected("queue_wait_timeout"), Lease.Empty);
+            }
+            catch (ObjectDisposedException)
+            {
+                // The gate was disposed while this request was queued, so it never got a slot: reject it like any other
+                // refused admission instead of leaking the disposal failure to the caller.
+                _metrics.AddReject(transport, operation, "gate_disposed");
+                return (Decision.Rejected("gate_disposed"), Lease.Empty);
             }
 
             var queueWait = Stopwatch.GetElapsedTime(started);

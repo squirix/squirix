@@ -64,6 +64,49 @@ public sealed class AsyncSemaphoreTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(semaphore.WaitAsync(cancellationToken));
     }
 
+    /// <summary>A non-blocking acquire takes a free permit, fails without queuing when none is free, and succeeds again after a release.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NonBlockingAcquireTakesFreePermits(CancellationToken cancellationToken)
+    {
+        using var semaphore = new AsyncSemaphore(1);
+
+        _ = await Assert.That(semaphore.TryAcquire()).IsTrue();
+        _ = await Assert.That(semaphore.TryAcquire()).IsFalse();
+
+        semaphore.Release();
+
+        _ = await Assert.That(semaphore.TryAcquire()).IsTrue();
+        semaphore.Release();
+        await semaphore.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+    }
+
+    /// <summary>A non-blocking acquire never overtakes a queued waiter: a released permit goes to the waiter, not to the next try.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NonBlockingAcquireYieldsToWaiter(CancellationToken cancellationToken)
+    {
+        using var semaphore = new AsyncSemaphore(1);
+        _ = await Assert.That(semaphore.TryAcquire()).IsTrue();
+        var waiter = semaphore.WaitAsync(cancellationToken);
+
+        semaphore.Release();
+
+        _ = await Assert.That(semaphore.TryAcquire()).IsFalse();
+        await waiter;
+    }
+
+    /// <summary>A non-blocking acquire on a disposed semaphore returns false even when permits are free.</summary>
+    [Test]
+    public async Task NonBlockingAcquireFailsAfterDispose()
+    {
+        var semaphore = new AsyncSemaphore(1);
+
+        semaphore.Dispose();
+
+        _ = await Assert.That(semaphore.TryAcquire()).IsFalse();
+    }
+
     /// <summary>The semaphore hands out as many permits as it was created with, then queues the next wait until one is released.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

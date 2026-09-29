@@ -73,6 +73,21 @@ internal sealed class AsyncSemaphore : IDisposable
         }
     }
 
+    /// <summary>Takes a permit only when one is available right now, without waiting or queuing.</summary>
+    /// <returns><see langword="true" /> when the caller owns a permit and must <see cref="Release" /> it; <see langword="false" /> when none is available or the semaphore is disposed.</returns>
+    /// <remarks>Never throws and never allocates.</remarks>
+    internal bool TryAcquire()
+    {
+        lock (_sync)
+        {
+            if (Volatile.Read(ref _disposed) != 0 || _available <= 0)
+                return false;
+
+            _available--;
+            return true;
+        }
+    }
+
     /// <summary>Takes a permit, waiting in FIFO order while none is available.</summary>
     /// <param name="cancellationToken">Cancels the wait while it is still queued.</param>
     /// <returns>A task that completes once the caller owns a permit and must <see cref="Release" /> it.</returns>
