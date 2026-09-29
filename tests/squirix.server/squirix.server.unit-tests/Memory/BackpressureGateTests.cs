@@ -3,6 +3,7 @@ using System.Diagnostics.Metrics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
@@ -183,6 +184,54 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
         var (decision, secondLease) = await gate.AcquireAsync("grpc", "get", "grpc:client-a", cancellationToken);
         using (secondLease)
             _ = await Assert.That(decision.IsAccepted).IsTrue();
+    }
+
+    /// <summary>Verifies a lease releases the client entry it acquired, so a replacement entry keeps its own in-flight count and per-client limit.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LeaseReleasesAcquiredClientEntry(CancellationToken cancellationToken)
+    {
+        var time = new FakeTimeProvider();
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
+            {
+                MaxInFlight = 6,
+                MaxQueue = 1,
+                SlowdownThreshold = 3,
+                RejectThreshold = 6,
+                MaxSlowdownDelay = TimeSpan.FromSeconds(10),
+                MaxQueueWait = TimeSpan.FromSeconds(10),
+                PerClientMaxInFlight = 2,
+            },
+            new BackpressureMetrics(_testMeter),
+            time);
+
+        var first = (await gate.AcquireAsync("grpc", "get", "grpc:x", cancellationToken)).Lease;
+        var other1 = (await gate.AcquireAsync("grpc", "get", "grpc:y1", cancellationToken)).Lease;
+        var other2 = (await gate.AcquireAsync("grpc", "get", "grpc:y2", cancellationToken)).Lease;
+
+        // The slowed request has already resolved its client entry; releasing the first lease then detaches that entry.
+        var slowed = gate.AcquireAsync("grpc", "get", "grpc:x", cancellationToken).AsTask();
+        _ = await Assert.That(slowed.IsCompleted).IsFalse();
+        first.Dispose();
+
+        var (thirdDecision, third) = await gate.AcquireAsync("grpc", "get", "grpc:x", cancellationToken);
+        time.Advance(TimeSpan.FromSeconds(10));
+        var (slowedDecision, slowedLease) = await slowed.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        slowedLease.Dispose();
+        other1.Dispose();
+        other2.Dispose();
+
+        var (fourthDecision, fourth) = await gate.AcquireAsync("grpc", "get", "grpc:x", cancellationToken);
+        var (fifthDecision, fifth) = await gate.AcquireAsync("grpc", "get", "grpc:x", cancellationToken);
+        third.Dispose();
+        fourth.Dispose();
+        fifth.Dispose();
+
+        _ = await Assert.That(thirdDecision.IsAccepted).IsTrue();
+        _ = await Assert.That(slowedDecision.IsAccepted).IsTrue();
+        _ = await Assert.That(fourthDecision.IsAccepted).IsTrue();
+        _ = await Assert.That(fifthDecision.RejectReason).IsEqualTo("client_concurrency_limit");
     }
 
     /// <summary>Verifies requests are rejected once the hard threshold is reached while another request is queued.</summary>

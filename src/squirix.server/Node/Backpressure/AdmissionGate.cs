@@ -77,22 +77,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _slots.Dispose();
     }
 
-    internal void ReleaseLease(string clientId)
-    {
-        if (_clients.TryGetValue(clientId, out var client))
-        {
-            Release(clientId, client);
-            return;
-        }
-
-        // Only Lease.Dispose calls here, and it releases each lease at most once, so this
-        // fallback cannot double-release a slot. It stays (rather than becoming a no-op) for
-        // the detach race: the entry may be removed by RemoveIdleClient between GetOrAdd and
-        // AcquireLease, while the lease still holds one slot and one in-flight unit that must
-        // be returned here.
-        AdjustInFlight(-1);
-        _slots.Release();
-    }
+    internal void ReleaseLease(string clientId, ClientState client) => Release(clientId, client);
 
     private async ValueTask<(Decision Decision, Lease Lease)> AcquireFromSlotOrQueueAsync(
         string transport,
@@ -109,7 +94,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     {
         AdjustInFlight(1);
         _ = Interlocked.Increment(ref client.InFlightRef);
-        return new Lease(this, clientId);
+        return new Lease(this, clientId, client);
     }
 
     private void AdjustInFlight(int adjustment) => _ = Interlocked.Add(ref _inFlight, adjustment);
@@ -267,7 +252,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         }
     }
 
-    private sealed class ClientState
+    internal sealed class ClientState
     {
         private readonly RateLimiter? _rateLimiter;
         private int _inFlight;
