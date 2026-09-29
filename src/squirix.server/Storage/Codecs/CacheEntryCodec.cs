@@ -21,18 +21,56 @@ internal static class CacheEntryCodec
     private const int MaxUtf16StringLength = ushort.MaxValue;
     private const byte True = 1;
 
-    internal static int ComputeEncodedLength(NodeCacheEntry<object?> entry)
+    internal static int ComputeEncodedLength(NodeCacheEntry<object?> entry) =>
+        ComputeEncodedLength(entry.ExpiresUtc, entry.Expiration, entry.Tags, CacheEntryValueEncoding.ComputeLength(entry.Value));
+
+    /// <summary>Computes the encoded length of an entry whose value is already measured.</summary>
+    /// <param name="expiresUtc">The absolute deadline, or <see langword="null" />.</param>
+    /// <param name="expiration">The relative expiration, or <see langword="null" />.</param>
+    /// <param name="tags">The entry tags, or <see langword="null" />.</param>
+    /// <param name="valueLength">The encoded length of the value.</param>
+    /// <returns>The encoded entry length.</returns>
+    internal static int ComputeEncodedLength(DateTime? expiresUtc, TimeSpan? expiration, FrozenDictionary<string, string>? tags, int valueLength)
     {
         var length = 1 + 1 + 8;
-        length += TagEncoding.ComputeLength(entry.Tags);
-        length += CacheEntryValueEncoding.ComputeLength(entry.Value);
-        if (entry.ExpiresUtc != null)
+        length += TagEncoding.ComputeLength(tags);
+        length += valueLength;
+        if (expiresUtc != null)
             length += 8;
 
-        if (entry.Expiration != null)
+        if (expiration != null)
             length += 8;
 
         return length;
+    }
+
+    /// <summary>Computes the encoded length of a normalized value.</summary>
+    /// <param name="normalizedValue">The normalized value.</param>
+    /// <returns>The encoded value length.</returns>
+    internal static int ComputeValueLength(object? normalizedValue) => CacheEntryValueEncoding.ComputeLength(normalizedValue);
+
+    /// <summary>Writes a normalized value in the entry value encoding.</summary>
+    /// <param name="normalizedValue">The normalized value.</param>
+    /// <param name="destination">The destination, at least <see cref="ComputeValueLength" /> bytes.</param>
+    internal static void WriteValue(object? normalizedValue, Span<byte> destination) => _ = CacheEntryValueEncoding.WriteInternal(normalizedValue, destination);
+
+    /// <summary>Writes an entry around a value that is already encoded, so the value is not measured or serialized again.</summary>
+    /// <param name="expiresUtc">The absolute deadline, or <see langword="null" />.</param>
+    /// <param name="expiration">The relative expiration, or <see langword="null" />.</param>
+    /// <param name="version">The entry version.</param>
+    /// <param name="tags">The entry tags, or <see langword="null" />.</param>
+    /// <param name="encodedValue">The value encoded by <see cref="WriteValue" />.</param>
+    /// <param name="destination">The destination, at least <see cref="ComputeEncodedLength(DateTime?, TimeSpan?, FrozenDictionary{string, string}, int)" /> bytes.</param>
+    internal static void WriteWithEncodedValue(
+        DateTime? expiresUtc,
+        TimeSpan? expiration,
+        long version,
+        FrozenDictionary<string, string>? tags,
+        ReadOnlySpan<byte> encodedValue,
+        Span<byte> destination)
+    {
+        var offset = WriteHeader(expiresUtc, expiration, version, tags, destination);
+        encodedValue.CopyTo(destination[offset..]);
     }
 
     internal static bool TryMapEntry<T>(NodeCacheEntry<object?> entry, out NodeCacheEntry<T>? mapped)
@@ -68,8 +106,22 @@ internal static class CacheEntryCodec
         if (destination.Length < ComputeEncodedLength(entry))
             throw new ArgumentException("Destination span is too small for the encoded cache entry.", nameof(destination));
 
+        WriteMeasured(entry, destination);
+    }
+
+    /// <summary>Writes an entry into a destination the caller already sized with <c language="csharp">ComputeEncodedLength</c>, without measuring the value again.</summary>
+    /// <param name="entry">The entry to write.</param>
+    /// <param name="destination">The destination, at least the measured encoded length.</param>
+    internal static void WriteMeasured(NodeCacheEntry<object?> entry, Span<byte> destination)
+    {
+        var offset = WriteHeader(entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags, destination);
+        _ = CacheEntryValueEncoding.WriteInternal(entry.Value, destination[offset..]);
+    }
+
+    private static int WriteHeader(DateTime? expiresUtcValue, TimeSpan? expirationValue, long version, FrozenDictionary<string, string>? tags, Span<byte> destination)
+    {
         var offset = 0;
-        if (entry.ExpiresUtc is { } expiresUtc)
+        if (expiresUtcValue is { } expiresUtc)
         {
             destination[offset++] = 1;
             BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], new DateTimeOffset(expiresUtc.ToUniversalTime()).ToUnixTimeMilliseconds());
@@ -80,7 +132,7 @@ internal static class CacheEntryCodec
             destination[offset++] = 0;
         }
 
-        if (entry.Expiration is { } expiration)
+        if (expirationValue is { } expiration)
         {
             destination[offset++] = 1;
             BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], expiration.Ticks);
@@ -91,10 +143,10 @@ internal static class CacheEntryCodec
             destination[offset++] = 0;
         }
 
-        BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], entry.Version);
+        BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], version);
         offset += 8;
-        offset += TagEncoding.WriteTag(entry.Tags, destination[offset..]);
-        _ = CacheEntryValueEncoding.WriteInternal(entry.Value, destination[offset..]);
+        offset += TagEncoding.WriteTag(tags, destination[offset..]);
+        return offset;
     }
 
     private static NodeCacheEntry<T> CreateEntry<T>(T? typedValue, in ReadEnvelope e) => new(typedValue, e.Version, e.ExpiresUtc, e.Expiration, e.Tags);
