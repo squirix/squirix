@@ -14,6 +14,48 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 [Immutable]
 public sealed class JournalEntryExpirationMaterializerTests
 {
+    private static readonly DateTime Boundary = new(2026, 1, 1, 0, 0, 0, 5, DateTimeKind.Utc);
+
+    /// <summary>A deadline on a millisecond boundary is unchanged and no deadline stays none.</summary>
+    [Test]
+    public async Task PinKeepsBoundaryAndNone()
+    {
+        _ = await Assert.That(JournalEntryExpirationMaterializer.PinToJournalPrecision(Boundary)).IsEqualTo(Boundary);
+        _ = await Assert.That(JournalEntryExpirationMaterializer.PinToJournalPrecision(null)).IsNull();
+    }
+
+    /// <summary>A deadline between milliseconds rounds up so the entry never lives shorter than requested.</summary>
+    [Test]
+    public async Task PinRoundsUpToNextMillisecond()
+    {
+        var pinned = JournalEntryExpirationMaterializer.PinToJournalPrecision(Boundary.AddTicks(1));
+
+        _ = await Assert.That(pinned).IsEqualTo(Boundary.AddMilliseconds(1));
+    }
+
+    /// <summary>A deadline near the largest date clamps to the largest whole millisecond instead of overflowing.</summary>
+    [Test]
+    public async Task PinClampsAtLargestWholeMillisecond()
+    {
+        var pinned = JournalEntryExpirationMaterializer.PinToJournalPrecision(DateTime.MaxValue);
+
+        _ = await Assert.That(pinned!.Value.Ticks % TimeSpan.TicksPerMillisecond).IsEqualTo(0L);
+        _ = await Assert.That(pinned.Value <= DateTime.MaxValue).IsTrue();
+    }
+
+    /// <summary>A durable write pins a relative deadline and an absolute-only deadline alike.</summary>
+    [Test]
+    public async Task DurableWritePinsEffectiveDeadline()
+    {
+        var now = Boundary.AddTicks(3);
+        var relative = JournalEntryExpirationMaterializer.ForDurableWrite(new NodeCacheEntry<string>("v", expiration: TimeSpan.FromSeconds(1)), now);
+        var absolute = JournalEntryExpirationMaterializer.ForDurableWrite(new NodeCacheEntry<string>("v", expiresUtc: now.AddSeconds(1)), now);
+
+        _ = await Assert.That(relative.ExpiresUtc).IsEqualTo(Boundary.AddSeconds(1).AddMilliseconds(1));
+        _ = await Assert.That(absolute.ExpiresUtc).IsEqualTo(Boundary.AddSeconds(1).AddMilliseconds(1));
+        _ = await Assert.That(relative.Expiration).IsNull();
+    }
+
     /// <summary>ForDurableWrite resolves a relative TTL against the given instant and keeps the earliest deadline.</summary>
     [Test]
     public async Task DurableWriteUsesEarliestDeadline()

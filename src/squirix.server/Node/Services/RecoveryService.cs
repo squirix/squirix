@@ -20,7 +20,8 @@ namespace Squirix.Server.Node.Services;
 
 /// <summary>
 /// Replays the journal into the local in-memory cache on startup.
-/// Skips expired entries so they are not resurrected after restart.
+/// Every cache-entry frame is a put of the whole resulting entry or a remove, so the state of a key is the state of its last frame; an entry
+/// whose final deadline has passed is dropped, and never resurrected after restart.
 /// Restores exact CLR value types using the binary cache-entry codec.
 /// </summary>
 /// <typeparam name="T">The value type stored in the cache (e.g., <c language="csharp">object?</c> for untyped payloads or a concrete DTO type).</typeparam>
@@ -138,21 +139,6 @@ internal sealed class RecoveryService<T> : IHostedService
             {
                 var key = PrepareMutationKey(record);
                 _ = await _localCache.RemoveRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
-                break;
-            }
-
-            case JournalOperationKind.RemoveExpiration:
-            {
-                var key = PrepareMutationKey(record);
-                _ = await _localCache.RemoveExpirationRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
-                break;
-            }
-
-            case JournalOperationKind.TouchExpiration:
-            {
-                var key = PrepareMutationKey(record);
-                var expiresUtc = record.TouchExpirationUtc ?? DateTime.UtcNow;
-                _ = await _localCache.TouchExpirationRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
                 break;
             }
 

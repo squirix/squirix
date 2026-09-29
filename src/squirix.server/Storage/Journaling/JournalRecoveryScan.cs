@@ -142,7 +142,7 @@ internal static class JournalRecoveryScan
 
             writer.FlushToDisk();
         }
-        catch (InvalidDataException) when (writer.Length > 0)
+        catch (InvalidDataException) when (writer.Length > 0 && !JournalFraming.HasUnsupportedVersion(path))
         {
             writer.Truncate(0);
             WriteFreshFileHeader(writer);

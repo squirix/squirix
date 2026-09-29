@@ -21,9 +21,6 @@ internal static class BinaryJournalCodec
     private const int KeyLengthOffset = NamespaceLengthOffset + NamespaceLengthPrefixSize;
     private const int KeyLengthPrefixSize = sizeof(ushort);
 
-    /// <summary>Sentinel for a missing touch-expiration timestamp.</summary>
-    private const long MissingExpirationUnixMs = 0L;
-
     private const int NamespaceLengthOffset = OpcodeOffset + OpcodeSize;
     private const int NamespaceLengthPrefixSize = sizeof(ushort);
     private const int OpcodeOffset = UnixMsOffset + UnixMsSize;
@@ -41,9 +38,6 @@ internal static class BinaryJournalCodec
 
     /// <summary>Fixed-prefix field sizes.</summary>
     private const int SequenceSize = sizeof(ulong);
-
-    /// <summary>A touch-expiration payload is a single Unix-milliseconds timestamp.</summary>
-    private const int TimestampSize = sizeof(long);
 
     private const int UnixMsOffset = SequenceOffset + SequenceSize;
 
@@ -161,18 +155,8 @@ internal static class BinaryJournalCodec
         {
             JournalOpcode.PutWithMutationOperationId => DecodePut(seq, unixMs, cacheKey, frameBuffer, offset, payloadLen, mutationOperationId),
             JournalOpcode.RemoveWithMutationOperationId => DecodeMutationWithoutPayload(seq, unixMs, cacheKey, JournalOperationKind.Remove, payloadLen, mutationOperationId),
-            JournalOpcode.RemoveExpirationWithMutationOperationId => DecodeMutationWithoutPayload(
-                seq,
-                unixMs,
-                cacheKey,
-                JournalOperationKind.RemoveExpiration,
-                payloadLen,
-                mutationOperationId),
-            JournalOpcode.TouchExpirationWithMutationOperationId => DecodeTouchExpiration(seq, unixMs, cacheKey, frameBuffer, offset, payloadLen, mutationOperationId),
             JournalOpcode.Put => throw new InvalidDataException(UnknownJournalOpcodeMessage),
             JournalOpcode.Remove => throw new InvalidDataException(UnknownJournalOpcodeMessage),
-            JournalOpcode.RemoveExpiration => throw new InvalidDataException(UnknownJournalOpcodeMessage),
-            JournalOpcode.TouchExpiration => throw new InvalidDataException(UnknownJournalOpcodeMessage),
             JournalOpcode.IdempotencyOutcome => throw new InvalidDataException(UnknownJournalOpcodeMessage),
             JournalOpcode.IdempotencyStarted => throw new InvalidDataException(UnknownJournalOpcodeMessage),
             _ => throw new InvalidDataException(UnknownJournalOpcodeMessage),
@@ -219,30 +203,13 @@ internal static class BinaryJournalCodec
         };
     }
 
-    private static JournalRecord DecodeTouchExpiration(ulong seq, long unixMs, CacheKey cacheKey, byte[] frameBuffer, int offset, int payloadLen, string? mutationOperationId)
-    {
-        var prefixLength = MutationOperationIdCodec.EncodeMutationOperationIdPrefixLength(mutationOperationId);
-        var expiresOffset = offset + prefixLength;
-        var expiresLength = payloadLen - prefixLength;
-        return expiresLength != TimestampSize ? throw new InvalidDataException("touch expiration frame payload is truncated.") : new JournalRecord
-        {
-            Sequence = seq,
-            UnixMs = unixMs,
-            Operation = JournalOperationKind.TouchExpiration,
-            Key = cacheKey,
-            MutationOperationId = mutationOperationId,
-            TouchExpirationUtc = DateTimeOffset.FromUnixTimeMilliseconds(BinaryPrimitives.ReadInt64LittleEndian(frameBuffer.AsSpan(expiresOffset, TimestampSize))).UtcDateTime,
-        };
-    }
-
     private static JournalRecord DispatchDecode(byte[] frameBuffer, ReadOnlySpan<byte> frameBody, FrameHeader header, CacheKey cacheKey, int offset)
     {
         var payloadLen = header.PayloadLength;
         return header.Opcode switch
         {
             JournalOpcode.Put => DecodePut(header.Sequence, header.UnixMs, cacheKey, frameBuffer, offset, payloadLen, null),
-            JournalOpcode.PutWithMutationOperationId or JournalOpcode.RemoveWithMutationOperationId or JournalOpcode.RemoveExpirationWithMutationOperationId
-                or JournalOpcode.TouchExpirationWithMutationOperationId => DecodeMutationPrefixed(
+            JournalOpcode.PutWithMutationOperationId or JournalOpcode.RemoveWithMutationOperationId => DecodeMutationPrefixed(
                     header.Opcode,
                     header.Sequence,
                     header.UnixMs,
@@ -251,8 +218,6 @@ internal static class BinaryJournalCodec
                     offset,
                     payloadLen),
             JournalOpcode.Remove => DecodeMutationWithoutPayload(header.Sequence, header.UnixMs, cacheKey, JournalOperationKind.Remove, payloadLen, null),
-            JournalOpcode.RemoveExpiration => DecodeMutationWithoutPayload(header.Sequence, header.UnixMs, cacheKey, JournalOperationKind.RemoveExpiration, payloadLen, null),
-            JournalOpcode.TouchExpiration => DecodeTouchExpiration(header.Sequence, header.UnixMs, cacheKey, frameBuffer, offset, payloadLen, null),
             JournalOpcode.IdempotencyOutcome => DecodeIdempotencyOutcome(header.Sequence, header.UnixMs, cacheKey, frameBuffer, frameBody, offset, payloadLen),
             JournalOpcode.IdempotencyStarted => DecodeIdempotencyStarted(header.Sequence, header.UnixMs, cacheKey, frameBody, offset, payloadLen),
             _ => throw new InvalidDataException(UnknownJournalOpcodeMessage),
@@ -346,8 +311,6 @@ internal static class BinaryJournalCodec
         {
             JournalOperationKind.Put => hasOperationId ? JournalOpcode.PutWithMutationOperationId : JournalOpcode.Put,
             JournalOperationKind.Remove => hasOperationId ? JournalOpcode.RemoveWithMutationOperationId : JournalOpcode.Remove,
-            JournalOperationKind.RemoveExpiration => hasOperationId ? JournalOpcode.RemoveExpirationWithMutationOperationId : JournalOpcode.RemoveExpiration,
-            JournalOperationKind.TouchExpiration => hasOperationId ? JournalOpcode.TouchExpirationWithMutationOperationId : JournalOpcode.TouchExpiration,
             JournalOperationKind.IdempotencyOutcome => JournalOpcode.IdempotencyOutcome,
             JournalOperationKind.IdempotencyStarted => JournalOpcode.IdempotencyStarted,
             JournalOperationKind.AwaitDurabilityCommit => throw CreateOperationNotEncodableException(),
@@ -373,11 +336,7 @@ internal static class BinaryJournalCodec
     {
         JournalOperationKind.IdempotencyOutcome or JournalOperationKind.IdempotencyStarted => EncodeIdempotencyPayload(record, destination, offset),
         JournalOperationKind.Put => WritePutPayload(record, destination, offset),
-        JournalOperationKind.Remove or JournalOperationKind.RemoveExpiration => MutationOperationIdCodec.EncodeMutationOperationIdPrefix(
-            record.MutationOperationId,
-            destination,
-            offset),
-        JournalOperationKind.TouchExpiration => WriteTouchExpirationPayload(record, destination, offset),
+        JournalOperationKind.Remove => MutationOperationIdCodec.EncodeMutationOperationIdPrefix(record.MutationOperationId, destination, offset),
         JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.MaintenanceExclusive
             or JournalOperationKind.SnapshotCut or JournalOperationKind.UnderSnapshotBarrier => throw CreateOperationNotEncodableException(),
         _ => throw CreateOperationNotEncodableException(),
@@ -395,46 +354,25 @@ internal static class BinaryJournalCodec
         return offset + record.PutEntryBytes.Length;
     }
 
-    /// <summary>Encodes a touch-expiration mutation payload including the optional write-ahead operation-id prefix.</summary>
-    /// <param name="record">The record to encode.</param>
-    /// <param name="destination">The destination span.</param>
-    /// <param name="offset">The payload offset within the destination.</param>
-    /// <returns>The offset after the encoded payload.</returns>
-    private static int WriteTouchExpirationPayload(JournalRecord record, Span<byte> destination, int offset)
-    {
-        offset = MutationOperationIdCodec.EncodeMutationOperationIdPrefix(record.MutationOperationId, destination, offset);
-        var expiresMs = record.TouchExpirationUtc is { } utc ? new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds() : MissingExpirationUnixMs;
-        BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], expiresMs);
-        return offset + TimestampSize;
-    }
-
     [Immutable]
     private sealed record FrameHeader(ulong Sequence, long UnixMs, JournalOpcode Opcode, int NamespaceLength, int KeyLength, int PayloadLength);
 
     private static class JournalOpcodeWire
     {
-        private const byte IdempotencyOutcomeWire = 5;
-        private const byte IdempotencyStartedWire = 10;
+        private const byte IdempotencyOutcomeWire = 3;
+        private const byte IdempotencyStartedWire = 6;
         private const byte PutWire = 1;
-        private const byte PutWithMutationOpIdWire = 6;
-        private const byte RemoveExpirationWire = 3;
-        private const byte RemoveExpirationWithMutationOpIdWire = 8;
+        private const byte PutWithMutationOpIdWire = 4;
         private const byte RemoveWire = 2;
-        private const byte RemoveWithMutationOpIdWire = 7;
-        private const byte TouchExpirationWire = 4;
-        private const byte TouchExpirationWithMutationOpIdWire = 9;
+        private const byte RemoveWithMutationOpIdWire = 5;
 
         internal static JournalOpcode FromByte(byte value) => value switch
         {
             PutWire => JournalOpcode.Put,
             RemoveWire => JournalOpcode.Remove,
-            RemoveExpirationWire => JournalOpcode.RemoveExpiration,
-            TouchExpirationWire => JournalOpcode.TouchExpiration,
             IdempotencyOutcomeWire => JournalOpcode.IdempotencyOutcome,
             PutWithMutationOpIdWire => JournalOpcode.PutWithMutationOperationId,
             RemoveWithMutationOpIdWire => JournalOpcode.RemoveWithMutationOperationId,
-            RemoveExpirationWithMutationOpIdWire => JournalOpcode.RemoveExpirationWithMutationOperationId,
-            TouchExpirationWithMutationOpIdWire => JournalOpcode.TouchExpirationWithMutationOperationId,
             IdempotencyStartedWire => JournalOpcode.IdempotencyStarted,
             _ => throw new InvalidDataException(UnknownJournalOpcodeMessage),
         };
@@ -443,13 +381,9 @@ internal static class BinaryJournalCodec
         {
             JournalOpcode.Put => PutWire,
             JournalOpcode.Remove => RemoveWire,
-            JournalOpcode.RemoveExpiration => RemoveExpirationWire,
-            JournalOpcode.TouchExpiration => TouchExpirationWire,
             JournalOpcode.IdempotencyOutcome => IdempotencyOutcomeWire,
             JournalOpcode.PutWithMutationOperationId => PutWithMutationOpIdWire,
             JournalOpcode.RemoveWithMutationOperationId => RemoveWithMutationOpIdWire,
-            JournalOpcode.RemoveExpirationWithMutationOperationId => RemoveExpirationWithMutationOpIdWire,
-            JournalOpcode.TouchExpirationWithMutationOperationId => TouchExpirationWithMutationOpIdWire,
             JournalOpcode.IdempotencyStarted => IdempotencyStartedWire,
             _ => throw new InvalidDataException(UnknownJournalOpcodeMessage),
         };

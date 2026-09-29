@@ -2,19 +2,12 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.LocalCache;
-using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
-using Squirix.Server.Node.Observability;
-using Squirix.Server.Node.Services;
-using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
-using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
@@ -31,9 +24,8 @@ namespace Squirix.Server.UnitTests.Node.Services;
 [Immutable]
 public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
 {
-    private const string CacheName = "cache";
-    private const string Key = "k";
-    private const string Self = "node-a";
+    private const string CacheName = JournalReplayKit.CacheName;
+    private const string Key = JournalReplayKit.Key;
 
     private static readonly TimeSpan Downtime = TimeSpan.FromMinutes(8);
     private static readonly TimeSpan PastTtl = TimeSpan.FromMinutes(11);
@@ -43,6 +35,8 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
 
     /// <inheritdoc />
     protected override string TempDirectoryName => "squirix-journal-expiry-replay";
+
+    private JournalReplayKit Kit => new(Dir, _testMeter);
 
     /// <summary>A relative-TTL add replays with its write-time deadline, not one re-anchored to the restart clock.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -62,7 +56,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     [Test]
     public async Task ExpiredPutRemovesEarlierValue(CancellationToken cancellationToken)
     {
-        var persistence = CreatePersistence();
+        var persistence = Kit.Persistence;
         using (var manifestStore = new Ledger(persistence))
         {
             await using var journal = JournalCoordinatorFactory.Create(
@@ -77,7 +71,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
             await journal.AwaitDurabilityCommitAsync(cancellationToken);
         }
 
-        var recovered = await RecoverAsync(persistence, new FakeTimeProvider(DateTimeOffset.UtcNow), cancellationToken);
+        var recovered = await Kit.RecoverAsync(new FakeTimeProvider(DateTimeOffset.UtcNow), false, cancellationToken);
 
         _ = await Assert.That(await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
     }
@@ -87,7 +81,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     [Test]
     public async Task PastDeadlineReplaysAsExpired(CancellationToken cancellationToken)
     {
-        var persistence = CreatePersistence();
+        var persistence = Kit.Persistence;
         using (var manifestStore = new Ledger(persistence))
         {
             await using var journal = JournalCoordinatorFactory.Create(
@@ -100,7 +94,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
             await journal.AwaitDurabilityCommitAsync(cancellationToken);
         }
 
-        var recovered = await RecoverAsync(persistence, new FakeTimeProvider(DateTimeOffset.UtcNow), cancellationToken);
+        var recovered = await Kit.RecoverAsync(new FakeTimeProvider(DateTimeOffset.UtcNow), false, cancellationToken);
 
         _ = await Assert.That(await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
     }
@@ -138,7 +132,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
         _ = await Assert.That(written.Memory.ExpiresUtc).IsNull();
 
         var restartClock = new FakeTimeProvider(new DateTimeOffset(written.WriteStart.Add(PastTtl), TimeSpan.Zero));
-        var recovered = await RecoverAsync(CreatePersistence(), restartClock, cancellationToken);
+        var recovered = await Kit.RecoverAsync(restartClock, false, cancellationToken);
 
         var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
@@ -194,65 +188,15 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
 
         // Restart after a downtime that is shorter than the TTL: the entry must still be live and keep the deadline memory held.
         var restartClock = new FakeTimeProvider(new DateTimeOffset(written.WriteStart.Add(Downtime), TimeSpan.Zero));
-        var recovered = await RecoverAsync(CreatePersistence(), restartClock, cancellationToken);
+        var recovered = await Kit.RecoverAsync(restartClock, false, cancellationToken);
 
         var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry!.ExpiresUtc).IsEqualTo(deadline);
     }
 
-    private PersistenceOptions CreatePersistence() => new()
-    {
-        DataDir = Dir,
-        JournalMaxSegmentMb = 1,
-        FlushInterval = 5,
-        ManifestRetentionCount = 1,
-    };
-
-    private async Task<PhysicalCache<string>> RecoverAsync(PersistenceOptions persistence, TimeProvider clock, CancellationToken cancellationToken)
-    {
-        using var manifestStore = new Ledger(persistence);
-        var cache = new PhysicalCache<string>(clock);
-        var dependencies = new RecoveryDependencies<string>(
-            persistence,
-            manifestStore,
-            cache,
-            new AsyncManualResetEvent(true),
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
-            StoreFactory.CreateReader());
-        await new RecoveryService<string>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<string>>.Instance, dependencies).StartAsync(cancellationToken);
-        return cache;
-    }
-
-    private async Task<(DateTime WriteStart, NodeCacheEntry<string>? Memory)> WriteAsync(
+    private Task<(DateTime WriteStart, NodeCacheEntry<string>? Memory)> WriteAsync(
         Func<JournalLoggingCacheDecorator<string>, CancellationToken, ValueTask> mutate,
         TimeSpan readAfter,
-        CancellationToken cancellationToken)
-    {
-        var persistence = CreatePersistence();
-        using var manifestStore = new Ledger(persistence);
-        await using var journal = JournalCoordinatorFactory.Create(
-            persistence,
-            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true));
-
-        // Start the write clock at real time so replay does not skip the entry as expired, aligned to the whole
-        // millisecond the journal stores deadlines at, so the replayed deadline compares exactly.
-        var now = DateTimeOffset.UtcNow;
-        var writeClock = new FakeTimeProvider(now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMillisecond)));
-        var physical = new PhysicalCache<string>(writeClock);
-        var cache = new JournalLoggingCacheDecorator<string>(
-            Self,
-            RocksDoubles.CreateOwnerLocator(Self),
-            new ClientCache<string>(physical, physical),
-            journal,
-            new DurableMutationExecutor(journal),
-            writeClock);
-
-        var writeStart = writeClock.GetUtcNow().UtcDateTime;
-        await mutate(cache, cancellationToken);
-        writeClock.Advance(readAfter);
-        return (writeStart, await physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken));
-    }
+        CancellationToken cancellationToken) => Kit.WriteAsync(mutate, readAfter, TimeSpan.Zero, 0, cancellationToken);
 }

@@ -51,37 +51,6 @@ public sealed class JournalBackendContractTests
         _ = await Assert.That(last.Key.Key).IsEqualTo(key.Key);
     }
 
-    /// <summary>Append remove-expiration and replay round-trip for the pipelined journal backend.</summary>
-    [Test]
-    public async Task RemoveExpiryReplayRoundTripAsync()
-    {
-        await using var context = await CreateCoordinatorAsync();
-        var key = new CacheKey("ns", "remove-exp-key");
-        await context.Coordinator.AppendRemoveExpirationUnderGateAsync(key, CancellationToken.None);
-        await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
-
-        var last = await ReadLastRecordAsync(context);
-        _ = await Assert.That(last.Operation).IsEqualTo(JournalOperationKind.RemoveExpiration);
-        _ = await Assert.That(last.Key.Namespace).IsEqualTo(key.Namespace);
-        _ = await Assert.That(last.Key.Key).IsEqualTo(key.Key);
-    }
-
-    /// <summary>Append touch-expiration and replay round-trip for the pipelined journal backend.</summary>
-    [Test]
-    public async Task TouchExpiryReplayRoundTripAsync()
-    {
-        await using var context = await CreateCoordinatorAsync();
-        var key = new CacheKey("ns", "touch-key");
-        var expiresUtc = new DateTime(2026, 6, 30, 12, 0, 0, DateTimeKind.Utc);
-        await context.Coordinator.AppendTouchExpirationUnderGateAsync(key, expiresUtc, CancellationToken.None);
-        await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
-
-        var last = await ReadLastRecordAsync(context);
-        _ = await Assert.That(last.Operation).IsEqualTo(JournalOperationKind.TouchExpiration);
-        _ = await Assert.That(last.Key.Key).IsEqualTo(key.Key);
-        _ = await Assert.That(last.TouchExpirationUtc).IsEqualTo(expiresUtc);
-    }
-
     private static async Task<CoordinatorContext> CreateCoordinatorAsync()
     {
         var dir = new TempDirectory("journal-contract");

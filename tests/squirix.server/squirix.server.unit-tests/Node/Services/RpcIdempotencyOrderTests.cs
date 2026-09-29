@@ -169,11 +169,6 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
 
         public ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => _inner.AppendRemoveAsync(ownership, key, cancellationToken);
 
-        public ValueTask AppendRemoveExpirationAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => _inner.AppendRemoveExpirationAsync(ownership, key, cancellationToken);
-
-        public ValueTask AppendTouchExpirationAsync(AsyncLockOwnership ownership, CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) =>
-            _inner.AppendTouchExpirationAsync(ownership, key, expiresUtc, cancellationToken);
-
         public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
         {
             _trace.Record(OrderingStep.AwaitDurabilityCommit);

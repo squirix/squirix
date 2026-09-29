@@ -92,6 +92,7 @@ internal static class RuntimeServiceRegistration
             _ = services.AddSingleton<ILocalCacheReadOperations<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
             _ = services.AddSingleton<ILocalCacheMutationOperations<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
             _ = services.AddSingleton<ILocalCacheStats>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
+            _ = services.AddSingleton<ILocalCacheRawReader<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>().RawReader);
             return services;
         }
 

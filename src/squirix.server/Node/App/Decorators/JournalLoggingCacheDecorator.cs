@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
+using Squirix.Server.LocalCache;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -12,6 +13,10 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Node.App.Decorators;
 
 /// <summary>Appends journal records for local-owner core mutations.</summary>
+/// <remarks>
+/// A touch, an expiration removal and an update journal a put of the entry they decided, read once under the mutation gate. When a raw
+/// reader is supplied the decision read leaves eviction order alone, so the memory apply is the only access that counts.
+/// </remarks>
 /// <typeparam name="T">The cache value type.</typeparam>
 [Immutable]
 internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<T>
@@ -19,6 +24,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     private readonly DurableMutationExecutor _executor;
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly IJournalCoordinator _journal;
+    private readonly ILocalCacheRawReader<T>? _rawReader;
     private readonly INodeLocator _ring;
     private readonly string _self;
     private readonly TimeProvider _timeProvider;
@@ -29,7 +35,8 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         ILogicalNamespacedCache<T> inner,
         IJournalCoordinator journal,
         DurableMutationExecutor durableMutations,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        ILocalCacheRawReader<T>? rawReader = null)
     {
         ArgumentNullException.ThrowIfNull(self);
         ArgumentNullException.ThrowIfNull(ring);
@@ -42,6 +49,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         _journal = journal;
         _executor = durableMutations;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _rawReader = rawReader;
     }
 
     private DateTime UtcNow => _timeProvider.GetUtcNow().UtcDateTime;
@@ -68,21 +76,17 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             cancellationToken);
     }
 
-    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-    {
-        if (!IsLocalOwner(cacheName, key))
-            return _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
-
-        var cacheKey = new CacheKey(cacheName, key);
-        return _executor.ExecuteAsync(
-            cacheKey,
-            static (_, _) => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
-            new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, RemoveExpirationJournalArgs Journal, RemoveExpirationMemoryArgs Memory), bool>(
-                (this, new RemoveExpirationJournalArgs(cacheKey), new RemoveExpirationMemoryArgs(operationId, cacheName, key)),
-                static (s, ownership, ct) => s.Self._journal.AppendRemoveExpirationAsync(ownership, s.Journal.CacheKey, ct),
-                static (s, ct) => s.Self._inner.RemoveExpirationAsync(s.Memory.OperationId, s.Memory.CacheName, s.Memory.Key, ct)),
-            cancellationToken);
-    }
+    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+        !IsLocalOwner(cacheName, key)
+            ? _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken)
+            : ExecuteDecidedUpsertAsync(
+                operationId,
+                cacheName,
+                key,
+                default(NoDecisionArgs),
+                static (current, _, _) => current.ExpiresUtc == null ? null : new NodeCacheEntry<T>(current.Value, current.Version, tags: current.Tags),
+                null,
+                cancellationToken);
 
     public async ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
@@ -98,22 +102,21 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         await SetEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, prepared, cancellationToken).ConfigureAwait(false);
     }
 
-    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
-    {
-        if (!IsLocalOwner(cacheName, key))
-            return _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
-
-        var cacheKey = new CacheKey(cacheName, key);
-        var expiresUtc = UtcNow.SaturatedAdd(expiration);
-        return _executor.ExecuteAsync(
-            cacheKey,
-            static (_, _) => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
-            new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, TouchJournalArgs Journal, TouchMemoryArgs Memory), bool>(
-                (this, new TouchJournalArgs(cacheKey, expiresUtc), new TouchMemoryArgs(operationId, cacheName, key, expiration)),
-                static (s, ownership, ct) => s.Self._journal.AppendTouchExpirationAsync(ownership, s.Journal.CacheKey, s.Journal.ExpiresUtc, ct),
-                static (s, ct) => s.Self._inner.TouchAsync(s.Memory.OperationId, s.Memory.CacheName, s.Memory.Key, s.Memory.Expiration, ct)),
-            cancellationToken);
-    }
+    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
+        !IsLocalOwner(cacheName, key)
+            ? _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken)
+            : ExecuteDecidedUpsertAsync(
+                operationId,
+                cacheName,
+                key,
+                expiration,
+                static (current, now, ttl) => new NodeCacheEntry<T>(
+                    current.Value,
+                    current.Version,
+                    JournalEntryExpirationMaterializer.PinToJournalPrecision(now.SaturatedAdd(ttl)),
+                    tags: current.Tags),
+                null,
+                cancellationToken);
 
     public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
@@ -126,18 +129,27 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         return TryAddEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, prepared, cancellationToken);
     }
 
+    /// <inheritdoc />
+    /// <remarks>The new value is validated first, so an oversized or unserializable value is rejected even when the key is absent.</remarks>
     public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
         if (!IsLocalOwner(cacheName, key))
             return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
 
-        var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing == null)
-            return false;
-
-        var prepared = JournalEntryPayload.PrepareEncode(CreateUpdateReplacement(existing, value));
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
-        return await UpdateWithPreparedPayloadAsync(operationId, cacheName, key, value, prepared, cancellationToken).ConfigureAwait(false);
+        // The value is normalized and serialized here, before the mutation gate; under the gate only the metadata of the current entry is assembled around it.
+        using var prepared = JournalEntryPayload.PrepareValue(value);
+        return await ExecuteDecidedUpsertAsync(
+            operationId,
+            cacheName,
+            key,
+            value,
+            static (current, _, replacement) => new NodeCacheEntry<T>(
+                replacement,
+                current.Version,
+                JournalEntryExpirationMaterializer.PinToJournalPrecision(current.ExpiresUtc),
+                tags: current.Tags),
+            prepared,
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -189,14 +201,6 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             cancellationToken).ConfigureAwait(false);
     }
 
-    private static NodeCacheEntry<T> CreateUpdateReplacement(NodeCacheEntry<T> existing, T? value) => new()
-    {
-        Value = value,
-        ExpiresUtc = existing.ExpiresUtc,
-        Expiration = existing.Expiration,
-        Version = existing.Version,
-    };
-
     private static async ValueTask<DurableMutationCondition<bool>> EvaluateTryAddPreconditionAsync(
         JournalLoggingCacheDecorator<T> self,
         TryAddMutationArgs args,
@@ -206,14 +210,34 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         return existing.Found ? DurableMutationCondition<bool>.Skip(false) : DurableMutationCondition<bool>.Apply();
     }
 
-    private static async ValueTask<DurableMutationCondition<bool>> EvaluateUpdatePreconditionAsync(
-        JournalLoggingCacheDecorator<T> self,
-        string cacheName,
-        string key,
+    private static async ValueTask<bool> ApplyDecidedAsync<TArgs>(DecidedUpsertState<TArgs> state, CancellationToken cancellationToken)
+    {
+        var entry = state.Upsert.Entry ?? ThrowHelper.Throw<NodeCacheEntry<T>>(new InvalidOperationException("The decided entry was not prepared."));
+        await state.Self._inner.SetEntryAsync(state.OperationId, state.CacheName, state.Key, entry, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    private static async ValueTask<DurableMutationCondition<bool>> EvaluateDecidedUpsertAsync<TArgs>(
+        DecidedUpsertState<TArgs> state,
         CancellationToken cancellationToken)
     {
-        var existing = await self._inner.GetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        return existing.Found ? DurableMutationCondition<bool>.Apply() : DurableMutationCondition<bool>.Skip(false);
+        var current = await state.Self.ReadCurrentAsync(state.CacheName, state.Key, cancellationToken).ConfigureAwait(false);
+        if (current == null)
+            return DurableMutationCondition<bool>.Skip(false);
+
+        var decided = state.Decide(current, state.Self.UtcNow, state.Args);
+        if (decided == null)
+            return DurableMutationCondition<bool>.Skip(false);
+
+        state.Upsert.Set(decided, state.PreparedValue is { } value ? JournalEntryPayload.EncodeWithPreparedValue(decided, value) : EncodeWhole(decided));
+        return DurableMutationCondition<bool>.Apply();
+    }
+
+    private static PooledJournalPayload EncodeWhole(NodeCacheEntry<T> decided)
+    {
+        var prepared = JournalEntryPayload.PrepareEncode(decided);
+        EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
+        return JournalEntryPayload.Encode(in prepared);
     }
 
     private async ValueTask<bool> ApplySetEntryAsync(SetMemoryArgs args, CancellationToken cancellationToken)
@@ -224,34 +248,44 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
 
     private bool IsLocalOwner(string cacheName, string key) => string.Equals(_ring.GetOwner(cacheName, key), _self, StringComparison.Ordinal);
 
-    private async ValueTask<bool> UpdateWithPreparedPayloadAsync(
+    private async ValueTask<bool> ExecuteDecidedUpsertAsync<TArgs>(
         string operationId,
         string cacheName,
         string key,
-        T? value,
-        PreparedJournalEntry prepared,
+        TArgs args,
+        Func<NodeCacheEntry<T>, DateTime, TArgs, NodeCacheEntry<T>?> decide,
+        PreparedJournalValue? preparedValue,
         CancellationToken cancellationToken)
     {
-        using var payload = JournalEntryPayload.Encode(in prepared);
-        var cacheKey = new CacheKey(cacheName, key);
+        using var upsert = new DecidedUpsert();
+        var state = new DecidedUpsertState<TArgs>(this, operationId, cacheName, key, args, decide, preparedValue, upsert);
         return await _executor.ExecuteAsync(
-            cacheKey,
-            static (s, ct) => EvaluateUpdatePreconditionAsync(s.Self, s.Memory.CacheName, s.Memory.Key, ct),
-            new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, PutJournalArgs Journal, UpdateMemoryArgs Memory), bool>(
-                (this, new PutJournalArgs(cacheKey, payload.Memory), new UpdateMemoryArgs(operationId, cacheName, key, value)),
-                static (s, ownership, ct) => s.Self._journal.AppendPutAsync(ownership, s.Journal.CacheKey, s.Journal.Payload, ct),
-                static (s, ct) => s.Self._inner.UpdateAsync(s.Memory.OperationId, s.Memory.CacheName, s.Memory.Key, s.Memory.Value, ct)),
+            new CacheKey(cacheName, key),
+            static (s, ct) => EvaluateDecidedUpsertAsync(s, ct),
+            new DurableMutationPipeline<DecidedUpsertState<TArgs>, bool>(
+                state,
+                static (s, ownership, ct) => s.Self._journal.AppendPutAsync(ownership, new CacheKey(s.CacheName, s.Key), s.Upsert.Payload, ct),
+                static (s, ct) => ApplyDecidedAsync(s, ct)),
             cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<NodeCacheEntry<T>?> ReadCurrentAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        if (_rawReader == null)
+            return await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+
+        // The raw read leaves eviction order alone; liveness is judged on this decorator's clock, the one the decision uses.
+        var raw = await _rawReader.GetEntryRawAsync(new CacheKey(cacheName, key), cancellationToken).ConfigureAwait(false);
+        if (raw is not { ExpiresUtc: { } expiresUtc } || expiresUtc > UtcNow)
+            return raw;
+
+        // The dead node is still in memory and no sweeper removes it: a lazy-expiring read drops it, and order no longer matters for it.
+        _ = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return null;
     }
 
     [Immutable]
     private readonly record struct PutJournalArgs(CacheKey CacheKey, ReadOnlyMemory<byte> Payload);
-
-    [Immutable]
-    private readonly record struct RemoveExpirationJournalArgs(CacheKey CacheKey);
-
-    [Immutable]
-    private readonly record struct RemoveExpirationMemoryArgs(string OperationId, string CacheName, string Key);
 
     [Immutable]
     private readonly record struct RemoveJournalArgs(CacheKey CacheKey);
@@ -263,14 +297,40 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     private readonly record struct SetMemoryArgs(string OperationId, string CacheName, string Key, NodeCacheEntry<T> Entry);
 
     [Immutable]
-    private readonly record struct TouchJournalArgs(CacheKey CacheKey, DateTime ExpiresUtc);
-
-    [Immutable]
-    private readonly record struct TouchMemoryArgs(string OperationId, string CacheName, string Key, TimeSpan Expiration);
-
-    [Immutable]
     private readonly record struct TryAddMutationArgs(string OperationId, string CacheName, string Key, NodeCacheEntry<T> Entry, ReadOnlyMemory<byte> Payload, CacheKey CacheKey);
 
     [Immutable]
-    private readonly record struct UpdateMemoryArgs(string OperationId, string CacheName, string Key, T? Value);
+    private readonly record struct DecidedUpsertState<TArgs>(
+        JournalLoggingCacheDecorator<T> Self,
+        string OperationId,
+        string CacheName,
+        string Key,
+        TArgs Args,
+        Func<NodeCacheEntry<T>, DateTime, TArgs, NodeCacheEntry<T>?> Decide,
+        PreparedJournalValue? PreparedValue,
+        DecidedUpsert Upsert);
+
+    /// <summary>Decision arguments for a mutation that needs none.</summary>
+    [Immutable]
+    private readonly record struct NoDecisionArgs;
+
+    /// <summary>Carries the entry a precondition decided and its encoded journal payload from the precondition to the append and apply stages.</summary>
+    [Mutable]
+    private sealed class DecidedUpsert : IDisposable
+    {
+        private PooledJournalPayload? _payload;
+
+        internal NodeCacheEntry<T>? Entry { get; private set; }
+
+        internal ReadOnlyMemory<byte> Payload => _payload?.Memory ?? ReadOnlyMemory<byte>.Empty;
+
+        public void Dispose() => _payload?.Dispose();
+
+        internal void Set(NodeCacheEntry<T> entry, PooledJournalPayload payload)
+        {
+            _payload?.Dispose();
+            Entry = entry;
+            _payload = payload;
+        }
+    }
 }

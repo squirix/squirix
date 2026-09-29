@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Frozen;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -12,14 +14,23 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
-/// <summary>Allocation cost of conditional durable mutations through <see cref="JournalLoggingCacheDecorator{T}" /> with group commit off.</summary>
+/// <summary>
+/// Allocation cost of conditional durable mutations, touches and expiration removals through <see cref="JournalLoggingCacheDecorator{T}" />
+/// with group commit off.
+/// </summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5)]
 public class JournalLoggingCacheDecoratorBenchmarks
 {
     private const string ExistingCache = "existing";
-    private const string Self = "node-a";
+    private const int LargeOperationsPerInvoke = 200;
+    private const string LargeValueCache = "value-1mib";
+    private const int MediumOperationsPerInvoke = 10_000;
+    private const string MediumValueCache = "value-16kib";
     private const int OperationsPerInvoke = 50_000;
+    private const string Self = "node-a";
+    private const string SmallValueCache = "value-128b";
+    private static readonly TimeSpan TouchTtl = TimeSpan.FromMinutes(10);
     private JournalLoggingCacheDecorator<string>? _decorator;
     private NodeCacheEntry<string>? _entry;
     private JournalBenchmarkHost? _host;
@@ -73,19 +84,70 @@ public class JournalLoggingCacheDecoratorBenchmarks
             _ = await decorator.UpdateAsync("op", ExistingCache, "key", "w", CancellationToken.None).ConfigureAwait(false);
     }
 
+    /// <summary>Runs touches of a 128 B entry, each journaling a put of the whole touched entry.</summary>
+    /// <returns>A task that completes when all operations finish.</returns>
+    [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
+    public Task Touch128BAsync() => TouchAsync(SmallValueCache, OperationsPerInvoke);
+
+    /// <summary>Runs touches of a 16 KiB entry, each journaling a put of the whole touched entry.</summary>
+    /// <returns>A task that completes when all operations finish.</returns>
+    [Benchmark(OperationsPerInvoke = MediumOperationsPerInvoke)]
+    public Task Touch16KiBAsync() => TouchAsync(MediumValueCache, MediumOperationsPerInvoke);
+
+    /// <summary>Runs touches of a 1 MiB entry, each journaling a put of the whole touched entry.</summary>
+    /// <returns>A task that completes when all operations finish.</returns>
+    [Benchmark(OperationsPerInvoke = LargeOperationsPerInvoke)]
+    public Task Touch1MiBAsync() => TouchAsync(LargeValueCache, LargeOperationsPerInvoke);
+
+    /// <summary>Runs expiration removals of a 128 B entry, each journaling a put of the whole persisted entry.</summary>
+    /// <returns>A task that completes when all operations finish.</returns>
+    [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
+    public Task RemoveExpiration128BAsync() => RemoveExpirationAsync(SmallValueCache, OperationsPerInvoke);
+
+    /// <summary>Runs expiration removals of a 16 KiB entry, each journaling a put of the whole persisted entry.</summary>
+    /// <returns>A task that completes when all operations finish.</returns>
+    [Benchmark(OperationsPerInvoke = MediumOperationsPerInvoke)]
+    public Task RemoveExpiration16KiBAsync() => RemoveExpirationAsync(MediumValueCache, MediumOperationsPerInvoke);
+
+    /// <summary>Runs expiration removals of a 1 MiB entry, each journaling a put of the whole persisted entry.</summary>
+    /// <returns>A task that completes when all operations finish.</returns>
+    [Benchmark(OperationsPerInvoke = LargeOperationsPerInvoke)]
+    public Task RemoveExpiration1MiBAsync() => RemoveExpirationAsync(LargeValueCache, LargeOperationsPerInvoke);
+
+    private async Task RemoveExpirationAsync(string cacheName, int operations)
+    {
+        var decorator = ThrowHelper.Required(_decorator, "Benchmark decorator was not initialized.");
+        for (var i = 0; i < operations; i++)
+            _ = await decorator.RemoveExpirationAsync("op", cacheName, "key", CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private async Task TouchAsync(string cacheName, int operations)
+    {
+        var decorator = ThrowHelper.Required(_decorator, "Benchmark decorator was not initialized.");
+        for (var i = 0; i < operations; i++)
+            _ = await decorator.TouchAsync("op", cacheName, "key", TouchTtl, CancellationToken.None).ConfigureAwait(false);
+    }
+
     /// <summary>Owner locator that assigns every key to the local node.</summary>
     private sealed class SelfLocator : INodeLocator
     {
         public string GetOwner(string cacheName, string key) => Self;
     }
 
-    /// <summary>Cache stub: keys are absent except in the existing cache, which makes update preconditions pass.</summary>
+    /// <summary>Cache stub: keys are absent except in the existing cache, which makes update preconditions pass; the sized caches hold entries with a deadline.</summary>
     private sealed class FakeCache : ILogicalNamespacedCache<string>
     {
         private static readonly NodeCacheEntry<string> Existing = new() { Value = "v" };
 
+        private static readonly FrozenDictionary<string, NodeCacheEntry<string>> Sized = new Dictionary<string, NodeCacheEntry<string>>(StringComparer.Ordinal)
+        {
+            [SmallValueCache] = CreateSized(128),
+            [MediumValueCache] = CreateSized(16 * 1024),
+            [LargeValueCache] = CreateSized(1024 * 1024),
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
         public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            new(Existing);
+            new(Sized.TryGetValue(cacheName, out var sized) ? sized : Existing);
 
         public ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             new(new NodeCacheValueResult<string>(string.Equals(cacheName, ExistingCache, StringComparison.Ordinal), null));
@@ -97,7 +159,7 @@ public class JournalLoggingCacheDecoratorBenchmarks
             throw new NotSupportedException();
 
         public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
+            ValueTask.CompletedTask;
 
         public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
@@ -107,5 +169,7 @@ public class JournalLoggingCacheDecoratorBenchmarks
 
         public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, string? value, CancellationToken cancellationToken) =>
             new(true);
+
+        private static NodeCacheEntry<string> CreateSized(int valueBytes) => new() { Value = new string('x', valueBytes), ExpiresUtc = DateTime.UtcNow.AddDays(1) };
     }
 }

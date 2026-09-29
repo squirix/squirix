@@ -70,20 +70,6 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         await _inner.AppendRemoveAsync(ownership, key, cancellationToken).ConfigureAwait(false);
     }
 
-    public async ValueTask AppendRemoveExpirationAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken)
-    {
-        var traceContext = JournalCoordinatorTracing.ForKey(_inner, key);
-        using var scope = _tracer.Begin(JournalOperationKind.RemoveExpiration, in traceContext);
-        await _inner.AppendRemoveExpirationAsync(ownership, key, cancellationToken).ConfigureAwait(false);
-    }
-
-    public async ValueTask AppendTouchExpirationAsync(AsyncLockOwnership ownership, CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken)
-    {
-        var traceContext = JournalCoordinatorTracing.ForKey(_inner, key);
-        using var scope = _tracer.Begin(JournalOperationKind.TouchExpiration, in traceContext);
-        await _inner.AppendTouchExpirationAsync(ownership, key, expiresUtc, cancellationToken).ConfigureAwait(false);
-    }
-
     public async ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
     {
         var traceContext = Enrich(null);

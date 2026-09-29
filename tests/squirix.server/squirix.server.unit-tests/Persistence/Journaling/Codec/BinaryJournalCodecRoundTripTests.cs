@@ -108,14 +108,6 @@ public sealed class BinaryJournalCodecRoundTripTests
     [Test]
     public Task PrepareEncodeRoundTripsRemove() => PrepareEncodeRoundTripsDecodeCoreAsync(JournalOperationKind.Remove);
 
-    /// <summary>Remove-expiration journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
-    [Test]
-    public Task PrepareEncodeRoundTripsRemoveExpiration() => PrepareEncodeRoundTripsDecodeCoreAsync(JournalOperationKind.RemoveExpiration);
-
-    /// <summary>Touch-expiration journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
-    [Test]
-    public Task PrepareEncodeRoundTripsTouchExpiration() => PrepareEncodeRoundTripsDecodeCoreAsync(JournalOperationKind.TouchExpiration);
-
     private static JournalRecord CreateRecord(JournalOperationKind operation)
     {
         var key = new CacheKey("ns", "codec-key");
@@ -135,21 +127,6 @@ public sealed class BinaryJournalCodecRoundTripTests
                 UnixMs = 123,
                 Operation = JournalOperationKind.Remove,
                 Key = key,
-            },
-            JournalOperationKind.RemoveExpiration => new JournalRecord
-            {
-                Sequence = 3,
-                UnixMs = 123,
-                Operation = JournalOperationKind.RemoveExpiration,
-                Key = key,
-            },
-            JournalOperationKind.TouchExpiration => new JournalRecord
-            {
-                Sequence = 4,
-                UnixMs = 123,
-                Operation = JournalOperationKind.TouchExpiration,
-                Key = key,
-                TouchExpirationUtc = new DateTime(2026, 6, 30, 12, 0, 0, DateTimeKind.Utc),
             },
             JournalOperationKind.IdempotencyOutcome => new JournalRecord
             {
@@ -182,8 +159,6 @@ public sealed class BinaryJournalCodecRoundTripTests
             // flags (2) + version (8) + empty tags (2) + string "value" (1 + 4 + 5).
             JournalOperationKind.Put => 58,
             JournalOperationKind.Remove => 36,
-            JournalOperationKind.RemoveExpiration => 36,
-            JournalOperationKind.TouchExpiration => 44,
             JournalOperationKind.IdempotencyOutcome => 103,
             JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.MaintenanceExclusive or JournalOperationKind.SnapshotCut
                 or JournalOperationKind.UnderSnapshotBarrier => throw new ArgumentOutOfRangeException(
@@ -204,9 +179,6 @@ public sealed class BinaryJournalCodecRoundTripTests
 
         if (operation is JournalOperationKind.Put)
             _ = await Assert.That(decoded.PutEntryBytes.Length).IsEqualTo(record.PutEntryBytes.Length);
-
-        if (operation is JournalOperationKind.TouchExpiration)
-            _ = await Assert.That(decoded.TouchExpirationUtc).IsEqualTo(record.TouchExpirationUtc);
 
         if (operation != JournalOperationKind.IdempotencyOutcome)
             return;

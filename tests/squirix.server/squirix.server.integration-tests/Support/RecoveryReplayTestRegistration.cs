@@ -43,22 +43,10 @@ internal static class RecoveryReplayTestRegistration
             await _inner.InsertRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
         }
 
-        public async ValueTask<bool> RemoveExpirationRecoveryAsync(CacheKey key, CancellationToken cancellationToken)
-        {
-            await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return await _inner.RemoveExpirationRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
-        }
-
         public async ValueTask<bool> RemoveRecoveryAsync(CacheKey key, CancellationToken cancellationToken)
         {
             await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
             return await _inner.RemoveRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
-        }
-
-        public async ValueTask<bool> TouchExpirationRecoveryAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken)
-        {
-            await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return await _inner.TouchExpirationRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
         }
     }
 
