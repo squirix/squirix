@@ -13,8 +13,8 @@ using TUnit.Core;
 namespace Squirix.Server.UnitTests.Architecture;
 
 /// <summary>
-/// Enforces the storage-only bans documented in <c language="csharp">BannedSymbols.Storage.txt</c> for
-/// <c language="csharp">src/squirix.server/Storage</c>; Roslyn banned-API lists apply to a whole project and cannot be scoped to a folder.
+/// Enforces the storage-only bans for <c language="csharp">src/squirix.server/Storage</c>; Roslyn banned-API lists apply to a whole project
+/// and cannot be scoped to a folder, and <c language="csharp">Squirix.Server</c> legitimately parses JSON and returns pooled buffers elsewhere.
 /// </summary>
 [Immutable]
 public sealed class StorageBannedSymbolsArchitectureTests : ServerUnitTestBase
@@ -23,13 +23,13 @@ public sealed class StorageBannedSymbolsArchitectureTests : ServerUnitTestBase
 
     private static readonly TimeSpan MatchTimeout = TimeSpan.FromSeconds(1);
 
-    private static readonly (string Name, Regex Pattern)[] BannedPatterns =
+    private static readonly (string Name, Regex Pattern, string Reason)[] BannedPatterns =
     [
-        ("JsonElement.GetRawText", new Regex(@"\.GetRawText\s*\(", RegexOptions.CultureInvariant, MatchTimeout)),
-        ("JsonSerializer.SerializeToUtf8Bytes", new Regex(@"\bSerializeToUtf8Bytes\s*[<(]", RegexOptions.CultureInvariant, MatchTimeout)),
-        ("JsonDocument.Parse", new Regex(@"\bJsonDocument\.Parse\s*\(", RegexOptions.CultureInvariant, MatchTimeout)),
-        ("Encoding.UTF8.GetBytes(string)", new Regex(@"\bEncoding\.UTF8\.GetBytes\s*\((?:[^(),]|\([^()]*\))*\)", RegexOptions.CultureInvariant, MatchTimeout)),
-        ("ArrayPool.Return", new Regex(@"\b(?:ArrayPool<[^>]+>\.Shared|\w*[Pp]ool\w*)\.Return\s*\(", RegexOptions.CultureInvariant, MatchTimeout)),
+        ("JsonElement.GetRawText", new Regex(@"\.GetRawText\s*\(", RegexOptions.CultureInvariant, MatchTimeout), "avoid UTF-8 JSON text round trips on persistence paths"),
+        ("JsonSerializer.SerializeToUtf8Bytes", new Regex(@"\bSerializeToUtf8Bytes\s*[<(]", RegexOptions.CultureInvariant, MatchTimeout), "use binary codecs on disk, not UTF-8 JSON blobs"),
+        ("JsonDocument.Parse", new Regex(@"\bJsonDocument\.Parse\s*\(", RegexOptions.CultureInvariant, MatchTimeout), "use binary codecs on persistence paths instead of JSON parse"),
+        ("Encoding.UTF8.GetBytes(string)", new Regex(@"\bEncoding\.UTF8\.GetBytes\s*\((?:[^(),]|\([^()]*\))*\)", RegexOptions.CultureInvariant, MatchTimeout), "use GetByteCount plus GetBytes(string, span), or encode into a pre-sized buffer"),
+        ("ArrayPool.Return", new Regex(@"\b(?:ArrayPool<[^>]+>\.Shared|\w*[Pp]ool\w*)\.Return\s*\(", RegexOptions.CultureInvariant, MatchTimeout), "pooled buffers carry operation data; return them through ArrayPoolExtensions.ReturnCleared so they are cleared before reuse"),
     ];
 
     /// <summary>Ensures persistence sources do not use the symbols banned for storage code.</summary>
@@ -100,9 +100,9 @@ public sealed class StorageBannedSymbolsArchitectureTests : ServerUnitTestBase
 
             for (var patternIndex = 0; patternIndex < BannedPatterns.Length; patternIndex++)
             {
-                var (name, pattern) = BannedPatterns[patternIndex];
+                var (name, pattern, reason) = BannedPatterns[patternIndex];
                 if (pattern.IsMatch(line))
-                    violations.Add($"{path}({lineIndex + 1}): {name} is banned under Storage; see BannedSymbols.Storage.txt.");
+                    violations.Add($"{path}({lineIndex + 1}): {name} is banned under Storage: {reason}.");
             }
         }
     }
