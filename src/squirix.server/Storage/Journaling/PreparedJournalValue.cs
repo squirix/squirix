@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Threading;
 using Squirix.Server.Attributes;
+using Squirix.Server.Core;
 using Squirix.Server.Storage.Codecs;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -34,12 +35,14 @@ internal sealed class PreparedJournalValue : IDisposable
         ArrayPool<byte>.Shared.ReturnCleared(_buffer);
     }
 
-    /// <summary>Encodes an already normalized value.</summary>
+    /// <summary>Encodes an already normalized value, after checking its size, so an oversized value is rejected before it is copied.</summary>
     /// <param name="normalizedValue">The normalized value.</param>
     /// <returns>The prepared value.</returns>
+    /// <exception cref="Squirix.Server.Errors.SquirixException">The value alone exceeds the entry size limit.</exception>
     internal static PreparedJournalValue Create(object? normalizedValue)
     {
         var length = CacheEntryCodec.ComputeValueLength(normalizedValue);
+        EntryPayloadSizeGuard.EnsureLengthWithinLimit(length);
         var buffer = ArrayPool<byte>.Shared.Rent(length);
         try
         {

@@ -129,6 +129,8 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         return TryAddEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, prepared, cancellationToken);
     }
 
+    /// <inheritdoc />
+    /// <remarks>The new value is validated first, so an oversized or unserializable value is rejected even when the key is absent.</remarks>
     public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
         if (!IsLocalOwner(cacheName, key))
@@ -136,7 +138,6 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
 
         // The value is normalized and serialized here, before the mutation gate; under the gate only the metadata of the current entry is assembled around it.
         using var prepared = JournalEntryPayload.PrepareValue(value);
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
         return await ExecuteDecidedUpsertAsync(
             operationId,
             cacheName,
@@ -275,7 +276,12 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
 
         // The raw read leaves eviction order alone; liveness is judged on this decorator's clock, the one the decision uses.
         var raw = await _rawReader.GetEntryRawAsync(new CacheKey(cacheName, key), cancellationToken).ConfigureAwait(false);
-        return raw is { ExpiresUtc: { } expiresUtc } && expiresUtc <= UtcNow ? null : raw;
+        if (raw is not { ExpiresUtc: { } expiresUtc } || expiresUtc > UtcNow)
+            return raw;
+
+        // The dead node is still in memory and no sweeper removes it: a lazy-expiring read drops it, and order no longer matters for it.
+        _ = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return null;
     }
 
     [Immutable]

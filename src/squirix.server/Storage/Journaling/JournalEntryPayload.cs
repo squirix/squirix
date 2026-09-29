@@ -29,8 +29,12 @@ internal static class JournalEntryPayload
     /// <param name="value">The prepared value of the entry.</param>
     /// <returns>The pooled payload.</returns>
     /// <exception cref="Squirix.Server.Errors.SquirixException">The assembled entry exceeds the entry size limit.</exception>
+    /// <exception cref="InvalidOperationException">The entry has a relative expiration; callers pass a decided absolute deadline.</exception>
     internal static PooledJournalPayload EncodeWithPreparedValue<T>(NodeCacheEntry<T> entry, PreparedJournalValue value)
     {
+        if (entry.Expiration != null)
+            throw CreateRelativeExpirationException();
+
         var length = CacheEntryCodec.ComputeEncodedLength(entry.ExpiresUtc, entry.Expiration, entry.Tags, value.EncodedLength);
         EntryPayloadSizeGuard.EnsureLengthWithinLimit(length);
         var pooledBuffer = ArrayPool<byte>.Shared.Rent(length);
@@ -69,6 +73,9 @@ internal static class JournalEntryPayload
         entry = null;
         return false;
     }
+
+    private static InvalidOperationException CreateRelativeExpirationException() =>
+        new("A journal entry assembled around a prepared value must carry an absolute deadline, not a relative expiration.");
 
     private static int ComputeEncodedLength<T>(NodeCacheEntry<T> entry) => PrepareEncode(entry).EncodedLength;
 }
