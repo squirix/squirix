@@ -96,7 +96,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         _ = await Assert.That(harness.Inner.SetCalls).IsEqualTo(1);
     }
 
-    /// <summary>Local-owner touch appends a journal record.</summary>
+    /// <summary>Local-owner touch appends one put record holding the touched entry.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task TouchAsyncLocalOwnerAppendsJournal(CancellationToken cancellationToken)
@@ -107,6 +107,58 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
         _ = await Assert.That(await harness.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, "k", TimeSpan.FromMinutes(1), cancellationToken)).IsTrue();
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before + 1);
+    }
+
+    /// <summary>Touch returns false without journaling when the key is missing.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TouchMissingKeyAppendsNoJournal(CancellationToken cancellationToken)
+    {
+        await using var harness = await CreateHarnessAsync(Self, cancellationToken);
+        var before = harness.Journal.AppendedOps;
+
+        _ = await Assert.That(await harness.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, "missing", TimeSpan.FromMinutes(1), cancellationToken)).IsFalse();
+        _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before);
+    }
+
+    /// <summary>Removing the expiration of an entry that has none returns false without journaling.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PersistWithoutDeadlineAppendsNoJournal(CancellationToken cancellationToken)
+    {
+        await using var harness = await CreateHarnessAsync(Self, cancellationToken);
+        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v"), cancellationToken)).IsTrue();
+        var before = harness.Journal.AppendedOps;
+
+        _ = await Assert.That(await harness.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, "k", cancellationToken)).IsFalse();
+        _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before);
+    }
+
+    /// <summary>Removing the expiration of a missing key returns false without journaling.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PersistMissingKeyAppendsNoJournal(CancellationToken cancellationToken)
+    {
+        await using var harness = await CreateHarnessAsync(Self, cancellationToken);
+        var before = harness.Journal.AppendedOps;
+
+        _ = await Assert.That(await harness.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, "missing", cancellationToken)).IsFalse();
+        _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before);
+    }
+
+    /// <summary>Removing the expiration of an entry with a deadline appends one put record and clears the deadline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PersistWithDeadlineAppendsJournal(CancellationToken cancellationToken)
+    {
+        await using var harness = await CreateHarnessAsync(Self, cancellationToken);
+        var entry = new NodeCacheEntry<string>("v", expiresUtc: DateTime.UtcNow.AddHours(1));
+        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", entry, cancellationToken)).IsTrue();
+        var before = harness.Journal.AppendedOps;
+
+        _ = await Assert.That(await harness.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, "k", cancellationToken)).IsTrue();
+        _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before + 1);
+        _ = await Assert.That((await harness.Inner.GetEntryAsync(CacheName, "k", cancellationToken))!.ExpiresUtc).IsNull();
     }
 
     /// <summary>Update on an existing local-owner key appends a put journal record and applies the memory update.</summary>
@@ -233,6 +285,9 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         {
         }
 
+        public override ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<NodeCacheEntry<string>?>(null);
+
         public override ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(new NodeCacheValueResult<string>(false, null));
     }
@@ -250,7 +305,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
         internal int SetCalls { get; private set; }
 
-        public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        public virtual ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             _inner.GetEntryAsync(cacheName, key, cancellationToken);
 
         public virtual ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
