@@ -42,7 +42,7 @@ internal static class ReplicaMutationDecisions
     /// <param name="expiration">The new expiration, measured from <paramref name="now" />.</param>
     /// <returns>The decision.</returns>
     internal static ReplicaDecision DecideTouch(NodeCacheEntry<object?>? current, DateTime now, TimeSpan expiration) =>
-        current == null ? Unchanged() : Upsert(current.Value, current.Version, current.Tags, Math.Max(1, ExpiresAt(now, expiration).Ticks));
+        current == null ? Unchanged() : Upsert(current.Value, current.Version, current.Tags, PinnedTicks(ExpiresAt(now, expiration)));
 
     /// <summary>Decides an expiration removal: applied, writing the observed entry without a deadline, when the live entry has one; otherwise nothing changes.</summary>
     /// <param name="current">The live entry the leader observed, or <see langword="null" /> when the key is absent.</param>
@@ -75,12 +75,16 @@ internal static class ReplicaMutationDecisions
         if (entry.Expiration is { } expiration && (deadline == null || ExpiresAt(now, expiration) < deadline))
             deadline = ExpiresAt(now, expiration);
 
-        return deadline == null ? 0 : Math.Max(1, deadline.Value.Ticks);
+        return PinnedTicks(deadline);
     }
 
     private static DateTime ExpiresAt(DateTime now, TimeSpan expiration) => now.SaturatedAdd(expiration);
 
-    private static long PinnedTicks(DateTime? expiresUtc) => expiresUtc == null ? 0 : Math.Max(1, expiresUtc.Value.Ticks);
+    /// <summary>Pins a deadline to whole milliseconds, the precision the journal and the snapshots store, so every copy of the entry agrees.</summary>
+    /// <param name="expiresUtc">The deadline, or <see langword="null" /> for none.</param>
+    /// <returns>The UTC ticks truncated to a millisecond, at least one millisecond; zero for none.</returns>
+    private static long PinnedTicks(DateTime? expiresUtc) =>
+        expiresUtc == null ? 0 : Math.Max(TimeSpan.TicksPerMillisecond, expiresUtc.Value.Ticks - (expiresUtc.Value.Ticks % TimeSpan.TicksPerMillisecond));
 
     private static ReplicaDecision Unchanged() => new([], ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty), 0);
 
