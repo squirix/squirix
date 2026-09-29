@@ -80,4 +80,10 @@ internal static partial class LogManager
         Message =
             "Replica group {GroupId} refused an inconsistent log record and did not apply it; the entry stays pending, writes are refused, and the record needs operator attention")]
     internal static partial void ReplicaInconsistentRecord(ILogger logger, string groupId, Exception exception);
+
+    [LoggerMessage(
+        EventId = 4015,
+        Level = LogLevel.Error,
+        Message = "Replica group {GroupId} decided an inconsistent record at prepare; the write was refused and nothing was appended")]
+    internal static partial void ReplicaInconsistentDecision(ILogger logger, string groupId, Exception exception);
 }

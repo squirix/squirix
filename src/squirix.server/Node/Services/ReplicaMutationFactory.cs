@@ -323,6 +323,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     }
 
     /// <summary>Encodes a decided record after checking that its effect agrees with its outcome.</summary>
+    /// <remarks>Only the shape is checked: the entry the decision just encoded is not decoded again on every write.</remarks>
     /// <param name="scope">Operation scope.</param>
     /// <param name="record">The decided record.</param>
     /// <param name="index">Reserved group log index.</param>
@@ -332,11 +333,11 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     {
         try
         {
-            _ = ReplicaCacheApplier.ResolveEffect(in record);
+            _ = ReplicaCacheApplier.ResolveShape(in record);
         }
         catch (InvalidDataException error)
         {
-            LogManager.ReplicaInconsistentRecord(_log, _groupId, error);
+            LogManager.ReplicaInconsistentDecision(_log, _groupId, error);
             throw;
         }
 

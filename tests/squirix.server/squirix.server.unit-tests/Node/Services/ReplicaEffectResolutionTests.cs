@@ -54,6 +54,17 @@ public sealed class ReplicaEffectResolutionTests : ServerUnitTestBase
         _ = await Assert.That(error.Message).Contains("out of range", StringComparison.Ordinal);
     }
 
+    /// <summary>The shape check refuses contradictions but leaves decoding the entry to the full check.</summary>
+    [Test]
+    public async Task ShapeCheckSkipsEntryDecode()
+    {
+        var undecodable = Record(ReplicaMutationKinds.Set, true, true, 0, false) with { MutationPayload = new byte[] { 1 } };
+        var contradictory = Record(ReplicaMutationKinds.Set, false, false, 0, false);
+
+        _ = await Assert.That(ReplicaCacheApplier.ResolveShape(in undecodable)).IsEqualTo(ReplicaEffectKind.Upsert);
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(contradictory, static candidate => _ = ReplicaCacheApplier.ResolveShape(in candidate));
+    }
+
     /// <summary>A refusal names the log index, the kind and the applied flag of the record.</summary>
     [Test]
     public async Task RefusalNamesEntryKindAndAppliedFlag()

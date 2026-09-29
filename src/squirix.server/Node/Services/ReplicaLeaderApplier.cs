@@ -51,8 +51,8 @@ internal sealed class ReplicaLeaderApplier
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentNullException.ThrowIfNull(groupId);
-        _local = local;
         ArgumentNullException.ThrowIfNull(nodeId);
+        _local = local;
         _groupId = groupId;
         _nodeId = nodeId;
         _log = log ?? NullLogger.Instance;

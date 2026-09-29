@@ -104,7 +104,11 @@ internal static class ReplicaCacheApplier
         return effect;
     }
 
-    private static ReplicaEffectKind ResolveShape(in ReplicaLogRecord record)
+    /// <summary>Determines the effect of a record and checks its fields against its outcome, without decoding the entry an upsert writes.</summary>
+    /// <param name="record">The record to check.</param>
+    /// <returns>The effect applying the record has.</returns>
+    /// <exception cref="InvalidDataException">The record is inconsistent or out of range.</exception>
+    internal static ReplicaEffectKind ResolveShape(in ReplicaLogRecord record)
     {
         if (!ReplicaOutcomeCodec.TryDecode(record.OutcomePayload, out var applied, out var previous))
             throw Inconsistent(in record, "the outcome payload is undecodable", false);
