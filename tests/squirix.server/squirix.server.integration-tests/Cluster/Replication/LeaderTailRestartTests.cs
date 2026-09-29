@@ -112,6 +112,10 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
         var committed = owner.GetCache<object?>(CacheName);
         await committed.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, committedKey, new NodeCacheEntry<object?> { Value = "committed", Version = 1 }, cancellationToken);
 
+        // A commit returns once one follower holds the entry; a follower stopped before it received the entry stays behind after the
+        // restart and can never be verified, so both followers must hold it first.
+        await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, "node-a", [cluster["node-b"], cluster["node-c"]], cancellationToken);
+
         await cluster.StopNodeAsync("node-b");
         await cluster.StopNodeAsync("node-c");
         var pending = owner.GetCache<object?>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, tailKey, TailEntry(), cancellationToken);
