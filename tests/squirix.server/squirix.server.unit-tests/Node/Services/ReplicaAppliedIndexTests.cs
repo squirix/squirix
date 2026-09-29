@@ -40,12 +40,12 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
         var first = factory.PrepareSet(NewOperationId(), "cache", "k1", Entry("k1"), 1UL);
         var second = factory.PrepareSet(NewOperationId(), "cache", "k2", Entry("k2"), 2UL);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(applier.ApplyAsync(2UL, second.CanonicalPayload, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(applier.ApplyAsync(2UL, second.CanonicalPayload, cancellationToken));
         _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();
 
-        await applier.ApplyAsync(1UL, first.CanonicalPayload, TimeProvider.System, cancellationToken);
-        await applier.ApplyAsync(2UL, second.CanonicalPayload, TimeProvider.System, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(applier.ApplyAsync(2UL, second.CanonicalPayload, TimeProvider.System, cancellationToken));
+        await applier.ApplyAsync(1UL, first.CanonicalPayload, cancellationToken);
+        await applier.ApplyAsync(2UL, second.CanonicalPayload, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(applier.ApplyAsync(2UL, second.CanonicalPayload, cancellationToken));
 
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(2UL);
         await SequenceAssert.EqualAsync(["k1", "k2"], cache.Applied.ToArray(), StringComparer.Ordinal);
@@ -162,8 +162,8 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// A restarted owner applies again, in log order, exactly the committed entries above the persisted applied index, before the recovered
-    /// tail reads its outcome and before the first new write; nothing at or below the persisted index is applied again.
+    /// A restarted owner applies again, in log order, exactly the committed entries above the persisted applied index, before the first new
+    /// write; nothing at or below the persisted index is applied again, and a recovered tail entry applies the effect its record carries.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -179,9 +179,11 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
             await committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken);
         }
 
-        // The uncommitted tail adds k3 again: its outcome is read from memory right before its apply, so it reports the key present
-        // only when the committed write of k3 was applied first.
-        await SeedTailAsync(dir, 1, cancellationToken, "k3");
+        // The uncommitted tail adds k3 again, decided while the leader held k3: it carries the outcome false and changes nothing,
+        // however memory looks when it is applied.
+        var leaderMemory = new StubCache();
+        await leaderMemory.SetEntryAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken);
+        await SeedTailAsync(dir, 1, leaderMemory, cancellationToken, "k3");
         var cache = new StubCache();
         await using var restarted = await OpenRegistryAsync(dir, cancellationToken);
         await using var owner = CreateCommitter(restarted, new ScriptedGateway(), cache);
@@ -189,8 +191,8 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
         await owner.CommitSetAsync(NewOperationId(), "cache", "k4", Entry("k4"), cancellationToken);
         var added = await owner.CommitTryAddAsync(TailOperationId("k3"), "cache", "k3", Entry("k3"), cancellationToken);
 
-        await SequenceAssert.EqualAsync(["k2", "k3", "k3", "k4"], cache.Applied.ToArray(), StringComparer.Ordinal);
-        _ = await Assert.That(added).IsFalse().Because("The recovered tail must read its outcome after the committed entries were applied again.");
+        await SequenceAssert.EqualAsync(["k2", "k3", "k4"], cache.Applied.ToArray(), StringComparer.Ordinal);
+        _ = await Assert.That(added).IsFalse().Because("The recovered tail reports the outcome its record carries.");
         var status = await StatusAsync(restarted, cancellationToken);
         _ = await Assert.That((status.LastLogIndex, status.CommitIndex)).IsEqualTo((5UL, 5UL));
     }

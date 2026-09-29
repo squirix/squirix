@@ -13,14 +13,19 @@ namespace Squirix.Server.Cluster.Replication;
 /// <param name="CacheName">Target cache name.</param>
 /// <param name="KeyPayload">Target key bytes.</param>
 /// <param name="MutationKind">Cache mutation kind carried opaquely for the follower applier.</param>
-/// <param name="MutationPayload">Cache mutation bytes.</param>
-/// <param name="OutcomePayload">Committed outcome bytes observed by the caller.</param>
-/// <param name="ExpiresUtcTicks">
-/// The effective absolute UTC expiration deadline in ticks the leader pinned at prepare time, for every mutation kind; zero when the
-/// mutation sets no deadline. A Set or TryAdd deadline resolves the entry's relative expiration, and the applier applies this value
-/// instead of the expirations in the mutation payload.
+/// <param name="MutationPayload">
+/// The entry the record writes, in the durable entry encoding that keeps its version and tags, when the effect is an upsert; empty
+/// when the effect is a delete or leaves memory unchanged.
 /// </param>
-/// <param name="CreatedUtcTicks">Creation time expressed as UTC ticks.</param>
+/// <param name="OutcomePayload">
+/// The outcome the leader decided at prepare time: the applied flag and, for a remove, the removed entry. It is the one outcome the
+/// client, the group idempotency state and every recovery of the record report, and the effect of the record must agree with it.
+/// </param>
+/// <param name="ExpiresUtcTicks">
+/// The absolute UTC deadline in ticks of the entry an upserting record writes, pinned by the leader at prepare time and applied
+/// verbatim; zero when the written entry never expires and for records that write nothing.
+/// </param>
+/// <param name="DecidedUtcTicks">The leader time of the decision, in UTC ticks, for diagnostics only: no applier reads it.</param>
 /// <param name="ResolvedUtcTicks">Resolution time expressed as UTC ticks.</param>
 /// <param name="PayloadChecksum">Wire payload checksum carried opaquely.</param>
 /// <remarks>
@@ -42,6 +47,6 @@ internal readonly record struct ReplicaLogRecord(
     ReadOnlyMemory<byte> MutationPayload,
     ReadOnlyMemory<byte> OutcomePayload,
     long ExpiresUtcTicks,
-    long CreatedUtcTicks,
+    long DecidedUtcTicks,
     long ResolvedUtcTicks,
     uint PayloadChecksum);

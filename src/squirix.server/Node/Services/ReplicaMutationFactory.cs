@@ -6,6 +6,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -15,11 +17,13 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>Prepares replicated cache mutations with preset exact outcomes.</summary>
+/// <summary>Prepares replicated cache mutations that carry the outcome and the effect the leader decided.</summary>
 /// <remarks>
-/// Outcome presets come from prepare-time reads. Commits run serialized per group, so no interleaving
-/// mutation can invalidate a preset between the read and the ordered apply: the preset always matches.
-/// It also rebuilds recovered uncommitted log entries, whose outcomes are read with the same rules right before their apply.
+/// Each mutation is decided once, from one prepare-time read of the key and one reading of the clock: the outcome, the effect and the
+/// pinned deadline all come from that decision and travel in the record. Applying the record executes the decision without reading
+/// a clock or the cache again, so nothing after prepare can change what the client was told. Commits run serialized per group and no
+/// prepare runs while an appended entry is unapplied, so the decision always sees every earlier effect. The factory also rebuilds
+/// recovered uncommitted log entries, taking their outcome from the record.
 /// </remarks>
 [Immutable]
 internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
@@ -27,6 +31,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     private readonly TimeProvider _clock;
     private readonly string _groupId;
     private readonly ILogicalNamespacedCache<object?> _local;
+    private readonly ILogger _log;
     private readonly ulong _term;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaMutationFactory" /> class.</summary>
@@ -34,7 +39,8 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="groupId">Owned replica group identifier.</param>
     /// <param name="term">Static leader term for prepared mutations.</param>
     /// <param name="clock">Time source that pins the absolute expiration deadlines of prepared records.</param>
-    internal ReplicaMutationFactory(ILogicalNamespacedCache<object?> local, string groupId, ulong term, TimeProvider clock)
+    /// <param name="log">Logger of the records found inconsistent at prepare; nothing is logged when not set.</param>
+    internal ReplicaMutationFactory(ILogicalNamespacedCache<object?> local, string groupId, ulong term, TimeProvider clock, ILogger? log = null)
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
@@ -44,15 +50,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         _groupId = groupId;
         _term = term;
         _clock = clock;
-    }
-
-    /// <inheritdoc />
-    public async ValueTask<ReadOnlyMemory<byte>> ReadOutcomeAsync(PreparedReplicaMutation entry, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(entry);
-        var record = DecodeRecord(entry.CanonicalPayload, entry.LogIndex);
-        var current = await _local.GetEntryAsync(record.CacheName, Encoding.UTF8.GetString(record.KeyPayload.Span), cancellationToken).ConfigureAwait(false);
-        return OutcomeFor(record.MutationKind, current);
+        _log = log ?? NullLogger.Instance;
     }
 
     /// <inheritdoc />
@@ -62,9 +60,10 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         if (record.LogIndex != entry.LogIndex || record.Term != entry.Term)
             throw new InvalidDataException($"Replica log entry {entry.LogIndex} carries the record of another position.");
 
-        // The durable record does not carry the prepared outcome: ReadOutcomeAsync supplies it right before the apply.
+        // The record carries the decided outcome and effect; a record whose two disagree is refused instead of rebuilt.
+        _ = ReplicaCacheApplier.ResolveEffect(in record);
         var identity = new ReplicaOperationIdentity(_groupId, record.OperationScope, record.OperationId, record.OperationFingerprint);
-        var payload = new ReplicaMutationPayload(entry.Payload, ReadOnlyMemory<byte>.Empty, Crc32C.Compute(entry.PayloadSpan));
+        var payload = new ReplicaMutationPayload(entry.Payload, record.OutcomePayload, Crc32C.Compute(entry.PayloadSpan));
         return new PreparedReplicaMutation(identity, entry.Term, entry.LogIndex, payload);
     }
 
@@ -75,11 +74,12 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="index">Reserved group log index.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The prepared mutation.</returns>
+    /// <remarks>The record deletes the key whatever the leader observed: a key the leader found absent or expired may still be held by a replica.</remarks>
     internal async Task<PreparedReplicaMutation> PrepareRemoveAsync(string operationId, string cacheName, string key, ulong index, CancellationToken cancellationToken)
     {
-        var previous = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        var outcome = OutcomeFor(ReplicaMutationKinds.Remove, previous);
+        var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var now = _clock.GetUtcNow().UtcDateTime;
+        var decision = ReplicaMutationDecisions.DecideRemove(current);
         var record = new ReplicaLogRecord(
             index,
             _term,
@@ -90,13 +90,13 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             cacheName,
             Encoding.UTF8.GetBytes(key),
             ReplicaMutationKinds.Remove,
-            ReadOnlyMemory<byte>.Empty,
-            ReadOnlyMemory<byte>.Empty,
-            0,
+            decision.Payload,
+            decision.Outcome,
+            decision.ExpiresUtcTicks,
             now.Ticks,
             0,
             0);
-        return Build(cacheName, in record, outcome, index);
+        return Build(cacheName, in record, index);
     }
 
     /// <summary>Prepares a replicated expiration removal.</summary>
@@ -109,8 +109,8 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     internal async Task<PreparedReplicaMutation> PrepareRemoveExpirationAsync(string operationId, string cacheName, string key, ulong index, CancellationToken cancellationToken)
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        var outcome = OutcomeFor(ReplicaMutationKinds.RemoveExpiration, current);
         var now = _clock.GetUtcNow().UtcDateTime;
+        var decision = ReplicaMutationDecisions.DecideRemoveExpiration(current);
         var record = new ReplicaLogRecord(
             index,
             _term,
@@ -121,13 +121,13 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             cacheName,
             Encoding.UTF8.GetBytes(key),
             ReplicaMutationKinds.RemoveExpiration,
-            ReadOnlyMemory<byte>.Empty,
-            ReadOnlyMemory<byte>.Empty,
-            0,
+            decision.Payload,
+            decision.Outcome,
+            decision.ExpiresUtcTicks,
             now.Ticks,
             0,
             0);
-        return Build(ReplicaExpirationOperationId.OperationScope, in record, outcome, index);
+        return Build(ReplicaExpirationOperationId.OperationScope, in record, index);
     }
 
     /// <summary>Prepares a replicated unconditional write.</summary>
@@ -140,25 +140,26 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     internal PreparedReplicaMutation PrepareSet(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, ulong index)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        var mutation = entry.MapToProto().ToByteArray();
+        var request = entry.MapToProto().ToByteArray();
         var now = _clock.GetUtcNow().UtcDateTime;
+        var decision = ReplicaMutationDecisions.DecideSet(entry, now);
         var record = new ReplicaLogRecord(
             index,
             _term,
             operationId,
             cacheName,
-            Fingerprint(cacheName, operationId, cacheName, key, ReplicaMutationKinds.Set, mutation),
+            Fingerprint(cacheName, operationId, cacheName, key, ReplicaMutationKinds.Set, request),
             nameof(GroupRecordKind.UserMutation),
             cacheName,
             Encoding.UTF8.GetBytes(key),
             ReplicaMutationKinds.Set,
-            mutation,
-            ReadOnlyMemory<byte>.Empty,
-            DeadlineTicks(entry, now),
+            decision.Payload,
+            decision.Outcome,
+            decision.ExpiresUtcTicks,
             now.Ticks,
             0,
             0);
-        return Build(cacheName, in record, OutcomeFor(ReplicaMutationKinds.Set, null), index);
+        return Build(cacheName, in record, index);
     }
 
     /// <summary>Prepares a replicated conditional expiration refresh.</summary>
@@ -170,7 +171,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The prepared mutation.</returns>
     /// <remarks>
-    /// The record pins the absolute deadline, prepare time plus <paramref name="expiration" />, in
+    /// The record carries the touched entry and pins its absolute deadline, prepare time plus <paramref name="expiration" />, in
     /// <c language="csharp">ExpiresUtcTicks</c>, so every apply of it (a replay included) sets the same deadline instead of
     /// extending it from the apply time. The fingerprint does not cover the deadline: a retry prepared at a later time keeps
     /// its operation identity.
@@ -184,8 +185,8 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         CancellationToken cancellationToken)
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        var outcome = OutcomeFor(ReplicaMutationKinds.Touch, current);
         var now = _clock.GetUtcNow().UtcDateTime;
+        var decision = ReplicaMutationDecisions.DecideTouch(current, now, expiration);
         var record = new ReplicaLogRecord(
             index,
             _term,
@@ -196,13 +197,13 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             cacheName,
             Encoding.UTF8.GetBytes(key),
             ReplicaMutationKinds.Touch,
-            ReadOnlyMemory<byte>.Empty,
-            ReadOnlyMemory<byte>.Empty,
-            ExpiresAt(now, expiration).Ticks,
+            decision.Payload,
+            decision.Outcome,
+            decision.ExpiresUtcTicks,
             now.Ticks,
             0,
             0);
-        return Build(cacheName, in record, outcome, index);
+        return Build(cacheName, in record, index);
     }
 
     /// <summary>Prepares a replicated conditional add.</summary>
@@ -223,26 +224,26 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     {
         ArgumentNullException.ThrowIfNull(entry);
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        var outcome = OutcomeFor(ReplicaMutationKinds.TryAdd, current);
-        var mutation = entry.MapToProto().ToByteArray();
+        var request = entry.MapToProto().ToByteArray();
         var now = _clock.GetUtcNow().UtcDateTime;
+        var decision = ReplicaMutationDecisions.DecideTryAdd(current, entry, now);
         var record = new ReplicaLogRecord(
             index,
             _term,
             operationId,
             cacheName,
-            Fingerprint(cacheName, operationId, cacheName, key, ReplicaMutationKinds.TryAdd, mutation),
+            Fingerprint(cacheName, operationId, cacheName, key, ReplicaMutationKinds.TryAdd, request),
             nameof(GroupRecordKind.UserMutation),
             cacheName,
             Encoding.UTF8.GetBytes(key),
             ReplicaMutationKinds.TryAdd,
-            mutation,
-            ReadOnlyMemory<byte>.Empty,
-            DeadlineTicks(entry, now),
+            decision.Payload,
+            decision.Outcome,
+            decision.ExpiresUtcTicks,
             now.Ticks,
             0,
             0);
-        return Build(cacheName, in record, outcome, index);
+        return Build(cacheName, in record, index);
     }
 
     /// <summary>Prepares a replicated value replacement.</summary>
@@ -262,69 +263,30 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         CancellationToken cancellationToken)
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        var outcome = OutcomeFor(ReplicaMutationKinds.Update, current);
-        var mutation = ServerProtoEx.CacheValueToGrpcValue(value).ToByteArray();
+        var request = ServerProtoEx.CacheValueToGrpcValue(value).ToByteArray();
         var now = _clock.GetUtcNow().UtcDateTime;
+        var decision = ReplicaMutationDecisions.DecideUpdate(current, value);
         var record = new ReplicaLogRecord(
             index,
             _term,
             operationId,
             cacheName,
-            Fingerprint(cacheName, operationId, cacheName, key, ReplicaMutationKinds.Update, mutation),
+            Fingerprint(cacheName, operationId, cacheName, key, ReplicaMutationKinds.Update, request),
             nameof(GroupRecordKind.UserMutation),
             cacheName,
             Encoding.UTF8.GetBytes(key),
             ReplicaMutationKinds.Update,
-            mutation,
-            ReadOnlyMemory<byte>.Empty,
-            current?.ExpiresUtc?.Ticks ?? 0,
+            decision.Payload,
+            decision.Outcome,
+            decision.ExpiresUtcTicks,
             now.Ticks,
             0,
             0);
-        return Build(cacheName, in record, outcome, index);
+        return Build(cacheName, in record, index);
     }
-
-    /// <summary>Returns the effective absolute deadline of an entry written at <paramref name="now" />.</summary>
-    /// <param name="entry">The entry to write.</param>
-    /// <param name="now">The prepare time.</param>
-    /// <returns>
-    /// The UTC ticks of the earlier of the entry's absolute expiration and its relative expiration measured from
-    /// <paramref name="now" />, at least one; zero when the entry never expires.
-    /// </returns>
-    /// <remarks>
-    /// The relative expiration is resolved here, once, so a replay of the record keeps the deadline of the original write
-    /// instead of measuring the relative expiration again from the replay time.
-    /// </remarks>
-    private static long DeadlineTicks(NodeCacheEntry<object?> entry, DateTime now)
-    {
-        var deadline = entry.ExpiresUtc;
-        if (entry.Expiration is { } expiration && (deadline == null || ExpiresAt(now, expiration) < deadline))
-            deadline = ExpiresAt(now, expiration);
-
-        return deadline == null ? 0 : Math.Max(1, deadline.Value.Ticks);
-    }
-
-    private static DateTime ExpiresAt(DateTime now, TimeSpan expiration) => now.SaturatedAdd(expiration);
 
     private static ReplicaLogRecord DecodeRecord(ReadOnlyMemory<byte> payload, ulong logIndex) =>
         ReplicaLogCodec.Decode(payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));
-
-    /// <summary>Computes the exact outcome of a mutation from the entry it observes before it is applied.</summary>
-    /// <param name="mutationKind">Cache mutation kind.</param>
-    /// <param name="current">The entry the mutation observes, or <see langword="null" /> when the key is absent.</param>
-    /// <returns>The canonical outcome payload.</returns>
-    /// <exception cref="InvalidOperationException">The mutation kind is unknown.</exception>
-    private static byte[] OutcomeFor(string mutationKind, NodeCacheEntry<object?>? current) =>
-        mutationKind switch
-        {
-            ReplicaMutationKinds.Set => ReplicaOutcomeCodec.Encode(true, ReadOnlyMemory<byte>.Empty),
-            ReplicaMutationKinds.Remove => current == null ? ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty)
-                : ReplicaOutcomeCodec.Encode(true, current.MapToProto().ToByteArray()),
-            ReplicaMutationKinds.RemoveExpiration => ReplicaOutcomeCodec.Encode(current?.ExpiresUtc != null, ReadOnlyMemory<byte>.Empty),
-            ReplicaMutationKinds.Touch or ReplicaMutationKinds.Update => ReplicaOutcomeCodec.Encode(current != null, ReadOnlyMemory<byte>.Empty),
-            ReplicaMutationKinds.TryAdd => ReplicaOutcomeCodec.Encode(current == null, ReadOnlyMemory<byte>.Empty),
-            _ => throw new InvalidOperationException($"Unsupported replica mutation kind '{mutationKind}'."),
-        };
 
     private static void Append(IncrementalHash hash, string value)
     {
@@ -360,8 +322,26 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         return hash.GetHashAndReset();
     }
 
-    private PreparedReplicaMutation Build(string scope, in ReplicaLogRecord record, byte[] outcome, ulong index)
+    /// <summary>Encodes a decided record after checking that its effect agrees with its outcome.</summary>
+    /// <remarks>Only the shape is checked: the entry the decision just encoded is not decoded again on every write.</remarks>
+    /// <param name="scope">Operation scope.</param>
+    /// <param name="record">The decided record.</param>
+    /// <param name="index">Reserved group log index.</param>
+    /// <returns>The prepared mutation, carrying the outcome of the record.</returns>
+    /// <exception cref="InvalidDataException">The record is inconsistent, which is a defect of the decision; nothing was appended yet.</exception>
+    private PreparedReplicaMutation Build(string scope, in ReplicaLogRecord record, ulong index)
     {
+        try
+        {
+            _ = ReplicaCacheApplier.ResolveShape(in record);
+        }
+        catch (InvalidDataException error)
+        {
+            LogManager.ReplicaInconsistentDecision(_log, _groupId, error);
+            throw;
+        }
+
+        var outcome = record.OutcomePayload;
         var canonical = ReplicaLogCodec.Encode(in record);
         var identity = new ReplicaOperationIdentity(_groupId, scope, record.OperationId, record.OperationFingerprint);
         var payload = new ReplicaMutationPayload(canonical, outcome, Crc32C.Compute(canonical));

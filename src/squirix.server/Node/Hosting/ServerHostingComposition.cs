@@ -141,18 +141,7 @@ internal static class ServerHostingComposition
         // follower-log durability workers and the committer drains its coordinator on host shutdown.
         // AddSingleton(instance) would leak both past shutdown and keep group files locked.
         _ = services.AddSingleton(_ => registry);
-        _ = services.AddSingleton(sp => new ReplicaGroupCommitter(
-            sp.GetRequiredService<ReplicaGroupRegistry>(),
-            sp.GetRequiredService<IReplicaGroupLocator>(),
-            sp.GetRequiredService<IReplicaRpcGateway>(),
-            sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>(),
-            sp.GetRequiredService<TopologyOptions>().NodeId,
-            fingerprint.AsMemory(),
-            sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration)
-        {
-            Log = sp.GetRequiredService<ILogger<ReplicaGroupCommitter>>(),
-            Clock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
-        });
+        _ = services.AddSingleton(sp => CreateReplicaGroupCommitter(sp, fingerprint));
         _ = services.AddHostedService(static sp => new ReplicaGroupReadinessService(
             sp.GetRequiredService<ReplicaGroupCommitter>(),
             sp.GetRequiredService<ILogger<ReplicaGroupReadinessService>>(),
@@ -178,6 +167,24 @@ internal static class ServerHostingComposition
                 HealthStatus.Unhealthy,
                 ["ready"]));
     }
+
+    /// <summary>Creates the committer of the group this node owns.</summary>
+    /// <param name="sp">The service provider.</param>
+    /// <param name="fingerprint">The static topology fingerprint.</param>
+    /// <returns>The committer.</returns>
+    private static ReplicaGroupCommitter CreateReplicaGroupCommitter(IServiceProvider sp, ImmutableArray<byte> fingerprint) => new(
+        sp.GetRequiredService<ReplicaGroupRegistry>(),
+        sp.GetRequiredService<IReplicaGroupLocator>(),
+        sp.GetRequiredService<IReplicaRpcGateway>(),
+        sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>(),
+        sp.GetRequiredService<TopologyOptions>().NodeId,
+        fingerprint.AsMemory(),
+        sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration)
+    {
+        Log = sp.GetRequiredService<ILogger<ReplicaGroupCommitter>>(),
+        Metrics = sp.GetRequiredService<ReplicationMetrics>(),
+        Clock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
+    };
 
     /// <summary>
     /// Registers cluster locator, internode transport, and replication planning services.

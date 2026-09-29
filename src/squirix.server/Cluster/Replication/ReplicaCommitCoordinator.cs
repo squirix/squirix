@@ -783,8 +783,8 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             {
                 var foreign = !ReferenceEquals(pending, own);
 
-                // A recovered entry's record does not carry its outcome: read it from the memory the entry is about to be applied to.
-                var outcome = _recovered?.Covers(pending.LogIndex) == true ? await _recovered.ReadOutcomeAsync(pending).ConfigureAwait(false) : pending.OutcomePayload;
+                // The outcome is the one decided at prepare time, for a recovered entry too: its record carries it.
+                var outcome = pending.OutcomePayload;
                 if (foreign)
                     await ApplyForeignAsync(pending).ConfigureAwait(false);
                 else

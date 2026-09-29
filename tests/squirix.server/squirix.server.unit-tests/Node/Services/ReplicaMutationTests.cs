@@ -27,12 +27,12 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System);
 
         var first = await factory.PrepareTryAddAsync("op-1", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 1UL, cancellationToken);
-        _ = await Assert.That(await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(first), TimeProvider.System, cancellationToken)).IsTrue();
+        await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(first), cancellationToken);
         _ = await Assert.That(ReplicaOutcomeCodec.TryDecode(first.OutcomePayload, out var firstApplied, out _)).IsTrue();
         _ = await Assert.That(firstApplied).IsTrue();
 
         var second = await factory.PrepareTryAddAsync("op-2", "cache", "k", new NodeCacheEntry<object?> { Value = "v2" }, 2UL, cancellationToken);
-        _ = await Assert.That(await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(second), TimeProvider.System, cancellationToken)).IsFalse();
+        await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(second), cancellationToken);
         _ = await Assert.That(ReplicaOutcomeCodec.TryDecode(second.OutcomePayload, out var secondApplied, out _)).IsTrue();
         _ = await Assert.That(secondApplied).IsFalse();
     }
@@ -79,16 +79,18 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         var cache = new MemoryCache();
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System);
         var plain = factory.PrepareSet("op-1", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 1UL);
-        _ = await Assert.That(await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(plain), TimeProvider.System, cancellationToken)).IsTrue();
+        await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(plain), cancellationToken);
 
         var absent = await factory.PrepareRemoveExpirationAsync("op-2", "cache", "k", 2UL, cancellationToken);
-        _ = await Assert.That(await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(absent), TimeProvider.System, cancellationToken)).IsFalse();
+        await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(absent), cancellationToken);
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(absent.OutcomePayload)).IsFalse();
 
         var timed = factory.PrepareSet("op-3", "cache", "timed", new NodeCacheEntry<object?> { Value = "v1", ExpiresUtc = DateTime.UtcNow.AddHours(1) }, 3UL);
-        _ = await Assert.That(await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(timed), TimeProvider.System, cancellationToken)).IsTrue();
+        await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(timed), cancellationToken);
 
         var present = await factory.PrepareRemoveExpirationAsync("op-4", "cache", "timed", 4UL, cancellationToken);
-        _ = await Assert.That(await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(present), TimeProvider.System, cancellationToken)).IsTrue();
+        await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(present), cancellationToken);
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(present.OutcomePayload)).IsTrue();
     }
 
     /// <summary>Remove returns the observed previous value, then reports missing.</summary>
@@ -99,16 +101,17 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         var cache = new MemoryCache();
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System);
         var prepared = factory.PrepareSet("op-1", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 1UL);
-        _ = await Assert.That(await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(prepared), TimeProvider.System, cancellationToken)).IsTrue();
+        await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(prepared), cancellationToken);
 
         var mutation = await factory.PrepareRemoveAsync("op-2", "cache", "k", 2UL, cancellationToken);
-        _ = await Assert.That(await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(mutation), TimeProvider.System, cancellationToken)).IsTrue();
+        await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(mutation), cancellationToken);
         _ = await Assert.That(ReplicaOutcomeCodec.TryDecode(mutation.OutcomePayload, out var removed, out var previous)).IsTrue();
         _ = await Assert.That(removed).IsTrue();
         _ = await Assert.That(previous.IsEmpty).IsFalse();
 
         var missing = await factory.PrepareRemoveAsync("op-3", "cache", "k", 3UL, cancellationToken);
-        _ = await Assert.That(await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(missing), TimeProvider.System, cancellationToken)).IsFalse();
+        await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(missing), cancellationToken);
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(missing.OutcomePayload)).IsFalse();
         _ = await Assert.That(ReplicaOutcomeCodec.TryDecode(missing.OutcomePayload, out var removedAgain, out _)).IsTrue();
         _ = await Assert.That(removedAgain).IsFalse();
     }
@@ -125,7 +128,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         var mutation = factory.PrepareSet("op-1", "cache", "k", entry, 1UL);
         var record = await DecodeRecordAsync(mutation);
 
-        _ = await Assert.That(await ReplicaCacheApplier.ApplyAsync(cache, record, TimeProvider.System, cancellationToken)).IsTrue();
+        await ReplicaCacheApplier.ApplyAsync(cache, record, cancellationToken);
         var read = await cache.GetValueAsync("cache", "k", cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
         var firstValue = await Assert.That(read.Value).IsTypeOf<string>();
@@ -141,13 +144,15 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System);
 
         var missing = await factory.PrepareTouchAsync("op-1", "cache", "k", TimeSpan.FromMinutes(5), 1UL, cancellationToken);
-        _ = await Assert.That(await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(missing), TimeProvider.System, cancellationToken)).IsFalse();
+        await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(missing), cancellationToken);
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(missing.OutcomePayload)).IsFalse();
 
         var prepared = factory.PrepareSet("op-2", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 2UL);
-        _ = await Assert.That(await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(prepared), TimeProvider.System, cancellationToken)).IsTrue();
+        await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(prepared), cancellationToken);
 
         var touch = await factory.PrepareTouchAsync("op-3", "cache", "k", TimeSpan.FromMinutes(5), 3UL, cancellationToken);
-        _ = await Assert.That(await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(touch), TimeProvider.System, cancellationToken)).IsTrue();
+        await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(touch), cancellationToken);
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(touch.OutcomePayload)).IsTrue();
     }
 
     /// <summary>Update replaces the value of a present key only.</summary>
@@ -159,13 +164,15 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System);
 
         var missing = await factory.PrepareUpdateAsync("op-1", "cache", "k", "v9", 1UL, cancellationToken);
-        _ = await Assert.That(await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(missing), TimeProvider.System, cancellationToken)).IsFalse();
+        await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(missing), cancellationToken);
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(missing.OutcomePayload)).IsFalse();
 
         var prepared = factory.PrepareSet("op-2", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 2UL);
-        _ = await Assert.That(await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(prepared), TimeProvider.System, cancellationToken)).IsTrue();
+        await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(prepared), cancellationToken);
 
         var update = await factory.PrepareUpdateAsync("op-3", "cache", "k", "v2", 3UL, cancellationToken);
-        _ = await Assert.That(await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(update), TimeProvider.System, cancellationToken)).IsTrue();
+        await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(update), cancellationToken);
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(update.OutcomePayload)).IsTrue();
         var read = await cache.GetValueAsync("cache", "k", cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
         var secondValue = await Assert.That(read.Value).IsTypeOf<string>();

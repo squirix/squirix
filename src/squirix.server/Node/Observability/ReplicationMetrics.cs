@@ -23,6 +23,7 @@ internal sealed class ReplicationMetrics
     private readonly Counter<long> _compactionSkippedTotal;
     private readonly Lock _gate = new();
     private readonly Dictionary<string, GroupObservation> _groups = [with(StringComparer.Ordinal)];
+    private readonly Counter<long> _inconsistentRecordsTotal;
     private readonly Counter<long> _mismatchTotal;
     private readonly Counter1Label _reportsTotal;
 
@@ -36,6 +37,11 @@ internal sealed class ReplicationMetrics
             "squirix_replication_log_compaction_skipped_total",
             "{compaction}",
             "Passes that found the owned replica group log past a compaction threshold but did not compact it, by reason");
+
+        _inconsistentRecordsTotal = meter.CreateCounter<long>(
+            "squirix_replication_inconsistent_records_total",
+            "{record}",
+            "Replica group log records refused because their effect contradicts their outcome or they cannot be decoded");
 
         _ = meter.CreateObservableGauge("squirix_replication_term", ObserveTerms, description: "Current term observed by the replica group log");
         _ = meter.CreateObservableGauge("squirix_replication_commit_index", ObserveCommitIndexes, IndexUnit, "Durable commit index observed by the replica group log");
@@ -65,6 +71,19 @@ internal sealed class ReplicationMetrics
             { "group", groupId },
         };
         _compactionsTotal.Add(1, in tags);
+    }
+
+    /// <summary>Counts one replica group log record refused as inconsistent before it touched memory.</summary>
+    /// <param name="nodeId">The observing node identifier.</param>
+    /// <param name="groupId">The replica group identifier.</param>
+    internal void ReportInconsistentRecord(string nodeId, string groupId)
+    {
+        var tags = new TagList
+        {
+            { "node", nodeId },
+            { "group", groupId },
+        };
+        _inconsistentRecordsTotal.Add(1, in tags);
     }
 
     /// <summary>Counts one pass that found the owned replica group log past a threshold but did not compact it.</summary>
