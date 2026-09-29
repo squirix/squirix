@@ -25,24 +25,30 @@ internal static class ReplicaGroupFollowers
     /// <summary>Waits until every follower's copy of the group log holds the owner's last appended entry.</summary>
     /// <param name="owner">The group owner.</param>
     /// <param name="groupId">The owned group identifier, which is the owner's node identifier.</param>
-    /// <param name="followers">The follower nodes that must keep up.</param>
+    /// <param name="followers">The follower nodes that must keep up, with their node identifiers.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>An asynchronous operation.</returns>
-    /// <exception cref="InvalidOperationException">No follower received the entry: replication itself is broken.</exception>
-    /// <exception cref="SkipTestException">Some follower fell behind while another received the entry; the follower stays behind, so the run cannot show what it checks.</exception>
-    internal static async Task AwaitCaughtUpAsync(ITestNodeHost owner, string groupId, ITestNodeHost[] followers, CancellationToken cancellationToken)
+    /// <exception cref="InvalidOperationException">No follower received the entry, or a follower did not move at all while it waited: replication itself is broken.</exception>
+    /// <exception cref="SkipTestException">Some follower kept advancing but did not reach the entry in time while another received it; a follower that misses an entry stays behind, so the run cannot show what it checks.</exception>
+    /// <remarks>
+    /// A write started while a follower is still receiving the previous one, without this wait, can leave that follower behind for good;
+    /// such an unpaced run is not covered here.
+    /// </remarks>
+    internal static async Task AwaitCaughtUpAsync(ITestNodeHost owner, string groupId, (string Id, ITestNodeHost Host)[] followers, CancellationToken cancellationToken)
     {
         if (followers.Length == 0)
             return;
 
-        var target = (await Log(owner, groupId).GetStatusAsync(cancellationToken)).LastLogIndex;
+        var target = (await Log(owner, groupId, groupId).GetStatusAsync(cancellationToken)).LastLogIndex;
         var behind = 0;
+        var stuck = string.Empty;
         var report = string.Empty;
-        foreach (var follower in followers)
+        foreach (var (id, host) in followers)
         {
-            var log = Log(follower, groupId);
+            var log = Log(host, id, groupId);
             var started = Stopwatch.GetTimestamp();
-            var last = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
+            var first = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
+            var last = first;
             var attempt = 0;
             while (last < target && Stopwatch.GetElapsedTime(started) < Bound)
             {
@@ -58,21 +64,25 @@ internal static class ReplicaGroupFollowers
                 continue;
 
             behind++;
-            report = string.Concat(report, $" follower last {last};");
+            report = string.Concat(report, $" {id} last {last};");
+            if (last == first)
+                stuck = string.Concat(stuck, $" {id} stayed at {last};");
         }
 
         if (behind == 0)
             return;
 
-        var message = $"Group log of the owner ends at {target};{report}";
+        var message = $"Group log of the owner {groupId} ends at {target};{report}";
+        if (stuck.Length > 0)
+            throw new InvalidOperationException($"A follower did not receive any entry while the owner waited: {message} Stuck:{stuck}");
+
         throw behind == followers.Length
             ? new InvalidOperationException($"No follower received the last entry: {message}")
             : new SkipTestException($"A follower fell behind and is never caught up, so the run is inconclusive: {message}");
     }
 
-    private static IFollowerLog Log(ITestNodeHost node, string groupId)
-    {
-        _ = node.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(groupId, out var log);
-        return log!;
-    }
+    private static IFollowerLog Log(ITestNodeHost node, string nodeId, string groupId) =>
+        node.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(groupId, out var log)
+            ? log
+            : throw new InvalidOperationException($"Node {nodeId} does not serve group log {groupId}.");
 }

@@ -114,7 +114,7 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
 
         // A commit returns once one follower holds the entry; a follower stopped before it received the entry stays behind after the
         // restart and can never be verified, so both followers must hold it first.
-        await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, "node-a", [cluster["node-b"], cluster["node-c"]], cancellationToken);
+        await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, "node-a", [("node-b", cluster["node-b"]), ("node-c", cluster["node-c"])], cancellationToken);
 
         await cluster.StopNodeAsync("node-b");
         await cluster.StopNodeAsync("node-c");

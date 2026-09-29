@@ -169,7 +169,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         return $"owner last {owner.LastLogIndex} commit {owner.CommitIndex}, node-b last {b.LastLogIndex}, node-c last {c.LastLogIndex}";
     }
 
-    private static ITestNodeHost[] Followers(TestCluster<IntegrationStartOptions> cluster) => [cluster["node-b"], cluster["node-c"]];
+    private static (string Id, ITestNodeHost Host)[] Followers(TestCluster<IntegrationStartOptions> cluster) => [("node-b", cluster["node-b"]), ("node-c", cluster["node-c"])];
 
     private static NodeCacheEntry<object?> Entry(int version) => new() { Value = $"value-{version}", Version = version };
 
@@ -208,7 +208,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     /// <param name="count">The number of overwrites.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The operation identifiers, in write order; write number i stores value-i at version i.</returns>
-    private static async Task<string[]> OverwriteAsync(ITestNodeHost owner, ITestNodeHost[] followers, int count, CancellationToken cancellationToken)
+    private static async Task<string[]> OverwriteAsync(ITestNodeHost owner, (string Id, ITestNodeHost Host)[] followers, int count, CancellationToken cancellationToken)
     {
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
         var cache = owner.GetCache<object?>(CacheName);
