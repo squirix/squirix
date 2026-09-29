@@ -45,7 +45,7 @@ public sealed class WriteAheadMutationCodecTests
     [Test]
     public void MutationOpIdLengthMissingThrows()
     {
-        var body = FrameBody(6, [0x01]);
+        var body = FrameBody(4, [0x01]);
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(body, static buffer => _ = BinaryJournalCodec.Decode(buffer, buffer.Length));
     }
@@ -78,7 +78,7 @@ public sealed class WriteAheadMutationCodecTests
     [Test]
     public void MutationOpIdTruncatedThrows()
     {
-        var body = FrameBody(6, [0x05, 0x00, 0x61, 0x62]);
+        var body = FrameBody(4, [0x05, 0x00, 0x61, 0x62]);
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(body, static buffer => _ = BinaryJournalCodec.Decode(buffer, buffer.Length));
     }
@@ -87,7 +87,7 @@ public sealed class WriteAheadMutationCodecTests
     [Test]
     public void MutationPayloadTruncatedThrows()
     {
-        var body = FrameBody(7, [0x02, 0x00, 0xFF, 0xFF]);
+        var body = FrameBody(5, [0x02, 0x00, 0xFF, 0xFF]);
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(body, static buffer => _ = BinaryJournalCodec.Decode(buffer, buffer.Length));
     }
@@ -96,7 +96,7 @@ public sealed class WriteAheadMutationCodecTests
     [Test]
     public void PutMalformedOpIdUtf8Throws()
     {
-        var body = FrameBody(6, [0x02, 0x00, 0xFF, 0xFF, 0x01, 0x02, 0x03, 0x04]);
+        var body = FrameBody(4, [0x02, 0x00, 0xFF, 0xFF, 0x01, 0x02, 0x03, 0x04]);
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(body, static buffer => _ = BinaryJournalCodec.Decode(buffer, buffer.Length));
     }
@@ -105,7 +105,7 @@ public sealed class WriteAheadMutationCodecTests
     [Test]
     public void PutPayloadLengthMismatchThrows()
     {
-        var body = FrameBody(6, [0x02, 0x00, 0xFF, 0xFF]);
+        var body = FrameBody(4, [0x02, 0x00, 0xFF, 0xFF]);
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(body, static buffer => _ = BinaryJournalCodec.Decode(buffer, buffer.Length));
     }
@@ -155,7 +155,7 @@ public sealed class WriteAheadMutationCodecTests
     [Test]
     public void StartedFingerprintTruncatedThrows()
     {
-        var body = FrameBody(10, [0x01, 0x00, 0x61, 0x05, 0x00, 0x62, 0x63]);
+        var body = FrameBody(6, [0x01, 0x00, 0x61, 0x05, 0x00, 0x62, 0x63]);
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(body, static buffer => _ = BinaryJournalCodec.Decode(buffer, buffer.Length));
     }
@@ -164,7 +164,7 @@ public sealed class WriteAheadMutationCodecTests
     [Test]
     public void StartedOpIdTruncatedThrows()
     {
-        var body = FrameBody(10, [0x03, 0x00, 0x61]);
+        var body = FrameBody(6, [0x03, 0x00, 0x61]);
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(body, static buffer => _ = BinaryJournalCodec.Decode(buffer, buffer.Length));
     }
@@ -197,7 +197,7 @@ public sealed class WriteAheadMutationCodecTests
     [Test]
     public void StartedPayloadMissingThrows()
     {
-        var body = FrameBody(10, [0x01]);
+        var body = FrameBody(6, [0x01]);
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(body, static buffer => _ = BinaryJournalCodec.Decode(buffer, buffer.Length));
     }
@@ -206,7 +206,7 @@ public sealed class WriteAheadMutationCodecTests
     [Test]
     public void TruncatedPayloadOverrunThrows()
     {
-        var valid = FrameBody(7, [0x02, 0x00, 0x61, 0x62]);
+        var valid = FrameBody(5, [0x02, 0x00, 0x61, 0x62]);
         var padded = new byte[valid.Length + 16];
         valid.CopyTo(padded, 0);
         BinaryPrimitives.WriteInt32LittleEndian(padded.AsSpan(21), 100);
@@ -214,15 +214,13 @@ public sealed class WriteAheadMutationCodecTests
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws((Buffer: padded, valid.Length), static state => _ = BinaryJournalCodec.Decode(state.Buffer, state.Length));
     }
 
-    /// <summary>A retired or unassigned opcode wire value is rejected during decoding, never skipped.</summary>
+    /// <summary>An unassigned opcode wire value is rejected during decoding, never skipped.</summary>
     /// <param name="opcodeWire">The raw opcode byte.</param>
     [Test]
     [Arguments(0)]
-    [Arguments(3)]
-    [Arguments(4)]
+    [Arguments(7)]
     [Arguments(8)]
-    [Arguments(9)]
-    [Arguments(11)]
+    [Arguments(255)]
     public void DecodeRejectsUnassignedOpcode(int opcodeWire)
     {
         var body = FrameBody(Convert.ToByte(opcodeWire), [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);

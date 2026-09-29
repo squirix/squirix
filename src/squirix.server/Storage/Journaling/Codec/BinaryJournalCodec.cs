@@ -359,12 +359,12 @@ internal static class BinaryJournalCodec
 
     private static class JournalOpcodeWire
     {
-        private const byte IdempotencyOutcomeWire = 5;
-        private const byte IdempotencyStartedWire = 10;
+        private const byte IdempotencyOutcomeWire = 3;
+        private const byte IdempotencyStartedWire = 6;
         private const byte PutWire = 1;
-        private const byte PutWithMutationOpIdWire = 6;
+        private const byte PutWithMutationOpIdWire = 4;
         private const byte RemoveWire = 2;
-        private const byte RemoveWithMutationOpIdWire = 7;
+        private const byte RemoveWithMutationOpIdWire = 5;
 
         internal static JournalOpcode FromByte(byte value) => value switch
         {

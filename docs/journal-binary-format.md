@@ -7,7 +7,7 @@ Journal segments use the `.jsqx` extension with a fixed file header and length-p
 | Offset | Size | Value        |
 |--------|------|--------------|
 | 0      | 4    | ASCII `SJRN` |
-| 4      | 1    | `1`          |
+| 4      | 1    | `2`          |
 
 ## Frame layout (little-endian)
 
@@ -22,7 +22,7 @@ u32 crc32c           // CRC32C over body
 ```text
 u64 sequence
 i64 unixMs
-u8  opcode           // Put=1, Remove=2, IdempotencyOutcome=5, PutWithMutationOperationId=6, RemoveWithMutationOperationId=7, IdempotencyStarted=10
+u8  opcode           // Put=1, Remove=2, IdempotencyOutcome=3, PutWithMutationOperationId=4, RemoveWithMutationOperationId=5, IdempotencyStarted=6
 u16 namespaceLen
 u16 keyLen
 u32 payloadLen       // per opcode, see below
@@ -33,14 +33,14 @@ u32 payloadLen       // per opcode, see below
 
 ## Payload by opcode
 
-| Opcode | Name                          | Payload                                                       |
-|--------|-------------------------------|---------------------------------------------------------------|
-| 1      | Put                           | cache-entry blob (`CacheEntryCodec`)                          |
-| 2      | Remove                        | empty (`payloadLen = 0`)                                      |
-| 5      | IdempotencyOutcome            | structured idempotency outcome                                |
-| 6      | PutWithMutationOperationId    | mutation operation id prefix, then the cache-entry blob       |
-| 7      | RemoveWithMutationOperationId | mutation operation id prefix only                             |
-| 10     | IdempotencyStarted            | structured write-ahead idempotency intent                     |
+| Opcode | Name                          | Payload                                                 |
+|--------|-------------------------------|---------------------------------------------------------|
+| 1      | Put                           | cache-entry blob (`CacheEntryCodec`)                    |
+| 2      | Remove                        | empty (`payloadLen = 0`)                                |
+| 3      | IdempotencyOutcome            | structured idempotency outcome                          |
+| 4      | PutWithMutationOperationId    | mutation operation id prefix, then the cache-entry blob |
+| 5      | RemoveWithMutationOperationId | mutation operation id prefix only                       |
+| 6      | IdempotencyStarted            | structured write-ahead idempotency intent               |
 
 ## Cache-entry frames
 
@@ -51,7 +51,7 @@ decided, so no frame depends on how an earlier frame replayed.
 Replay keeps, for each key, the state of its last frame, and drops the key only when the deadline of that final entry has passed. Compaction
 and snapshot plus tail recovery give the same state for any cut of the journal.
 
-## Retired opcodes
+## File format version
 
-Opcode values 3, 4, 8 and 9 belonged to the former touch-expiration and remove-expiration frames. They are retired and never reused. A frame
-carrying a retired or otherwise unassigned opcode fails recovery.
+The file header version is `2`. A segment with any other non-zero version under the journal magic is rejected on read, recovery and
+compaction with an error, and is never truncated or repaired. An opcode value outside the table above fails decoding.

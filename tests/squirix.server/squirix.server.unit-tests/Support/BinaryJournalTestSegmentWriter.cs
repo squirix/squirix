@@ -78,6 +78,22 @@ internal static class BinaryJournalTestSegmentWriter
         };
     }
 
+    /// <summary>Builds the path of a journal segment file.</summary>
+    /// <param name="dir">The data directory.</param>
+    /// <param name="index">The segment index.</param>
+    /// <returns>The segment path.</returns>
+    internal static string SegmentPath(string dir, int index) =>
+        NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+
+    /// <summary>Overwrites the file format version byte of a segment header.</summary>
+    /// <param name="path">The segment path.</param>
+    /// <param name="version">The version byte to write.</param>
+    internal static void SetHeaderVersion(string path, byte version)
+    {
+        using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write);
+        RandomAccess.Write(handle, [version], 4);
+    }
+
     /// <summary>Writes a segment whose only frame carries the given raw opcode byte, framed with a valid checksum.</summary>
     /// <param name="dir">The data directory.</param>
     /// <param name="index">The segment index.</param>

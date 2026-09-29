@@ -10,6 +10,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
@@ -124,69 +125,109 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         _ = await Assert.That(b.Value).IsEqualTo("vb");
     }
 
-    /// <summary>A frame carrying a retired opcode fails recovery instead of being skipped.</summary>
-    /// <param name="opcodeWire">The retired raw opcode byte.</param>
+    /// <summary>A frame carrying an unassigned opcode fails recovery instead of being skipped.</summary>
+    /// <param name="opcodeWire">The unassigned raw opcode byte.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(3)]
-    [Arguments(4)]
+    [Arguments(0)]
+    [Arguments(7)]
     [Arguments(8)]
-    [Arguments(9)]
-    public async Task RetiredOpcodeFailsRecovery(int opcodeWire, CancellationToken cancellationToken)
+    [Arguments(255)]
+    public async Task UnassignedOpcodeFailsRecovery(int opcodeWire, CancellationToken cancellationToken)
     {
-        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-retired-opcode");
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-unassigned-opcode");
         BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, Convert.ToByte(opcodeWire), "a");
         await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
     }
 
-    /// <summary>Replay must abort with InvalidOperationException when a Put payload cannot be decoded.</summary>
+    /// <summary>An unassigned frame followed by a valid frame fails recovery instead of being skipped.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task UndecodablePutThrowsDuringReplay(CancellationToken cancellationToken)
+    public async Task UnassignedOpcodeBeforeValidFrameFails(CancellationToken cancellationToken)
     {
-        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-broken-put");
-        var broken = BinaryJournalTestSegmentWriter.BuildBrokenPutRecord(1UL, "bad");
-        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, broken);
-        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
-
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(RunRecoveryAsync(scenario, cancellationToken));
-    }
-
-    /// <summary>A retired frame followed by a valid frame fails recovery instead of being skipped.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RetiredOpcodeBeforeValidFrameFails(CancellationToken cancellationToken)
-    {
-        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-retired-then-valid");
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-unassigned-then-valid");
         var valid = BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "b", "vb");
-        BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 4, "a", [valid]);
+        BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 8, "a", [valid]);
         await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 3 }, cancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
     }
 
-    /// <summary>A retired frame in a segment that is not the last one fails recovery.</summary>
+    /// <summary>An unassigned frame in a segment that is not the last one fails recovery.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RetiredOpcodeInEarlierSegmentFails(CancellationToken cancellationToken)
+    public async Task UnassignedOpcodeInEarlierSegmentFails(CancellationToken cancellationToken)
     {
-        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-retired-earlier-segment");
-        BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 3, "a");
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-unassigned-earlier-segment");
+        BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 7, "a");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 2, BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "b", "vb"));
         await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 2, NextSequence = 3 }, cancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
     }
 
-    /// <summary>Compaction fails on a retired frame instead of folding it away.</summary>
+    /// <summary>Compaction fails on an unassigned frame instead of folding it away.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CompactionRejectsRetiredOpcode(CancellationToken cancellationToken)
+    public async Task CompactionRejectsUnassignedOpcode(CancellationToken cancellationToken)
     {
-        using var scenario = RecoveryScenarioBuilder.Create("squirix-compaction-retired-opcode");
-        BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 9, "a");
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-compaction-unassigned-opcode");
+        BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 255, "a");
+        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(), cancellationToken));
+    }
+
+    /// <summary>A segment written with the previous file format version fails recovery loudly and is left untouched.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OldFormatVersionFailsRecovery(CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-old-version");
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "a", "v"));
+        var path = BinaryJournalTestSegmentWriter.SegmentPath(scenario.DataDir, 1);
+        BinaryJournalTestSegmentWriter.SetHeaderVersion(path, 1);
+        var lengthBefore = new FileInfo(path).Length;
+        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
+
+        _ = await Assert.That(failure.Message).Contains("version 1");
+        _ = await Assert.That(new FileInfo(path).Length).IsEqualTo(lengthBefore);
+    }
+
+    /// <summary>Startup preparation of the active segment rejects the previous file format version instead of truncating the file.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StartupScanKeepsOldFormatSegment(CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-startup-old-version");
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "a", "v"));
+        var path = BinaryJournalTestSegmentWriter.SegmentPath(scenario.DataDir, 1);
+        BinaryJournalTestSegmentWriter.SetHeaderVersion(path, 1);
+        var lengthBefore = new FileInfo(path).Length;
+        var manifest = new State { Format = 1, CurrentJournal = 1, NextSequence = 2 };
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            (manifest, persistence),
+            static state => JournalRecoveryScan.PrepareActiveSegmentForSequenceScan(state.manifest, state.persistence));
+
+        _ = await Assert.That(new FileInfo(path).Length).IsEqualTo(lengthBefore);
+        await scenario.Ledger.WriteAsync(manifest, cancellationToken);
+    }
+
+    /// <summary>Compaction fails on a segment written with the previous file format version.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CompactionRejectsOldFormatVersion(CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-compaction-old-version");
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "a", "v"));
+        BinaryJournalTestSegmentWriter.SetHeaderVersion(BinaryJournalTestSegmentWriter.SegmentPath(scenario.DataDir, 1), 1);
         await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
 

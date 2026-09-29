@@ -13,7 +13,7 @@ internal static class JournalFraming
 
     internal const int FrameHeaderSize = JournalFrameEnvelope.HeaderSize;
 
-    internal const byte Version = 1;
+    internal const byte Version = 2;
 
     private const int FrameFooterSize = JournalFrameEnvelope.FooterSize;
 
@@ -35,6 +35,16 @@ internal static class JournalFraming
             throw CreateTruncatedHeaderException();
 
         EnsureSegmentHeaderSupported(header);
+    }
+
+    /// <summary>Determines whether the segment file at <paramref name="path" /> carries the journal magic under an unsupported format version.</summary>
+    /// <param name="path">The segment file path.</param>
+    /// <returns><see langword="true" /> when the file must be rejected as another format rather than repaired as a torn header.</returns>
+    internal static bool HasUnsupportedVersion(string path)
+    {
+        using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.SequentialScan);
+        Span<byte> header = stackalloc byte[FileHeaderSize];
+        return HandleEx.TryReadExact(handle, header, 0) && IsUnsupportedVersionHeader(header);
     }
 
     internal static void WriteFileHeader(Span<byte> destination)
@@ -59,9 +69,21 @@ internal static class JournalFraming
 
     private static void ThrowIfSegmentHeaderBytesInvalid(ReadOnlySpan<byte> header)
     {
-        if (!IsSegmentHeaderValid(header))
-            throw CreateInvalidHeaderException();
+        if (IsSegmentHeaderValid(header))
+            return;
+
+        throw IsUnsupportedVersionHeader(header)
+            ? new InvalidDataException($"journal segment has file format version {header[4]}, but only version {Version} is supported.")
+            : CreateInvalidHeaderException();
     }
+
+    /// <summary>
+    /// Determines whether a header carries the journal magic under a format version this build does not read. A zero version byte is what
+    /// a header torn during creation of a pre-sized file looks like, so it is not a version mismatch.
+    /// </summary>
+    /// <param name="header">The header bytes.</param>
+    /// <returns><see langword="true" /> when the segment is a whole file of another format, which must never be repaired or truncated.</returns>
+    private static bool IsUnsupportedVersionHeader(ReadOnlySpan<byte> header) => header[..4].SequenceEqual(Magic) && header[4] != 0 && header[4] != Version;
 
     /// <summary>
     /// Throws when a non-empty segment file does not contain a valid journal header.
