@@ -74,7 +74,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _locator = locator;
         _gateway = gateway;
         _local = local;
-        _applier = new Lazy<ReplicaLeaderApplier>(() => new ReplicaLeaderApplier(local, selfId, Log, Metrics), LazyThreadSafetyMode.ExecutionAndPublication);
+        _applier = new Lazy<ReplicaLeaderApplier>(() => new ReplicaLeaderApplier(local, selfId, selfId, Log, Metrics), LazyThreadSafetyMode.ExecutionAndPublication);
         GroupId = selfId;
         _topologyFingerprint = topologyFingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topologyFingerprint))
             : topologyFingerprint;
@@ -572,7 +572,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
         var pipeline = new ReplicaGroupCommitPipeline(Applier, log, _gateway, members, GroupId, status, header);
-        var factory = new ReplicaMutationFactory(_local, GroupId, term, Clock);
+        var factory = new ReplicaMutationFactory(_local, GroupId, term, Clock, Log);
         _coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(_locator.ReplicaCount, status.LastLogIndex, status.CommitIndex, MaxInFlight),
             pipeline,

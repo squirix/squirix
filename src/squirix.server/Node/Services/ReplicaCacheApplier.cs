@@ -30,15 +30,34 @@ internal static class ReplicaCacheApplier
     /// The absolute deadline pinned in <see cref="ReplicaLogRecord.ExpiresUtcTicks" /> is authoritative for an upserted entry, so
     /// applying the same record again, at any time, writes the same deadline.
     /// </remarks>
-    internal static async Task ApplyAsync(ILogicalNamespacedCache<object?> cache, ReplicaLogRecord record, CancellationToken cancellationToken)
+    internal static Task ApplyAsync(ILogicalNamespacedCache<object?> cache, ReplicaLogRecord record, CancellationToken cancellationToken)
+    {
+        var effect = Resolve(in record, out var entry);
+        return ExecuteAsync(cache, record, effect, entry, cancellationToken);
+    }
+
+    /// <summary>Executes the effect of a record that <see cref="Resolve" /> accepted.</summary>
+    /// <param name="cache">Local cache pipeline.</param>
+    /// <param name="record">The validated record.</param>
+    /// <param name="effect">The effect <see cref="Resolve" /> returned.</param>
+    /// <param name="entry">The decoded entry <see cref="Resolve" /> returned for an upsert.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the effect is applied.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The effect is not supported.</exception>
+    /// <exception cref="ArgumentNullException">An upsert has no entry.</exception>
+    internal static async Task ExecuteAsync(
+        ILogicalNamespacedCache<object?> cache,
+        ReplicaLogRecord record,
+        ReplicaEffectKind effect,
+        NodeCacheEntry<object?>? entry,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(cache);
-        var effect = ResolveEffect(in record);
         var key = Encoding.UTF8.GetString(record.KeyPayload.Span);
         switch (effect)
         {
             case ReplicaEffectKind.Upsert:
-                var entry = DecodeEntry(in record);
+                ArgumentNullException.ThrowIfNull(entry);
                 await cache.SetEntryAsync(record.OperationId, record.CacheName, key, entry, cancellationToken).ConfigureAwait(false);
                 break;
             case ReplicaEffectKind.Delete:
@@ -71,13 +90,27 @@ internal static class ReplicaCacheApplier
     /// nothing otherwise, with an empty payload and no deadline. Remove deletes the key whatever the outcome, carries no payload, and
     /// reports the removed entry only when applied.
     /// </remarks>
-    internal static ReplicaEffectKind ResolveEffect(in ReplicaLogRecord record)
+    internal static ReplicaEffectKind ResolveEffect(in ReplicaLogRecord record) => Resolve(in record, out _);
+
+    /// <summary>Determines the effect of a record, checks it against the outcome, and decodes the entry an upsert writes.</summary>
+    /// <param name="record">The record to check.</param>
+    /// <param name="entry">The entry to write, with the pinned deadline, for an upsert; otherwise <see langword="null" />.</param>
+    /// <returns>The effect applying the record has.</returns>
+    /// <exception cref="InvalidDataException">The record is inconsistent, out of range, or its entry does not decode.</exception>
+    internal static ReplicaEffectKind Resolve(in ReplicaLogRecord record, out NodeCacheEntry<object?>? entry)
+    {
+        var effect = ResolveShape(in record);
+        entry = effect == ReplicaEffectKind.Upsert ? DecodeEntry(in record) : null;
+        return effect;
+    }
+
+    private static ReplicaEffectKind ResolveShape(in ReplicaLogRecord record)
     {
         if (!ReplicaOutcomeCodec.TryDecode(record.OutcomePayload, out var applied, out var previous))
             throw Inconsistent(in record, "the outcome payload is undecodable", false);
 
-        if (record.ExpiresUtcTicks < 0)
-            throw Inconsistent(in record, "the deadline is negative", applied);
+        if (record.ExpiresUtcTicks < 0 || record.ExpiresUtcTicks > DateTime.MaxValue.Ticks)
+            throw Inconsistent(in record, "the deadline is out of range", applied);
 
         var isRemove = string.Equals(record.MutationKind, ReplicaMutationKinds.Remove, StringComparison.Ordinal);
         return isRemove ? ResolveRemove(in record, applied, previous) : ResolveConditional(in record, applied, previous);

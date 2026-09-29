@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
@@ -28,10 +29,14 @@ namespace Squirix.Server.Node.Services;
 internal sealed class ReplicaLeaderApplier
 {
     private readonly string _groupId;
+    private readonly string _nodeId;
     private readonly ILogicalNamespacedCache<object?> _local;
     private readonly ILogger _log;
     private readonly ReplicationMetrics? _metrics;
     private ulong _appliedIndex;
+
+    /// <summary>The message of the inconsistent record last reported; it names the log index and the reason.</summary>
+    private string? _lastReported;
 
     /// <summary>Whether the applied index was seeded from the durable one; read and written under the committer gate only.</summary>
     private bool _seeded;
@@ -39,14 +44,17 @@ internal sealed class ReplicaLeaderApplier
     /// <summary>Initializes a new instance of the <see cref="ReplicaLeaderApplier" /> class.</summary>
     /// <param name="local">Local cache pipeline the entries are applied to.</param>
     /// <param name="groupId">Identifier of the owned replica group, for diagnostics.</param>
+    /// <param name="nodeId">Identifier of this node, the node label of the metric.</param>
     /// <param name="log">Logger of the inconsistent records; nothing is logged when not set.</param>
     /// <param name="metrics">Replication metrics counting the inconsistent records; nothing is counted when not set.</param>
-    internal ReplicaLeaderApplier(ILogicalNamespacedCache<object?> local, string groupId = "", ILogger? log = null, ReplicationMetrics? metrics = null)
+    internal ReplicaLeaderApplier(ILogicalNamespacedCache<object?> local, string groupId = "", string nodeId = "", ILogger? log = null, ReplicationMetrics? metrics = null)
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentNullException.ThrowIfNull(groupId);
         _local = local;
+        ArgumentNullException.ThrowIfNull(nodeId);
         _groupId = groupId;
+        _nodeId = nodeId;
         _log = log ?? NullLogger.Instance;
         _metrics = metrics;
     }
@@ -69,11 +77,14 @@ internal sealed class ReplicaLeaderApplier
         if (logIndex != next)
             throw new InvalidOperationException($"Replica log entry {logIndex} cannot be applied: the next entry to apply is {next}.");
 
+        ReplicaLogRecord record;
+        ReplicaEffectKind effect;
+        NodeCacheEntry<object?>? entry;
         try
         {
-            var record = ReplicaLogCodec.Decode(canonicalPayload) ??
+            record = ReplicaLogCodec.Decode(canonicalPayload) ??
                 ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));
-            await ReplicaCacheApplier.ApplyAsync(_local, record, cancellationToken).ConfigureAwait(false);
+            effect = ReplicaCacheApplier.Resolve(in record, out entry);
         }
         catch (InvalidDataException error)
         {
@@ -81,6 +92,7 @@ internal sealed class ReplicaLeaderApplier
             throw;
         }
 
+        await ReplicaCacheApplier.ExecuteAsync(_local, record, effect, entry, cancellationToken).ConfigureAwait(false);
         Volatile.Write(ref _appliedIndex, logIndex);
     }
 
@@ -106,10 +118,17 @@ internal sealed class ReplicaLeaderApplier
 
     /// <summary>Logs and counts a log record that was refused as inconsistent.</summary>
     /// <param name="error">Why the record was refused; it names the log index.</param>
+    /// <remarks>
+    /// The same record is refused on every attempt (each write, each readiness pass, each restart step), so it is reported only when it
+    /// differs from the last one reported: the count and the log follow records, not attempts.
+    /// </remarks>
     internal void ReportInconsistentRecord(InvalidDataException error)
     {
+        if (string.Equals(Interlocked.Exchange(ref _lastReported, error.Message), error.Message, StringComparison.Ordinal))
+            return;
+
         LogManager.ReplicaInconsistentRecord(_log, _groupId, error);
-        _metrics?.ReportInconsistentRecord(_groupId, _groupId);
+        _metrics?.ReportInconsistentRecord(_nodeId, _groupId);
     }
 
     /// <summary>Applies the committed entries memory may lack, so it holds every entry through <paramref name="commitIndex" />.</summary>

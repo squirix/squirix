@@ -6,6 +6,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -29,6 +31,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     private readonly TimeProvider _clock;
     private readonly string _groupId;
     private readonly ILogicalNamespacedCache<object?> _local;
+    private readonly ILogger _log;
     private readonly ulong _term;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaMutationFactory" /> class.</summary>
@@ -36,7 +39,8 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="groupId">Owned replica group identifier.</param>
     /// <param name="term">Static leader term for prepared mutations.</param>
     /// <param name="clock">Time source that pins the absolute expiration deadlines of prepared records.</param>
-    internal ReplicaMutationFactory(ILogicalNamespacedCache<object?> local, string groupId, ulong term, TimeProvider clock)
+    /// <param name="log">Logger of the records found inconsistent at prepare; nothing is logged when not set.</param>
+    internal ReplicaMutationFactory(ILogicalNamespacedCache<object?> local, string groupId, ulong term, TimeProvider clock, ILogger? log = null)
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
@@ -46,6 +50,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         _groupId = groupId;
         _term = term;
         _clock = clock;
+        _log = log ?? NullLogger.Instance;
     }
 
     /// <inheritdoc />
@@ -325,7 +330,16 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <exception cref="InvalidDataException">The record is inconsistent, which is a defect of the decision; nothing was appended yet.</exception>
     private PreparedReplicaMutation Build(string scope, in ReplicaLogRecord record, ulong index)
     {
-        _ = ReplicaCacheApplier.ResolveEffect(in record);
+        try
+        {
+            _ = ReplicaCacheApplier.ResolveEffect(in record);
+        }
+        catch (InvalidDataException error)
+        {
+            LogManager.ReplicaInconsistentRecord(_log, _groupId, error);
+            throw;
+        }
+
         var outcome = record.OutcomePayload;
         var canonical = ReplicaLogCodec.Encode(in record);
         var identity = new ReplicaOperationIdentity(_groupId, scope, record.OperationId, record.OperationFingerprint);

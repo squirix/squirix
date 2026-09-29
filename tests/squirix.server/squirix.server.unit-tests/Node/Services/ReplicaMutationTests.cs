@@ -33,7 +33,6 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
 
         var second = await factory.PrepareTryAddAsync("op-2", "cache", "k", new NodeCacheEntry<object?> { Value = "v2" }, 2UL, cancellationToken);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(second), cancellationToken);
-        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(second.OutcomePayload)).IsFalse();
         _ = await Assert.That(ReplicaOutcomeCodec.TryDecode(second.OutcomePayload, out var secondApplied, out _)).IsTrue();
         _ = await Assert.That(secondApplied).IsFalse();
     }
@@ -91,6 +90,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
 
         var present = await factory.PrepareRemoveExpirationAsync("op-4", "cache", "timed", 4UL, cancellationToken);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(present), cancellationToken);
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(present.OutcomePayload)).IsTrue();
     }
 
     /// <summary>Remove returns the observed previous value, then reports missing.</summary>
@@ -152,6 +152,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
 
         var touch = await factory.PrepareTouchAsync("op-3", "cache", "k", TimeSpan.FromMinutes(5), 3UL, cancellationToken);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(touch), cancellationToken);
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(touch.OutcomePayload)).IsTrue();
     }
 
     /// <summary>Update replaces the value of a present key only.</summary>
@@ -171,6 +172,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
 
         var update = await factory.PrepareUpdateAsync("op-3", "cache", "k", "v2", 3UL, cancellationToken);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(update), cancellationToken);
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(update.OutcomePayload)).IsTrue();
         var read = await cache.GetValueAsync("cache", "k", cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
         var secondValue = await Assert.That(read.Value).IsTypeOf<string>();

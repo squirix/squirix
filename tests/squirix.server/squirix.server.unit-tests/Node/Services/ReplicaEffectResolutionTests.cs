@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -17,6 +18,7 @@ public sealed class ReplicaEffectResolutionTests : ServerUnitTestBase
 {
     private const string Invalid = "Invalid";
 
+    private static readonly byte[] EntryBytes = ReplicaCacheApplier.EncodeEntry(new NodeCacheEntry<object?>("v"));
     private static readonly byte[] KeyBytes = [107];
 
     /// <summary>An outcome that does not decode is refused.</summary>
@@ -28,6 +30,28 @@ public sealed class ReplicaEffectResolutionTests : ServerUnitTestBase
         var error = NodeExceptionAssert.For<InvalidDataException>().Throws(record, static candidate => _ = ReplicaCacheApplier.ResolveEffect(in candidate));
 
         _ = await Assert.That(error.Message).Contains("undecodable", StringComparison.Ordinal);
+    }
+
+    /// <summary>An upsert whose entry payload does not decode is refused.</summary>
+    [Test]
+    public async Task UndecodablePayloadIsRefused()
+    {
+        var record = Record(ReplicaMutationKinds.Set, true, true, 0, false) with { MutationPayload = new byte[] { 1 } };
+
+        var error = NodeExceptionAssert.For<InvalidDataException>().Throws(record, static candidate => _ = ReplicaCacheApplier.ResolveEffect(in candidate));
+
+        _ = await Assert.That(error.Message).Contains("undecodable", StringComparison.Ordinal);
+    }
+
+    /// <summary>A deadline beyond the largest representable time is refused as inconsistent instead of overflowing.</summary>
+    [Test]
+    public async Task OutOfRangeDeadlineIsRefused()
+    {
+        var record = Record(ReplicaMutationKinds.Set, true, true, DateTime.MaxValue.Ticks, false) with { ExpiresUtcTicks = long.MaxValue };
+
+        var error = NodeExceptionAssert.For<InvalidDataException>().Throws(record, static candidate => _ = ReplicaCacheApplier.ResolveEffect(in candidate));
+
+        _ = await Assert.That(error.Message).Contains("out of range", StringComparison.Ordinal);
     }
 
     /// <summary>A refusal names the log index, the kind and the applied flag of the record.</summary>
@@ -106,7 +130,9 @@ public sealed class ReplicaEffectResolutionTests : ServerUnitTestBase
         var cache = new ReplicaOwnerTestKit.StubCache();
         var record = Record(ReplicaMutationKinds.Set, false, true, 0, false);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(ReplicaCacheApplier.ApplyAsync(cache, record, cancellationToken));
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            (cache, record, cancellationToken),
+            static state => _ = ReplicaCacheApplier.ApplyAsync(state.cache, state.record, state.cancellationToken));
 
         _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();
     }
@@ -121,7 +147,7 @@ public sealed class ReplicaEffectResolutionTests : ServerUnitTestBase
         "cache",
         KeyBytes,
         kind,
-        hasPayload ? new byte[] { 1 } : ReadOnlyMemory<byte>.Empty,
+        hasPayload ? EntryBytes : ReadOnlyMemory<byte>.Empty,
         ReplicaOutcomeCodec.Encode(applied, hasPrevious ? new byte[] { 1 } : ReadOnlyMemory<byte>.Empty),
         ticks,
         0,
