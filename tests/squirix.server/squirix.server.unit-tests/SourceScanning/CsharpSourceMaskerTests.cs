@@ -5,7 +5,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Architecture;
+namespace Squirix.Server.UnitTests.SourceScanning;
 
 /// <summary>Covers the comment and literal masker used by textual architecture scans.</summary>
 [Immutable]
