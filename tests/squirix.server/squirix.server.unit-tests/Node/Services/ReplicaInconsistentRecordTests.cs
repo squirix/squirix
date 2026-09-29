@@ -92,6 +92,13 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
             _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, bad, cancellationToken));
 
         _ = await Assert.That(Interlocked.Read(ref total[0])).IsEqualTo(1L);
+
+        var different = inconsistent with { MutationKind = ReplicaMutationKinds.Update };
+        var other = ReplicaLogCodec.Encode(in different);
+        for (var attempt = 0; attempt < 3; attempt++)
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, other, cancellationToken));
+
+        _ = await Assert.That(Interlocked.Read(ref total[0])).IsEqualTo(2L);
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(0UL);
     }
 
@@ -112,6 +119,7 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, valid.CanonicalPayload, cancellationToken));
 
         _ = await Assert.That(Interlocked.Read(ref total[0])).IsEqualTo(0L);
+        _ = await Assert.That(applier.AppliedIndex).IsEqualTo(0UL);
     }
 
     /// <summary>An uncommitted tail entry whose entry payload does not decode stops the committer from starting.</summary>
@@ -126,10 +134,19 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
             OutcomePayload = ReplicaOutcomeCodec.Encode(true, ReadOnlyMemory<byte>.Empty),
         };
         await SeedRecordAsync(dir, record, false, cancellationToken);
+        var cache = new StubCache();
+        using var meter = new Meter("test");
+        var total = new long[1];
+        using var listener = CountMetric(meter, total);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), new StubCache());
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache, TimeProvider.System, new ReplicationMetrics(meter));
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken));
+
+        _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();
+        var status = await StatusAsync(registry, cancellationToken);
+        _ = await Assert.That((status.LastLogIndex, status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((1UL, 0UL, 0UL));
+        _ = await Assert.That(Interlocked.Read(ref total[0])).IsEqualTo(1L);
     }
 
     private static MeterListener CountMetric(Meter meter, long[] total)
