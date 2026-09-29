@@ -117,7 +117,7 @@ public sealed class FailoverE2ETests : EndToEndTestBase
     [Test]
     public async Task MajorityRecoversWithinFiveSeconds(CancellationToken cancellationToken)
     {
-        throw new SkipTestException("Automatic failover is not yet wired into production; see #646.");
+        throw new SkipTestException("Automatic failover is not yet wired into production.");
 
 #pragma warning disable CS0162 // Unreachable code: intentional, kept ready to run once automatic failover is wired into production.
         await using var cluster = await HostedCluster.StartThreeNodeAsync(
