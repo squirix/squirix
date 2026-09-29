@@ -92,6 +92,57 @@ public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
     [Test]
     public async Task IsSymlinkFalseForOrdinaryDir() => _ = await Assert.That(DirectorySymlinkGuard.IsSymlink(new DirectoryInfo(Dir))).IsFalse();
 
+    /// <summary>An unreadable link target with readable attributes lets the attributes decide.</summary>
+    [Test]
+    public async Task LinkTargetIoFallsBackToAttributes()
+    {
+        var info = new DirectoryInfo(Dir);
+        _ = await Assert.That(DirectorySymlinkGuard.IsSymlink(info, static _ => throw new IOException("probe"), static _ => FileAttributes.Directory)).IsFalse();
+        _ = await Assert.That(DirectorySymlinkGuard.IsSymlink(info, static _ => throw new IOException("probe"), static _ => FileAttributes.Directory | FileAttributes.ReparsePoint)).IsTrue();
+    }
+
+    /// <summary>An unsupported link target with readable attributes lets the attributes decide.</summary>
+    [Test]
+    public async Task LinkTargetUnsupportedUsesAttributes()
+    {
+        var info = new DirectoryInfo(Dir);
+        _ = await Assert.That(DirectorySymlinkGuard.IsSymlink(info, static _ => throw new NotSupportedException("probe"), static _ => FileAttributes.Directory)).IsFalse();
+        _ = await Assert.That(DirectorySymlinkGuard.IsSymlink(info, static _ => throw new NotSupportedException("probe"), static _ => FileAttributes.ReparsePoint)).IsTrue();
+    }
+
+    /// <summary>Unreadable attributes reported as IOException fail closed.</summary>
+    [Test]
+    public async Task AttributesIoFailsClosed()
+    {
+        var info = new DirectoryInfo(Dir);
+        var ex = NodeExceptionAssert.For<IOException>().Throws(info, static entry => DirectorySymlinkGuard.IsSymlink(entry, static _ => null, static _ => throw new IOException("probe")));
+        _ = await Assert.That(ex.Message).Contains(info.FullName, StringComparison.Ordinal);
+    }
+
+    /// <summary>Unreadable attributes reported as UnauthorizedAccessException fail closed.</summary>
+    [Test]
+    public async Task AttributesUnauthorizedFailsClosed()
+    {
+        var info = new DirectoryInfo(Dir);
+        var ex = NodeExceptionAssert.For<IOException>().Throws(
+            info,
+            static entry => DirectorySymlinkGuard.IsSymlink(entry, static _ => throw new IOException("probe"), static _ => throw new UnauthorizedAccessException("probe")));
+        _ = await Assert.That(ex.Message).Contains(info.FullName, StringComparison.Ordinal);
+    }
+
+    /// <summary>The chain walk rejects when the link status of an existing segment cannot be determined.</summary>
+    [Test]
+    public void GuardRejectsUndeterminableSegment()
+    {
+        string basePath = Dir;
+        var target = Path.Join(basePath, "child", "leaf");
+        _ = Directory.CreateDirectory(Path.Join(basePath, "child"));
+        _ = NodeExceptionAssert.For<IOException>().Throws(
+            target,
+            basePath,
+            static (path, rootPath) => DirectorySymlinkGuard.EnsureNoSymlinksInChain(path, rootPath, static _ => throw new IOException("undeterminable")));
+    }
+
     private static bool TryCreateDirectoryLink(string linkPath, string targetPath)
     {
         try
