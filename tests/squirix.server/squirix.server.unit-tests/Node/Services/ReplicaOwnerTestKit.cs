@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
@@ -53,6 +54,14 @@ internal static class ReplicaOwnerTestKit
 
     internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, ILogicalNamespacedCache<object?> cache, ILogger? log = null) =>
         new(registry, new ThreeNodeLocator(), gateway, cache, "n1", Fingerprint, 1) { Log = log ?? NullLogger.Instance };
+
+    internal static ReplicaGroupCommitter CreateCommitter(
+        ReplicaGroupRegistry registry,
+        IReplicaRpcGateway gateway,
+        ILogicalNamespacedCache<object?> cache,
+        TimeProvider clock,
+        ReplicationMetrics? metrics = null) =>
+        new(registry, new ThreeNodeLocator(), gateway, cache, "n1", Fingerprint, 1) { Log = NullLogger.Instance, Clock = clock, Metrics = metrics };
 
     internal static Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, CancellationToken cancellationToken) => OpenRegistryAsync(dir, null, cancellationToken);
 
@@ -142,6 +151,28 @@ internal static class ReplicaOwnerTestKit
             _ = await log.AppendAsync(new FollowerLogAppendRequest("n1", currentTerm, index, 1, status.CommitIndex, ReadOnlyMemory<FollowerLogEntry>.Empty), cancellationToken);
     }
 
+    /// <summary>Appends one prepared record to the owned group log as the next entry, committed or as an uncommitted tail, without applying it.</summary>
+    /// <param name="dir">Node data directory holding the seeded, committed group.</param>
+    /// <param name="record">The record; its log index and term are replaced by the next position of the log.</param>
+    /// <param name="committed">Whether the commit index moves onto the appended entry.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="InvalidOperationException">The owned group log is not open or refused the entry.</exception>
+    internal static async Task SeedRecordAsync(string dir, ReplicaLogRecord record, bool committed, CancellationToken cancellationToken)
+    {
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        if (!registry.TryGetLog("n1", out var log))
+            throw new InvalidOperationException("The owned group log is not open.");
+
+        var status = await log.GetStatusAsync(cancellationToken);
+        var index = status.LastLogIndex + 1;
+        var positioned = record with { LogIndex = index, Term = 1 };
+        FollowerLogEntry[] entry = [new(index, 1, ReplicaLogCodec.Encode(in positioned))];
+        var appended = await log.AppendAsync(new FollowerLogAppendRequest("n1", 1, status.LastLogIndex, 1, committed ? index : status.CommitIndex, entry), cancellationToken);
+        if (!appended.Success)
+            throw new InvalidOperationException($"The owned group log refused the entry: {appended.RefusalCode}.");
+    }
+
     /// <summary>Raises the owned group log's current term without appending an entry, as a new leader term that has not written yet.</summary>
     /// <param name="registry">The open registry of the owner.</param>
     /// <param name="currentTerm">The new current term.</param>
@@ -175,6 +206,9 @@ internal static class ReplicaOwnerTestKit
         private readonly ConcurrentDictionary<string, ulong> _held = new(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, FollowerMode> _modes = new(StringComparer.Ordinal);
 
+        /// <summary>Gets or sets a hook that runs, before it answers, on every batch with entries a follower receives.</summary>
+        internal Action? OnAppend { get; set; }
+
         /// <summary>Gets the node, predecessor index, and entry count of every non-empty batch sent.</summary>
         internal ConcurrentQueue<(string Node, ulong PrevLogIndex, int Count)> Appends { get; } = new();
 
@@ -183,7 +217,10 @@ internal static class ReplicaOwnerTestKit
             var last = batch.Records.Count == 0 ? batch.PrevLogIndex : batch.Records[^1].LogIndex;
             var mode = _modes.TryGetValue(nodeId, out var scripted) ? scripted : FollowerMode.Match;
             if (batch.Records.Count > 0)
+            {
                 Appends.Enqueue((nodeId, batch.PrevLogIndex, batch.Records.Count));
+                OnAppend?.Invoke();
+            }
 
             return mode switch
             {
