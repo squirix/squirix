@@ -96,6 +96,39 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
         lease.Dispose();
     }
 
+    /// <summary>Verifies a request queued when the gate is disposed is rejected promptly instead of failing with a disposal error or waiting out the queue budget.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task QueuedRequestIsRejectedOnGateDispose(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var sink = new NodeMeasurementSink(meter);
+        var gate = new AdmissionGate(
+            new AdmissionOptions
+            {
+                MaxInFlight = 1,
+                MaxQueue = 1,
+                SlowdownThreshold = 1,
+                RejectThreshold = 1,
+                MaxSlowdownDelay = TimeSpan.Zero,
+                MaxQueueWait = TimeSpan.FromMinutes(5),
+            },
+            new BackpressureMetrics(meter));
+        var (_, held) = await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken);
+        var queued = gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken).AsTask();
+        _ = await Assert.That(queued.IsCompleted).IsFalse();
+
+        gate.Dispose();
+        gate.Dispose();
+        var (decision, lease) = await queued.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        lease.Dispose();
+        held.Dispose();
+
+        _ = await Assert.That(decision.IsAccepted).IsFalse();
+        _ = await Assert.That(decision.RejectReason).IsEqualTo("gate_disposed");
+        _ = await Assert.That(sink.HasEvent("squirix_backpressure_reject_total", ("transport", "rest"), ("op", "get"), ("reason", "gate_disposed"))).IsTrue();
+    }
+
     /// <summary>Verifies concurrent acquire and release does not exceed configured in-flight capacity.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
