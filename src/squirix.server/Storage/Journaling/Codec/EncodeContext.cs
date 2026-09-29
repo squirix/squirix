@@ -38,8 +38,7 @@ internal sealed record EncodeContext
         return record.Operation switch
         {
             JournalOperationKind.Put => mutationOperationIdPrefix + record.PutEntryBytes.Length,
-            JournalOperationKind.TouchExpiration => mutationOperationIdPrefix + 8,
-            JournalOperationKind.Remove or JournalOperationKind.RemoveExpiration => mutationOperationIdPrefix,
+            JournalOperationKind.Remove => mutationOperationIdPrefix,
             JournalOperationKind.IdempotencyOutcome => 2 + Encoding.UTF8.GetByteCount(record.IdempotencyOperationId ?? string.Empty) + 2 +
                                                        Encoding.UTF8.GetByteCount(record.IdempotencyFingerprint ?? string.Empty) + 4 + record.IdempotencyResponseBytes.Length,
             JournalOperationKind.IdempotencyStarted => 2 + Encoding.UTF8.GetByteCount(record.IdempotencyOperationId ?? string.Empty) + 2 +

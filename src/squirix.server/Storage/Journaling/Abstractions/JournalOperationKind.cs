@@ -1,16 +1,11 @@
 namespace Squirix.Server.Storage.Journaling.Abstractions;
 
 /// <summary>Identifies a journal writer operation for distributed tracing.</summary>
+/// <remarks>Values 1 and 2 belonged to the retired delta frames and are not reused: every cache-entry frame is a put of the whole entry or a remove.</remarks>
 internal enum JournalOperationKind
 {
     /// <summary>A remove journal record.</summary>
     Remove = 0,
-
-    /// <summary>A remove-expiration journal record.</summary>
-    RemoveExpiration = 1,
-
-    /// <summary>A touch-expiration journal record.</summary>
-    TouchExpiration = 2,
 
     /// <summary>A put journal record.</summary>
     Put = 3,

@@ -47,8 +47,6 @@ public sealed class OpenTelemetryJournalOperationTracerTests
 
         await AssertSpanNameAsync(journalTracer, JournalOperationKind.Put, "journal.put");
         await AssertSpanNameAsync(journalTracer, JournalOperationKind.Remove, "journal.remove");
-        await AssertSpanNameAsync(journalTracer, JournalOperationKind.RemoveExpiration, "journal.remove_expiration");
-        await AssertSpanNameAsync(journalTracer, JournalOperationKind.TouchExpiration, "journal.touch_expiration");
         await AssertSpanNameAsync(journalTracer, JournalOperationKind.IdempotencyOutcome, "journal.idempotency_outcome");
         await AssertSpanNameAsync(journalTracer, JournalOperationKind.IdempotencyStarted, "journal.idempotency_started");
         await AssertSpanNameAsync(journalTracer, JournalOperationKind.AwaitDurabilityCommit, "journal.await_durability");

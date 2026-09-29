@@ -74,8 +74,6 @@ internal static class JournalCompactor
                 ApplyIdempotencyStarted(record, idempotencyState);
                 break;
             case JournalOperationKind.Remove:
-            case JournalOperationKind.RemoveExpiration:
-            case JournalOperationKind.TouchExpiration:
             case JournalOperationKind.Put:
             case JournalOperationKind.AwaitDurabilityCommit:
             case JournalOperationKind.WaitForStartup:
@@ -135,24 +133,6 @@ internal static class JournalCompactor
 
     private static void ApplyRemove(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state) =>
         _ = state.Remove(new CacheKey(record.Key.Namespace, record.Key.Key));
-
-    private static void ApplyRemoveExpiration(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state)
-    {
-        var key = new CacheKey(record.Key.Namespace, record.Key.Key);
-        if (!state.TryGetValue(key, out var entry))
-            return;
-
-        state[key] = new NodeCacheEntry<object?>(entry.Value, entry.Version, tags: entry.Tags);
-    }
-
-    private static void ApplyTouchExpiration(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state)
-    {
-        var key = new CacheKey(record.Key.Namespace, record.Key.Key);
-        if (!state.TryGetValue(key, out var entry))
-            return;
-
-        state[key] = new NodeCacheEntry<object?>(entry.Value, entry.Version, record.TouchExpirationUtc, tags: entry.Tags);
-    }
 
     private static async Task<(Dictionary<CacheKey, NodeCacheEntry<object?>> State, Dictionary<string, CompactedIdempotencyRecord> IdempotencyState, ulong LastSeq)>
         BuildCompactionStateAsync(PersistenceOptions options, SnapshotRef? snapshotRef, int replayFromSegment, ISnapshotReader snapshotReader, CancellationToken cancellationToken)
@@ -244,12 +224,6 @@ internal static class JournalCompactor
                 break;
             case JournalOperationKind.Remove:
                 ApplyRemove(record, state);
-                break;
-            case JournalOperationKind.RemoveExpiration:
-                ApplyRemoveExpiration(record, state);
-                break;
-            case JournalOperationKind.TouchExpiration:
-                ApplyTouchExpiration(record, state);
                 break;
             case JournalOperationKind.AwaitDurabilityCommit:
             case JournalOperationKind.WaitForStartup:

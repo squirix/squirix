@@ -127,8 +127,6 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
     }
 
-    public ValueTask<bool> RemoveExpirationRecoveryAsync(CacheKey key, CancellationToken cancellationToken) => RemoveExpirationAsync(key, cancellationToken);
-
     public ValueTask<bool> RemoveRecoveryAsync(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -153,19 +151,6 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 return ValueTask.FromResult(false);
 
             node.ExpiresUtc = UtcNow.SaturatedAdd(expiration);
-            return ValueTask.FromResult(true);
-        }
-    }
-
-    public ValueTask<bool> TouchExpirationRecoveryAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_lock)
-        {
-            if (!TryGetLiveLocked(key, out var node))
-                return ValueTask.FromResult(false);
-
-            node.ExpiresUtc = DateTime.SpecifyKind(expiresUtc, DateTimeKind.Utc);
             return ValueTask.FromResult(true);
         }
     }

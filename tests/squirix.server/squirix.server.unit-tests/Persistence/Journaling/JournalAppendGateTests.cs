@@ -120,8 +120,6 @@ public sealed class JournalAppendGateTests : IsolatedStorageTestBase
 
         await AssertGateRefusalAsync(call, static s => s.Journal.AppendPutAsync(s.Ownership, Key, s.Payload, s.Token));
         await AssertGateRefusalAsync(call, static s => s.Journal.AppendRemoveAsync(s.Ownership, Key, s.Token));
-        await AssertGateRefusalAsync(call, static s => s.Journal.AppendRemoveExpirationAsync(s.Ownership, Key, s.Token));
-        await AssertGateRefusalAsync(call, static s => s.Journal.AppendTouchExpirationAsync(s.Ownership, Key, DateTime.UtcNow, s.Token));
     }
 
     /// <summary>Asserts that <paramref name="append" /> faults with the gate refusal, not with any other invalid operation.</summary>

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -22,7 +23,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
-/// <summary>Recovery replay of mutation journal frames (Put, Remove, RemoveExpiration, TouchExpiration).</summary>
+/// <summary>Recovery replay of mutation journal frames: every cache-entry frame is a put of the whole entry or a remove.</summary>
 [Immutable]
 public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTestBase
 {
@@ -64,18 +65,54 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         _ = await Assert.That(exported.OperationId).IsEqualTo("op-zero");
     }
 
-    /// <summary>Replay must apply Put, TouchExpiration, RemoveExpiration, and Remove in order, leaving only untouched keys.</summary>
+    /// <summary>A put whose deadline passed, followed by a put of a live entry for the same key, replays as the live entry.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PastPutThenFuturePutKeepsFutureEntry(CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-past-then-future");
+        var deadline = DateTime.UtcNow.AddHours(1);
+        var past = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "a", new NodeCacheEntry<object?> { Value = "old", ExpiresUtc = DateTime.UtcNow.AddMinutes(-5) });
+        var future = BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "a", new NodeCacheEntry<object?> { Value = "new", ExpiresUtc = deadline });
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, [past, future]);
+        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 3 }, cancellationToken);
+
+        await RunRecoveryAsync(scenario, cancellationToken);
+
+        var entry = await scenario.Cache.GetEntryAsync(CacheKey.Default("a"), cancellationToken);
+        _ = await Assert.That(entry).IsNotNull();
+        _ = await Assert.That(entry!.Value).IsEqualTo("new");
+        _ = await Assert.That(entry.ExpiresUtc!.Value.Ticks / TimeSpan.TicksPerMillisecond).IsEqualTo(deadline.Ticks / TimeSpan.TicksPerMillisecond);
+    }
+
+    /// <summary>A put of a live entry, followed by a put whose deadline passed for the same key, replays as an absent key.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FuturePutThenPastPutDropsKey(CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-future-then-past");
+        var future = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "a", new NodeCacheEntry<object?> { Value = "old", ExpiresUtc = DateTime.UtcNow.AddHours(1) });
+        var past = BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "a", new NodeCacheEntry<object?> { Value = "new", ExpiresUtc = DateTime.UtcNow.AddMinutes(-5) });
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, [future, past]);
+        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 3 }, cancellationToken);
+
+        await RunRecoveryAsync(scenario, cancellationToken);
+
+        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("a"), cancellationToken)).Found).IsFalse();
+    }
+
+    /// <summary>Replay must apply Put and Remove in order, leaving only the keys the last frame of which is a live put.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task ReplayAppliesMutationOpsInOrder(CancellationToken cancellationToken)
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-mutations");
         var put = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "a", "v");
-        var touch = BinaryJournalTestSegmentWriter.BuildTouchExpirationRecord(2UL, "a", DateTime.UtcNow.AddHours(1));
-        var removeExp = BinaryJournalTestSegmentWriter.BuildRemoveExpirationRecord(3UL, "a");
+        var extended = BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "a", new NodeCacheEntry<object?> { Value = "v", ExpiresUtc = DateTime.UtcNow.AddHours(1) });
+        var persistent = BinaryJournalTestSegmentWriter.BuildPutRecord(3UL, "a", "v");
         var remove = BinaryJournalTestSegmentWriter.BuildRemoveRecord(4UL, "a");
         var putB = BinaryJournalTestSegmentWriter.BuildPutRecord(5UL, "b", "vb");
-        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, [put, touch, removeExp, remove, putB]);
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, [put, extended, persistent, remove, putB]);
         await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 6 }, cancellationToken);
 
         await RunRecoveryAsync(scenario, cancellationToken);
@@ -84,6 +121,23 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         var b = await scenario.Cache.GetValueAsync(CacheKey.Default("b"), cancellationToken);
         _ = await Assert.That(b.Found).IsTrue();
         _ = await Assert.That(b.Value).IsEqualTo("vb");
+    }
+
+    /// <summary>A frame carrying a retired opcode fails recovery instead of being skipped.</summary>
+    /// <param name="opcodeWire">The retired raw opcode byte.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(3)]
+    [Arguments(4)]
+    [Arguments(8)]
+    [Arguments(9)]
+    public async Task RetiredOpcodeFailsRecovery(int opcodeWire, CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-retired-opcode");
+        BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, Convert.ToByte(opcodeWire), "a");
+        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
     }
 
     /// <summary>Replay must abort with InvalidOperationException when a Put payload cannot be decoded.</summary>

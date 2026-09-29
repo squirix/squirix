@@ -141,16 +141,6 @@ public sealed class WriteAheadMutationCodecTests
         _ = await Assert.That(decoded.PutEntryBytes.Length).IsEqualTo(1);
     }
 
-    /// <summary>Remove-expiration frames carry the mutation operation id.</summary>
-    [Test]
-    public async Task RemoveExpirationOpIdRoundTrips()
-    {
-        var decoded = RoundTrip(CreateRecord(JournalOperationKind.RemoveExpiration));
-
-        _ = await Assert.That(decoded.Operation).IsEqualTo(JournalOperationKind.RemoveExpiration);
-        _ = await Assert.That(decoded.MutationOperationId).IsEqualTo(OpId);
-    }
-
     /// <summary>Remove frames carry the mutation operation id.</summary>
     [Test]
     public async Task RemoveWithOperationIdRoundTrips()
@@ -212,37 +202,6 @@ public sealed class WriteAheadMutationCodecTests
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(body, static buffer => _ = BinaryJournalCodec.Decode(buffer, buffer.Length));
     }
 
-    /// <summary>Touch-expiration frames carry the mutation operation id and preserve the expiration.</summary>
-    [Test]
-    public async Task TouchExpirationWithOperationIdRoundTrips()
-    {
-        var expires = new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc);
-        var record = new JournalRecord
-        {
-            Sequence = 1,
-            UnixMs = 1000,
-            Operation = JournalOperationKind.TouchExpiration,
-            Key = new CacheKey("default", "k"),
-            MutationOperationId = OpId,
-            TouchExpirationUtc = expires,
-        };
-
-        var decoded = RoundTrip(record);
-
-        _ = await Assert.That(decoded.Operation).IsEqualTo(JournalOperationKind.TouchExpiration);
-        _ = await Assert.That(decoded.MutationOperationId).IsEqualTo(OpId);
-        _ = await Assert.That(decoded.TouchExpirationUtc).IsEqualTo(expires);
-    }
-
-    /// <summary>A touch-expiration payload without the 8-byte expiration is rejected.</summary>
-    [Test]
-    public void TouchPayloadLengthMismatchThrows()
-    {
-        var body = FrameBody(9, [0x03, 0x00, 0x61, 0x62, 0x63]);
-
-        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(body, static buffer => _ = BinaryJournalCodec.Decode(buffer, buffer.Length));
-    }
-
     /// <summary>A payload length overrunning the bounded frame body is rejected.</summary>
     [Test]
     public void TruncatedPayloadOverrunThrows()
@@ -253,6 +212,22 @@ public sealed class WriteAheadMutationCodecTests
         BinaryPrimitives.WriteInt32LittleEndian(padded.AsSpan(21), 100);
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws((Buffer: padded, valid.Length), static state => _ = BinaryJournalCodec.Decode(state.Buffer, state.Length));
+    }
+
+    /// <summary>A retired or unassigned opcode wire value is rejected during decoding, never skipped.</summary>
+    /// <param name="opcodeWire">The raw opcode byte.</param>
+    [Test]
+    [Arguments(0)]
+    [Arguments(3)]
+    [Arguments(4)]
+    [Arguments(8)]
+    [Arguments(9)]
+    [Arguments(11)]
+    public void DecodeRejectsUnassignedOpcode(int opcodeWire)
+    {
+        var body = FrameBody(Convert.ToByte(opcodeWire), [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(body, static buffer => _ = BinaryJournalCodec.Decode(buffer, buffer.Length));
     }
 
     /// <summary>An unknown opcode wire value is rejected during decoding.</summary>

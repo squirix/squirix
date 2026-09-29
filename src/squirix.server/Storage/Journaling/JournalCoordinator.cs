@@ -216,15 +216,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         _appendPipeline.AllocateRecord(in ownership, key, JournalOperationKind.Remove),
         cancellationToken);
 
-    public ValueTask AppendRemoveExpirationAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => _appendPipeline.AppendRecordCoreAsync(
-        _appendPipeline.AllocateRecord(in ownership, key, JournalOperationKind.RemoveExpiration),
-        cancellationToken);
-
-    public ValueTask AppendTouchExpirationAsync(AsyncLockOwnership ownership, CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) =>
-        _appendPipeline.AppendRecordCoreAsync(
-            _appendPipeline.AllocateRecord(in ownership, key, JournalOperationKind.TouchExpiration, touchExpirationUtc: expiresUtc),
-            cancellationToken);
-
     public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
     {
         DurabilityPipeline.ThrowIfJournalThreadFailed();
@@ -577,12 +568,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             return record;
         }
 
-        internal JournalRecord AllocateRecord(
-            in AsyncLockOwnership ownership,
-            CacheKey key,
-            JournalOperationKind operation,
-            ReadOnlyMemory<byte> putEntryBytes = default,
-            DateTime? touchExpirationUtc = null)
+        internal JournalRecord AllocateRecord(in AsyncLockOwnership ownership, CacheKey key, JournalOperationKind operation, ReadOnlyMemory<byte> putEntryBytes = default)
         {
             // Allocated before renting: a caller refused for not holding the gate leaves no record out of the pool.
             var sequence = _owner.AllocateSequence(in ownership);
@@ -592,7 +578,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             record.Operation = operation;
             record.Key = key;
             record.PutEntryBytes = putEntryBytes;
-            record.TouchExpirationUtc = touchExpirationUtc;
             return record;
         }
 
@@ -650,8 +635,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
             var stampedOperationId = record.Operation switch
             {
-                JournalOperationKind.Put or JournalOperationKind.Remove or JournalOperationKind.RemoveExpiration or JournalOperationKind.TouchExpiration =>
-                    RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue,
+                JournalOperationKind.Put or JournalOperationKind.Remove => RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue,
                 JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.MaintenanceExclusive or JournalOperationKind.SnapshotCut
                     or JournalOperationKind.UnderSnapshotBarrier or JournalOperationKind.IdempotencyOutcome
                     or JournalOperationKind.IdempotencyStarted => record.MutationOperationId,

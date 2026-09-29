@@ -69,12 +69,6 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
     public ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => default;
 
     /// <inheritdoc />
-    public ValueTask AppendRemoveExpirationAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => default;
-
-    /// <inheritdoc />
-    public ValueTask AppendTouchExpirationAsync(AsyncLockOwnership ownership, CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) => default;
-
-    /// <inheritdoc />
     public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken) => default;
 
     /// <inheritdoc />

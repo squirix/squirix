@@ -33,9 +33,6 @@ internal sealed class JournalRecord
     /// <summary>Gets or sets the monotonic journal sequence number.</summary>
     internal ulong Sequence { get; set; }
 
-    /// <summary>Gets or sets touch expiration UTC; only set for <see cref="JournalOperationKind.TouchExpiration" />.</summary>
-    internal DateTime? TouchExpirationUtc { get; set; }
-
     /// <summary>Gets or sets the operation timestamp in Unix milliseconds.</summary>
     internal long UnixMs { get; set; }
 
@@ -44,7 +41,6 @@ internal sealed class JournalRecord
     internal void ReturnToAppendPool()
     {
         PutEntryBytes = default;
-        TouchExpirationUtc = null;
         MutationOperationId = null;
         IdempotencyOperationId = null;
         IdempotencyFingerprint = null;

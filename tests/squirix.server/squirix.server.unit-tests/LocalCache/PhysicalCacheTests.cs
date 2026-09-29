@@ -37,12 +37,6 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         _ = await st.Cache.TouchAsync(st.Key, TimeSpan.FromSeconds(10), st.Ct);
     };
 
-    private static readonly Func<object?, Task> TouchRecOp = static async s =>
-    {
-        var st = s as RaceState ?? ThrowHelper.Throw<RaceState>(new InvalidOperationException());
-        _ = await st.Cache.TouchExpirationRecoveryAsync(st.Key, DateTime.UtcNow.AddHours(1), st.Ct);
-    };
-
     private static readonly Func<object?, Task> UpdateRaceOp = static async s =>
     {
         var st = s as RaceState ?? ThrowHelper.Throw<RaceState>(new InvalidOperationException());
@@ -151,40 +145,6 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         var entry = await cache.GetEntryAsync(key, cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         await AssertTagsEqualAsync(TestTags, entry.Tags);
-    }
-
-    /// <summary>TouchExpirationRecoveryAsync sets a new expiration and reports success on a live entry (CAS path works).</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task TouchRecoveryReturnsTrueWhenLive(CancellationToken cancellationToken)
-    {
-        var cache = new PhysicalCache<string>();
-        var key = new CacheKey("ns", "touch_rec_live");
-        await cache.SetAsync(key, new NodeCacheEntry<string>("v"), cancellationToken);
-
-        _ = await Assert.That(await cache.TouchExpirationRecoveryAsync(key, DateTime.UtcNow.AddMinutes(5), cancellationToken)).IsTrue();
-
-        var entry = await cache.GetEntryAsync(key, cancellationToken);
-        _ = await Assert.That(entry).IsNotNull();
-        _ = await Assert.That(entry.ExpiresUtc).IsNotNull();
-    }
-
-    /// <summary>TouchExpirationRecoveryAsync also has the same read-modify-write pattern.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task TouchRecoveryShouldNotResurrect(CancellationToken cancellationToken)
-    {
-        for (var i = 0; i < 50; i++)
-        {
-            var cache = new PhysicalCache<string>();
-            var key = new CacheKey("ns", "touch_rec");
-            await cache.SetAsync(key, new NodeCacheEntry<string>("v", tags: TestTags), cancellationToken);
-
-            await RaceTouchRecAsync(cache, key, cancellationToken);
-
-            var entry = await cache.GetEntryAsync(key, cancellationToken);
-            _ = await Assert.That(entry).IsNull();
-        }
     }
 
     /// <summary>TouchAsync sets a new expiration and reports success on a live entry (CAS path works).</summary>
@@ -349,18 +309,6 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     {
         var st = new RaceState(cache, key, cancellationToken);
         var op = Task.Factory.StartNew(TouchOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
-        var rem = Task.Factory.StartNew(RemoveOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
-        return Task.WhenAll(op, rem);
-    }
-
-    /// <summary>Races touch-expiration-recovery against remove on the same key.</summary>
-    /// <param name="cache">The cache under test.</param>
-    /// <param name="key">The raced key.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    private static Task RaceTouchRecAsync(PhysicalCache<string> cache, CacheKey key, CancellationToken cancellationToken)
-    {
-        var st = new RaceState(cache, key, cancellationToken);
-        var op = Task.Factory.StartNew(TouchRecOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
         var rem = Task.Factory.StartNew(RemoveOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
         return Task.WhenAll(op, rem);
     }

@@ -169,10 +169,6 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
                .Callback(journal.AppendPutAsync);
             _ = setups.AppendRemoveAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>())
                .Callback(journal.AppendRemoveAsync);
-            _ = setups.AppendRemoveExpirationAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>())
-               .Callback(journal.AppendRemoveExpirationAsync);
-            _ = setups.AppendTouchExpirationAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
-               .Callback(journal.AppendTouchExpirationAsync);
             _ = setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).Callback(journal.AwaitDurabilityCommitAsync);
             _ = setups.ExecuteMaintenanceExclusiveAsync(Arg.Any<Func<CancellationToken, ValueTask>>(), Arg.Any<CancellationToken>())
                .Callback(journal.ExecuteMaintenanceExclusiveAsync);
