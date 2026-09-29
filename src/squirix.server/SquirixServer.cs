@@ -63,10 +63,7 @@ public sealed class SquirixServer : IAsyncDisposable
         _ = await builder.AddSquirixServerAsync(target => Configurator.CopyOptions(options, target), loadDiscoveredSettings: false, cancellationToken: cancellationToken)
                          .ConfigureAwait(false);
         var app = builder.Build();
-        _ = app.MapSquirixServer();
-
-        await app.StartAsync(cancellationToken).ConfigureAwait(false);
-        return new ApplicationHandle(app);
+        return await ApplicationHandle.StartApplicationAsync(app, static application => application.MapSquirixServer(), cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Starts the Squirix server host runtime using discovered settings or ephemeral defaults.</summary>
@@ -100,6 +97,45 @@ public sealed class SquirixServer : IAsyncDisposable
                 _ = RunDisposeAsync();
 
             return new ValueTask(_disposed.Task);
+        }
+
+        /// <summary>
+        /// Configures and starts a built application. When configuration or startup fails, whatever already started is stopped and the application is
+        /// released, then the original exception is rethrown; a cleanup failure is logged and never replaces it.
+        /// </summary>
+        /// <param name="app">The built application; ownership transfers to the returned handle or is released on failure.</param>
+        /// <param name="configure">Callback applied to the built application before it starts.</param>
+        /// <param name="cancellationToken">Cancellation token for startup only; cleanup does not observe it.</param>
+        /// <returns>A handle owning the started application.</returns>
+        internal static async ValueTask<ApplicationHandle> StartApplicationAsync(WebApplication app, Action<WebApplication> configure, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(app);
+            ArgumentNullException.ThrowIfNull(configure);
+            var handle = new ApplicationHandle(app);
+            var logger = app.Logger;
+            try
+            {
+                configure(app);
+                await app.StartAsync(cancellationToken).ConfigureAwait(false);
+                return handle;
+            }
+#pragma warning disable CA1031 // The original startup failure is rethrown; a cleanup failure is logged instead of replacing it.
+            catch
+#pragma warning restore CA1031
+            {
+                try
+                {
+                    await handle.DisposeAsync().ConfigureAwait(false);
+                }
+#pragma warning disable CA1031 // See above.
+                catch (Exception cleanupException)
+#pragma warning restore CA1031
+                {
+                    LogManager.HostDisposeFailedAfterStartFailure(logger, cleanupException);
+                }
+
+                throw;
+            }
         }
 
         private async Task RunDisposeAsync()
