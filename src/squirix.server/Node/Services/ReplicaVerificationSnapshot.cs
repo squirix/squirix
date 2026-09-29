@@ -5,8 +5,11 @@ using Squirix.Server.Storage.Replication;
 namespace Squirix.Server.Node.Services;
 
 /// <summary>The follower probing of one verification pass, taken without the commit gate.</summary>
-/// <remarks>It is either a final verdict, or the state the admission under the commit gate continues from.</remarks>
-[Immutable]
+/// <remarks>
+/// It is either a final verdict, or the state the admission under the commit gate continues from. The admitting caller owns the arrays
+/// and updates them in place; they are not copied.
+/// </remarks>
+[Mutable]
 internal sealed class ReplicaVerificationSnapshot
 {
     /// <summary>Initializes a new instance of the <see cref="ReplicaVerificationSnapshot" /> class that ends the pass.</summary>

@@ -28,7 +28,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private const string PendingApplyRefusalReason = "replica_apply_pending";
     private static readonly TimeSpan DefaultCommitBudget = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(1);
 
     private readonly Lazy<ReplicaLeaderApplier> _applier;
     private readonly AsyncLock _gate = new();
@@ -390,7 +389,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // A commit may have moved the tail between the unguarded probe and the gate: the verdicts then describe
         // an older tail, so the slots that answered are probed again against the current one.
         if (current.LastLogIndex != status.LastLogIndex || current.LastLogTerm != status.LastLogTerm)
-            probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, snapshot.Answered, snapshot.Members, snapshot.Header, current, ProbeTimeout, cancellationToken).ConfigureAwait(false);
+            probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, snapshot.Answered, snapshot.Members, snapshot.Header, current, ReplicaVerificationProbe.ProbeTimeout, cancellationToken).ConfigureAwait(false);
 
         // StartAsync may have verified some of these slots while this call waited for the gate: an older verdict
         // must not demote them.
@@ -518,7 +517,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var eligibility = _registry.EligibilityFor(GroupId);
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, in status, _topologyFingerprint, _generation);
         var results = eligibility.CanCountInWriteQuorum(0)
-            ? await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility), members, header, status, ProbeTimeout, cancellationToken)
+            ? await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility), members, header, status, ReplicaVerificationProbe.ProbeTimeout, cancellationToken)
                                          .ConfigureAwait(false)
             : [];
 

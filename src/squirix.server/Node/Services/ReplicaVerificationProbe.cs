@@ -16,7 +16,8 @@ namespace Squirix.Server.Node.Services;
 /// </remarks>
 internal sealed class ReplicaVerificationProbe
 {
-    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(1);
+    /// <summary>Gets the longest wait for one follower to answer a verification probe.</summary>
+    internal static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(1);
 
     private readonly ulong _generation;
     private readonly IReplicaRpcGateway _gateway;
