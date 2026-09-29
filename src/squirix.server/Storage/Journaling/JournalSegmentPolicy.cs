@@ -52,9 +52,9 @@ internal sealed class JournalSegmentPolicy
         // new segment starts at FileHeaderSize, so W = S - FileHeaderSize bytes of frames fit into it. Every admitted frame fits an empty
         // segment, so a frame adds at most one new segment: the backlog adds at most pendingCount. By bytes: say the backlog (P bytes)
         // rolls into new segments 1..R, segment i holds c_i backlog bytes and begins with the frame g_i that rolled into it, and the
-        // incoming frame F rolls out of segment R. Leaving segment i took c_i + g_(i+1) >= W + 1, with g_(R+1) = F. Summing over
-        // i = 1..R: R * (W + 1) <= sum(c_i) + sum(g_2..g_R) + F <= 2P + F, since each g_i is part of c_i. So R <= (2P + F) / (W + 1),
-        // and F's own roll adds one more. A roll into a pre-created target that already holds frames adds no segment; the chain skips
+        // incoming frame F rolls out of segment R. Leaving segment i took at least W + 1 bytes (c_i plus g_(i+1), where g_(R+1) is F).
+        // Summed over every i from 1 to R, R times (W + 1) is at most sum(c_i) plus sum(g_2..g_R) plus F, which is at most 2P + F
+        // because each g_i is part of c_i. Hence R is at most (2P + F) / (W + 1), and F's own roll adds one more. A roll into a pre-created target that already holds frames adds no segment; the chain skips
         // that segment, and the bound still holds for the new ones. When the next target is pre-created with at most a header (counted,
         // and still starting at the header once rolled into), the chain covers every roll, and the first of the R + 1 rolls adds none.
         var usableSegmentBytes = _maxSegmentBytes - JournalFraming.FileHeaderSize;
