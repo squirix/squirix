@@ -146,6 +146,21 @@ public sealed class ReplicaEligibilityTests
         _ = await Assert.That(quorum.FindCommitIndex(0, 1)).IsEqualTo(1UL);
     }
 
+    /// <summary>The write majority needs more than half of the slots verified ready.</summary>
+    [Test]
+    public async Task WriteMajorityNeedsMoreThanHalfReady()
+    {
+        var eligibility = new ReplicaEligibility(3);
+        var target = Progress(2, 1, 1, 1, 7, 42);
+        _ = await Assert.That(eligibility.HasWriteMajority()).IsFalse();
+
+        _ = await Assert.That(eligibility.TryMarkReady(0, in target, in target)).IsTrue();
+        _ = await Assert.That(eligibility.HasWriteMajority()).IsFalse();
+
+        _ = await Assert.That(eligibility.TryMarkReady(2, in target, in target)).IsTrue();
+        _ = await Assert.That(eligibility.HasWriteMajority()).IsTrue();
+    }
+
     private static ReplicaDurableAcknowledgement Acknowledgement(PreparedReplicaMutation mutation) => new(
         mutation.GroupId,
         mutation.Term,

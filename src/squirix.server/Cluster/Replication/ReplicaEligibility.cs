@@ -43,6 +43,20 @@ internal sealed class ReplicaEligibility
         return true;
     }
 
+    /// <summary>Returns whether a majority of the slots may count in the write quorum.</summary>
+    /// <returns><see langword="true" /> when more than half of the slots are verified ready.</returns>
+    internal bool HasWriteMajority()
+    {
+        var ready = 0;
+        for (var i = 0; i < ReplicaCount; i++)
+        {
+            if (CanCountInWriteQuorum(i))
+                ready++;
+        }
+
+        return ready >= (ReplicaCount / 2) + 1;
+    }
+
     /// <summary>Returns whether the participant may be promoted to leader.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
     /// <returns><see langword="true" /> only for a verified ready participant.</returns>

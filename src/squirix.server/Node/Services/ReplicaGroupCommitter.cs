@@ -28,7 +28,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private const string PendingApplyRefusalReason = "replica_apply_pending";
     private static readonly TimeSpan DefaultCommitBudget = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(1);
 
     private readonly Lazy<ReplicaLeaderApplier> _applier;
     private readonly AsyncLock _gate = new();
@@ -37,14 +36,12 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private readonly ILogicalNamespacedCache<object?> _local;
     private readonly IReplicaGroupLocator _locator;
     private readonly ReplicaGroupRegistry _registry;
+    private readonly Lazy<ReplicaVerificationProbe> _probe;
     private readonly ReadOnlyMemory<byte> _topologyFingerprint;
     private ReplicaCommitCoordinator? _coordinator;
     private int _disposed;
     private ReplicaMutationFactory? _factory;
     private ReplicaGroupCommitPipeline? _pipeline;
-
-    /// <summary>The blocked older-term tail last reported, so the warning is logged once per blocked state, not on every verification pass.</summary>
-    private BlockedTail? _reportedBlockedTail;
 
     private bool _started;
 
@@ -79,6 +76,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _topologyFingerprint = topologyFingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topologyFingerprint))
             : topologyFingerprint;
         _generation = generation;
+        _probe = new Lazy<ReplicaVerificationProbe>(
+            () => new ReplicaVerificationProbe(registry, locator, gateway, selfId, _topologyFingerprint, generation, Log),
+            LazyThreadSafetyMode.ExecutionAndPublication);
         CommitBudget = DefaultCommitBudget;
         ShutdownBudget = DefaultShutdownBudget;
     }
@@ -127,6 +127,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     }
 
     private ReplicaLeaderApplier Applier => _applier.Value;
+
+    private ReplicaVerificationProbe Probe => _probe.Value;
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
@@ -353,47 +355,12 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (!_registry.TryGetLog(GroupId, out var log))
             return ReplicaVerification.Blocked;
 
-        var eligibility = _registry.EligibilityFor(GroupId);
-        var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
-        var status = read.Status;
-        if (status.Readiness != FollowerLogReadiness.Ready)
-            return ReplicaVerification.Blocked;
-
-        var term = Math.Max(1UL, status.CurrentTerm);
-        var tail = ReplicaLeaderTail.From(read);
-        if (!tail.IsCommittableIn(term))
-        {
-            // Counting replicas must not commit it, and no current-term entry exists yet to commit it transitively. The state is
-            // reported when it starts or changes; the readiness report keeps showing it as blocked on every pass.
-            var blocked = new BlockedTail(tail.LastIndex, term);
-            if (Interlocked.Exchange(ref _reportedBlockedTail, blocked) != blocked)
-                LogManager.ReplicaTailOfOlderTerm(Log, tail.LastIndex, term);
-
-            return ReplicaVerification.Blocked;
-        }
-
-        _ = Interlocked.Exchange(ref _reportedBlockedTail, null);
-
-        if (tail.IsEmpty && eligibility.AllCanCountInWriteQuorum())
-            return ReplicaVerification.AllReady;
-
-        var membership = BuildMembership(term);
-        var probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility), membership.Members, membership.Header, status, ProbeTimeout, cancellationToken)
-                                               .ConfigureAwait(false);
-        probed = await ReplicaReadinessProbe.RedriveTailAsync(_gateway, probed, membership.Members, membership.Header, tail, ProbeTimeout, cancellationToken).ConfigureAwait(false);
-        var answered = new bool[probed.Length];
-        var anyAnswered = false;
-        for (var i = 1; i < probed.Length; i++)
-        {
-            answered[i] = probed[i].Kind == ReplicaProbeKind.Accepted || probed[i].Kind == ReplicaProbeKind.LogMismatch;
-            anyAnswered |= answered[i];
-        }
-
-        if (!anyAnswered && !eligibility.AllCanCountInWriteQuorum())
-            return ReplicaVerification.Pending;
+        var snapshot = await Probe.ProbeAsync(log, cancellationToken).ConfigureAwait(false);
+        if (snapshot.Verdict is { } verdict)
+            return verdict;
 
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return await AdmitVerifiedAsync(log, status, probed, answered, membership, cancellationToken).ConfigureAwait(false);
+        return await AdmitVerifiedAsync(log, snapshot, cancellationToken).ConfigureAwait(false);
     }
 
     private static bool IsPostAppendOutcome(Exception error) =>
@@ -401,21 +368,18 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     /// <summary>Admits the followers verified outside the gate and commits what the verified slots now cover.</summary>
     /// <param name="log">The owned group log.</param>
-    /// <param name="status">The log status the verdicts were built from.</param>
-    /// <param name="probed">Per-slot verdicts.</param>
-    /// <param name="answered">Slots whose follower answered, probed again when the leader tail moved.</param>
-    /// <param name="membership">Group members and replication envelope identity.</param>
+    /// <param name="snapshot">The follower probing taken outside the gate.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The verification state.</returns>
     /// <remarks>Runs under the commit gate.</remarks>
     private async Task<ReplicaVerification> AdmitVerifiedAsync(
         IFollowerLog log,
-        FollowerLogStatus status,
-        ReplicaProbeResult[] probed,
-        bool[] answered,
-        (string[] Members, ReplicaRpcHeader Header) membership,
+        ReplicaVerificationSnapshot snapshot,
         CancellationToken cancellationToken)
     {
+        var status = snapshot.Status;
+        var probed = snapshot.Probed;
+
         // A coordinator that still retains entries is never replaced (its restart refuses): the verified slots are admitted into it,
         // and its resolver commits and applies what they now cover. Otherwise the coordinator starts here, recovering the log tail.
         var coordinator = !await TryApplyPendingAsync().ConfigureAwait(false) && _coordinator is { } retained ? retained
@@ -425,7 +389,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // A commit may have moved the tail between the unguarded probe and the gate: the verdicts then describe
         // an older tail, so the slots that answered are probed again against the current one.
         if (current.LastLogIndex != status.LastLogIndex || current.LastLogTerm != status.LastLogTerm)
-            probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, answered, membership.Members, membership.Header, current, ProbeTimeout, cancellationToken).ConfigureAwait(false);
+            probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, snapshot.Answered, snapshot.Members, snapshot.Header, current, ReplicaVerificationProbe.ProbeTimeout, cancellationToken).ConfigureAwait(false);
 
         // StartAsync may have verified some of these slots while this call waited for the gate: an older verdict
         // must not demote them.
@@ -488,7 +452,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             // Dropping the started state re-probes the followers on the next write. Decisions are prepared from live memory, so an
             // entry that is appended but not yet applied would leave the decision blind to its effect: such a
             // write fails definitely and may be retried; only this gate appends, so the check cannot go stale before the prepare.
-            var majority = write == null || HasWriteMajority();
+            var majority = write == null || _registry.EligibilityFor(GroupId).HasWriteMajority();
             var applied = write == null || (majority && await TryApplyPendingAsync().ConfigureAwait(false));
             if (!majority)
                 _started = false;
@@ -508,19 +472,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             // then replays. Whatever refused this attempt, only the unknown outcome is true for the operation.
             throw ServerOpContract.CommitOutcomeUnknown();
         }
-    }
-
-    private bool HasWriteMajority()
-    {
-        var eligibility = _registry.EligibilityFor(GroupId);
-        var ready = 0;
-        for (var i = 0; i < eligibility.ReplicaCount; i++)
-        {
-            if (eligibility.CanCountInWriteQuorum(i))
-                ready++;
-        }
-
-        return ready >= (eligibility.ReplicaCount / 2) + 1;
     }
 
     /// <summary>Returns the next group log index to prepare with: the one after the last entry appended to the local log.</summary>
@@ -557,7 +508,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         await Applier.CatchUpAsync(log, status.LastAppliedIndex, status.CommitIndex, cancellationToken).ConfigureAwait(false);
 
         var term = Math.Max(1UL, status.CurrentTerm);
-        var (members, header) = BuildMembership(term);
+        var (members, header) = Probe.BuildMembership(term);
         var tail = ReplicaLeaderTail.From(read);
 
         // A restart with durable progress leaves every slot recovering. Verify the leader's own log and every follower against its
@@ -566,7 +517,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var eligibility = _registry.EligibilityFor(GroupId);
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, in status, _topologyFingerprint, _generation);
         var results = eligibility.CanCountInWriteQuorum(0)
-            ? await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility), members, header, status, ProbeTimeout, cancellationToken)
+            ? await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility), members, header, status, ReplicaVerificationProbe.ProbeTimeout, cancellationToken)
                                          .ConfigureAwait(false)
             : [];
 
@@ -589,13 +540,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _factory = factory;
         _pipeline = pipeline;
         _started = true;
-    }
-
-    private (string[] Members, ReplicaRpcHeader Header) BuildMembership(ulong term)
-    {
-        var members = new string[_locator.ReplicaCount];
-        _locator.GetReplicaGroup(GroupId, members);
-        return (members, new ReplicaRpcHeader(GroupId, _topologyFingerprint, _generation, term, GroupId, GroupId));
     }
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
@@ -621,12 +565,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             return false;
         }
     }
-
-    /// <summary>A leader tail that cannot be committed yet because it holds no entry of the current term.</summary>
-    /// <param name="LastIndex">The last index of the tail.</param>
-    /// <param name="Term">The leader's current term.</param>
-    [Immutable]
-    private sealed record BlockedTail(ulong LastIndex, ulong Term);
 
     /// <summary>No-op fault hooks for production commits outside fault-injection tests.</summary>
     [Immutable]
