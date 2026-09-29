@@ -33,8 +33,26 @@ internal static partial class LogManager
     [LoggerMessage(EventId = 1012, Level = LogLevel.Warning, Message = "Journal fsync took {ElapsedMs} ms")]
     internal static partial void JournalFsyncSlow(ILogger logger, long elapsedMs);
 
+    [LoggerMessage(
+        EventId = 1016,
+        Level = LogLevel.Warning,
+        Message = "Journal segment {Path} had a damaged file header in front of intact frames; the header was restored without discarding data (original length {OriginalLength} bytes, {DiscardedBytes} bytes discarded)")]
+    internal static partial void JournalHeaderRestored(ILogger logger, string path, long originalLength, long discardedBytes);
+
     [LoggerMessage(EventId = 1013, Level = LogLevel.Warning, Message = "Journal mutation gate held for {HeldMs} ms by {Holder}")]
     internal static partial void JournalMutationGateHeldLong(ILogger logger, long heldMs, string holder);
+
+    [LoggerMessage(
+        EventId = 1017,
+        Level = LogLevel.Warning,
+        Message = "Journal segment {Path} held only a torn creation (no frames); a fresh file header was written (original length {OriginalLength} bytes, {DiscardedBytes} bytes discarded)")]
+    internal static partial void JournalTornCreationRewritten(ILogger logger, string path, long originalLength, long discardedBytes);
+
+    [LoggerMessage(
+        EventId = 1018,
+        Level = LogLevel.Warning,
+        Message = "Journal segment {Path} ended in a torn frame; the tail was truncated (original length {OriginalLength} bytes, {DiscardedBytes} bytes discarded)")]
+    internal static partial void JournalTornTailTruncated(ILogger logger, string path, long originalLength, long discardedBytes);
 
     [LoggerMessage(EventId = 1014, Level = LogLevel.Warning, Message = "Journal wait for {WaitingFor} canceled while stalled: journal I/O {Operation} in progress for {IoMs} ms, mutation gate held by {Holder} for {HeldMs} ms")]
     internal static partial void JournalWaitCanceledWhileStalled(ILogger logger, string waitingFor, string operation, long ioMs, string holder, long heldMs);
