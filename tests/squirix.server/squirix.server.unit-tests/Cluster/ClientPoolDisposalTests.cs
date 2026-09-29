@@ -16,7 +16,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster;
 
-/// <summary>Pool shutdown disposal resilience (issue #450 C2) and HTTP handler ownership (issue #772).</summary>
+/// <summary>Pool shutdown disposal: best-effort drain across peers, and disposal of the HTTP handlers the pool owns.</summary>
 [Immutable]
 public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 {

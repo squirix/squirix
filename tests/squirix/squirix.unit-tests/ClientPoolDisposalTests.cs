@@ -11,7 +11,7 @@ using TUnit.Core;
 
 namespace Squirix.UnitTests;
 
-/// <summary>HTTP handler ownership of <see cref="ClientPool" /> disposal (issue #772).</summary>
+/// <summary><see cref="ClientPool" /> disposal of the HTTP handlers it owns.</summary>
 [Immutable]
 public sealed class ClientPoolDisposalTests
 {
