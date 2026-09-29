@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
@@ -17,6 +18,18 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
     /// <summary>Verifies that an unknown version is rejected.</summary>
     [Test]
     public async Task DecodeRejectsBadVersion() => _ = await Assert.That(ReplicaLogCodec.Decode(ReadOnlyMemory<byte>.Of(0, 0))).IsNull();
+
+    /// <summary>Verifies that a version 1 record, whose Touch carried a relative duration, is refused instead of being read as a deadline.</summary>
+    [Test]
+    public async Task DecodeRefusesVersionOne()
+    {
+        var encoded = ReplicaLogCodec.Encode(CreateRecord());
+        _ = await Assert.That(ReplicaLogCodec.Decode(encoded)).IsNotNull();
+
+        BinaryPrimitives.WriteUInt16LittleEndian(encoded, 1);
+
+        _ = await Assert.That(ReplicaLogCodec.Decode(encoded)).IsNull();
+    }
 
     /// <summary>Verifies that an empty payload is rejected.</summary>
     [Test]

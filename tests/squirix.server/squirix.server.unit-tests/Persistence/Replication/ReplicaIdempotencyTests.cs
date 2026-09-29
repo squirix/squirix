@@ -36,6 +36,28 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         _ = await Assert.That(record.IsResolved).IsTrue();
     }
 
+    /// <summary>
+    /// An unresolved record counts for every index at or above its journal index and for none below it; resolved records never count,
+    /// and a record stops counting once it resolves.
+    /// </summary>
+    [Test]
+    public async Task UnresolvedThroughBoundaries()
+    {
+        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1));
+        _ = state.Reserve("client", "resolved", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
+        _ = state.TryResolve("client", "resolved", [2], 2UL, 1UL);
+        _ = state.Reserve("client", "in-flight", [3], GroupRecordKind.UserMutation, 5UL, 1UL);
+
+        _ = await Assert.That(state.HasUnresolvedThrough(0UL)).IsFalse();
+        _ = await Assert.That(state.HasUnresolvedThrough(4UL)).IsFalse();
+        _ = await Assert.That(state.HasUnresolvedThrough(5UL)).IsTrue();
+        _ = await Assert.That(state.HasUnresolvedThrough(ulong.MaxValue)).IsTrue();
+
+        _ = state.TryResolve("client", "in-flight", [4], 5UL, 1UL);
+
+        _ = await Assert.That(state.HasUnresolvedThrough(ulong.MaxValue)).IsFalse();
+    }
+
     /// <summary>Capacity never evicts an unexpired resolved outcome.</summary>
     [Test]
     public async Task CapacityDoesNotEvictUnexpiredOutcome()

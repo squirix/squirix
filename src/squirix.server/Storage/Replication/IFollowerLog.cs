@@ -26,6 +26,19 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <returns>The outcome of the applied advance.</returns>
     Task<FollowerLogAppliedResult> AdvanceAppliedAsync(ulong appliedIndex, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Publishes a snapshot covering the log through <paramref name="index" /> and drops the covered entries from the log, as one
+    /// step under the log gate.
+    /// </summary>
+    /// <param name="index">The index to compact through; it must be both the commit index and the applied index of the log.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The compaction outcome; only <see cref="GroupCompactionOutcome.Compacted" /> drops entries from the log.</returns>
+    /// <remarks>
+    /// The refusals leave readiness untouched. A failure after the snapshot is published leaves a log that recovers to the same state,
+    /// with or without the covered prefix.
+    /// </remarks>
+    Task<GroupCompactionOutcome> CompactThroughAsync(ulong index, CancellationToken cancellationToken);
+
     /// <summary>Advances the committed index monotonically and never beyond the durable last index.</summary>
     /// <param name="commitIndex">The target committed index.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -53,6 +66,11 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The committed entries not yet applied.</returns>
     ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedEntriesAsync(CancellationToken cancellationToken);
+
+    /// <summary>Reads how much of the log is retained on disk and in memory.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The retained log bytes, entries, payloads, and the snapshot index.</returns>
+    ValueTask<FollowerLogRetention> GetRetentionAsync(CancellationToken cancellationToken);
 
     /// <summary>Reads the durable log status, its uncommitted tail, and the term at its commit index as one consistent view.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>

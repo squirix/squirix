@@ -95,6 +95,27 @@ internal sealed class GroupIdempotencyState
         }
     }
 
+    /// <summary>Determines whether some record carried by a journal index at or below <paramref name="index" /> is not yet resolved.</summary>
+    /// <param name="index">The highest journal index to consider.</param>
+    /// <returns><see langword="true" /> when an unresolved record is carried at or below <paramref name="index" />.</returns>
+    /// <remarks>
+    /// A snapshot exports resolved outcomes only, so compacting through <paramref name="index" /> while this holds would drop an
+    /// in-flight outcome together with its journal frame.
+    /// </remarks>
+    internal bool HasUnresolvedThrough(ulong index)
+    {
+        lock (_sync)
+        {
+            foreach (var record in _records.Values)
+            {
+                if (record.IsUnresolved && record.LogIndex <= index)
+                    return true;
+            }
+
+            return false;
+        }
+    }
+
     /// <summary>Determines whether an operation identity is reserved and not yet resolved, whatever its fingerprint.</summary>
     /// <param name="scope">The operation scope.</param>
     /// <param name="operationId">The operation identifier.</param>
@@ -223,7 +244,11 @@ internal sealed class GroupIdempotencyState
             ThrowIfOutcomeUnresolved(records);
             var now = _timeProvider.GetUtcNow().UtcDateTime;
             var surviving = FilterExpiredSnapshot(records, now);
-            var retained = CollectRetained(surviving, retainedLogIndexes);
+            var retained = CollectRetainedRecords([.. retainedLogIndexes]);
+            var distinct = DistinctKeyCount(surviving, retained);
+            if (distinct > Capacity)
+                throw new InvalidDataException($"Snapshot and retained records ({distinct}) exceed configured idempotency capacity ({Capacity}).");
+
             MergeRestored(surviving, retained);
         }
     }
@@ -383,19 +408,6 @@ internal sealed class GroupIdempotencyState
         }
 
         return expired;
-    }
-
-    /// <summary>Collects the retained records surviving the snapshot boundary and validates the combined capacity.</summary>
-    /// <param name="surviving">The snapshot outcomes still inside their retention window.</param>
-    /// <param name="retainedLogIndexes">Journal indexes retained after the snapshot boundary.</param>
-    /// <returns>The in-memory records still authoritative after installation.</returns>
-    /// <exception cref="InvalidDataException">Thrown when the combined distinct key count exceeds capacity.</exception>
-    private List<GroupIdempotencyRecord> CollectRetained(List<GroupIdempotencyRecord> surviving, IReadOnlyList<ulong> retainedLogIndexes)
-    {
-        var retainedSet = new HashSet<ulong>(retainedLogIndexes);
-        var retained = CollectRetainedRecords(retainedSet);
-        var distinct = DistinctKeyCount(surviving, retained);
-        return distinct > Capacity ? throw new InvalidDataException($"Snapshot and retained records ({distinct}) exceed configured idempotency capacity ({Capacity}).") : retained;
     }
 
     /// <summary>Collects the in-memory records whose journal index survives the snapshot boundary.</summary>

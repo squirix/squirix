@@ -61,6 +61,52 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
         await AssertLabelSetsAreBoundedAsync(records);
     }
 
+    /// <summary>
+    /// Verifies the group log retention gauges follow the observed snapshot, and the compaction counters count compactions and skipped
+    /// compactions by the closed outcome name.
+    /// </summary>
+    [Test]
+    public async Task ReportsLogRetentionAndCompactions()
+    {
+        using var meter = new Meter("Squirix");
+        using var listener = CreateListener(meter, out var records);
+        var metrics = new ReplicationMetrics(meter);
+
+        var owned = new ReplicaStatusSnapshot("node-a", "node-a", 3, 4, 4, 30, 30, 30, true, true, true, true, true)
+        {
+            LogBytes = 4096,
+            RetainedEntries = 12,
+            SnapshotIndex = 18,
+        };
+        metrics.ReportGroup(in owned, ReplicaReadinessVerdict.Ready);
+        metrics.ReportCompaction("node-a", "node-a");
+        metrics.ReportCompactionSkipped("node-a", "node-a", "follower_behind");
+        metrics.ReportCompactionSkipped("node-a", "node-a", "follower_behind");
+        metrics.ReportCompactionSkipped("node-a", "node-a", "snapshot_too_large");
+        listener.RecordObservableInstruments();
+
+        await AssertGaugeAsync(records, "squirix_replication_log_bytes", "node-a", 4096);
+        await AssertGaugeAsync(records, "squirix_replication_log_retained_entries", "node-a", 12);
+        await AssertGaugeAsync(records, "squirix_replication_snapshot_index", "node-a", 18);
+        _ = await Assert.That(Count(records, "squirix_replication_log_compactions_total", null)).IsEqualTo(1);
+        _ = await Assert.That(Count(records, "squirix_replication_log_compaction_skipped_total", "follower_behind")).IsEqualTo(2);
+        _ = await Assert.That(Count(records, "squirix_replication_log_compaction_skipped_total", "snapshot_too_large")).IsEqualTo(1);
+    }
+
+    private static int Count(List<MeasurementRecord> records, string name, string? reason)
+    {
+        var count = 0;
+        for (var i = 0; i < records.Count; i++)
+        {
+            var record = records[i];
+            if (string.Equals(record.Name, name, StringComparison.Ordinal) && string.Equals(record.Reason, reason, StringComparison.Ordinal) &&
+                string.Equals(record.Node, "node-a", StringComparison.Ordinal) && string.Equals(record.Group, "node-a", StringComparison.Ordinal))
+                count++;
+        }
+
+        return count;
+    }
+
     private static async Task AssertGaugeAsync(List<MeasurementRecord> records, string name, string group, double expected)
     {
         var found = false;

@@ -58,4 +58,19 @@ internal static partial class LogManager
         Message =
             "Replica group leader tail through index {LastIndex} holds no entry of the current term {Term}; it is not committed by counting replicas, and writes stay refused until a current-term entry commits it")]
     internal static partial void ReplicaTailOfOlderTerm(ILogger logger, ulong lastIndex, ulong term);
+
+    [LoggerMessage(
+        EventId = 4011,
+        Level = LogLevel.Warning,
+        Message = "Replica group log maintenance failed and will be retried; the owned group log keeps its applied entries until it succeeds")]
+    internal static partial void ReplicaLogMaintenanceRetry(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 4012, Level = LogLevel.Information, Message = "Replica group log compaction outcome changed to {Outcome}")]
+    internal static partial void ReplicaLogCompactionChanged(ILogger logger, string outcome);
+
+    [LoggerMessage(
+        EventId = 4013,
+        Level = LogLevel.Warning,
+        Message = "Replica group log compaction is stalled: its snapshot would exceed the maximum snapshot size until idempotency outcomes age out")]
+    internal static partial void ReplicaLogCompactionSnapshotTooLarge(ILogger logger);
 }

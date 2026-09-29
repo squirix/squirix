@@ -72,15 +72,26 @@ internal static class ReplicaOwnerTestKit
         return registry;
     }
 
-    /// <summary>Commits one write on a fresh group, leaving durable RF=3 progress on disk for the restart under test.</summary>
+    /// <summary>
+    /// Commits one write on a fresh group and persists its applied index, leaving durable RF=3 progress on disk for the restart under
+    /// test, as an owner whose applied-index flush ran before it stopped: the restarted owner applies nothing of it again.
+    /// </summary>
     /// <param name="dir">Node data directory.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="InvalidOperationException">The owned group log is not open or refused the applied index.</exception>
     internal static async Task SeedAsync(string dir, CancellationToken cancellationToken)
     {
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
         await committer.CommitSetAsync(NewOperationId(), "cache", "k0", new NodeCacheEntry<object?> { Value = "v0", Version = 1 }, cancellationToken);
+        if (!registry.TryGetLog("n1", out var log))
+            throw new InvalidOperationException("The owned group log is not open.");
+
+        var status = await log.GetStatusAsync(cancellationToken);
+        var applied = await log.AdvanceAppliedAsync(status.CommitIndex, cancellationToken);
+        if (!applied.Success)
+            throw new InvalidOperationException($"The owned group log refused the applied index: {applied.RefusalCode}.");
     }
 
     /// <summary>
@@ -100,7 +111,7 @@ internal static class ReplicaOwnerTestKit
             throw new InvalidOperationException("The owned group log is not open.");
 
         var status = await log.GetStatusAsync(cancellationToken);
-        var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1);
+        var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1, TimeProvider.System);
         var index = status.LastLogIndex;
         foreach (var key in keys)
         {

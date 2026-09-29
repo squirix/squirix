@@ -43,6 +43,10 @@ diagnostics surfaces currently exposed by the node host.
   [operational-runbook.md — Journal disk quota](operational-runbook.md#journal-disk-quota).
 - `retentionCleanup` (persistence enabled): retention cleanup readiness aggregates —
   `degraded`, `consecutiveWriteFailures`, `recentFailureCount`, `lastFailureUtc`.
+- `replicaGroups` (RF>1): one entry per served replica group log — `groupId`, `logBytes` (`group.log` size),
+  `retainedEntries` (entries in `group.log`), and `snapshotIndex` (last index `group.snapshot` covers, `0` without
+  one). Observability only: a growing log does not change `/health/ready`. See
+  [group log compaction](architecture/replication-consensus.md#group-log-retention-and-compaction).
 
 Readiness behavior (`GET /health/ready`):
 
@@ -124,6 +128,13 @@ These instruments describe logical cache operations only and use bounded `operat
 
 Missing reads are reported as `not_found` when the API shape can distinguish them (`GetValueAsync`, `GetEntryAsync`, and
 remove paths). Use `GetValueAsync` or `GetEntryAsync` when metrics need miss classification.
+
+Replica group log metrics are owned by `ReplicationMetrics`. The readiness probe refreshes the per-group gauges
+`squirix_replication_log_bytes`, `squirix_replication_log_retained_entries`, and `squirix_replication_snapshot_index`
+(labels `node`, `group`). The owner's maintenance pass counts `squirix_replication_log_compactions_total` and, when its
+group log reached a threshold but was not compacted, `squirix_replication_log_compaction_skipped_total` with a closed
+`reason`: `follower_not_ready`, `follower_behind`, `pending_apply`, `uncommitted_tail`, `unresolved_outcome`,
+`not_ready`, or `snapshot_too_large`.
 
 Memory-pressure metrics remain owned by `MemoryPressureMetricsService`, `Gate`, and memory-pressure
 components; they are not part of the generic operation observability model. journal, snapshot, compaction, recovery,

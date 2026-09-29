@@ -7,6 +7,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -28,13 +29,13 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(1);
 
+    private readonly ReplicaLeaderApplier _applier;
     private readonly AsyncLock _gate = new();
     private readonly IReplicaRpcGateway _gateway;
     private readonly ulong _generation;
     private readonly ILogicalNamespacedCache<object?> _local;
     private readonly IReplicaGroupLocator _locator;
     private readonly ReplicaGroupRegistry _registry;
-    private readonly string _selfId;
     private readonly ReadOnlyMemory<byte> _topologyFingerprint;
     private ReplicaCommitCoordinator? _coordinator;
     private int _disposed;
@@ -72,7 +73,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _locator = locator;
         _gateway = gateway;
         _local = local;
-        _selfId = selfId;
+        _applier = new ReplicaLeaderApplier(local);
+        GroupId = selfId;
         _topologyFingerprint = topologyFingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topologyFingerprint))
             : topologyFingerprint;
         _generation = generation;
@@ -96,6 +98,12 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             field = value;
         }
     }
+
+    /// <summary>Gets the time source that pins the expiration deadlines of prepared records and measures them at apply; the system clock unless set.</summary>
+    internal TimeProvider Clock { private get; init; } = TimeProvider.System;
+
+    /// <summary>Gets the identifier of the owned replica group, which is this node's identifier.</summary>
+    internal string GroupId { get; }
 
     /// <summary>Gets the logger for lifecycle failures; the host logger unless set.</summary>
     internal ILogger Log { private get; init; } = LogManager.GetLogger<ReplicaGroupCommitter>();
@@ -251,6 +259,75 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         return ReplicaOutcomeCodec.DecodeApplied(outcome);
     }
 
+    /// <summary>Persists the in-memory applied index of the owned group log once the cache journal holds every applied entry durably.</summary>
+    /// <param name="durability">The node cache journal whose frames the applies appended.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the durable applied index is at least the in-memory one read at the start.</returns>
+    /// <exception cref="InvalidOperationException">The owned group log refused the applied advance.</exception>
+    /// <remarks>
+    /// Runs outside the commit gate. Every entry at or below the applied index read here returned from its apply, which appends its
+    /// cache journal frame first, so the durability barrier awaited next covers all of them; only then does the log advance its applied
+    /// index and release the applied payloads, so a crash never leaves the log claiming an apply the cache journal lost. Nothing is
+    /// done while the durable applied index is already there.
+    /// </remarks>
+    internal async Task FlushAppliedAsync(IJournalDurabilityCoordinator durability, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(durability);
+        ThrowIfDisposed();
+        if (!_registry.TryGetLog(GroupId, out var log))
+            return;
+
+        var applied = _applier.AppliedIndex;
+        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        if (applied <= status.LastAppliedIndex)
+            return;
+
+        await durability.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
+        var result = await log.AdvanceAppliedAsync(applied, cancellationToken).ConfigureAwait(false);
+        if (!result.Success)
+            throw new InvalidOperationException($"Local group applied advance was refused: {result.RefusalCode}.");
+    }
+
+    /// <summary>Compacts the owned group log through its commit index once it reaches a threshold and nothing still needs its entries.</summary>
+    /// <param name="policy">The compaction thresholds.</param>
+    /// <param name="durability">The node cache journal whose frames the applies appended.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The step outcome; only <see cref="ReplicaLogCompactionOutcome.Compacted" /> changes the log.</returns>
+    /// <remarks>
+    /// The thresholds, and advisorily the followers, are checked without the commit gate. Everything else is one step under it: no
+    /// write can append, commit, or apply between the checks and the compaction, so a steady write load cannot keep moving the commit
+    /// index past the applied one. A write arriving meanwhile waits for the step and then appends after the compacted log.
+    /// </remarks>
+    internal async Task<ReplicaLogCompactionOutcome> CompactOwnedLogAsync(
+        ReplicaLogCompactionPolicy policy,
+        IJournalDurabilityCoordinator durability,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(durability);
+        ThrowIfDisposed();
+        if (!_registry.TryGetLog(GroupId, out var log))
+            return ReplicaLogCompactionOutcome.NotReady;
+
+        var retention = await log.GetRetentionAsync(cancellationToken).ConfigureAwait(false);
+        if (!policy.IsReachedBy(in retention))
+            return ReplicaLogCompactionOutcome.BelowThreshold;
+
+        // An advisory check first, without the gate: a follower that is down or lagging then refuses the step without holding the
+        // gate for the whole follower wait on every pass. The decisive check runs again under the gate.
+        var eligibility = _registry.EligibilityFor(GroupId);
+        if (Volatile.Read(ref _coordinator) is { } running)
+        {
+            var observed = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+            if (await ReplicaLogCompactionStep.AwaitFollowersAsync(running, eligibility, observed.CommitIndex, Clock, cancellationToken).ConfigureAwait(false) is { } refused)
+                return refused;
+        }
+
+        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return _started && _coordinator is { } coordinator
+            ? await ReplicaLogCompactionStep.RunAsync(log, coordinator, eligibility, _applier.AppliedIndex, durability, Clock, cancellationToken).ConfigureAwait(false)
+            : ReplicaLogCompactionOutcome.NotReady;
+    }
+
     /// <summary>Verifies non-ready replica slots against the leader log so a restarted group regains its write quorum.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
@@ -266,10 +343,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     internal async Task<ReplicaVerification> VerifyReplicasAsync(CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
-        if (!_registry.TryGetLog(_selfId, out var log))
+        if (!_registry.TryGetLog(GroupId, out var log))
             return ReplicaVerification.Blocked;
 
-        var eligibility = _registry.EligibilityFor(_selfId);
+        var eligibility = _registry.EligibilityFor(GroupId);
         var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
         var status = read.Status;
         if (status.Readiness != FollowerLogReadiness.Ready)
@@ -345,7 +422,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         // StartAsync may have verified some of these slots while this call waited for the gate: an older verdict
         // must not demote them.
-        var eligibility = _registry.EligibilityFor(_selfId);
+        var eligibility = _registry.EligibilityFor(GroupId);
         for (var i = 1; i < probed.Length; i++)
         {
             if (eligibility.CanCountInWriteQuorum(i))
@@ -417,7 +494,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
                 _ => throw new InvalidOperationException("Replica group committer is not started."),
             };
         }
-        catch (Exception) when (write is { } retry && _registry.TryGetLog(_selfId, out var log) && log.Idempotency.IsUnresolved(retry.Scope, retry.OperationId))
+        catch (Exception) when (write is { } retry && _registry.TryGetLog(GroupId, out var log) && log.Idempotency.IsUnresolved(retry.Scope, retry.OperationId))
         {
             // A retry of an operation whose entry is appended but not yet committed (possibly by the process before a restart) must
             // neither re-execute nor be told it failed: its outcome stays unknown until a commit resolves the entry, which the retry
@@ -428,7 +505,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     private bool HasWriteMajority()
     {
-        var eligibility = _registry.EligibilityFor(_selfId);
+        var eligibility = _registry.EligibilityFor(GroupId);
         var ready = 0;
         for (var i = 0; i < eligibility.ReplicaCount; i++)
         {
@@ -450,8 +527,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     private async Task StartAsync(CancellationToken cancellationToken)
     {
-        if (!_registry.TryGetLog(_selfId, out var log))
-            throw new InvalidOperationException($"This node does not serve its owned replica group '{_selfId}'.");
+        if (!_registry.TryGetLog(GroupId, out var log))
+            throw new InvalidOperationException($"This node does not serve its owned replica group '{GroupId}'.");
 
         if (_coordinator != null)
         {
@@ -468,6 +545,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // One read pairs the status with its tail: a commit left running by the disposed coordinator may still advance the log.
         var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
         var status = read.Status;
+
+        // Memory must hold every committed entry before the recovered tail reads its outcomes and before anything new is prepared.
+        await _applier.CatchUpAsync(log, status.LastAppliedIndex, status.CommitIndex, Clock, cancellationToken).ConfigureAwait(false);
+
         var term = Math.Max(1UL, status.CurrentTerm);
         var (members, header) = BuildMembership(term);
         var tail = ReplicaLeaderTail.From(read);
@@ -475,7 +556,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // A restart with durable progress leaves every slot recovering. Verify the leader's own log and every follower against its
         // last entry before the first commit, so the quorum is built from verified slots only. An uncommitted tail is recovered by the
         // coordinator and commits once verified slots hold it; followers lacking it are re-sent it by verification, outside this gate.
-        var eligibility = _registry.EligibilityFor(_selfId);
+        var eligibility = _registry.EligibilityFor(GroupId);
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, in status, _topologyFingerprint, _generation);
         var results = eligibility.CanCountInWriteQuorum(0)
             ? await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility), members, header, status, ProbeTimeout, cancellationToken)
@@ -483,8 +564,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             : [];
 
         // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
-        var pipeline = new ReplicaGroupCommitPipeline(_local, log, _gateway, members, _selfId, status, header);
-        var factory = new ReplicaMutationFactory(_local, _selfId, term);
+        var pipeline = new ReplicaGroupCommitPipeline(_applier, log, _gateway, members, GroupId, status, header) { Clock = Clock };
+        var factory = new ReplicaMutationFactory(_local, GroupId, term, Clock);
         _coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(_locator.ReplicaCount, status.LastLogIndex, status.CommitIndex, MaxInFlight),
             pipeline,
@@ -506,8 +587,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private (string[] Members, ReplicaRpcHeader Header) BuildMembership(ulong term)
     {
         var members = new string[_locator.ReplicaCount];
-        _locator.GetReplicaGroup(_selfId, members);
-        return (members, new ReplicaRpcHeader(_selfId, _topologyFingerprint, _generation, term, _selfId, _selfId));
+        _locator.GetReplicaGroup(GroupId, members);
+        return (members, new ReplicaRpcHeader(GroupId, _topologyFingerprint, _generation, term, GroupId, GroupId));
     }
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
@@ -562,8 +643,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// </remarks>
     private sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     {
+        private readonly ReplicaLeaderApplier _applier;
         private readonly ReplicaRpcHeader _header;
-        private readonly ILogicalNamespacedCache<object?> _local;
         private readonly IFollowerLog _log;
         private readonly string[] _members;
         private readonly IReplicaRpcGateway _rpc;
@@ -575,7 +656,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         private ulong _prevLogTerm;
 
         /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitPipeline" /> class.</summary>
-        /// <param name="local">Local cache pipeline used for memory applies.</param>
+        /// <param name="applier">The committer's applier, which applies committed entries to memory in log order.</param>
         /// <param name="log">Owned group log for local durable appending.</param>
         /// <param name="rpc">Follower replication RPCs.</param>
         /// <param name="members">Ordered group members; index zero is this node.</param>
@@ -583,7 +664,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         /// <param name="status">Durable log status seeding previous and commit positions.</param>
         /// <param name="header">Replication envelope identity for follower calls.</param>
         internal ReplicaGroupCommitPipeline(
-            ILogicalNamespacedCache<object?> local,
+            ReplicaLeaderApplier applier,
             IFollowerLog log,
             IReplicaRpcGateway rpc,
             string[] members,
@@ -591,7 +672,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             FollowerLogStatus status,
             ReplicaRpcHeader header)
         {
-            ArgumentNullException.ThrowIfNull(local);
+            ArgumentNullException.ThrowIfNull(applier);
             ArgumentNullException.ThrowIfNull(log);
             ArgumentNullException.ThrowIfNull(rpc);
             ArgumentNullException.ThrowIfNull(members);
@@ -599,7 +680,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             if (members.Length == 0 || !string.Equals(members[0], selfId, StringComparison.Ordinal))
                 throw new ArgumentException("Group members must start with this node.", nameof(members));
 
-            _local = local;
+            _applier = applier;
             _log = log;
             _rpc = rpc;
             _members = members;
@@ -613,6 +694,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         /// <summary>Gets the group log index after the last entry this pipeline appended locally, or after the seeded status.</summary>
         /// <remarks>Read by the committer under its gate, between commits, once the commit that last appended has completed.</remarks>
         internal ulong NextLogIndex => _prevLogIndex + 1;
+
+        /// <summary>Gets the time source measuring the pinned expiration deadlines at apply.</summary>
+        internal required TimeProvider Clock { private get; init; }
 
         /// <inheritdoc />
         public async ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
@@ -657,14 +741,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
 
         /// <inheritdoc />
-        public async ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            var decoded = ReplicaLogCodec.Decode(mutation.CanonicalPayload);
-            if (decoded is not { } apply)
-                throw new InvalidOperationException("Prepared mutation carries an undecodable canonical payload.");
-
-            _ = await ReplicaCacheApplier.ApplyAsync(_local, apply, cancellationToken).ConfigureAwait(false);
-        }
+        /// <remarks>Every entry the coordinator applies, its own and those a late majority commits, advances the committer's applied index.</remarks>
+        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
+            _applier.ApplyAsync(mutation.LogIndex, mutation.CanonicalPayload, Clock, cancellationToken);
 
         /// <inheritdoc />
         public void RecordLaggingReplica(int replicaIndex, ulong logIndex)

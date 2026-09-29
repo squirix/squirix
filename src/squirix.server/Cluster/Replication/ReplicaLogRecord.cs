@@ -15,7 +15,11 @@ namespace Squirix.Server.Cluster.Replication;
 /// <param name="MutationKind">Cache mutation kind carried opaquely for the follower applier.</param>
 /// <param name="MutationPayload">Cache mutation bytes.</param>
 /// <param name="OutcomePayload">Committed outcome bytes observed by the caller.</param>
-/// <param name="ExpiresUtcTicks">Mutation-specific expiration wire value: a <see cref="TimeSpan" /> duration in ticks for the Touch mutation kind, an absolute UTC timestamp in ticks for all other mutation kinds.</param>
+/// <param name="ExpiresUtcTicks">
+/// The effective absolute UTC expiration deadline in ticks the leader pinned at prepare time, for every mutation kind; zero when the
+/// mutation sets no deadline. A Set or TryAdd deadline resolves the entry's relative expiration, and the applier applies this value
+/// instead of the expirations in the mutation payload.
+/// </param>
 /// <param name="CreatedUtcTicks">Creation time expressed as UTC ticks.</param>
 /// <param name="ResolvedUtcTicks">Resolution time expressed as UTC ticks.</param>
 /// <param name="PayloadChecksum">Wire payload checksum carried opaquely.</param>

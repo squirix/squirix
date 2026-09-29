@@ -24,6 +24,7 @@ namespace Squirix.Server.Node.Services;
 [Immutable]
 internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
 {
+    private readonly TimeProvider _clock;
     private readonly string _groupId;
     private readonly ILogicalNamespacedCache<object?> _local;
     private readonly ulong _term;
@@ -32,14 +33,17 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="local">Local cache pipeline used for prepare-time reads and follower applies.</param>
     /// <param name="groupId">Owned replica group identifier.</param>
     /// <param name="term">Static leader term for prepared mutations.</param>
-    internal ReplicaMutationFactory(ILogicalNamespacedCache<object?> local, string groupId, ulong term)
+    /// <param name="clock">Time source that pins the absolute expiration deadlines of prepared records.</param>
+    internal ReplicaMutationFactory(ILogicalNamespacedCache<object?> local, string groupId, ulong term, TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
         ArgumentOutOfRangeException.ThrowIfZero(term);
+        ArgumentNullException.ThrowIfNull(clock);
         _local = local;
         _groupId = groupId;
         _term = term;
+        _clock = clock;
     }
 
     /// <inheritdoc />
@@ -75,6 +79,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     {
         var previous = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var outcome = OutcomeFor(ReplicaMutationKinds.Remove, previous);
+        var now = _clock.GetUtcNow().UtcDateTime;
         var record = new ReplicaLogRecord(
             index,
             _term,
@@ -88,7 +93,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReadOnlyMemory<byte>.Empty,
             ReadOnlyMemory<byte>.Empty,
             0,
-            DateTime.UtcNow.Ticks,
+            now.Ticks,
             0,
             0);
         return Build(cacheName, in record, outcome, index);
@@ -105,6 +110,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var outcome = OutcomeFor(ReplicaMutationKinds.RemoveExpiration, current);
+        var now = _clock.GetUtcNow().UtcDateTime;
         var record = new ReplicaLogRecord(
             index,
             _term,
@@ -118,7 +124,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReadOnlyMemory<byte>.Empty,
             ReadOnlyMemory<byte>.Empty,
             0,
-            DateTime.UtcNow.Ticks,
+            now.Ticks,
             0,
             0);
         return Build(ReplicaExpirationOperationId.OperationScope, in record, outcome, index);
@@ -135,6 +141,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     {
         ArgumentNullException.ThrowIfNull(entry);
         var mutation = entry.MapToProto().ToByteArray();
+        var now = _clock.GetUtcNow().UtcDateTime;
         var record = new ReplicaLogRecord(
             index,
             _term,
@@ -147,8 +154,8 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReplicaMutationKinds.Set,
             mutation,
             ReadOnlyMemory<byte>.Empty,
-            entry.ExpiresUtc?.Ticks ?? 0,
-            DateTime.UtcNow.Ticks,
+            DeadlineTicks(entry, now),
+            now.Ticks,
             0,
             0);
         return Build(cacheName, in record, OutcomeFor(ReplicaMutationKinds.Set, null), index);
@@ -163,10 +170,10 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The prepared mutation.</returns>
     /// <remarks>
-    /// The Touch wire representation carries the expiration as a <see cref="TimeSpan" /> duration in
-    /// ticks inside <c language="csharp">ExpiresUtcTicks</c>, matching the <see cref="TimeSpan" /> conversion
-    /// in the follower applier. All other mutation kinds carry an absolute UTC timestamp there instead;
-    /// consumers must branch on the mutation kind and never interpret a Touch duration as a timestamp.
+    /// The record pins the absolute deadline, prepare time plus <paramref name="expiration" />, in
+    /// <c language="csharp">ExpiresUtcTicks</c>, so every apply of it (a replay included) sets the same deadline instead of
+    /// extending it from the apply time. The fingerprint does not cover the deadline: a retry prepared at a later time keeps
+    /// its operation identity.
     /// </remarks>
     internal async Task<PreparedReplicaMutation> PrepareTouchAsync(
         string operationId,
@@ -178,6 +185,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var outcome = OutcomeFor(ReplicaMutationKinds.Touch, current);
+        var now = _clock.GetUtcNow().UtcDateTime;
         var record = new ReplicaLogRecord(
             index,
             _term,
@@ -190,8 +198,8 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReplicaMutationKinds.Touch,
             ReadOnlyMemory<byte>.Empty,
             ReadOnlyMemory<byte>.Empty,
-            expiration.Ticks,
-            DateTime.UtcNow.Ticks,
+            ExpiresAt(now, expiration).Ticks,
+            now.Ticks,
             0,
             0);
         return Build(cacheName, in record, outcome, index);
@@ -217,6 +225,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var outcome = OutcomeFor(ReplicaMutationKinds.TryAdd, current);
         var mutation = entry.MapToProto().ToByteArray();
+        var now = _clock.GetUtcNow().UtcDateTime;
         var record = new ReplicaLogRecord(
             index,
             _term,
@@ -229,8 +238,8 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReplicaMutationKinds.TryAdd,
             mutation,
             ReadOnlyMemory<byte>.Empty,
-            entry.ExpiresUtc?.Ticks ?? 0,
-            DateTime.UtcNow.Ticks,
+            DeadlineTicks(entry, now),
+            now.Ticks,
             0,
             0);
         return Build(cacheName, in record, outcome, index);
@@ -255,6 +264,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var outcome = OutcomeFor(ReplicaMutationKinds.Update, current);
         var mutation = ServerProtoEx.CacheValueToGrpcValue(value).ToByteArray();
+        var now = _clock.GetUtcNow().UtcDateTime;
         var record = new ReplicaLogRecord(
             index,
             _term,
@@ -268,11 +278,33 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             mutation,
             ReadOnlyMemory<byte>.Empty,
             current?.ExpiresUtc?.Ticks ?? 0,
-            DateTime.UtcNow.Ticks,
+            now.Ticks,
             0,
             0);
         return Build(cacheName, in record, outcome, index);
     }
+
+    /// <summary>Returns the effective absolute deadline of an entry written at <paramref name="now" />.</summary>
+    /// <param name="entry">The entry to write.</param>
+    /// <param name="now">The prepare time.</param>
+    /// <returns>
+    /// The UTC ticks of the earlier of the entry's absolute expiration and its relative expiration measured from
+    /// <paramref name="now" />, at least one; zero when the entry never expires.
+    /// </returns>
+    /// <remarks>
+    /// The relative expiration is resolved here, once, so a replay of the record keeps the deadline of the original write
+    /// instead of measuring the relative expiration again from the replay time.
+    /// </remarks>
+    private static long DeadlineTicks(NodeCacheEntry<object?> entry, DateTime now)
+    {
+        var deadline = entry.ExpiresUtc;
+        if (entry.Expiration is { } expiration && (deadline == null || ExpiresAt(now, expiration) < deadline))
+            deadline = ExpiresAt(now, expiration);
+
+        return deadline == null ? 0 : Math.Max(1, deadline.Value.Ticks);
+    }
+
+    private static DateTime ExpiresAt(DateTime now, TimeSpan expiration) => now.SaturatedAdd(expiration);
 
     private static ReplicaLogRecord DecodeRecord(ReadOnlyMemory<byte> payload, ulong logIndex) =>
         ReplicaLogCodec.Decode(payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));

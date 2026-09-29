@@ -17,7 +17,12 @@ namespace Squirix.Server.Cluster.Replication;
 [Immutable]
 internal static class ReplicaLogCodec
 {
-    private const ushort Version = 1;
+    /// <summary>The canonical encoding version.</summary>
+    /// <remarks>
+    /// Version 2 carries an absolute expiration deadline for every mutation kind; version 1 carried a relative duration for Touch.
+    /// Records of any other version are refused, so every node of a replica group must run the same encoding version.
+    /// </remarks>
+    private const ushort Version = 2;
 
     /// <summary>Decodes canonical bytes back to a record.</summary>
     /// <param name="bytes">The canonical payload bytes.</param>

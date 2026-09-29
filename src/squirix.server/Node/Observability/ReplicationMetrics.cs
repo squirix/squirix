@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using System.Runtime.InteropServices;
 using System.Threading;
 using Squirix.Server.Attributes;
 
@@ -18,6 +19,8 @@ internal sealed class ReplicationMetrics
 {
     private const string IndexUnit = "{index}";
 
+    private readonly Counter<long> _compactionsTotal;
+    private readonly Counter<long> _compactionSkippedTotal;
     private readonly Lock _gate = new();
     private readonly Dictionary<string, GroupObservation> _groups = [with(StringComparer.Ordinal)];
     private readonly Counter<long> _mismatchTotal;
@@ -28,6 +31,11 @@ internal sealed class ReplicationMetrics
         ArgumentNullException.ThrowIfNull(meter);
         _reportsTotal = new Counter1Label(meter.CreateCounter<long>("squirix_replication_status_reports_total", "{report}", "Replica status read-path reports"), "node");
         _mismatchTotal = meter.CreateCounter<long>("squirix_replication_topology_mismatch_total", "{mismatch}", "Replica topology identity mismatches observed on the read path");
+        _compactionsTotal = meter.CreateCounter<long>("squirix_replication_log_compactions_total", "{compaction}", "Compactions of the replica group log this node owns");
+        _compactionSkippedTotal = meter.CreateCounter<long>(
+            "squirix_replication_log_compaction_skipped_total",
+            "{compaction}",
+            "Passes that found the owned replica group log past a compaction threshold but did not compact it, by reason");
 
         _ = meter.CreateObservableGauge("squirix_replication_term", ObserveTerms, description: "Current term observed by the replica group log");
         _ = meter.CreateObservableGauge("squirix_replication_commit_index", ObserveCommitIndexes, IndexUnit, "Durable commit index observed by the replica group log");
@@ -37,6 +45,41 @@ internal sealed class ReplicationMetrics
         _ = meter.CreateObservableGauge("squirix_replication_topology_match", ObserveTopologyMatches, description: "Topology fingerprint agreement as 1=match, 0=mismatch");
         _ = meter.CreateObservableGauge("squirix_replication_generation_match", ObserveGenerationMatches, description: "Configuration generation agreement as 1=match, 0=mismatch");
         _ = meter.CreateObservableGauge("squirix_replication_ready", ObserveReady, description: "Replica group readiness as 1=ready, 0=not ready");
+        _ = meter.CreateObservableGauge("squirix_replication_log_bytes", ObserveLogBytes, "By", "Durable size of the replica group log file observed by the replica group log");
+        _ = meter.CreateObservableGauge(
+            "squirix_replication_log_retained_entries",
+            ObserveRetainedEntries,
+            "{entry}",
+            "Entries retained in the replica group log file observed by the replica group log");
+        _ = meter.CreateObservableGauge("squirix_replication_snapshot_index", ObserveSnapshotIndexes, IndexUnit, "Last log index the published replica group snapshot covers");
+    }
+
+    /// <summary>Counts one compaction of the replica group log this node owns.</summary>
+    /// <param name="nodeId">The observing node identifier.</param>
+    /// <param name="groupId">The compacted replica group identifier.</param>
+    internal void ReportCompaction(string nodeId, string groupId)
+    {
+        var tags = new TagList
+        {
+            { "node", nodeId },
+            { "group", groupId },
+        };
+        _compactionsTotal.Add(1, in tags);
+    }
+
+    /// <summary>Counts one pass that found the owned replica group log past a threshold but did not compact it.</summary>
+    /// <param name="nodeId">The observing node identifier.</param>
+    /// <param name="groupId">The replica group identifier.</param>
+    /// <param name="reason">The closed compaction outcome name that stopped the compaction.</param>
+    internal void ReportCompactionSkipped(string nodeId, string groupId, string reason)
+    {
+        var tags = new TagList
+        {
+            { "node", nodeId },
+            { "group", groupId },
+            { "reason", reason },
+        };
+        _compactionSkippedTotal.Add(1, in tags);
     }
 
     /// <summary>Observes one replica-group snapshot on a read path without mutating replication state.</summary>
@@ -55,9 +98,10 @@ internal sealed class ReplicationMetrics
             long.CreateSaturating(snapshot.CommitIndex >= snapshot.LastAppliedIndex ? snapshot.CommitIndex - snapshot.LastAppliedIndex : 0UL),
             snapshot.FingerprintMatch,
             snapshot.GenerationMatch,
-            verdict == ReplicaReadinessVerdict.Ready);
+            verdict == ReplicaReadinessVerdict.Ready,
+            new GroupRetention(snapshot.LogBytes, snapshot.RetainedEntries, long.CreateSaturating(snapshot.SnapshotIndex)));
 
-        var (topologyRaised, generationRaised) = GetAndStoreTransitions(snapshot.GroupId, observation);
+        var (topologyRaised, generationRaised) = GetAndStoreTransitions(snapshot.GroupId, in observation);
         if (topologyRaised)
             AddMismatch(snapshot.NodeId, snapshot.GroupId, "topology");
         if (generationRaised)
@@ -95,7 +139,7 @@ internal sealed class ReplicationMetrics
         _mismatchTotal.Add(1, in tags);
     }
 
-    private (bool TopologyRaised, bool GenerationRaised) GetAndStoreTransitions(string groupId, GroupObservation observation)
+    private (bool TopologyRaised, bool GenerationRaised) GetAndStoreTransitions(string groupId, in GroupObservation observation)
     {
         lock (_gate)
         {
@@ -147,11 +191,32 @@ internal sealed class ReplicationMetrics
             yield return MeasureNodeGroup(snapshot[i].GenerationMatch ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
+    private IEnumerable<Measurement<long>> ObserveLogBytes()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return MeasureNodeGroup(snapshot[i].Retention.LogBytes, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
     private IEnumerable<Measurement<int>> ObserveReady()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
             yield return MeasureNodeGroup(snapshot[i].Ready ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private IEnumerable<Measurement<int>> ObserveRetainedEntries()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return MeasureNodeGroup(snapshot[i].Retention.RetainedEntries, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private IEnumerable<Measurement<long>> ObserveSnapshotIndexes()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return MeasureNodeGroup(snapshot[i].Retention.SnapshotIndex, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<long>> ObserveTerms()
@@ -194,10 +259,19 @@ internal sealed class ReplicationMetrics
         long ApplyLag,
         bool TopologyMatch,
         bool GenerationMatch,
-        bool Ready)
+        bool Ready,
+        GroupRetention Retention)
     {
         internal string GroupId { get; init; } = string.Empty;
     }
+
+    /// <summary>The retained size of an observed replica group log.</summary>
+    /// <param name="LogBytes">The durable size of the group log file in bytes.</param>
+    /// <param name="RetainedEntries">The number of entry frames the group log file holds.</param>
+    /// <param name="SnapshotIndex">The last log index the published snapshot covers.</param>
+    [Immutable]
+    [StructLayout(LayoutKind.Auto)]
+    private readonly record struct GroupRetention(long LogBytes, int RetainedEntries, long SnapshotIndex);
 
     [Immutable]
     private sealed record Counter1Label(Counter<long> Counter, string Key1)

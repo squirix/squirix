@@ -37,7 +37,8 @@ internal static class NodeEndpointServiceRegistration
                     sp.GetRequiredService<TopologyOptions>(),
                     sp.GetRequiredService<IMemoryUsageAccounting>()),
                 sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
-                sp.GetRequiredService<PressureOptions>())) : services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new EphemeralHealthReadyDetailsProvider(
+                sp.GetRequiredService<PressureOptions>(),
+                sp.GetService<IReplicaStatusSource>())) : services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new EphemeralHealthReadyDetailsProvider(
                 sp.GetRequiredService<TopologyOptions>(),
                 sp.GetRequiredService<IMemoryUsageAccounting>(),
                 sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
@@ -167,11 +168,17 @@ internal static class NodeEndpointServiceRegistration
         private readonly IMemoryUsageAccounting _memoryAccounting;
         private readonly IMemoryPressureStateEvaluator _memoryEvaluator;
         private readonly PressureOptions _memoryPressureOptions;
+        private readonly IReplicaStatusSource? _replication;
         private readonly IRetentionCleanupReadinessStatus _retentionCleanup;
         private readonly Coordinator _snapshot;
 
-        internal HealthReadyDetailsProvider(HealthReadyDependencies deps, IMemoryPressureStateEvaluator memoryEvaluator, PressureOptions memoryPressureOptions)
+        internal HealthReadyDetailsProvider(
+            HealthReadyDependencies deps,
+            IMemoryPressureStateEvaluator memoryEvaluator,
+            PressureOptions memoryPressureOptions,
+            IReplicaStatusSource? replication)
         {
+            _replication = replication;
             ArgumentNullException.ThrowIfNull(deps);
             _manifestStore = deps.Ledger;
             _retentionCleanup = deps.RetentionCleanup;
@@ -217,9 +224,11 @@ internal static class NodeEndpointServiceRegistration
             var memoryPressure = BuildMemoryPressureSnapshot();
             var journalDisk = BuildJournalDiskSnapshot();
             var retentionCleanup = BuildRetentionCleanupSnapshot();
+            var replicaGroups = await ReadReplicaGroupsAsync(cancellationToken).ConfigureAwait(false);
 
             return new HealthReadyDetailsSnapshot
             {
+                ReplicaGroups = replicaGroups,
                 JournalBacklogOps = journalBacklogOps,
                 SnapshotAgeSeconds = snapshotAgeSeconds,
                 SnapshotInFlight = _snapshot.IsInFlight,
@@ -230,6 +239,22 @@ internal static class NodeEndpointServiceRegistration
                 JournalDisk = journalDisk,
                 RetentionCleanup = retentionCleanup,
             };
+        }
+
+        /// <summary>Reads the retained size of every served replica group log.</summary>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>One entry per served group; empty when replication is not configured.</returns>
+        private async Task<HealthReplicaGroupSnapshot[]> ReadReplicaGroupsAsync(CancellationToken cancellationToken)
+        {
+            if (_replication == null)
+                return [];
+
+            var groups = await _replication.GetSnapshotsAsync(cancellationToken).ConfigureAwait(false);
+            var result = new HealthReplicaGroupSnapshot[groups.Count];
+            for (var i = 0; i < result.Length; i++)
+                result[i] = new HealthReplicaGroupSnapshot(groups[i].GroupId, groups[i].LogBytes, groups[i].RetainedEntries, groups[i].SnapshotIndex);
+
+            return result;
         }
 
         private HealthJournalDiskSnapshot BuildJournalDiskSnapshot()

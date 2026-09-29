@@ -30,4 +30,14 @@ internal readonly record struct ReplicaStatusSnapshot(
     bool GenerationMatch,
     bool LogReady,
     bool IsLeader,
-    bool HasMajorityContact);
+    bool HasMajorityContact)
+{
+    /// <summary>Gets the durable length of the group log file in bytes, header included.</summary>
+    internal long LogBytes { get; init; }
+
+    /// <summary>Gets the number of entry frames the group log file holds.</summary>
+    internal int RetainedEntries { get; init; }
+
+    /// <summary>Gets the last log index the published group snapshot covers, or zero when none is published.</summary>
+    internal ulong SnapshotIndex { get; init; }
+}
