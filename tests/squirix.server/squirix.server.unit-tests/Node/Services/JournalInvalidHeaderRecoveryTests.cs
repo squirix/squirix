@@ -49,7 +49,8 @@ public sealed class JournalInvalidHeaderRecoveryTests : DisposableServerUnitTest
                          persistence,
                          await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
                          manifestStore,
-                         new AsyncManualResetEvent(true)))
+                         new AsyncManualResetEvent(true),
+                         NullLogger.Instance))
         {
             await journal.AppendPutUnderGateAsync(CacheKey.Default("k"), BuildPutPayload("v"), cancellationToken);
             await journal.AwaitDurabilityCommitAsync(cancellationToken);

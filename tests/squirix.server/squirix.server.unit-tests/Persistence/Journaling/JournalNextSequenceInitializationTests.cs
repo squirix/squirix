@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -45,7 +46,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(
             (persistence, manifest, manifestStore),
-            static p => JournalCoordinatorFactory.Create(p.persistence, p.manifest, p.manifestStore, new AsyncManualResetEvent(true)));
+            static p => JournalCoordinatorFactory.Create(p.persistence, p.manifest, p.manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance));
 
         _ = await Assert.That(ex.Message).Contains("cannot determine a valid replay start", StringComparison.Ordinal);
     }
@@ -78,7 +79,8 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLogger.Instance);
         _ = await Assert.That(journal.NextSequence).IsEqualTo(11UL);
     }
 
@@ -94,7 +96,8 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
                          persistence,
                          await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
                          manifestStore,
-                         new AsyncManualResetEvent(true)))
+                         new AsyncManualResetEvent(true),
+                         NullLogger.Instance))
         {
             var p = JournalEntryPayloadKit.EncodePut("keep");
             await journal.AppendPutUnderGateAsync(CacheKey.Default("keep"), p, cancellationToken);
@@ -113,7 +116,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
                 maxSeq = record.Sequence;
         }
 
-        await using var restartedJournal = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, new AsyncManualResetEvent(true));
+        await using var restartedJournal = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
         _ = await Assert.That(restartedJournal.NextSequence).IsEqualTo(maxSeq + 1);
         _ = await Assert.That(restartedJournal.CurrentSegmentIndex).IsEqualTo(manifest.CurrentJournal);
     }
@@ -140,7 +143,8 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLogger.Instance);
         _ = await Assert.That(journal.NextSequence).IsEqualTo(21UL);
     }
 
@@ -168,7 +172,8 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLogger.Instance);
         _ = await Assert.That(journal.NextSequence).IsEqualTo(7UL);
     }
 
@@ -197,7 +202,8 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLogger.Instance);
         _ = await Assert.That(journal.NextSequence).IsEqualTo(4UL);
         _ = await Assert.That(journal.CurrentSegmentIndex).IsEqualTo(2);
 
@@ -235,7 +241,8 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLogger.Instance);
         _ = await Assert.That(journal.NextSequence).IsEqualTo(52UL);
     }
 
@@ -266,7 +273,8 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLogger.Instance);
         _ = await Assert.That(journal.NextSequence).IsEqualTo(6UL);
     }
 

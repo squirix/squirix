@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -46,7 +47,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
 
         using var manifestStore = new Ledger(options);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
+        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
         await journal.WaitForStartupAsync(cancellationToken);
 
         // ReSharper disable once DisposeOnUsingVariable
@@ -74,7 +75,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
 
         using var manifestStore = new Ledger(options);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
+        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
         await journal.WaitForStartupAsync(cancellationToken);
         var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
@@ -100,7 +101,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
 
         using var manifestStore = new Ledger(options);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
+        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
         await journal.WaitForStartupAsync(cancellationToken);
         var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
@@ -127,7 +128,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
 
         using var manifestStore = new Ledger(options);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
+        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
         await journal.WaitForStartupAsync(cancellationToken);
         var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
@@ -149,7 +150,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
 
         using var manifestStore = new Ledger(options);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
+        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
         await journal.WaitForStartupAsync(cancellationToken);
         var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
@@ -223,7 +224,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
 
         using var manifestStore = new Ledger(options);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
+        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
         await journal.WaitForStartupAsync(cancellationToken);
 
         const int writers = 8;

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -16,6 +17,7 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
 {
     private IJournalCoordinator? _coordinator;
     private ILogger? _log;
+    private IReadOnlyList<JournalRepair> _startupRepairs = [];
 
     internal IJournalCoordinator Coordinator => ThrowHelper.Required(_coordinator, "Journal coordinator is not initialized.");
 
@@ -56,6 +58,12 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
     internal JournalCoordinatorHost AttachLog(ILoggerFactory? factory)
     {
         _log = factory?.CreateLogger<JournalCoordinatorHost>();
+        if (_log != null)
+        {
+            JournalCoordinatorFactory.LogRepairs(_startupRepairs, _log);
+            _startupRepairs = [];
+        }
+
         return this;
     }
 
@@ -64,6 +72,6 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
         if (_coordinator != null)
             return;
 
-        _coordinator = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, gate);
+        _coordinator = JournalCoordinatorFactory.CreateReporting(persistence, manifest, manifestStore, gate, out _startupRepairs);
     }
 }

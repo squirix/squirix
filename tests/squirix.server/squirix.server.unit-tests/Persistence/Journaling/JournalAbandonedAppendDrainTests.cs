@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -43,7 +44,7 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
     {
         var options = CreateOptions(Dir);
         using var ledger = new Ledger(options);
-        await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger, new AsyncManualResetEvent(true));
+        await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger, new AsyncManualResetEvent(true), NullLogger.Instance);
         await journal.WaitForStartupAsync(cancellationToken);
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
@@ -98,7 +99,7 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
     {
         var options = CreateOptions(Dir);
         using var ledger = new Ledger(options);
-        await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger, new AsyncManualResetEvent(true));
+        await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger, new AsyncManualResetEvent(true), NullLogger.Instance);
         await journal.WaitForStartupAsync(cancellationToken);
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 

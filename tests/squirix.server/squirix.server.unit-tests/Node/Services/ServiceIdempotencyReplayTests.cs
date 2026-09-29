@@ -148,7 +148,8 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
             persistence,
             await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken),
             scenario.Ledger,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLogger.Instance);
 
         await journal.AppendPutUnderGateAsync(CacheKey.Default("idempotency-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
         await journal.AppendIdempotencyOutcomeAsync(
@@ -170,7 +171,8 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
             persistence,
             await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken),
             scenario.Ledger,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLogger.Instance);
 
         var ambientScope = new object();
         RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId);

@@ -3,6 +3,7 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -50,20 +51,20 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLogger.Instance);
 
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
         var attempts = new MutableCount();
         var executor = new DurableMutationExecutor(journal);
         var key = CacheKey.Default("guard-key");
-        var payload = JournalEntryPayloadKit.EncodePut("v");
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
             coordinator.ExecuteAsync<(DurableMutationExecutor Executor, IJournalCoordinator Journal, CacheKey Key, byte[] Payload, MutableCount Attempts), TryAddAsyncResponse>(
                 ValidOperationId,
                 "fingerprint",
-                (Executor: executor, Journal: journal, Key: key, Payload: payload, Attempts: attempts),
+                (Executor: executor, Journal: journal, Key: key, Payload: JournalEntryPayloadKit.EncodePut("v"), Attempts: attempts),
                 static async (state, cancellationToken) =>
                 {
                     state.Attempts.Value++;
@@ -116,7 +117,8 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLogger.Instance);
 
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
@@ -176,7 +178,8 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLogger.Instance);
 
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);

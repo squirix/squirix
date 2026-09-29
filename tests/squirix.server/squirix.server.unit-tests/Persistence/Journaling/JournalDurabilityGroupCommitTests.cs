@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -301,7 +302,8 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLogger.Instance);
 
         await journal.AppendPutUnderGateAsync(CacheKey.Default("k1"), JournalEntryPayloadKit.EncodePut("v1"), cancellationToken);
         await journal.AppendPutUnderGateAsync(CacheKey.Default("k2"), JournalEntryPayloadKit.EncodePut("v2"), cancellationToken);
@@ -330,7 +332,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         };
 
         using var manifestStore = new Ledger(options);
-        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true));
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
 
         try
         {
