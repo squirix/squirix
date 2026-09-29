@@ -131,6 +131,9 @@ internal sealed class ServerClientPool : IServerClientPool
             var options = new GrpcChannelOptions
             {
                 HttpHandler = peerHandler,
+
+                // The channel disposes the handler the pool created; a peerHandlerFactory handler stays owned by the factory's caller.
+                DisposeHttpClient = ownedHandler != null,
                 MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
             };

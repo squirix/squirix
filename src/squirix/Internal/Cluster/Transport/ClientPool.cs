@@ -75,7 +75,7 @@ internal sealed class ClientPool : IClientPool
     /// </summary>
     /// <param name="peers">Bootstrap peers.</param>
     /// <param name="policyFactory">Per-peer call policy factory.</param>
-    /// <param name="ownedHandlerFactory">Creates one handler per peer in place of the default transport handler.</param>
+    /// <param name="ownedHandlerFactory">Creates one handler per peer in place of the default transport handler; the pool disposes each one.</param>
     internal ClientPool(Peer[] peers, Func<string, ICallPolicy> policyFactory, Func<HttpMessageHandler> ownedHandlerFactory)
     {
         _connectOptions = DefaultConnectOptions;
@@ -206,6 +206,9 @@ internal sealed class ClientPool : IClientPool
             {
                 Credentials = callCredentials == null ? null : ChannelCredentials.Create(new SslCredentials(), callCredentials),
                 HttpHandler = sharedHandler ?? ownedHandlerFactory.Invoke(),
+
+                // The pool owns and disposes the handlers it creates; a caller-supplied handler is shared by every channel and stays caller-owned.
+                DisposeHttpClient = sharedHandler == null,
                 MaxReceiveMessageSize = MaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = MaxSendMessageSizeBytes,
             };

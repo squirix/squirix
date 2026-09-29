@@ -27,6 +27,7 @@ internal sealed class ServerClientPoolArgs
     /// </summary>
     internal Func<MtlsCertificate?, string, HttpMessageHandler>? OwnedHandlerFactory { get; init; }
 
+    /// <summary>Gets an optional per-peer mTLS handler factory; the handlers it returns stay owned by its caller and are not disposed with the pool.</summary>
     internal Func<string, HttpMessageHandler>? PeerHandlerFactory { get; init; }
 
     internal required Func<string, IServerCallPolicy> PolicyFactory { get; init; }
