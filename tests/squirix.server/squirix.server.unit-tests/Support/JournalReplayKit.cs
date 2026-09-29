@@ -84,10 +84,9 @@ internal sealed class JournalReplayKit
 
     /// <summary>Opens a local-owner decorator over a fresh physical cache and a journal.</summary>
     /// <param name="clock">The clock the decorator and the cache share.</param>
-    /// <param name="eviction">The cache eviction options, or <see langword="null" /> for the default.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The open session.</returns>
-    internal async Task<Session> OpenAsync(FakeTimeProvider clock, EvictionOptions? eviction, CancellationToken cancellationToken)
+    internal async Task<Session> OpenAsync(FakeTimeProvider clock, CancellationToken cancellationToken)
     {
         var manifestStore = new Ledger(Persistence);
         var journal = JournalCoordinatorFactory.Create(
@@ -95,7 +94,7 @@ internal sealed class JournalReplayKit
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true));
-        var physical = new PhysicalCache<string>(clock, eviction);
+        var physical = new PhysicalCache<string>(clock);
         var cache = new JournalLoggingCacheDecorator<string>(
             Self,
             RocksDoubles.CreateOwnerLocator(Self),
@@ -176,7 +175,7 @@ internal sealed class JournalReplayKit
         CancellationToken cancellationToken)
     {
         var clock = CreateWriteClock(startOffset, extraTicks);
-        await using var session = await OpenAsync(clock, null, cancellationToken);
+        await using var session = await OpenAsync(clock, cancellationToken);
         var writeStart = clock.GetUtcNow().UtcDateTime;
         await mutate(session.Cache, clock, cancellationToken);
         clock.Advance(readAfter);
@@ -196,7 +195,7 @@ internal sealed class JournalReplayKit
         CancellationToken cancellationToken)
     {
         var clock = CreateWriteClock(startOffset);
-        await using var session = await OpenAsync(clock, null, cancellationToken);
+        await using var session = await OpenAsync(clock, cancellationToken);
         var coordinator = (await Assert.That(session.Journal).IsTypeOf<JournalCoordinator>())!;
         var writeStart = clock.GetUtcNow().UtcDateTime;
         await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: ttl), cancellationToken);

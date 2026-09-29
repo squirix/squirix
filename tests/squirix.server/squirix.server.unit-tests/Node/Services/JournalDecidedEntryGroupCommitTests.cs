@@ -47,7 +47,7 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
     [Test]
     public async Task PersistSkipReleasesKeyGuard(CancellationToken cancellationToken)
     {
-        await using var session = await Kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), null, cancellationToken);
+        await using var session = await Kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), cancellationToken);
         await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), cancellationToken);
 
         _ = await Assert.That(await session.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, cancellationToken)).IsFalse();
@@ -95,7 +95,7 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
     [Test]
     public async Task TouchSkipReleasesKeyGuard(CancellationToken cancellationToken)
     {
-        await using var session = await Kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), null, cancellationToken);
+        await using var session = await Kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), cancellationToken);
 
         _ = await Assert.That(await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, cancellationToken)).IsFalse();
         await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), cancellationToken);
@@ -152,7 +152,7 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
     {
         var clock = JournalReplayKit.CreateWriteClock(PastStart);
         NodeCacheEntry<string>? memory;
-        await using (var session = await Kit.OpenAsync(clock, null, cancellationToken))
+        await using (var session = await Kit.OpenAsync(clock, cancellationToken))
         {
             var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["team"] = "a" }.ToFrozenDictionary(StringComparer.Ordinal);
             var seeded = new NodeCacheEntry<string>("v1", 3, clock.GetUtcNow().UtcDateTime.Add(OriginalTtl), tags: tags);

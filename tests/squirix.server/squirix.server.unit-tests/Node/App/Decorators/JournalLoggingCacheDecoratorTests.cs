@@ -117,10 +117,10 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         _ = await Assert.That(journaled.ExpiresUtc > DateTime.UtcNow).IsTrue();
     }
 
-    /// <summary>With a raw reader the decision read bypasses the cache read path, so the memory apply is the only access that counts for eviction.</summary>
+    /// <summary>With a raw reader the decision read never goes through the inner cache read path, so only the memory apply counts as an access.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DecisionReadLeavesEvictionOrderAlone(CancellationToken cancellationToken)
+    public async Task DecisionReadBypassesInnerRead(CancellationToken cancellationToken)
     {
         await using var harness = await CreateHarnessAsync(Self, cancellationToken, true);
         var withDeadline = new NodeCacheEntry<string>("v", expiresUtc: DateTime.UtcNow.AddHours(1));
