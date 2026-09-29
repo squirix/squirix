@@ -88,9 +88,10 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
 
         var interNodeUrl = ThrowHelper.Required(FindPeer(peers, "node-b").InterNodeUri, "Expected internode URL for node-b.");
 
+        using var handler = await CreateCaTrustingHandlerAsync("node-b", peers, cancellationToken);
         var channelOptions = new GrpcChannelOptions
         {
-            HttpHandler = await CreateCaTrustingHandlerAsync("node-b", peers, cancellationToken),
+            HttpHandler = handler,
             MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
             MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
         };
@@ -150,11 +151,12 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         var nodeBUrl = FindPeer(peers, "node-b").Uri;
         var interNodeUrlA = ThrowHelper.Required(FindPeer(peers, "node-a").InterNodeUri, "Expected internode URL for node-a.");
 
+        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", nodeBUrl, "node-a", peers, cancellationToken);
         using var channel = GrpcChannel.ForAddress(
             interNodeUrlA,
             new GrpcChannelOptions
             {
-                HttpHandler = await CreateTrustedInterNodeClientHandlerAsync("node-b", nodeBUrl, "node-a", peers, cancellationToken),
+                HttpHandler = handler,
                 MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
             });
