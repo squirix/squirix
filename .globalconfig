@@ -25,3 +25,43 @@ dotnet_diagnostic.S5344.severity = none # passwords should not be stored in plai
 dotnet_diagnostic.S5659.severity = none # JWT should be signed and verified with strong cipher algorithms
 dotnet_diagnostic.S6781.severity = none # JWT secret keys should not be disclosed
 dotnet_diagnostic.S7039.severity = none # content security policies should be restrictive
+
+# Rules for surfaces squirix does not have: no symmetric or asymmetric encryption, no MVC controllers, cookies, CSRF,
+# Blazor or Azure Functions, no signed XML, XSLT or archive extraction, no JoinableTaskFactory, no web input reaching SQL,
+# XSS, redirect, XPath, XML, XAML, DLL or regex sinks, and OS commands only in tests. Hashing, TLS, certificates,
+# minimal-API routes and file-path taint analysis stay enabled.
+dotnet_diagnostic.BL0005.severity = none # component parameter should not be set outside of its component
+dotnet_diagnostic.BL0006.severity = none # do not use RenderTree types
+dotnet_diagnostic.CA2100.severity = none # review SQL queries for security vulnerabilities
+dotnet_diagnostic.CA3001.severity = none # review code for SQL injection vulnerabilities
+dotnet_diagnostic.CA3002.severity = none # review code for XSS vulnerabilities
+dotnet_diagnostic.CA3006.severity = none # review code for process command injection vulnerabilities
+dotnet_diagnostic.CA3007.severity = none # review code for open redirect vulnerabilities
+dotnet_diagnostic.CA3008.severity = none # review code for XPath injection vulnerabilities
+dotnet_diagnostic.CA3009.severity = none # review code for XML injection vulnerabilities
+dotnet_diagnostic.CA3010.severity = none # review code for XAML injection vulnerabilities
+dotnet_diagnostic.CA3011.severity = none # review code for DLL injection vulnerabilities
+dotnet_diagnostic.CA3012.severity = none # review code for regex injection vulnerabilities
+dotnet_diagnostic.CA3076.severity = none # insecure XSLT script execution
+dotnet_diagnostic.CA5389.severity = none # do not add archive item's path to the target file system path
+dotnet_diagnostic.CA5390.severity = none # do not hard-code encryption key
+dotnet_diagnostic.S2092.severity = none # creating cookies without the "secure" flag is security-sensitive
+dotnet_diagnostic.S3330.severity = none # creating cookies without the "HttpOnly" flag is security-sensitive
+dotnet_diagnostic.S4036.severity = none # searching OS commands in PATH is security-sensitive
+dotnet_diagnostic.S4502.severity = none # CSRF protections should not be disabled
+dotnet_diagnostic.S5542.severity = none # encryption algorithms should be used with secure mode and padding scheme
+dotnet_diagnostic.S5547.severity = none # cipher algorithms should be robust
+dotnet_diagnostic.S6377.severity = none # XML signatures should be validated securely
+dotnet_diagnostic.S6419.severity = none # Azure Functions should be stateless
+dotnet_diagnostic.S6420.severity = none # client instances should not be recreated on each Azure Function invocation
+dotnet_diagnostic.S6421.severity = none # Azure Functions should use structured error handling
+dotnet_diagnostic.S6423.severity = none # Azure Functions should log all failures
+dotnet_diagnostic.S6424.severity = none # interfaces for durable entities should satisfy the restrictions
+dotnet_diagnostic.S6934.severity = none # a Route attribute should be added to the controller when an action has a route template
+dotnet_diagnostic.S6961.severity = none # API controllers should derive from ControllerBase instead of Controller
+dotnet_diagnostic.VSTHRD001.severity = none # avoid legacy thread switching methods
+dotnet_diagnostic.VSTHRD004.severity = none # await SwitchToMainThreadAsync
+dotnet_diagnostic.VSTHRD012.severity = none # provide JoinableTaskFactory where allowed
+dotnet_diagnostic.VSTHRD106.severity = none # use InvokeAsync to raise async events
+dotnet_diagnostic.VSTHRD108.severity = none # assert thread affinity unconditionally
+dotnet_diagnostic.VSTHRD109.severity = none # switch instead of assert in async methods
