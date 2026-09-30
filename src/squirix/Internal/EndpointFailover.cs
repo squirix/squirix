@@ -109,6 +109,8 @@ internal sealed class EndpointFailover
             }
         }
 
+        // Defensive: with no captured failure the loop ended before its first attempt, which only happens when the clock moved past the
+        // deadline between the start of the operation and that attempt.
         if (lastFailure == null)
             ThrowIfExpired(clock, deadlineUtc, _bootstrapNodeIds[startIndex]);
 

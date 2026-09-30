@@ -335,7 +335,7 @@ public sealed class OperationDeadlineTests
                     _ = options.CancellationToken.Register(() => completion.TrySetCanceled(options.CancellationToken));
                     break;
                 case TransportMode.GrpcDeadline:
-                    _ = FailAtDeadlineAsync(completion, options.Deadline!.Value - DateTime.UtcNow);
+                    _ = FailAtDeadlineAsync(completion, options.Deadline!.Value);
                     break;
                 case TransportMode.Unavailable:
                     completion.SetException(new RpcException(new Status(StatusCode.Unavailable, "endpoint down")));
@@ -360,10 +360,11 @@ public sealed class OperationDeadlineTests
 
         internal Task<bool> WaitForCallAsync() => _firstCall.WaitAsync(CompletionBound, CancellationToken.None);
 
-        private static async Task FailAtDeadlineAsync<TResponse>(TaskCompletionSource<TResponse> completion, TimeSpan remaining)
+        private static async Task FailAtDeadlineAsync<TResponse>(TaskCompletionSource<TResponse> completion, DateTime deadlineUtc)
         {
-            if (remaining > TimeSpan.Zero)
-                await Task.Delay(remaining, TimeProvider.System, CancellationToken.None).ConfigureAwait(false);
+            // A timer can wake a little before the wall clock reaches the deadline; like Grpc.Net.Client, fail only once it has.
+            while (DateTime.UtcNow < deadlineUtc)
+                await Task.Delay(deadlineUtc - DateTime.UtcNow + TimeSpan.FromMilliseconds(1), TimeProvider.System, CancellationToken.None).ConfigureAwait(false);
 
             _ = completion.TrySetException(new RpcException(new Status(StatusCode.DeadlineExceeded, "Deadline Exceeded")));
         }
