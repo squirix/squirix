@@ -34,7 +34,6 @@ internal static class TaskExtensions
     /// <param name="task">The value task to await; this call consumes it.</param>
     /// <returns>The failure, or <see langword="null" /> when the task completed successfully.</returns>
     /// <remarks>For best-effort work such as shutdown drains, where one failure must not stop the rest and the caller reports it.</remarks>
-    [SuppressMessage("Usage", "VSTHRD003", Justification = "Awaiting the caller's task is the purpose of this helper; the caller owns the work it represents.")]
     internal static async ValueTask<Exception?> CaptureFailureAsync(this ValueTask task)
     {
         try
