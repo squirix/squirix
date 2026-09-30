@@ -2,15 +2,12 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server.Utils;
 
 /// <summary>Safe directory creation with strict path validation and optional symlink rejection.</summary>
 internal static class DirectoryEx
 {
-    private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Utils.DirectoryEx");
-
     /// <summary>Safely creates a directory with strict validation and returns its normalized absolute path.</summary>
     /// <param name="path">
     /// The target directory path. Can be relative or absolute. Must not be <see langword="null" />, empty, or whitespace,
@@ -122,15 +119,9 @@ internal static class DirectoryEx
             if ((attrs & FileAttributes.ReadOnly) != FileAttributes.None)
                 File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
-            LogManager.ReadOnlyAttributeClearFailed(Logger, ex, file);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
-            LogManager.ReadOnlyAttributeClearFailed(Logger, ex, file);
+            // Best-effort cleanup: the delete or retry that follows surfaces any real failure.
         }
     }
 

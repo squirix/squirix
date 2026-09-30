@@ -1,14 +1,11 @@
 using System;
 using System.IO;
-using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server.Utils;
 
 /// <summary>Rejects unexpected symlinks and junctions in directory path chains.</summary>
 internal static class DirectorySymlinkGuard
 {
-    private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Utils.DirectorySymlinkGuard");
-
     /// <summary>Walks from <paramref name="baseFull" /> (or the drive root) toward <paramref name="full" /> and rejects forbidden links.</summary>
     /// <param name="full">Absolute target path.</param>
     /// <param name="baseFull">Optional absolute base path already validated.</param>
@@ -75,20 +72,9 @@ internal static class DirectorySymlinkGuard
             if (linkTargetProbe(fsi) != null)
                 return true;
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
-            // Some FS/providers may throw; fall back to attributes
-            LogManager.SymlinkProbeFallback(Logger, ex, fsi.FullName);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            // Some FS/providers may throw; fall back to attributes
-            LogManager.SymlinkProbeFallback(Logger, ex, fsi.FullName);
-        }
-        catch (NotSupportedException ex)
-        {
-            // LinkTarget may be unsupported on some providers; fall back to attributes
-            LogManager.SymlinkProbeFallback(Logger, ex, fsi.FullName);
+            // Some FS/providers throw or do not support LinkTarget; fall back to attributes.
         }
 
         try

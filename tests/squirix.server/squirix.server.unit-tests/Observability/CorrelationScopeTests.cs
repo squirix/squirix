@@ -1,9 +1,7 @@
 using System;
 using System.Collections;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
@@ -20,11 +18,9 @@ public sealed class CorrelationScopeTests : ServerUnitTestBase
 {
     /// <summary>Indexer rejects out-of-range access.</summary>
     [Test]
-    public async Task ScopeStateIndexerRejectsOutOfRange()
+    public void ScopeStateIndexerRejectsOutOfRange()
     {
-        var logger = new CapturingLogger();
-        using var scope = Correlation.BeginStandardScope(logger, "node-c");
-        var state = (await Assert.That(logger.LastState).IsAssignableTo<IReadOnlyList<KeyValuePair<string, object?>>>())!;
+        var state = Correlation.CreateScopeState("node-c");
         _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(state, static list => _ = list[99]);
     }
 
@@ -36,9 +32,7 @@ public sealed class CorrelationScopeTests : ServerUnitTestBase
         // activity so this test observes the no-ambient scope fields like before.
         Activity.Current = null;
 
-        var logger = new CapturingLogger();
-        using var scope = Correlation.BeginStandardScope(logger, "node-b", "GetEntry");
-        var state = (await Assert.That(logger.LastState).IsAssignableTo<IReadOnlyList<KeyValuePair<string, object?>>>())!;
+        var state = Correlation.CreateScopeState("node-b", "GetEntry");
         _ = await Assert.That(state.Count).IsEqualTo(4);
         _ = await Assert.That(state[0].Value).IsEqualTo(string.Empty);
         _ = await Assert.That(state[1].Value).IsEqualTo(string.Empty);
@@ -62,9 +56,7 @@ public sealed class CorrelationScopeTests : ServerUnitTestBase
     {
         using var activity = new Activity("corr-test");
         _ = activity.Start();
-        var logger = new CapturingLogger();
-        using var scope = Correlation.BeginStandardScope(logger, "node-a");
-        var state = (await Assert.That(logger.LastState).IsAssignableTo<IReadOnlyList<KeyValuePair<string, object?>>>())!;
+        var state = Correlation.CreateScopeState("node-a");
         _ = await Assert.That(state.Count).IsEqualTo(3);
         _ = await Assert.That(state[0].Key).IsEqualTo("trace_id");
         _ = await Assert.That(state[0].Value).IsEqualTo(activity.TraceId.ToString());
@@ -82,33 +74,5 @@ public sealed class CorrelationScopeTests : ServerUnitTestBase
         IEnumerable enumerable = state;
         using var nonGeneric = enumerable.GetEnumerator() as IDisposable;
         _ = await Assert.That(nonGeneric).IsNotNull();
-    }
-
-    private sealed class CapturingLogger : ILogger
-    {
-        internal object? LastState { get; private set; }
-
-        public IDisposable BeginScope<TState>(TState state)
-            where TState : notnull
-        {
-            LastState = state;
-            return Noop.Instance;
-        }
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
-        {
-        }
-
-        [Immutable]
-        private sealed class Noop : IDisposable
-        {
-            internal static readonly Noop Instance = new();
-
-            public void Dispose()
-            {
-            }
-        }
     }
 }

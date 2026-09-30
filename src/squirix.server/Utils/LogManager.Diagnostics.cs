@@ -21,12 +21,6 @@ internal static partial class LogManager
     [LoggerMessage(EventId = 3006, Level = LogLevel.Debug, Message = "Journal I/O thread exited on background cancellation")]
     internal static partial void JournalThreadExitOnCancel(ILogger logger);
 
-    [LoggerMessage(EventId = 3007, Level = LogLevel.Debug, Message = "Symlink probe failed for {Path}; falling back to attributes")]
-    internal static partial void SymlinkProbeFallback(ILogger logger, Exception exception, string path);
-
-    [LoggerMessage(EventId = 3008, Level = LogLevel.Debug, Message = "Failed to clear read-only attribute for {File} during best-effort deletion")]
-    internal static partial void ReadOnlyAttributeClearFailed(ILogger logger, Exception exception, string file);
-
     [LoggerMessage(EventId = 3010, Level = LogLevel.Debug, Message = "Journal compaction background loop canceled")]
     internal static partial void CompactionLoopCanceled(ILogger logger, Exception exception);
 

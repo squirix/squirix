@@ -25,7 +25,7 @@ internal sealed class ServerInterceptor : Interceptor
         var traceState = headers.GetValue(Correlation.TraceStateHeader);
 
         using var activity = StartServerActivity(traceParent, traceState, context.Method);
-        using var scope = Correlation.BeginStandardScope(_log, _nodeId, context.Method);
+        using var scope = _log.BeginScope(Correlation.CreateScopeState(_nodeId, context.Method));
         using var deadlineScope = ServerRpcDeadlineContext.Push(context.Deadline);
         return await base.UnaryServerHandler(request, context, continuation).ConfigureAwait(false);
     }
