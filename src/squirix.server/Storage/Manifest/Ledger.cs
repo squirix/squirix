@@ -14,6 +14,8 @@ namespace Squirix.Server.Storage.Manifest;
 [Mutable]
 internal sealed class Ledger : IDisposable
 {
+    private static readonly TimeSpan DefaultPublisherStopBudget = TimeSpan.FromSeconds(30);
+
     private readonly IndexAllocator _allocator;
     private readonly Lock _cacheSync = new();
     private readonly string _currentPath;
@@ -28,13 +30,14 @@ internal sealed class Ledger : IDisposable
         ILogger<Ledger> logger,
         IRetentionCleanupReadinessStatus? retentionReadiness = null,
         IManifestRetentionFailureMetrics? failureMetrics = null,
-        IStorageFileOperations? fileOperations = null)
+        IStorageFileOperations? fileOperations = null,
+        TimeSpan? publisherStopBudget = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         var dir = options.DataDir;
         _currentPath = PathEx.Combine(dir, $"{FilePrefixes.Manifest}current");
         _allocator = new IndexAllocator(dir, _currentPath, PathEx.Combine(dir, FilePrefixes.Manifest), $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}", ReadCurrentIndex);
-        _publisher = new Publisher(dir, _currentPath, _allocator, SetCache, ReadRollBaselineLocked);
+        _publisher = new Publisher(dir, _currentPath, _allocator, SetCache, ReadRollBaselineLocked, logger, publisherStopBudget ?? DefaultPublisherStopBudget);
         var retentionSettings = new RetentionSettings(
             dir,
             options.ManifestRetentionCount > 0 ? options.ManifestRetentionCount : 3,
@@ -169,14 +172,28 @@ internal sealed class Ledger : IDisposable
         private bool _dirCreated;
         private byte[] _encodeBuffer = new byte[DefaultEncodeBufferCapacity];
 
-        internal Publisher(string dir, string path, IndexAllocator allocator, Action<State, int> setCache, Func<(State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8)> rbl)
+        internal Publisher(
+            string dir,
+            string path,
+            IndexAllocator allocator,
+            Action<State, int> setCache,
+            Func<(State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8)> rbl,
+            ILogger logger,
+            TimeSpan stopBudget)
         {
             _dir = dir;
             _allocator = allocator;
             _setCache = setCache;
             _rbl = rbl;
             _currentPointerWriter = new PersistentPointerWriter(path);
-            _worker = new SingleConsumerWorker<WorkItemBase>(work => work.Execute(this), static (work, ex) => work.OnFailure?.Invoke(ex));
+
+            // A manifest write stuck on disk must not hang node shutdown: disposal waits within the budget, and on expiry the queued writes and
+            // rolls are refused and the worker thread is leaked loudly.
+            _worker = new SingleConsumerWorker<WorkItemBase>(
+                work => work.Execute(this),
+                static (work, ex) => work.OnFailure?.Invoke(ex),
+                stopBudget,
+                () => ServerLog.ManifestPublisherLeakedOnShutdownTimeout(logger, stopBudget));
         }
 
         public void Dispose() => _worker.Dispose();

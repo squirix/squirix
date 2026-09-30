@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Manifest;
@@ -16,6 +17,8 @@ namespace Squirix.Server.UnitTests.Persistence.Manifest;
 [Immutable]
 public sealed class LedgerDisposeTests : IsolatedStorageTestBase
 {
+    private const int ManifestPublisherLeakedEventId = 1019;
+
     /// <summary>Retention is stopped before the publisher drains, so a roll committed during disposal cannot schedule a cleanup.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -41,6 +44,34 @@ public sealed class LedgerDisposeTests : IsolatedStorageTestBase
         }
 
         _ = await Assert.That(probe.StoppedWhenDrained).IsTrue();
+    }
+
+    /// <summary>A manifest roll stuck on disk does not hang disposal: it returns within the budget, reports the leaked publisher, and refuses the roll queued behind.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StuckPublisherDoesNotHangDispose(CancellationToken cancellationToken)
+    {
+        var log = new EventRecordingLogger();
+        var ledger = new Ledger(StoreTestSupport.CreateOptions(Dir), log, publisherStopBudget: TimeSpan.FromMilliseconds(100));
+        await ledger.WriteAsync(new State { CurrentJournal = 1 }, cancellationToken);
+        using var probe = new DrainProbe(ledger, cancellationToken);
+        var refused = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ledger.EnqueueRoll(2, 2, probe.HoldFirstRoll, static _ => { });
+        ledger.EnqueueRoll(3, 3, static () => { }, failure => refused.TrySetResult(failure));
+        await probe.WaitUntilHeldAsync();
+
+        var disposing = Task.Factory.StartNew(ledger.Dispose, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        try
+        {
+            await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            probe.Release();
+        }
+
+        _ = await Assert.That(log.Find(ManifestPublisherLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(await refused.Task.WaitAsync(cancellationToken)).IsTypeOf<ObjectDisposedException>();
     }
 
     /// <summary>Holds the publisher on the first roll and records whether retention was stopped when the roll behind it was committed.</summary>

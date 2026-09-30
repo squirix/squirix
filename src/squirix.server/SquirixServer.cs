@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server;
@@ -139,16 +140,12 @@ public sealed class SquirixServer : IAsyncDisposable
 
         private static void LogCleanupFailure(ILogger logger, Exception cleanupException)
         {
-#pragma warning disable CA1031 // A failing logger must not replace the startup failure that is being rethrown.
-            try
-            {
-                ServerLog.HostDisposeFailedAfterStartFailure(logger, cleanupException);
-            }
-            catch (Exception loggingException)
-            {
-                Trace.TraceError("Logging the failed-startup cleanup failed: {0}", loggingException);
-            }
-#pragma warning restore CA1031
+            // A failing logger must not replace the startup failure that is being rethrown.
+            var loggingFailure = Isolated.Run(
+                (Logger: logger, Cleanup: cleanupException),
+                static state => ServerLog.HostDisposeFailedAfterStartFailure(state.Logger, state.Cleanup));
+            if (loggingFailure != null)
+                Trace.TraceError("Logging the failed-startup cleanup failed: {0}", loggingFailure);
         }
 
         private async Task RunDisposeAsync()
