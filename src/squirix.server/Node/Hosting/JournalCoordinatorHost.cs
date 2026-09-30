@@ -30,14 +30,11 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
         // The container disposes this host as a root and stops at the first exception, so a throw here
         // would skip the manifest ledger, the replica group registry, and its follower logs. The journal
         // itself never throws from disposal; the filter is defence in depth for any other coordinator this host is handed.
-        try
-        {
-            await coordinator.DisposeAsync().ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is TimeoutException or AggregateException or ObjectDisposedException or IOException or InvalidOperationException)
-        {
-            LogManager.JournalDisposeFailedOnHostShutdown(_log ?? LogManager.GetLogger<JournalCoordinatorHost>(), ex);
-        }
+        var failure = await coordinator.DisposeAsync()
+                                       .CaptureFailureAsync(static ex => ex is TimeoutException or AggregateException or ObjectDisposedException or IOException or InvalidOperationException)
+                                       .ConfigureAwait(false);
+        if (failure != null)
+            LogManager.JournalDisposeFailedOnHostShutdown(_log ?? LogManager.GetLogger<JournalCoordinatorHost>(), failure);
 
         _coordinator = null;
     }
