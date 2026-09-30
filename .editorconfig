@@ -654,6 +654,7 @@ dotnet_diagnostic.VSTHRD003.severity = none # The closure-free exception asserti
 
 [src/squirix.server/Threading/{Isolated,TaskExtensions}.cs]
 dotnet_diagnostic.CA1031.severity = none # The isolation helpers exist to catch every failure and hand it back to the caller, which decides how to report it
+dotnet_diagnostic.VSTHRD003.severity = none # Awaiting the caller's task is the purpose of these helpers; the caller owns the work it represents
 
 [**/*Grpc.cs]
 dotnet_diagnostic.SA1518.severity = none # StyleCop: line endings at EOF must match settings (disabled for generated gRPC files)
