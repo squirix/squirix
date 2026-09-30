@@ -47,8 +47,10 @@ bootstrap endpoint, and the server-side routing to the key owner. It does not gr
 - The client sends the deadline to the server as the gRPC call deadline. The entry node and any owner-routing hop work
   within the same remaining budget.
 - When the deadline passes, the operation fails with `RpcException` and status `DeadlineExceeded`; no further attempt or
-  endpoint is tried. When the last endpoint failed with a transport error just before the deadline, that error is
-  surfaced instead.
+  endpoint is tried. When the deadline passes after an endpoint failed with a transport error, that endpoint's error is
+  surfaced and the remaining endpoints are not tried.
+- For `GetOrAddAsync` the deadline starts after the value factory returns; the factory itself is bounded only by the
+  caller `CancellationToken`.
 - A caller `CancellationToken` still applies: whichever of the token and the deadline fires first ends the operation.
   Caller cancellation surfaces as `OperationCanceledException`.
 - A mutation that fails with `DeadlineExceeded` may still have been applied on the server. Treat its outcome as unknown:
