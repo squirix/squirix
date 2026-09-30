@@ -3,6 +3,7 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
@@ -37,8 +38,8 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
             ManifestRetentionCount = 32,
         };
 
-        using var store = new Ledger(options);
-        using (var seeder = new Ledger(options))
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        using (var seeder = new Ledger(options, NullLogger<Ledger>.Instance))
         {
             for (var i = 1; i <= 5; i++)
             {
@@ -93,7 +94,7 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
             DataDir = dir,
             ManifestRetentionCount = 2,
         };
-        using var store = new Ledger(options);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
         var rollError = new StrongBox<Exception?>(null);
 
         for (var i = 1; i <= 20; i++)

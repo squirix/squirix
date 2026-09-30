@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -262,7 +263,7 @@ internal sealed class StallableJournal : IAsyncDisposable
             JournalGroupCommitMaxWait = groupCommitMaxWait,
             JournalGroupCommitMaxBatch = groupCommitMaxBatch,
         };
-        var ledger = new Ledger(options);
+        var ledger = new Ledger(options, NullLogger<Ledger>.Instance);
         var writer = new StallableJournalSegmentWriter();
         try
         {

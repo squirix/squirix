@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
@@ -102,7 +103,7 @@ public class ManifestPublishBenchmarks
 
             var dir = new TempDirectory(tempDirectoryPrefix);
             var persistence = options with { DataDir = dir };
-            var manifestStore = new Ledger(persistence);
+            var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
             return Task.FromResult(new Host(dir, manifestStore));
         }
     }

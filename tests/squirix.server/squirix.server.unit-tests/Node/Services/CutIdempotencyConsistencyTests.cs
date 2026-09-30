@@ -46,7 +46,7 @@ public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBas
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),

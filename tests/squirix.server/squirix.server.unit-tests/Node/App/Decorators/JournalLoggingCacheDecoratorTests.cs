@@ -263,7 +263,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
-        var manifestStore = new Ledger(options);
+        var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
         var physical = new PhysicalCache<string>();
         var inner = new RecordingLogicalCache(physical);
@@ -286,7 +286,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
-        var manifestStore = new Ledger(options);
+        var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
         var physical = new PhysicalCache<string>();
         var inner = new RaceSimulatingInnerCache(physical);

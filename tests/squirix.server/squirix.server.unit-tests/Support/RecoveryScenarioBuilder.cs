@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
@@ -18,7 +19,7 @@ internal sealed class RecoveryScenarioBuilder : IDisposable
         _dir = dir;
         DataDir = dir;
         Persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
-        Ledger = new Ledger(Persistence);
+        Ledger = new Ledger(Persistence, NullLogger<Ledger>.Instance);
         Cache = new PhysicalCache<object?>();
     }
 

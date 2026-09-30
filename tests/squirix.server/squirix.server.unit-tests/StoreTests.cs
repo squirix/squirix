@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
@@ -26,7 +27,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
     {
         var options = new PersistenceOptions { DataDir = Dir };
         await RollAsync();
-        using var reloaded = new Ledger(options);
+        using var reloaded = new Ledger(options, NullLogger<Ledger>.Instance);
         _ = await Assert.That((await reloaded.ReadCurrentOrDefaultAsync(cancellationToken)).CurrentJournal).IsEqualTo(2);
         return;
 
@@ -37,7 +38,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
 
         async Task RollAsync()
         {
-            using var store = new Ledger(options);
+            using var store = new Ledger(options, NullLogger<Ledger>.Instance);
             Exception? rollError = null;
             store.EnqueueRoll(1, 1, static () => { }, ex => rollError = ex);
             store.EnqueueRoll(2, 2, static () => { }, ex => rollError = ex);
@@ -54,7 +55,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
     public async Task WriteCreatesPointerAndManifestFile(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new Ledger(options);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
 
@@ -76,7 +77,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
     public async Task WriteUpdatesPointerViaTempFile(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new Ledger(options);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
 

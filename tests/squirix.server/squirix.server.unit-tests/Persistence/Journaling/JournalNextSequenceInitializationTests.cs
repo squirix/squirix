@@ -32,7 +32,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
     public async Task InitFailsOnMissingLastSegment(CancellationToken cancellationToken)
     {
         var persistence = NewPersistence(Dir);
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var only = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "only", "v");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 1, only);
         var state = new State
@@ -57,7 +57,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
     public async Task ObsoleteSegmentCorruptionIgnored(CancellationToken cancellationToken)
     {
         var persistence = NewPersistence(Dir);
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var obsoletePath = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         var stale = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "stale", "x");
         BinaryJournalTestSegmentWriter.WriteSegment(obsoletePath, stale);
@@ -90,7 +90,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
     public async Task PostCompactionSequenceSkipsObsolete(CancellationToken cancellationToken)
     {
         var persistence = NewPersistence(Dir);
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
 
         await using (var journal = JournalCoordinatorFactory.Create(
                          persistence,
@@ -127,7 +127,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
     public async Task ScanDerivesSequenceManifestJournal(CancellationToken cancellationToken)
     {
         var persistence = NewPersistence(Dir);
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var envelope = BinaryJournalTestSegmentWriter.BuildPutRecord(20UL, "k", "v");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 5, envelope);
         var manifest = new State
@@ -154,7 +154,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
     public async Task SequenceDerivesActiveManifestJournal(CancellationToken cancellationToken)
     {
         var persistence = NewPersistence(Dir);
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var old = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "old", "a");
         var live = BinaryJournalTestSegmentWriter.BuildPutRecord(5UL, "live", "b");
         var live2 = BinaryJournalTestSegmentWriter.BuildPutRecord(6UL, "live2", "c");
@@ -183,7 +183,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
     public async Task SequenceMonotonicAcrossSegmentRoll(CancellationToken cancellationToken)
     {
         var persistence = NewPersistence(Dir);
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
 
         var s1 = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "s1", "a");
         var s2 = BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "s2", "b");
@@ -219,7 +219,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
     public async Task SequenceRespectsSnapshotScan(CancellationToken cancellationToken)
     {
         var persistence = NewPersistence(Dir);
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var envelope = BinaryJournalTestSegmentWriter.BuildPutRecord(51UL, "k", "v");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 2, envelope);
         var manifest = new State
@@ -252,7 +252,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
     public async Task TruncatedTailBoundsSequence(CancellationToken cancellationToken)
     {
         var persistence = NewPersistence(Dir);
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000002{FileExtensions.Journal}");
         var a = BinaryJournalTestSegmentWriter.BuildPutRecord(5UL, "a", "x");
         var b = BinaryJournalTestSegmentWriter.BuildPutRecord(6UL, "b", "y");

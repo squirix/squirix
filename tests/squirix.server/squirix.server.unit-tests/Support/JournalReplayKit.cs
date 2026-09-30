@@ -88,7 +88,7 @@ internal sealed class JournalReplayKit
     /// <returns>The open session.</returns>
     internal async Task<Session> OpenAsync(FakeTimeProvider clock, CancellationToken cancellationToken)
     {
-        var manifestStore = new Ledger(Persistence);
+        var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance);
         var journal = JournalCoordinatorFactory.Create(
             Persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -131,7 +131,7 @@ internal sealed class JournalReplayKit
     /// <returns>The recovered cache.</returns>
     internal async Task<PhysicalCache<string>> RecoverAsync(TimeProvider clock, bool compact, CancellationToken cancellationToken)
     {
-        using var manifestStore = new Ledger(Persistence);
+        using var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance);
         if (compact)
             await JournalCompactor.CompactAsync(Persistence, manifestStore, StoreFactory.CreateReader(), cancellationToken);
 

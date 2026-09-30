@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -28,7 +29,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
     [Test]
     public async Task AheadManifestNeverMovesBackward(CancellationToken cancellationToken)
     {
-        using var store = new Ledger(new PersistenceOptions { DataDir = Dir });
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
         await store.WriteAsync(new State { Format = 1, CurrentJournal = 3, NextSequence = 2 }, cancellationToken);
         await using var journal = new SnapshotCutJournal(2, 2);
 
@@ -47,7 +48,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
     [Test]
     public async Task StaleManifestKeepsCapturedSegment(CancellationToken cancellationToken)
     {
-        using var store = new Ledger(new PersistenceOptions { DataDir = Dir });
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
         await store.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         await using var journal = new SnapshotCutJournal(2, 2);
 

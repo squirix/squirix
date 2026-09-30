@@ -36,7 +36,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
             JournalGroupCommitMaxBatch = 8,
         };
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -81,7 +81,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
             JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(5) : TimeSpan.Zero,
         };
 
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
 
         try
@@ -122,7 +122,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
             ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
 
         try

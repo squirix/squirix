@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Read;
@@ -135,7 +136,7 @@ public sealed class JournalStartupHeaderRepairTests : JournalStartupRepairTestBa
         var last = BuildFrame(2UL, "b");
         _ = await WriteSegmentFileAsync(1, Concat(GoodHeader(), first, last[..3]), cancellationToken);
         var persistence = NewPersistence(Dir);
-        using var ledger = new Ledger(persistence);
+        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await ledger.WriteAsync(NewManifest(), cancellationToken);
         var log = new EventRecordingLogger();
 

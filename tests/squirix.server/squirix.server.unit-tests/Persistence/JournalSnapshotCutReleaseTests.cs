@@ -34,7 +34,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -95,7 +95,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -132,7 +132,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),

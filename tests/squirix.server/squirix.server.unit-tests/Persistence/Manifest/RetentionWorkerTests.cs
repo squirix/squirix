@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Manifest;
@@ -27,7 +28,7 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
         var failures = 0;
         var metrics = new IManifestRetentionFailureMetricsCreateExpectations();
         _ = metrics.Setups.RecordDeleteFailure(Arg.Any<string>(), Arg.Any<string>()).Callback((_, _) => Interlocked.Increment(ref failures));
-        var context = new RetentionContext(new RetentionSettings("..", 1, 1, "man-*.bmqx"), null, null, static _ => 1, metrics.Instance());
+        var context = new RetentionContext(new RetentionSettings("..", 1, 1, "man-*.bmqx"), null, NullLogger.Instance, static _ => 1, metrics.Instance());
         var worker = new RetentionWorker(context, readiness.Instance());
 
         worker.ScheduleRetentionCleanup(new State { CurrentJournal = 2 });

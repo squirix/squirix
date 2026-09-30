@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -33,7 +34,7 @@ public sealed class JournalGroupCommitFlushFailureTests : IsolatedStorageTestBas
     public async Task FailedFlushFailsPipelineWithoutRetry(CancellationToken cancellationToken)
     {
         var options = CreateOptions();
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         using var writer = new FailOnceFsyncSegmentWriter();
         await using var journal = new JournalCoordinator(
             options,

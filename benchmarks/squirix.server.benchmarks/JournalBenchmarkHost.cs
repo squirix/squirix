@@ -42,7 +42,7 @@ internal sealed class JournalBenchmarkHost : IAsyncDisposable
 
         var dir = new TempDirectory(tempDirectoryPrefix);
         var persistence = options with { DataDir = dir };
-        var manifestStore = new Ledger(persistence);
+        var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var gate = new AsyncManualResetEvent(true);
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var coordinator = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, gate, NullLogger.Instance);

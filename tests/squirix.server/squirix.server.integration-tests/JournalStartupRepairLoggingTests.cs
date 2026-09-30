@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
@@ -116,7 +117,7 @@ public sealed class JournalStartupRepairLoggingTests : NodeIntegrationTestBase
     {
         await JournalSegmentLeaseWait.WaitForReleasedAsync(dataDir, cancellationToken);
         var persistence = new PersistenceOptions { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
-        using var ledger = new Ledger(persistence);
+        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         return NodePathKit.Combine(dataDir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(manifest.CurrentJournal)}{FileExtensions.Journal}");
     }

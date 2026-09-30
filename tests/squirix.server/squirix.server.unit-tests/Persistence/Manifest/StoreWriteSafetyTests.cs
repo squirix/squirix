@@ -1,6 +1,7 @@
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
@@ -21,7 +22,7 @@ public sealed class StoreWriteSafetyTests : IsolatedStorageTestBase
     public async Task WriteAdvancesIndexForValidCurrent(CancellationToken cancellationToken)
     {
         var options = StoreTestSupport.CreateOptions(Dir);
-        using var store = new Ledger(options);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
         await store.WriteAsync(new State { CurrentJournal = 1 }, cancellationToken);
 
         var first = NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(1));

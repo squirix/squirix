@@ -99,7 +99,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
 
     private static async Task ApplyThroughJournalAsync(PersistenceOptions persistence, FakeTimeProvider clock, List<ReplicaLogRecord> records, CancellationToken cancellationToken)
     {
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -120,7 +120,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
 
     private async Task<PhysicalCache<object?>> RecoverAsync(PersistenceOptions persistence, TimeProvider clock, CancellationToken cancellationToken)
     {
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var cache = new PhysicalCache<object?>(clock);
         var dependencies = new RecoveryDependencies<object?>(
             persistence,

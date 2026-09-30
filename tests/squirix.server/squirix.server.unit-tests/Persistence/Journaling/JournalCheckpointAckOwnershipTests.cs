@@ -37,7 +37,7 @@ public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
             ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),

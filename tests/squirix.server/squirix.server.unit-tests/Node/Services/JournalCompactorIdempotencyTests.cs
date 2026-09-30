@@ -62,7 +62,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
     public async Task CompactionKeepsIdempotencyFrames(CancellationToken cancellationToken)
     {
         var persistence = CreatePersistence(Dir);
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await WritePutAndIdempotencyAsync(persistence, manifestStore, cancellationToken);
 
         await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(), cancellationToken);

@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
@@ -22,7 +23,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
     public async Task FirstWriteCreatesCurrentPointer(CancellationToken cancellationToken)
     {
         var options = StoreTestSupport.CreateOptions(Dir);
-        using var store = new Ledger(options);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         var currentPath = NodePathKit.Combine(Dir, "man-current");
@@ -36,7 +37,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
     public async Task MissingPointerReadsAsDefault(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new Ledger(options);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
 
         var manifest = await store.ReadCurrentOrDefaultAsync(cancellationToken);
 
@@ -50,7 +51,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
     public async Task RewriteUpdatesCurrentPointer(CancellationToken cancellationToken)
     {
         var options = StoreTestSupport.CreateOptions(Dir);
-        using var store = new Ledger(options);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 10 }, cancellationToken);
@@ -63,7 +64,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
     public async Task ThrowsWhenCurrentPointerIsEmpty(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new Ledger(options);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
         await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, "man-current"), ReadOnlyMemory<byte>.Empty, cancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadCurrentOrDefaultAsync(cancellationToken));
@@ -75,7 +76,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
     public async Task ThrowsWhenPointerTargetVanishes(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new Ledger(options);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
         WriteCurrentPointer(Dir, 123);
 
         _ = await NodeAsyncAssert.ThrowsAsync<FileNotFoundException>(store.ReadCurrentOrDefaultAsync(cancellationToken));
