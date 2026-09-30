@@ -33,6 +33,8 @@ when server auth is enabled. The same rule applies to `/health/ready/details`. D
 [diagnostics — Readiness details](diagnostics.md#readiness-details).
 
 Client-side bootstrap warm-up skips emit `squirix_client_pool_bootstrap_warmup_skipped_total`.
+Client-side pool disposal failures emit `squirix_client_pool_dispose_failures_total` (tags `node_id`, `stage` = `policy` or
+`channel`, `exception_type`); disposal continues with the remaining peers.
 
 ## Tracing
 

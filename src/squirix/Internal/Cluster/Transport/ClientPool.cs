@@ -130,15 +130,31 @@ internal sealed class ClientPool : IClientPool
         }
     }
 
+    /// <summary>Marks every peer policy as draining; a policy that fails is counted and does not stop the others.</summary>
     private void BeginDrain()
     {
+#pragma warning disable CA1031 // Policies come from the pool's factory and are not restricted to known exception types; draining runs on the dispose path, which never throws.
         for (var i = 0; i < _nodeIds.Length; i++)
-            _policies[_nodeIds[i]].BeginDrain();
+        {
+            var nodeId = _nodeIds[i];
+            try
+            {
+                _policies[nodeId].BeginDrain();
+            }
+            catch (Exception ex)
+            {
+                ClientPoolMetrics.AddPolicyDisposeFailure(nodeId, ex);
+            }
+        }
+#pragma warning restore CA1031
     }
 
     private async Task DisposeCoreAsync()
     {
+        // Best-effort shutdown: a failure of one peer must not leave the remaining peers undisposed, and disposal never throws. Failures
+        // are counted per peer, stage and exception type because the client has no logging pipeline.
         BeginDrain();
+#pragma warning disable CA1031 // Policies come from the pool's factory and channels dispose pool-created HTTP handlers; neither is restricted to known exception types.
         for (var i = 0; i < _nodeIds.Length; i++)
         {
             var nodeId = _nodeIds[i];
@@ -146,9 +162,9 @@ internal sealed class ClientPool : IClientPool
             {
                 await _policies[nodeId].DisposeAsync().ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is ObjectDisposedException or IOException)
+            catch (Exception ex)
             {
-                // Best-effort drain: one failing policy dispose must not block disposal of other peers; the failure is intentionally ignored.
+                ClientPoolMetrics.AddPolicyDisposeFailure(nodeId, ex);
             }
         }
 
@@ -160,11 +176,12 @@ internal sealed class ClientPool : IClientPool
                 _channels[nodeId].Dispose();
                 ClientPoolMetrics.AddDisposal();
             }
-            catch (Exception ex) when (ex is ObjectDisposedException or IOException)
+            catch (Exception ex)
             {
-                // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted; the failure is intentionally ignored.
+                ClientPoolMetrics.AddChannelDisposeFailure(nodeId, ex);
             }
         }
+#pragma warning restore CA1031
     }
 
     private string[] RegisterPeers(
