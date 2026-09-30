@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -33,16 +34,8 @@ internal sealed class JournalSlowOperationReporter
         if (elapsedMs < WarningThresholdMs)
             return;
 
-        try
-        {
-            ServerLog.JournalFsyncSlow(_logger, elapsedMs);
-        }
-#pragma warning disable CA1031 // Diagnostics only: a faulty log sink must not fail the journal thread after a successful fsync.
-        catch (Exception ex)
-#pragma warning restore CA1031
-        {
-            TraceLogFailure(ex);
-        }
+        // Diagnostics only: a faulty log sink must not fail the journal thread after a successful fsync.
+        TraceLogFailure(Isolated.Run((Logger: _logger, ElapsedMs: elapsedMs), static state => ServerLog.JournalFsyncSlow(state.Logger, state.ElapsedMs)));
     }
 
     /// <summary>Warns when a mutation gate held since <paramref name="acquiredTimestamp" /> exceeded the threshold; never throws.</summary>
@@ -54,16 +47,9 @@ internal sealed class JournalSlowOperationReporter
         if (heldMs < WarningThresholdMs)
             return;
 
-        try
-        {
-            ServerLog.JournalMutationGateHeldLong(_logger, heldMs, holder);
-        }
-#pragma warning disable CA1031 // Diagnostics only: a faulty log sink must not mask the gate holder's own outcome.
-        catch (Exception ex)
-#pragma warning restore CA1031
-        {
-            TraceLogFailure(ex);
-        }
+        // Diagnostics only: a faulty log sink must not mask the gate holder's own outcome.
+        TraceLogFailure(
+            Isolated.Run((Logger: _logger, HeldMs: heldMs, Holder: holder), static state => ServerLog.JournalMutationGateHeldLong(state.Logger, state.HeldMs, state.Holder)));
     }
 
     /// <summary>
@@ -80,19 +66,18 @@ internal sealed class JournalSlowOperationReporter
         if (ioMs < WarningThresholdMs && gateHeldMs < WarningThresholdMs)
             return;
 
-        try
-        {
-            ServerLog.JournalWaitCanceledWhileStalled(_logger, waitingFor, ioOperation ?? "none", ioMs, gateHolder ?? "none", gateHeldMs);
-        }
-#pragma warning disable CA1031 // Diagnostics only: a faulty log sink must not mask the cancellation of the wait.
-        catch (Exception ex)
-#pragma warning restore CA1031
-        {
-            TraceLogFailure(ex);
-        }
+        // Diagnostics only: a faulty log sink must not mask the cancellation of the wait.
+        TraceLogFailure(
+            Isolated.Run(
+                (Logger: _logger, WaitingFor: waitingFor, IoOperation: ioOperation ?? "none", IoMs: ioMs, GateHolder: gateHolder ?? "none", GateHeldMs: gateHeldMs),
+                static state => ServerLog.JournalWaitCanceledWhileStalled(state.Logger, state.WaitingFor, state.IoOperation, state.IoMs, state.GateHolder, state.GateHeldMs)));
     }
 
-    private static void TraceLogFailure(Exception ex) => Trace.TraceError($"Journal slow-operation warning could not be logged: {ex}");
+    private static void TraceLogFailure(Exception? failure)
+    {
+        if (failure != null)
+            Trace.TraceError($"Journal slow-operation warning could not be logged: {failure}");
+    }
 
     private static long ElapsedMs(long startedTimestamp) => Convert.ToInt64(Stopwatch.GetElapsedTime(startedTimestamp).TotalMilliseconds);
 }
