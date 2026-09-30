@@ -48,6 +48,49 @@ public sealed class OperationDeadlineTests
         _ = await Assert.That(Stopwatch.GetElapsedTime(started)).IsLessThan(CompletionBound);
     }
 
+    /// <summary>Every exported cache operation sends the operation deadline as an absolute UTC call deadline.</summary>
+    [Test]
+    public async Task EveryOperationSendsUtcDeadline()
+    {
+        Func<ICache<string>, CancellationToken, ValueTask>[] operations =
+        [
+            static (cache, ct) => new ValueTask(cache.AddAsync("key-a", "value", null, ct)),
+            static (cache, ct) => new ValueTask(cache.GetEntryAsync("key-a", ct)),
+            static (cache, ct) => new ValueTask(cache.GetExpirationAsync("key-a", ct)),
+            static (cache, ct) => new ValueTask(cache.GetOrAddAsync("key-a", static (_, _) => Task.FromResult<string?>("value"), null, ct)),
+            static (cache, ct) => new ValueTask(cache.GetValueAsync("key-a", ct)),
+            static (cache, ct) => new ValueTask(cache.RemoveAsync("key-a", ct)),
+            static (cache, ct) => new ValueTask(cache.RemoveExpirationAsync("key-a", ct)),
+            static (cache, ct) => new ValueTask(cache.SetAsync("key-a", "value", null, ct)),
+            static (cache, ct) => new ValueTask(cache.TouchAsync("key-a", TimeSpan.FromMinutes(1), ct)),
+            static (cache, ct) => new ValueTask(cache.TouchAsync("key-a", DateTimeOffset.UtcNow.AddMinutes(1), ct)),
+            static (cache, ct) => new ValueTask(cache.TryAddAsync("key-a", "value", null, ct)),
+            static (cache, ct) => new ValueTask(cache.UpdateAsync("key-a", "value", ct)),
+        ];
+
+        foreach (var operation in operations)
+        {
+            await using var harness = new Harness("deadline-every-op", ShortDeadline, TransportMode.Succeed, TransportMode.Succeed);
+
+            try
+            {
+                await operation(harness.Cache, CancellationToken.None);
+            }
+            catch (CacheConflictException)
+            {
+                // The scripted empty response may map to a conflict; only the captured call options matter here.
+            }
+
+            var captured = harness.AllCalls();
+            _ = await Assert.That(captured.Count).IsGreaterThan(0);
+            foreach (var call in captured)
+            {
+                _ = await Assert.That(call.Deadline).IsNotNull();
+                _ = await Assert.That(call.Deadline!.Value.Kind).IsEqualTo(DateTimeKind.Utc);
+            }
+        }
+    }
+
     /// <summary>Caller cancellation is still reported as cancellation, not as a deadline failure.</summary>
     [Test]
     public async Task CallerCancelSurfacesOperationCanceled()

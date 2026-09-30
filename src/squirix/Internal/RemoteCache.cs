@@ -49,7 +49,8 @@ internal sealed class RemoteCache<T> : ICache<T>
         var response = await _rpc.ExecuteAsync(
             static (client, state, ct) =>
             {
-                var responseAsync = client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = state.CacheName, Key = state.Key }, RemoteCacheRpc.CallOptionsFor(ct)).ResponseAsync;
+                var responseAsync = client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = state.CacheName, Key = state.Key }, RemoteCacheRpc.CallOptionsFor(ct))
+                                          .ResponseAsync;
                 return new ValueTask<GetExpirationAsyncResponse>(responseAsync);
             },
             (CacheName: _cacheName, Key: key),
@@ -83,7 +84,8 @@ internal sealed class RemoteCache<T> : ICache<T>
         var response = await _rpc.ExecuteAsync(
             static (client, state, ct) =>
             {
-                var responseAsync = client.GetValueAsync(new GetValueAsyncRequest { CacheName = state.CacheName, Key = state.Key }, RemoteCacheRpc.CallOptionsFor(ct)).ResponseAsync;
+                var responseAsync = client.GetValueAsync(new GetValueAsyncRequest { CacheName = state.CacheName, Key = state.Key }, RemoteCacheRpc.CallOptionsFor(ct))
+                                          .ResponseAsync;
                 return new ValueTask<GetValueAsyncResponse>(responseAsync);
             },
             (CacheName: _cacheName, Key: key),
@@ -226,7 +228,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         var response = await state.Cache._rpc.ExecuteAsync(
             static (client, requestState, token) =>
             {
-                var responseAsync = client.GetOrAddAsync(requestState, cancellationToken: token).ResponseAsync;
+                var responseAsync = client.GetOrAddAsync(requestState, RemoteCacheRpc.CallOptionsFor(token)).ResponseAsync;
                 return new ValueTask<GetOrAddAsyncResponse>(responseAsync);
             },
             request,
@@ -241,7 +243,8 @@ internal sealed class RemoteCache<T> : ICache<T>
         var response = await _rpc.ExecuteAsync(
             static (client, state, ct) =>
             {
-                var responseAsync = client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = state.CacheName, Key = state.Key }, RemoteCacheRpc.CallOptionsFor(ct)).ResponseAsync;
+                var responseAsync = client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = state.CacheName, Key = state.Key }, RemoteCacheRpc.CallOptionsFor(ct))
+                                          .ResponseAsync;
                 return new ValueTask<GetEntryAsyncResponse>(responseAsync);
             },
             (CacheName: _cacheName, Key: key),
@@ -275,7 +278,8 @@ internal sealed class RemoteCache<T> : ICache<T>
         /// <summary>Builds the call options carrying the current operation deadline as the gRPC deadline.</summary>
         /// <param name="cancellationToken">The per-attempt cancellation token.</param>
         /// <returns>Call options with the ambient operation deadline in UTC, or no deadline when none is set.</returns>
-        internal static CallOptions CallOptionsFor(CancellationToken cancellationToken) => new(deadline: RpcDeadlineContext.CurrentDeadlineUtc, cancellationToken: cancellationToken);
+        internal static CallOptions CallOptionsFor(CancellationToken cancellationToken) =>
+            new(deadline: RpcDeadlineContext.CurrentDeadlineUtc, cancellationToken: cancellationToken);
 
         internal static CacheEntry<T> ToEntry(T? value, CacheEntryOptions? options)
         {
