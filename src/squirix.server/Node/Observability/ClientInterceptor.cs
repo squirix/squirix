@@ -36,6 +36,9 @@ internal sealed class ClientInterceptor : Interceptor
 
     private static CallOptions AttachTraceHeaders(CallOptions options, string method, out Activity? ownedActivity, out Metadata? rentedHeaders)
     {
+        // The operation deadline reaches every forwarded call, whether or not trace headers are attached below.
+        options = WithEffectiveDeadline(options);
+
         // Reuse the ambient Activity when present; otherwise start one owned by the outbound call.
         ownedActivity = null;
         rentedHeaders = null;
@@ -46,10 +49,9 @@ internal sealed class ClientInterceptor : Interceptor
             ownedActivity = activity;
         }
 
-        // No trace headers to attach — keep caller headers untouched (including null), but the operation
-        // deadline must still reach the forwarded call.
+        // No trace headers to attach — keep caller headers untouched (including null).
         if (activity == null)
-            return options.WithDeadline(ServerRpcDeadlineContext.EffectiveDeadline(options.Deadline) ?? options.Deadline ?? DateTime.MaxValue);
+            return options;
 
         // Clone caller headers into a freshly rented bag; never mutate options.Headers in place,
         // so a Metadata instance shared across calls cannot bleed trace headers or race.
@@ -69,11 +71,17 @@ internal sealed class ClientInterceptor : Interceptor
 
         return new CallOptions(
             metadata,
-            ServerRpcDeadlineContext.EffectiveDeadline(options.Deadline),
+            options.Deadline,
             options.CancellationToken,
             options.WriteOptions,
             options.PropagationToken,
             options.Credentials);
+    }
+
+    private static CallOptions WithEffectiveDeadline(CallOptions options)
+    {
+        var effective = ServerRpcDeadlineContext.EffectiveDeadline(options.Deadline);
+        return effective == null || effective == options.Deadline ? options : options.WithDeadline(effective.Value);
     }
 
     private static void Upsert(Metadata metadata, string key, string value)

@@ -74,9 +74,9 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
                         .Contains(static entry => string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(entry.Value));
     }
 
-    /// <summary>Verifies the tighter of the caller deadline and the context deadline is propagated when no activity exists.</summary>
+    /// <summary>Verifies the tighter of the caller deadline and the context deadline reaches the forwarded call, and that no deadline stays none.</summary>
     [Test]
-    public async Task InterceptorAppliesDeadlineNoActivity()
+    public async Task InterceptorAppliesEffectiveDeadline()
     {
         var capture = new DeadlineCapture();
         var interceptor = CreateInterceptor();
@@ -84,6 +84,9 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         var contextDeadline = DateTime.UtcNow.AddSeconds(5);
         var looserCaller = contextDeadline.AddSeconds(30);
         var tighterCaller = contextDeadline.AddSeconds(-2);
+
+        using (var none = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", default), capture.OnContinueAsync))
+            _ = await Assert.That(capture.Deadline).IsNull();
 
         using (ServerRpcDeadlineContext.Push(contextDeadline))
         {
