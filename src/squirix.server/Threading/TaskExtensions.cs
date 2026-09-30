@@ -51,7 +51,6 @@ internal static class TaskExtensions
     /// <param name="task">The value task to await; this call consumes it.</param>
     /// <param name="filter">Selects the failures to capture, expected to be a <see langword="static" /> lambda so the call does not allocate a closure.</param>
     /// <returns>The captured failure, or <see langword="null" /> when the task completed successfully.</returns>
-    [SuppressMessage("Usage", "VSTHRD003", Justification = "Awaiting the caller's task is the purpose of this helper; the caller owns the work it represents.")]
     internal static async ValueTask<Exception?> CaptureFailureAsync(this ValueTask task, Func<Exception, bool> filter)
     {
         ArgumentNullException.ThrowIfNull(filter);
