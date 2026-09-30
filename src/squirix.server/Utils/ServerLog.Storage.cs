@@ -57,6 +57,12 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 1014, Level = LogLevel.Warning, Message = "Journal wait for {WaitingFor} canceled while stalled: journal I/O {Operation} in progress for {IoMs} ms, mutation gate held by {Holder} for {HeldMs} ms")]
     internal static partial void JournalWaitCanceledWhileStalled(ILogger logger, string waitingFor, string operation, long ioMs, string holder, long heldMs);
 
+    [LoggerMessage(
+        EventId = 1019,
+        Level = LogLevel.Error,
+        Message = "Manifest publisher did not stop within the shutdown budget of {Budget}; manifest writes and rolls it has not yet taken are refused and its worker thread is leaked")]
+    internal static partial void ManifestPublisherLeakedOnShutdownTimeout(ILogger logger, TimeSpan budget);
+
     [LoggerMessage(EventId = 1009, Level = LogLevel.Warning, Message = "Manifest retention cleanup for {ArtifactKind} failed")]
     internal static partial void ManifestRetentionCleanupFailed(ILogger logger, Exception exception, string artifactKind);
 

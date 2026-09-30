@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -16,6 +17,68 @@ namespace Squirix.Server.UnitTests.Threading;
 /// <summary>Verifies the single-consumer worker lifecycle and ordering contract.</summary>
 public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
 {
+    /// <summary>A stop requested by a handler returns at once instead of waiting for its own thread, and later items are refused.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeFromHandlerDoesNotDeadlock(CancellationToken cancellationToken)
+    {
+        var owner = new WorkerOwner();
+        owner.Worker = new SingleConsumerWorker<int>(_ => owner.DisposeFromHandler(), static (_, _) => { });
+
+        await owner.Worker.EnqueueAsync(1).WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(owner.Worker.EnqueueAsync(2));
+    }
+
+    /// <summary>
+    /// A dispose whose budget expires reports the timeout without throwing, even when the report itself fails, and a fire-and-forget item queued
+    /// behind the blocked handler is refused through onFault.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeTimeoutReportsAndRefusesPosts(CancellationToken cancellationToken)
+    {
+        using var handler = new BlockingHandler(cancellationToken);
+        var reports = new StrongBox<int>();
+        var faults = new ConcurrentQueue<(int Item, Exception Fault)>();
+        using var worker = new SingleConsumerWorker<int>(
+            handler.Handle,
+            (item, fault) => faults.Enqueue((item, fault)),
+            TimeSpan.FromMilliseconds(100),
+            () =>
+            {
+                _ = Interlocked.Increment(ref reports.Value);
+                throw new InvalidOperationException("Reporting failed.");
+            });
+        worker.Post(1);
+        worker.Post(2);
+        await handler.WaitUntilBlockedAsync();
+
+        var disposing = Task.Factory.StartNew(
+            static state =>
+            {
+                if (state is IDisposable target)
+                    target.Dispose();
+            },
+            worker,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        try
+        {
+            await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            handler.Release();
+        }
+
+        await faults.WaitUntilAsync(static queue => !queue.IsEmpty, cancellationToken);
+        _ = await Assert.That(Volatile.Read(ref reports.Value)).IsEqualTo(1);
+        _ = await Assert.That(faults.TryPeek(out var refused) && refused.Item == 2 && refused.Fault is ObjectDisposedException).IsTrue();
+        _ = await Assert.That(handler.Handled).IsEqualTo(1);
+    }
+
     /// <summary>Disposal drains items queued before completion.</summary>
     [Test]
     public async Task DisposeDrainsQueuedItems()
@@ -30,6 +93,42 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
 
         await Task.WhenAll(first, second, third);
         _ = await Assert.That(handled).IsEqualTo(3);
+    }
+
+    /// <summary>
+    /// A stop whose budget expires while a handler is blocked returns <see langword="false" />, and the item queued behind is refused instead of run
+    /// once the handler returns.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StopRefusesQueueAfterBudgetExpires(CancellationToken cancellationToken)
+    {
+        using var handler = new BlockingHandler(cancellationToken);
+        using var worker = new SingleConsumerWorker<int>(handler.Handle, static (_, _) => { });
+        var first = worker.EnqueueAsync(1);
+        var second = worker.EnqueueAsync(2);
+        await handler.WaitUntilBlockedAsync();
+
+        var stopping = Task.Factory.StartNew(
+            static state => state is SingleConsumerWorker<int> target && target.TryStop(TimeSpan.FromMilliseconds(100)),
+            worker,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        bool stopped;
+        try
+        {
+            stopped = await stopping.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            handler.Release();
+        }
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(second);
+        await first;
+        _ = await Assert.That(stopped).IsFalse();
+        _ = await Assert.That(handler.Handled).IsEqualTo(1);
     }
 
     /// <summary>An EnqueueAsync after Dispose returns a faulted task with ObjectDisposedException and does not throw to the caller.</summary>
@@ -202,4 +301,45 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
     }
 
     private static void Complete(TaskCompletionSource tcs) => _ = tcs.TrySetResult();
+
+    /// <summary>Blocks the first item until released and counts the items the handler ran.</summary>
+    private sealed class BlockingHandler : IDisposable
+    {
+        private readonly TaskCompletionSource _blocked = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly CancellationToken _cancellationToken;
+        private readonly ManualResetEventSlim _release = new();
+        private int _handled;
+
+        internal BlockingHandler(CancellationToken cancellationToken)
+        {
+            _cancellationToken = cancellationToken;
+        }
+
+        internal int Handled => Volatile.Read(ref _handled);
+
+        public void Dispose() => _release.Dispose();
+
+        internal void Handle(int value)
+        {
+            if (value == 1)
+            {
+                _ = _blocked.TrySetResult();
+                _release.Wait(_cancellationToken);
+            }
+
+            _ = Interlocked.Increment(ref _handled);
+        }
+
+        internal void Release() => _release.Set();
+
+        internal Task WaitUntilBlockedAsync() => _blocked.Task.WaitAsync(_cancellationToken);
+    }
+
+    /// <summary>Owns a worker whose handler disposes it.</summary>
+    private sealed class WorkerOwner
+    {
+        internal SingleConsumerWorker<int>? Worker { get; set; }
+
+        internal void DisposeFromHandler() => Worker?.Dispose();
+    }
 }
