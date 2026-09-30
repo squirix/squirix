@@ -45,7 +45,7 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
                                        .CaptureFailureAsync(static ex => ex is TimeoutException or AggregateException or ObjectDisposedException or IOException or InvalidOperationException)
                                        .ConfigureAwait(false);
         if (failure != null)
-            LogManager.JournalDisposeFailedOnHostShutdown(_log, failure);
+            ServerLog.JournalDisposeFailedOnHostShutdown(_log, failure);
 
         _coordinator = null;
     }
@@ -91,13 +91,13 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
             switch (repair.Kind)
             {
                 case JournalRepairKind.HeaderRestored:
-                    LogManager.JournalHeaderRestored(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
+                    ServerLog.JournalHeaderRestored(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
                     break;
                 case JournalRepairKind.TornCreationHeaderRewritten:
-                    LogManager.JournalTornCreationRewritten(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
+                    ServerLog.JournalTornCreationRewritten(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
                     break;
                 case JournalRepairKind.TornTailTruncated:
-                    LogManager.JournalTornTailTruncated(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
+                    ServerLog.JournalTornTailTruncated(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(repairs), repair.Kind, "Unsupported journal repair kind.");

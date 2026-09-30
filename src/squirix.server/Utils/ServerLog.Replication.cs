@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 namespace Squirix.Server.Utils;
 
 /// <summary>Replica group verification, committer and follower-log lifecycle logs.</summary>
-internal static partial class LogManager
+internal static partial class ServerLog
 {
     [LoggerMessage(
         EventId = 4001,

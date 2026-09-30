@@ -106,7 +106,7 @@ internal sealed class PendingAppendRegistry
         aborts.FaultAll(effective);
 
         if (entries.Count != 0)
-            LogManager.JournalAbandonedAppendsDrained(logger, entries.Count, bytes);
+            ServerLog.JournalAbandonedAppendsDrained(logger, entries.Count, bytes);
 
         return entries.Count;
     }

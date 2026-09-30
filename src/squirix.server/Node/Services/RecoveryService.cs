@@ -84,7 +84,7 @@ internal sealed class RecoveryService<T> : IHostedService
         catch (OperationCanceledException ex)
         {
             // Host shutdown cancelled in-flight replay or the stop token expired.
-            LogManager.RecoveryReplayInterrupted(_log, ex);
+            ServerLog.RecoveryReplayInterrupted(_log, ex);
         }
     }
 
@@ -186,7 +186,7 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private void HandleSnapshotLoadFailure(ReplayContext context, string snapshotPath, out int fromSegment, out ulong lastAppliedSeq)
     {
-        LogManager.RecoveryFailedToLoadSnapshot(_log, snapshotPath);
+        ServerLog.RecoveryFailedToLoadSnapshot(_log, snapshotPath);
         RequireFullJournalReplayRange(context.ManifestCurrentJournal);
         fromSegment = context.FirstJournalSegmentOrDefault;
         lastAppliedSeq = 0;
@@ -205,7 +205,7 @@ internal sealed class RecoveryService<T> : IHostedService
         return new ReplayContext(snapRef, manifestCurrentJournal, firstAvailableSegment, firstJournalSegmentOrDefault, fromSegment, lastAppliedSeq);
     }
 
-    private void LogReplayBoundary(ReplayContext context, int fromSegment) => LogManager.RecoveryReplayBoundary(
+    private void LogReplayBoundary(ReplayContext context, int fromSegment) => ServerLog.RecoveryReplayBoundary(
         _log,
         context.SnapshotReference != null,
         context.ManifestCurrentJournal,
@@ -232,7 +232,7 @@ internal sealed class RecoveryService<T> : IHostedService
             LogReplayBoundary(context, replayState.FromSegment);
             await ReplayJournalSegmentsAsync(replayState.FromSegment, replayState.LastAppliedSequence, cancellationToken).ConfigureAwait(false);
 
-            LogManager.RecoveryComplete(_log, replayState.FromSegment, replayState.LastAppliedSequence);
+            ServerLog.RecoveryComplete(_log, replayState.FromSegment, replayState.LastAppliedSequence);
 
             // Recovery done: open the readiness gate. A failed replay throws before reaching this line,
             // leaving the node not-ready (writes stay gated) until the host fails fast on the exception.
@@ -240,7 +240,7 @@ internal sealed class RecoveryService<T> : IHostedService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException)
         {
-            LogManager.JournalRecoveryFailed(_log);
+            ServerLog.JournalRecoveryFailed(_log);
             throw;
         }
     }
@@ -254,7 +254,7 @@ internal sealed class RecoveryService<T> : IHostedService
         catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
         {
             // Host shutdown path.
-            LogManager.RecoveryReplayInterrupted(_log, ex);
+            ServerLog.RecoveryReplayInterrupted(_log, ex);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException)
         {
@@ -306,14 +306,14 @@ internal sealed class RecoveryService<T> : IHostedService
             await ApplySnapshotEntriesAsync(snapshot, cancellationToken).ConfigureAwait(false);
             _idempotency.RestoreSnapshotRecords(snapshot.IdempotencyRecords);
             fromSegment = snapshotReference.ReplayFromJournalSegment > 0 ? snapshotReference.ReplayFromJournalSegment : 1;
-            LogManager.RecoveryLoadedSnapshot(_log, snapshotReference.Index, lastAppliedSeq);
+            ServerLog.RecoveryLoadedSnapshot(_log, snapshotReference.Index, lastAppliedSeq);
             return new ReplayState(fromSegment, lastAppliedSeq);
         }
 
         if (snapshotReference == null)
             return new ReplayState(fromSegment, lastAppliedSeq);
 
-        LogManager.RecoveryFailedToLoadSnapshot(_log, snapshotReference.Path ?? "<null>");
+        ServerLog.RecoveryFailedToLoadSnapshot(_log, snapshotReference.Path ?? "<null>");
         RequireFullJournalReplayRange(context.ManifestCurrentJournal);
         fromSegment = context.FirstJournalSegmentOrDefault;
         lastAppliedSeq = 0;

@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 namespace Squirix.Server.Utils;
 
 /// <summary>Snapshot trigger background-service diagnostics.</summary>
-internal static partial class LogManager
+internal static partial class ServerLog
 {
     [LoggerMessage(EventId = 3003, Level = LogLevel.Debug, Message = "SnapshotTriggerService cancellation requested.")]
     internal static partial void SnapshotTriggerCanceled(ILogger logger);

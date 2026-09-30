@@ -170,7 +170,7 @@ internal sealed class DurableMutationExecutor
     /// <remarks>The frame may be durable while this process never applied it, and a restart replays it, so the caller must not see a definite failure.</remarks>
     private SquirixException ReportCommitOutcomeUnknown(Exception cause)
     {
-        LogManager.DurableMutationOutcomeUnknown(_logger, cause);
+        ServerLog.DurableMutationOutcomeUnknown(_logger, cause);
         return ServerOpContract.CommitOutcomeUnknown();
     }
 

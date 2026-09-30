@@ -239,7 +239,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 // caller that then completes with a refusal instead of ObjectDisposedException.
                 _gate.Dispose();
                 var faulted = _acks.FaultAll(new ObjectDisposedException(nameof(FollowerLog)));
-                LogManager.FollowerLogLeakedOnShutdownTimeout(_log, GroupId, _shutdownBudget, faulted);
+                ServerLog.FollowerLogLeakedOnShutdownTimeout(_log, GroupId, _shutdownBudget, faulted);
                 return;
             }
         }

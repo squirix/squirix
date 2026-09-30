@@ -337,7 +337,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         }
         catch (InvalidDataException error)
         {
-            LogManager.ReplicaInconsistentDecision(_log, _groupId, error);
+            ServerLog.ReplicaInconsistentDecision(_log, _groupId, error);
             throw;
         }
 

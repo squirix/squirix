@@ -142,7 +142,7 @@ public sealed class SquirixServer : IAsyncDisposable
 #pragma warning disable CA1031 // A failing logger must not replace the startup failure that is being rethrown.
             try
             {
-                LogManager.HostDisposeFailedAfterStartFailure(logger, cleanupException);
+                ServerLog.HostDisposeFailedAfterStartFailure(logger, cleanupException);
             }
             catch (Exception loggingException)
             {
@@ -166,7 +166,7 @@ public sealed class SquirixServer : IAsyncDisposable
                 }
                 catch (Exception ex)
                 {
-                    LogManager.HostStopFailedOnDispose(logger, ex);
+                    ServerLog.HostStopFailedOnDispose(logger, ex);
                 }
                 finally
                 {

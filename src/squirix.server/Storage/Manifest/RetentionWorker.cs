@@ -157,14 +157,14 @@ internal sealed class RetentionWorker : IWorkPoolItem
         {
             context.FailureMetrics.RecordDeleteFailure(artifactKind, ManifestRetentionFailureOutcome.CleanupException);
 
-            LogManager.ManifestRetentionCleanupFailed(context.Logger, exception, artifactKind);
+            ServerLog.ManifestRetentionCleanupFailed(context.Logger, exception, artifactKind);
         }
 
         private static void ReportRetentionDeleteFailure(RetentionContext context, string artifactKind, string path)
         {
             context.FailureMetrics.RecordDeleteFailure(artifactKind, ManifestRetentionFailureOutcome.DeleteFailed);
 
-            LogManager.ManifestRetentionDeleteFailed(context.Logger, artifactKind, path);
+            ServerLog.ManifestRetentionDeleteFailed(context.Logger, artifactKind, path);
         }
 
         private static IndexedStorageFile[] Trim(IndexedStorageFile[] buffer, int length)

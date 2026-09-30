@@ -69,7 +69,7 @@ internal sealed class ServerClientPool : IServerClientPool
             catch (Exception exception)
             {
                 if (_logger != null)
-                    LogManager.ClientPoolPolicyDisposeFailed(_logger, exception, nodeId);
+                    ServerLog.ClientPoolPolicyDisposeFailed(_logger, exception, nodeId);
             }
         }
 
@@ -84,7 +84,7 @@ internal sealed class ServerClientPool : IServerClientPool
             catch (Exception exception)
             {
                 if (_logger != null)
-                    LogManager.ClientPoolChannelDisposeFailed(_logger, exception, nodeId);
+                    ServerLog.ClientPoolChannelDisposeFailed(_logger, exception, nodeId);
             }
         }
 #pragma warning restore CA1031

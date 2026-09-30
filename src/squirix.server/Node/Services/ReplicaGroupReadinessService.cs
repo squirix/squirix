@@ -71,13 +71,13 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         switch (outcome)
         {
             case ReplicaVerification.AllReady:
-                LogManager.ReplicaVerificationComplete(_log);
+                ServerLog.ReplicaVerificationComplete(_log);
                 break;
             case ReplicaVerification.Pending:
-                LogManager.ReplicaVerificationPending(_log);
+                ServerLog.ReplicaVerificationPending(_log);
                 break;
             case ReplicaVerification.Blocked:
-                LogManager.ReplicaVerificationBlocked(_log);
+                ServerLog.ReplicaVerificationBlocked(_log);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Unsupported verification state.");
@@ -94,7 +94,7 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         {
             // Storage or commit-gate faults are retried like unreachable peers; unexpected exceptions still fault
             // the service so the host fails fast instead of silently running without a verified quorum.
-            LogManager.ReplicaVerificationRetry(_log, exception);
+            ServerLog.ReplicaVerificationRetry(_log, exception);
             return ReplicaVerification.Pending;
         }
     }

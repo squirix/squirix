@@ -106,7 +106,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             return;
         var prevName = StateName(prev);
         var nextName = StateName(next);
-        LogManager.CompactionStateChanged(_log, prevName, nextName);
+        ServerLog.CompactionStateChanged(_log, prevName, nextName);
     }
 
     private async Task<AttemptResult> MaybeCompactAsync(SnapshotRef? snapshotHint, CancellationToken cancellationToken)
@@ -162,7 +162,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     {
         _consecutiveFailures++;
         ChangeState(RunState.Failed);
-        LogManager.CompactionFailed(_log);
+        ServerLog.CompactionFailed(_log);
         return AttemptResult.Failed;
     }
 
@@ -175,7 +175,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         _ = activity?.SetTag("compaction.tail_bytes", ActivityTagValues.Int64(bytes));
 
         ChangeState(RunState.Running);
-        LogManager.CompactionStart(_log, snapshotIndex, segments, bytes);
+        ServerLog.CompactionStart(_log, snapshotIndex, segments, bytes);
 
         var started = Stopwatch.GetTimestamp();
         var resultLabel = "failure";
@@ -197,7 +197,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
 
         LastRunUtc = DateTime.UtcNow;
         _consecutiveFailures = 0;
-        LogManager.CompactionDone(_log, LastRunUtc);
+        ServerLog.CompactionDone(_log, LastRunUtc);
         ChangeState(RunState.Waiting);
         return AttemptResult.Succeeded;
     }
@@ -225,14 +225,14 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
                 var maxBackoffMs = Math.Max(10d, maxDelay.TotalMilliseconds);
                 var backoffMs = RandomNumberGenerator.GetInt32(0, int.MaxValue) * (maxBackoffMs / int.MaxValue);
                 var backoff = TimeSpan.FromMilliseconds(backoffMs);
-                LogManager.CompactionBackoff(_log, _consecutiveFailures, Convert.ToInt32(backoffMs));
+                ServerLog.CompactionBackoff(_log, _consecutiveFailures, Convert.ToInt32(backoffMs));
                 await Task.Delay(backoff, _timeProvider, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException ex)
         {
             // Background compaction loop exits when the host token is Canceled; not an error for this service.
-            LogManager.CompactionLoopCanceled(_log, ex);
+            ServerLog.CompactionLoopCanceled(_log, ex);
         }
         finally
         {

@@ -111,7 +111,7 @@ internal sealed class JournalStopper
         }
 
         if (failure != null)
-            LogManager.JournalStopFailedOnDispose(_log, failure);
+            ServerLog.JournalStopFailedOnDispose(_log, failure);
     }
 
     private static TimeSpan StageWait(long deadline, TimeSpan floor) => ShutdownStageWait(deadline, Environment.TickCount64, floor);
@@ -147,11 +147,11 @@ internal sealed class JournalStopper
             // or one that predates the shutdown, is a failure the caller must see: the final write or fsync may not have happened.
             if (_latchedBeforeShutdown != null || failure is not JournalShutdownRefusedException)
             {
-                LogManager.JournalFailureSurfacedOnStop(_log, _latchedBeforeShutdown != null, failure);
+                ServerLog.JournalFailureSurfacedOnStop(_log, _latchedBeforeShutdown != null, failure);
                 ExceptionDispatchInfo.Capture(failure).Throw();
             }
 
-            LogManager.JournalShutdownInducedFailureIgnored(_log, failure);
+            ServerLog.JournalShutdownInducedFailureIgnored(_log, failure);
         }
 
         if (_abandonedAppends == 0)
@@ -160,7 +160,7 @@ internal sealed class JournalStopper
         // An upper bound: a producer preempted between admission (Track) and the producer gate for the whole stop is counted although it then
         // gets a definite refusal before the ring, so its caller was never acknowledged.
         var lost = new IOException($"{_abandonedAppends} accepted journal frames were not written.");
-        LogManager.JournalFailureSurfacedOnStop(_log, false, lost);
+        ServerLog.JournalFailureSurfacedOnStop(_log, false, lost);
         throw lost;
     }
 
@@ -199,7 +199,7 @@ internal sealed class JournalStopper
         {
             if (!await _owner.DurabilityPipeline.QuiesceProducersAsync(StageWait(deadline, _owner.StageFloor)).ConfigureAwait(false))
             {
-                LogManager.JournalProducerQuiescenceTimedOut(_log);
+                ServerLog.JournalProducerQuiescenceTimedOut(_log);
                 _ = FaultReachableWaiters();
                 throw new TimeoutException("journal producers did not quiesce within the shutdown budget.");
             }
@@ -207,7 +207,7 @@ internal sealed class JournalStopper
             if (!await _owner.DurabilityPipeline.EnqueueShutdownMarkerAsync(StageWait(deadline, _owner.StageFloor)).ConfigureAwait(false))
             {
                 // Without the marker, cancelling or tearing down now would let the live thread exit with queued frames unwritten.
-                LogManager.JournalShutdownMarkerTimedOut(_log);
+                ServerLog.JournalShutdownMarkerTimedOut(_log);
                 _ = FaultReachableWaiters();
                 throw new TimeoutException("shutdown marker did not enter the journal ring within the shutdown budget.");
             }
@@ -228,12 +228,12 @@ internal sealed class JournalStopper
         if (!joined)
         {
             var faultedInFlight = FaultReachableWaiters();
-            LogManager.JournalThreadJoinTimedOut(_log, faultedInFlight, _owner.PendingAppends.PendingCount);
+            ServerLog.JournalThreadJoinTimedOut(_log, faultedInFlight, _owner.PendingAppends.PendingCount);
             if (!await JoinJournalThreadAsync(StageWait(deadline, _owner.GraceJoinFloor)).ConfigureAwait(false))
             {
                 // Tearing down the writer, ring, or gates under a live journal thread corrupts slot accounting and races in-flight
                 // writes, so they stay open; a later stop can finish once the thread exits.
-                LogManager.JournalThreadLeakedOnShutdownTimeout(_log, faultedInFlight, _owner.PendingAppends.PendingCount);
+                ServerLog.JournalThreadLeakedOnShutdownTimeout(_log, faultedInFlight, _owner.PendingAppends.PendingCount);
                 throw new TimeoutException("journal I/O thread is still alive after shutdown; writer, ring, and gates stay open until a later stop.");
             }
         }
@@ -304,7 +304,7 @@ internal sealed class JournalStopper
         }
         catch (OperationCanceledException)
         {
-            LogManager.JournalInFlightApplyWaitTimedOut(_log);
+            ServerLog.JournalInFlightApplyWaitTimedOut(_log);
         }
     }
 }

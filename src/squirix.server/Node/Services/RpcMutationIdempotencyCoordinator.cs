@@ -193,7 +193,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         {
             // The stamped mutation frame may be durable while its outcome is not (shutdown, the failure latch, a rejected outcome
             // frame), so the first caller gets the same unknown outcome a retry gets, never a definite failure.
-            LogManager.DurableMutationOutcomeUnknown(_logger, ex);
+            ServerLog.DurableMutationOutcomeUnknown(_logger, ex);
             throw ServerOpContract.CommitOutcomeUnknown().ToRpcException();
         }
     }

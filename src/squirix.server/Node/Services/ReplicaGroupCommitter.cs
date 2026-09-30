@@ -153,7 +153,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             }
             catch (OperationCanceledException)
             {
-                LogManager.ReplicaCommitterLeakedOnShutdownTimeout(Log, ShutdownBudget);
+                ServerLog.ReplicaCommitterLeakedOnShutdownTimeout(Log, ShutdownBudget);
                 return;
             }
         }
@@ -418,7 +418,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             // A durable majority may hold the entry: keep the reservation and sequencing untouched and
             // report the stable contract (gRPC Unavailable with COMMIT_OUTCOME_UNKNOWN), so callers stop
             // instead of retrying under a new identity. The original cause is logged before it is dropped.
-            LogManager.ReplicaCommitOutcomeUnknown(Log, error);
+            ServerLog.ReplicaCommitOutcomeUnknown(Log, error);
             throw ServerOpContract.CommitOutcomeUnknown();
         }
         catch
@@ -534,7 +534,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             eligibility,
             Applier.RecoverTail(tail, term, factory))
         {
-            ShutdownLeakReporter = budget => LogManager.ReplicaCoordinatorLeakedOnShutdown(Log, budget),
+            ShutdownLeakReporter = budget => ServerLog.ReplicaCoordinatorLeakedOnShutdown(Log, budget),
         };
 
         // Verified slots are admitted at the leader's last index before they count, so they cover the recovered tail.
@@ -563,7 +563,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
         catch (Exception error) when (error is not ObjectDisposedException)
         {
-            LogManager.ReplicaPendingApplyFailed(Log, error);
+            ServerLog.ReplicaPendingApplyFailed(Log, error);
             return false;
         }
     }

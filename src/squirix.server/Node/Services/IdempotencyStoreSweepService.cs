@@ -37,7 +37,7 @@ internal sealed class IdempotencyStoreSweepService : BackgroundService
         catch (OperationCanceledException ex)
         {
             // Expected on host stop/dispose; do not fault BackgroundService (StopHost).
-            LogManager.IdempotencySweepCanceled(_log, ex);
+            ServerLog.IdempotencySweepCanceled(_log, ex);
         }
     }
 }

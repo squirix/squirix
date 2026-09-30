@@ -127,7 +127,7 @@ internal sealed class ReplicaLeaderApplier
         if (string.Equals(Interlocked.Exchange(ref _lastReported, error.Message), error.Message, StringComparison.Ordinal))
             return;
 
-        LogManager.ReplicaInconsistentRecord(_log, _groupId, error);
+        ServerLog.ReplicaInconsistentRecord(_log, _groupId, error);
         _metrics?.ReportInconsistentRecord(_nodeId, _groupId);
     }
 

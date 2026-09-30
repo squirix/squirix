@@ -4,21 +4,21 @@ using Microsoft.Extensions.Logging;
 namespace Squirix.Server.Utils;
 
 /// <summary>Diagnostic logs for best-effort background, dispose, and metrics paths.</summary>
-internal static partial class LogManager
+internal static partial class ServerLog
 {
-    [LoggerMessage(EventId = 3001, Level = LogLevel.Debug, Message = "Journal recovery replay interrupted (host shutdown)")]
+    [LoggerMessage(EventId = 3025, Level = LogLevel.Debug, Message = "Journal recovery replay interrupted (host shutdown)")]
     internal static partial void RecoveryReplayInterrupted(ILogger logger, Exception exception);
 
-    [LoggerMessage(EventId = 3002, Level = LogLevel.Debug, Message = "Idempotency store background sweep canceled")]
+    [LoggerMessage(EventId = 3026, Level = LogLevel.Debug, Message = "Idempotency store background sweep canceled")]
     internal static partial void IdempotencySweepCanceled(ILogger logger, Exception exception);
 
-    [LoggerMessage(EventId = 3003, Level = LogLevel.Debug, Message = "Journal segment metric probe failed for {File}")]
+    [LoggerMessage(EventId = 3027, Level = LogLevel.Debug, Message = "Journal segment metric probe failed for {File}")]
     internal static partial void JournalMetricFileProbeFailed(ILogger logger, Exception exception, string file);
 
-    [LoggerMessage(EventId = 3004, Level = LogLevel.Debug, Message = "Backpressure observer probe failed; skipping source")]
+    [LoggerMessage(EventId = 3022, Level = LogLevel.Debug, Message = "Backpressure observer probe failed; skipping source")]
     internal static partial void BackpressureObservationFailed(ILogger logger, Exception exception);
 
-    [LoggerMessage(EventId = 3006, Level = LogLevel.Debug, Message = "Journal I/O thread exited on background cancellation")]
+    [LoggerMessage(EventId = 3024, Level = LogLevel.Debug, Message = "Journal I/O thread exited on background cancellation")]
     internal static partial void JournalThreadExitOnCancel(ILogger logger);
 
     [LoggerMessage(EventId = 3010, Level = LogLevel.Debug, Message = "Journal compaction background loop canceled")]

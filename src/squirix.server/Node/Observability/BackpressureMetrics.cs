@@ -140,12 +140,12 @@ internal sealed class BackpressureMetrics
                 catch (ObjectDisposedException ex)
                 {
                     // Keep metrics observation resilient if one observer source is torn down concurrently.
-                    LogManager.BackpressureObservationFailed(_logger, ex);
+                    ServerLog.BackpressureObservationFailed(_logger, ex);
                 }
                 catch (InvalidOperationException ex)
                 {
                     // Keep metrics observation resilient if one observer source is torn down concurrently.
-                    LogManager.BackpressureObservationFailed(_logger, ex);
+                    ServerLog.BackpressureObservationFailed(_logger, ex);
                 }
             }
 

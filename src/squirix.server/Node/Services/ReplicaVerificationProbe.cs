@@ -86,7 +86,7 @@ internal sealed class ReplicaVerificationProbe
             // Counting replicas must not commit it, and no current-term entry exists yet to commit it transitively. The state is
             // reported when it starts or changes; the readiness report keeps showing it as blocked on every pass.
             if (ReportBlockedTail(new BlockedTail(tail.LastIndex, term)))
-                LogManager.ReplicaTailOfOlderTerm(_log, tail.LastIndex, term);
+                ServerLog.ReplicaTailOfOlderTerm(_log, tail.LastIndex, term);
 
             return new ReplicaVerificationSnapshot(ReplicaVerification.Blocked);
         }

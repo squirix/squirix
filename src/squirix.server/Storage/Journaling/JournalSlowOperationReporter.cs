@@ -35,7 +35,7 @@ internal sealed class JournalSlowOperationReporter
 
         try
         {
-            LogManager.JournalFsyncSlow(_logger, elapsedMs);
+            ServerLog.JournalFsyncSlow(_logger, elapsedMs);
         }
 #pragma warning disable CA1031 // Diagnostics only: a faulty log sink must not fail the journal thread after a successful fsync.
         catch (Exception ex)
@@ -56,7 +56,7 @@ internal sealed class JournalSlowOperationReporter
 
         try
         {
-            LogManager.JournalMutationGateHeldLong(_logger, heldMs, holder);
+            ServerLog.JournalMutationGateHeldLong(_logger, heldMs, holder);
         }
 #pragma warning disable CA1031 // Diagnostics only: a faulty log sink must not mask the gate holder's own outcome.
         catch (Exception ex)
@@ -82,7 +82,7 @@ internal sealed class JournalSlowOperationReporter
 
         try
         {
-            LogManager.JournalWaitCanceledWhileStalled(_logger, waitingFor, ioOperation ?? "none", ioMs, gateHolder ?? "none", gateHeldMs);
+            ServerLog.JournalWaitCanceledWhileStalled(_logger, waitingFor, ioOperation ?? "none", ioMs, gateHolder ?? "none", gateHeldMs);
         }
 #pragma warning disable CA1031 // Diagnostics only: a faulty log sink must not mask the cancellation of the wait.
         catch (Exception ex)

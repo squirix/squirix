@@ -90,7 +90,7 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
         {
             // Storage and journal faults are retried on the next pass; unexpected exceptions still fault the service so the host fails
             // fast instead of silently retaining every applied entry.
-            LogManager.ReplicaLogMaintenanceRetry(_log, exception);
+            ServerLog.ReplicaLogMaintenanceRetry(_log, exception);
         }
     }
 
@@ -108,8 +108,8 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
 
         _reported = outcome;
         if (outcome == ReplicaLogCompactionOutcome.SnapshotTooLarge)
-            LogManager.ReplicaLogCompactionSnapshotTooLarge(_log);
+            ServerLog.ReplicaLogCompactionSnapshotTooLarge(_log);
         else
-            LogManager.ReplicaLogCompactionChanged(_log, name);
+            ServerLog.ReplicaLogCompactionChanged(_log, name);
     }
 }

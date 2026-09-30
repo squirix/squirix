@@ -193,7 +193,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         catch (OperationCanceledException) when (BackgroundToken.IsCancellationRequested)
         {
             // journal I/O thread exits when background cancellation is requested during dispose.
-            LogManager.JournalThreadExitOnCancel(JournalLog);
+            ServerLog.JournalThreadExitOnCancel(JournalLog);
         }
     }
 
