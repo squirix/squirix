@@ -38,7 +38,8 @@ internal static class NodeEndpointServiceRegistration
                     sp.GetRequiredService<IMemoryUsageAccounting>()),
                 sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
                 sp.GetRequiredService<PressureOptions>(),
-                sp.GetService<IReplicaStatusSource>())) : services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new EphemeralHealthReadyDetailsProvider(
+                sp.GetService<IReplicaStatusSource>(),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System)) : services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new EphemeralHealthReadyDetailsProvider(
                 sp.GetRequiredService<TopologyOptions>(),
                 sp.GetRequiredService<IMemoryUsageAccounting>(),
                 sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
@@ -171,12 +172,14 @@ internal static class NodeEndpointServiceRegistration
         private readonly IReplicaStatusSource? _replication;
         private readonly IRetentionCleanupReadinessStatus _retentionCleanup;
         private readonly Coordinator _snapshot;
+        private readonly TimeProvider _timeProvider;
 
         internal HealthReadyDetailsProvider(
             HealthReadyDependencies deps,
             IMemoryPressureStateEvaluator memoryEvaluator,
             PressureOptions memoryPressureOptions,
-            IReplicaStatusSource? replication)
+            IReplicaStatusSource? replication,
+            TimeProvider timeProvider)
         {
             _replication = replication;
             ArgumentNullException.ThrowIfNull(deps);
@@ -189,8 +192,10 @@ internal static class NodeEndpointServiceRegistration
             _memoryAccounting = deps.MemoryAccounting;
             ArgumentNullException.ThrowIfNull(memoryEvaluator);
             ArgumentNullException.ThrowIfNull(memoryPressureOptions);
+            ArgumentNullException.ThrowIfNull(timeProvider);
             _memoryEvaluator = memoryEvaluator;
             _memoryPressureOptions = memoryPressureOptions;
+            _timeProvider = timeProvider;
         }
 
         /// <inheritdoc />
@@ -206,7 +211,7 @@ internal static class NodeEndpointServiceRegistration
 
             double? snapshotAgeSeconds = null;
             if (manifest.LastSnapshot?.Path != null)
-                snapshotAgeSeconds = Math.Max(0, (DateTime.UtcNow - manifest.LastSnapshot.CreatedUtc).TotalSeconds);
+                snapshotAgeSeconds = Math.Max(0, (_timeProvider.GetUtcNow().UtcDateTime - manifest.LastSnapshot.CreatedUtc).TotalSeconds);
 
             var compactionState = _compaction.State switch
             {

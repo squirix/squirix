@@ -1,5 +1,6 @@
 using System;
 using System.Net;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -7,10 +8,12 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -103,6 +106,27 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
         _ = await Assert.That(attempts.Count).IsEqualTo(2);
     }
 
+    /// <summary>The snapshot age in the readiness details grows with the server clock the snapshot was stamped with.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SnapshotAgeFollowsServerClock(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var cluster = await StartClusterAsync("node_clock_snapshot", new IntegrationStartOptions { UsePersistence = true, TimeProvider = clock }, cancellationToken);
+        var node = cluster["node_clock_snapshot"];
+        var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        node.GetRequiredService<Coordinator>().SnapshotCompleted += (_, _) => published.TrySetResult();
+
+        // The first write after start triggers the first snapshot.
+        await GetCache(node).SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, "clock:k1", BuildEntry("v"), cancellationToken);
+        await published.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
+        var fresh = await GetSnapshotAgeSecondsAsync(node.Uri, cancellationToken);
+        clock.Advance(TimeSpan.FromSeconds(90));
+        var aged = await GetSnapshotAgeSecondsAsync(node.Uri, cancellationToken);
+
+        _ = await Assert.That(aged - fresh).IsEqualTo(90d).Within(0.001);
+    }
+
     /// <summary>A journal I/O call in progress degrades readiness once the server clock passes the stall threshold, with no real stall.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="InvalidOperationException">The host journal does not expose its stall probe.</exception>
@@ -132,6 +156,13 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
 
         _ = await Assert.That(fresh).IsEqualTo((HttpStatusCode.OK, nameof(HealthStatus.Healthy)));
         _ = await Assert.That(stalled).IsEqualTo((HttpStatusCode.OK, nameof(HealthStatus.Degraded)));
+    }
+
+    private async Task<double> GetSnapshotAgeSecondsAsync(Uri uri, CancellationToken cancellationToken)
+    {
+        var text = await HttpClient.GetStringAsync(new Uri(uri, "/health/ready/details"), cancellationToken);
+        using var document = JsonDocument.Parse(text);
+        return document.RootElement.GetProperty("snapshotAgeSeconds").GetDouble();
     }
 
     private async Task<(HttpStatusCode Status, string Body)> GetReadyAsync(Uri uri, CancellationToken cancellationToken)
