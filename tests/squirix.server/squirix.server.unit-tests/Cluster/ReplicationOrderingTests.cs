@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -78,7 +79,7 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
     {
         using var sequencer = new ReplicaLogIndexSequencer(ulong.MaxValue - 1);
         var state = (sequencer, index: ulong.MaxValue);
-        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static s => s.sequencer.Complete(s.index, true));
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static s => s.sequencer.Complete(s.index));
     }
 
     /// <summary>Completion for a foreign index is refused without touching the next index.</summary>
@@ -87,7 +88,7 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
     {
         using var sequencer = new ReplicaLogIndexSequencer(7);
         var state = (sequencer, index: 999UL);
-        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static s => s.sequencer.Complete(s.index, true));
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static s => s.sequencer.Complete(s.index));
     }
 
     /// <summary>Concurrent mutations receive distinct increasing indexes.</summary>
@@ -153,8 +154,48 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
         lease.Dispose();
     }
 
+    /// <summary>An append on a reservation the sequencer has already moved past fails, and still frees the gate.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StaleAppendThrowsAndReleasesGate(CancellationToken cancellationToken)
+    {
+        using var sequencer = new ReplicaLogIndexSequencer(7);
+        using var stale = await sequencer.ReserveAsync(cancellationToken);
+        sequencer.Complete(stale.Index);
+
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(stale, static reservation => reservation.MarkAppended());
+
+        var pending = sequencer.ReserveAsync(cancellationToken);
+        _ = await Assert.That(pending.IsCompletedSuccessfully).IsTrue();
+        using var next = await pending;
+        _ = await Assert.That(next.Index).IsEqualTo(9UL);
+    }
+
+    /// <summary>Releasing a reservation the sequencer has already moved past keeps the exception the commit unwinds with, and frees the gate.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StaleReleaseKeepsUnwindingException(CancellationToken cancellationToken)
+    {
+        using var sequencer = new ReplicaLogIndexSequencer(7);
+        var stale = await sequencer.ReserveAsync(cancellationToken);
+        sequencer.Complete(stale.Index);
+
+        _ = NodeExceptionAssert.For<IOException>().Throws(stale, static reservation => FailWhileHolding(reservation));
+
+        var pending = sequencer.ReserveAsync(cancellationToken);
+        _ = await Assert.That(pending.IsCompletedSuccessfully).IsTrue();
+        using var next = await pending;
+        _ = await Assert.That(next.Index).IsEqualTo(9UL);
+    }
+
     /// <inheritdoc />
     protected override void DisposeManaged() => _concurrentSequencer.Dispose();
+
+    private static void FailWhileHolding(ReplicaIndexReservation reservation)
+    {
+        using (reservation)
+            throw new IOException("Local append failed.");
+    }
 
     private static async Task ReserveAndAppendAsync(ReplicaLogIndexSequencer sequencer, List<ulong> indexes, Lock sync, Task start, CancellationToken cancellationToken)
     {

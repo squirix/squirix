@@ -33,7 +33,10 @@ internal sealed class ReplicaIndexReservation : IDisposable
 
         try
         {
-            owner.Complete(Index, appended);
+            // Only an append advances the sequencer. A release without one leaves the index to the next reservation and
+            // must not throw: it runs while a failed commit unwinds, and an exception here would replace the real cause.
+            if (appended)
+                owner.Complete(Index);
         }
         finally
         {
