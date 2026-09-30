@@ -44,6 +44,9 @@ internal sealed class Ledger : IDisposable
         _retentionWorker = new RetentionWorker(retentionContext, retentionReadiness);
     }
 
+    /// <summary>Gets a value indicating whether manifest retention cleanup is stopped; test seam for the disposal order.</summary>
+    internal bool IsRetentionStopped => _retentionWorker.IsStopped;
+
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
