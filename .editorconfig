@@ -652,6 +652,9 @@ dotnet_diagnostic.CS1591.severity = none # test projects omit XML docs on fixtur
 [**/{AsyncAssert,NodeAsyncAssert}.cs]
 dotnet_diagnostic.VSTHRD003.severity = none # The closure-free exception assertions exist to observe an operation the caller already started
 
+[src/squirix.server/Threading/Isolated.cs]
+dotnet_diagnostic.CA1031.severity = none # The isolation helper exists to catch every failure and hand it back to the caller, which decides how to report it
+
 [**/*Grpc.cs]
 dotnet_diagnostic.SA1518.severity = none # StyleCop: line endings at EOF must match settings (disabled for generated gRPC files)
 
