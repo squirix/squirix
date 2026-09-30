@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 
 namespace Squirix.Server.Threading;
@@ -8,6 +9,7 @@ namespace Squirix.Server.Threading;
 /// The single place that catches every exception from an isolated callback, so call sites stay free of broad catch blocks. It does not report the
 /// failure itself: the caller decides whether to log, trace or forward it.
 /// </remarks>
+[SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Isolation is the purpose of this class: every failure is returned to the caller, which decides how to report it.")]
 internal static class Isolated
 {
     /// <summary>Invokes <paramref name="action" /> with <paramref name="state" /> and returns the exception it threw, if any.</summary>
@@ -23,9 +25,7 @@ internal static class Isolated
             action(state);
             return null;
         }
-#pragma warning disable CA1031 // Isolation is the purpose of this helper: every failure is returned to the caller, which decides how to report it.
         catch (Exception exception)
-#pragma warning restore CA1031
         {
             return exception;
         }
@@ -44,9 +44,7 @@ internal static class Isolated
             await action(state).ConfigureAwait(false);
             return null;
         }
-#pragma warning disable CA1031 // Isolation is the purpose of this helper: every failure is returned to the caller, which decides how to report it.
         catch (Exception exception)
-#pragma warning restore CA1031
         {
             return exception;
         }
