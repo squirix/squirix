@@ -14,9 +14,10 @@ namespace Squirix.Internal;
 /// A stale-term response reroutes at most once to another endpoint: the deposed endpoint may still
 /// serve stale state, but the operation never bounces between endpoints. The logical state (including
 /// the operation id) is passed through unchanged, so a rerouted mutation keeps its idempotency record.
-/// Every operation runs under one absolute deadline fixed at construction: it is shared between the reroute and
-/// the per-endpoint transport retries instead of multiplying retry counters across layers, and it is published
-/// through <see cref="RpcDeadlineContext" /> so outgoing calls carry it as the gRPC deadline.
+/// Every operation runs under one absolute deadline: only its duration is fixed at construction, the instant is set
+/// when the operation starts. It is shared between the reroute and the per-endpoint transport retries instead of
+/// multiplying retry counters across layers, and it is published through <see cref="RpcDeadlineContext" /> so
+/// outgoing calls carry it as the gRPC deadline.
 /// </remarks>
 internal sealed class EndpointFailover
 {
@@ -28,6 +29,14 @@ internal sealed class EndpointFailover
     private readonly TimeProvider _timeProvider;
     private int _activeIndex;
 
+    /// <summary>Initializes a new instance of the <see cref="EndpointFailover" /> class.</summary>
+    /// <param name="bootstrapNodeIds">The bootstrap endpoint node ids in failover order.</param>
+    /// <param name="primaryNodeId">The node id of the endpoint tried first.</param>
+    /// <param name="operationDeadline">The finite positive duration each operation may take in total.</param>
+    /// <param name="timeProvider">
+    /// The clock used to compute the deadline. It must track wall-clock UTC: the pushed absolute deadline is compared
+    /// against <see cref="DateTime.UtcNow" /> by the call policy and by the gRPC client.
+    /// </param>
     internal EndpointFailover(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId, TimeSpan operationDeadline, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(bootstrapNodeIds);
