@@ -33,7 +33,6 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -66,8 +65,6 @@ internal static class ServerHostingComposition
     internal static async Task<WebApplication> MapServerAsync(WebApplication app, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(app);
-
-        LogManager.Configure(app.Services.GetRequiredService<ILoggerFactory>());
 
         await OpenStorageAsync(app.Services, cancellationToken).ConfigureAwait(false);
 

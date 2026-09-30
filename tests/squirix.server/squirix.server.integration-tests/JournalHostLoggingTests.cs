@@ -24,11 +24,7 @@ using TUnit.Core.Exceptions;
 
 namespace Squirix.Server.IntegrationTests;
 
-/// <summary>
-/// The journal and the manifest ledger diagnostics must reach the logger the host registers, not a null logger. Not run in parallel: the server logging bridge is process-wide, so a concurrently starting host
-/// would take over the journal's diagnostics.
-/// </summary>
-[NotInParallel]
+/// <summary>The journal and the manifest ledger diagnostics must reach the logger the host registers, not a null logger.</summary>
 public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
 {
     private const int JournalWaitCanceledWhileStalledEventId = 1014;
