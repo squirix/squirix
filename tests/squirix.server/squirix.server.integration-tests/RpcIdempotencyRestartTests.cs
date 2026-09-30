@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
@@ -51,7 +52,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
         await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, cancellationToken);
 
         var persistence = new PersistenceOptions { DataDir = node.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(), cancellationToken);
 
         await using var restartCluster = await StartClusterAsync(
@@ -150,7 +151,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
     private static async Task JournalHasPutAndIdempotencyRecordsAsync(string dataDir)
     {
         var persistence = new PersistenceOptions { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
         var sawPut = false;
         var sawIdempotency = false;

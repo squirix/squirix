@@ -25,11 +25,12 @@ internal sealed class Ledger : IDisposable
 
     internal Ledger(
         PersistenceOptions options,
-        ILogger<Ledger>? logger = null,
+        ILogger<Ledger> logger,
         IRetentionCleanupReadinessStatus? retentionReadiness = null,
         IManifestRetentionFailureMetrics? failureMetrics = null,
         IStorageFileOperations? fileOperations = null)
     {
+        ArgumentNullException.ThrowIfNull(logger);
         var dir = options.DataDir;
         _currentPath = PathEx.Combine(dir, $"{FilePrefixes.Manifest}current");
         _allocator = new IndexAllocator(dir, _currentPath, PathEx.Combine(dir, FilePrefixes.Manifest), $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}", ReadCurrentIndex);

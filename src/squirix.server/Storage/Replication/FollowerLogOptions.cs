@@ -1,5 +1,4 @@
 using System;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Utils;
 
@@ -31,9 +30,6 @@ internal sealed class FollowerLogOptions
 
     /// <summary>Gets the maximum accepted snapshot size in bytes.</summary>
     internal int MaxSnapshotBytes { get; init; } = GroupSnapshotStore.DefaultMaxSnapshotBytes;
-
-    /// <summary>Gets the logger for lifecycle failures; <see langword="null" /> selects the host logger.</summary>
-    internal ILogger? Log { get; init; }
 
     /// <summary>Gets the longest wait for an in-flight durable operation on dispose; 30 seconds unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>

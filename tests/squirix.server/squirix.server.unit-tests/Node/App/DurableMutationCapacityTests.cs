@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -40,7 +41,7 @@ public sealed class DurableMutationCapacityTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, CapacityMb, cancellationToken);
         var memory = new AppliedKeys();
-        var executor = new DurableMutationExecutor(journal.Journal);
+        var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
 
         _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(memory.PutAsync(executor, journal.Journal, "big", OversizedValue(), cancellationToken));
         var droppedMemory = memory.Snapshot;
@@ -68,7 +69,7 @@ public sealed class DurableMutationCapacityTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, CapacityMb, cancellationToken);
         var memory = new AppliedKeys();
-        var executor = new DurableMutationExecutor(journal.Journal);
+        var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
 
         _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(memory.PutAsync(executor, journal.Journal, "a", OversizedValue(), cancellationToken));
         var droppedMemory = memory.Snapshot;

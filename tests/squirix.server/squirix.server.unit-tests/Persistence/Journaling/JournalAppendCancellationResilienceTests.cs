@@ -45,13 +45,14 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
             JournalGroupCommitMaxBatch = 8,
         };
 
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         await journal.WaitForStartupAsync(cancellationToken);
 
         const int iterations = 256;
@@ -85,13 +86,14 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
             JournalGroupCommitMaxBatch = 8,
         };
 
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
         const int payloadSize = 16_000;

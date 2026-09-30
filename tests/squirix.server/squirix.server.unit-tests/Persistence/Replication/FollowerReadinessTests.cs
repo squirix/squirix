@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
@@ -24,7 +25,7 @@ public sealed class FollowerReadinessTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-readiness-visibility");
         var composition = GroupComposition.Create(GroupId);
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
 
         // A start gate releases every poller at once so readiness reads race the gated startup writes.
         using var gate = new ManualResetEventSlim(false);

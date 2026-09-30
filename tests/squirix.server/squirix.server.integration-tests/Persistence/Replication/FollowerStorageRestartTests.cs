@@ -3,6 +3,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
@@ -72,7 +73,7 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
         using var dir = new TempDirectory("squirix-follower-restart-crash-commit");
         var crashFaults = CreateCommitAdvanceFaults();
 
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), crashFaults))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, crashFaults))
         {
             await log.OpenAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
@@ -133,5 +134,5 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
         return expectations.Instance();
     }
 
-    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId));
+    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
 }

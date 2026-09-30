@@ -3,6 +3,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -33,7 +34,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
 
         // Seed a log whose durable metadata carries an applied watermark above the snapshot's included boundary:
         // the exact incoherent state the guard defends against, where compaction would otherwise drop applied frames.
-        await using (var seed = new FollowerLog(dir, GroupId, composition))
+        await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
             await seed.OpenAsync(cancellationToken);
             _ = await seed.AppendAsync(Append(1UL, "a"), cancellationToken);
@@ -49,7 +50,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         GroupLogCodec.EncodeMeta(incoherent, encoded);
         await File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), encoded, cancellationToken);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
 
         var status = await log.GetStatusAsync(cancellationToken);
@@ -81,7 +82,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-compaction-divergent-boundary");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -127,7 +128,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
 
         byte[] bytesBeforeCompaction;
         byte[] bytesAfterCompaction;
-        await using (var log = new FollowerLog(dir, GroupId, composition, options))
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, options))
         {
             await log.OpenAsync(cancellationToken);
             _ = await Assert.That((await log.AppendAsync(Append(1UL, "a"), cancellationToken)).Success).IsTrue();
@@ -152,7 +153,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         // bytes are unchanged and a reopened log still serves the committed entries.
         await SequenceAssert.EqualAsync(bytesBeforeCompaction, bytesAfterCompaction);
 
-        await using var reopened = new FollowerLog(dir, GroupId, composition);
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);
 
         // The applied prefix releases its payloads during recovery, so the watermarks — not the entry payloads —
@@ -172,7 +173,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-replica-idempotency-compaction");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -203,7 +204,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         var faults = new ArmableFlushFaultHooks(static () => new IOException("simulated failure before compaction publish."));
         var composition = GroupComposition.Create(GroupId);
 
-        await using (var log = new FollowerLog(dir, GroupId, composition, faults))
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, faults))
         {
             await log.OpenAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
@@ -220,7 +221,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
             _ = await Assert.That(File.Exists(tempPath)).IsFalse().Because($"Compaction temp file should be cleaned up after failure: {tempPath}");
         }
 
-        await using var reopened = new FollowerLog(dir, GroupId, composition);
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);
         var status = await reopened.GetStatusAsync(cancellationToken);
 
@@ -245,7 +246,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-compaction-probe");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -276,7 +277,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-compaction-snapshot-restart");
         var composition = GroupComposition.Create(GroupId);
 
-        await using (var log = new FollowerLog(dir, GroupId, composition))
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
             await log.OpenAsync(cancellationToken);
             _ = await Assert.That((await log.AppendAsync(Append(1UL, "a"), cancellationToken)).Success).IsTrue();
@@ -297,7 +298,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         }
 
         // The restart lands on the third journal shape: the first frame lies above one and below snapshotBase + one.
-        await using var reopened = new FollowerLog(dir, GroupId, composition);
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);
 
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
@@ -320,7 +321,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-replica-compaction");
         var composition = GroupComposition.Create(GroupId);
 
-        await using (var log = new FollowerLog(dir, GroupId, composition))
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
             await log.OpenAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
@@ -337,7 +338,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
             _ = await Assert.That(await log.GetUncommittedTailAsync(cancellationToken)).HasSingleItem();
         }
 
-        await using var reopened = new FollowerLog(dir, GroupId, composition);
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);
         var status = await reopened.GetStatusAsync(cancellationToken);
 

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
@@ -50,7 +51,7 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
             MaxSlowdownDelay = TimeSpan.Zero,
             MaxQueueWait = TimeSpan.FromMilliseconds(200),
         };
-        using var gate = new AdmissionGate(backpressureOptions, new BackpressureMetrics(meter));
+        using var gate = new AdmissionGate(backpressureOptions, new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
         var first = (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease;
         var secondAcquire = gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken).AsTask();
         await WaitForGaugeSnapshotAsync(listener, inFlight, queueDepth, trackedClients, cancellationToken);
@@ -87,12 +88,12 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
             MaxQueueWait = TimeSpan.FromMilliseconds(200),
         };
 
-        using var gateA = new AdmissionGate(options, new BackpressureMetrics(meter));
+        using var gateA = new AdmissionGate(options, new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
 
         var firstA = (await gateA.AcquireAsync("rest", "get", "rest:gateA:client-a", cancellationToken)).Lease;
         var queuedA = gateA.AcquireAsync("rest", "get", "rest:gateA:client-b", cancellationToken).AsTask();
 
-        var gateB = new AdmissionGate(options, new BackpressureMetrics(meter));
+        var gateB = new AdmissionGate(options, new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
         gateB.Dispose();
 
         await WaitForGaugeSnapshotAsync(listener, inFlight, queueDepth, trackedClients, cancellationToken);

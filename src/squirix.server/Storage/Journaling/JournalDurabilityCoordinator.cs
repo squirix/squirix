@@ -377,7 +377,7 @@ internal sealed class JournalDurabilityCoordinator
         {
             // The abort is diagnostics-only on an already-failed pipeline: log it as suppressed.
             // The pipeline failure slot was already poisoned by the caller with the original error.
-            LogManager.MaintenanceAbortFailed(_logger, abortEx);
+            ServerLog.MaintenanceAbortFailed(_logger, abortEx);
             return false;
         }
         catch (Exception unexpectedEx) when (unexpectedEx is not (OperationCanceledException or TimeoutException or ObjectDisposedException or IOException
@@ -386,7 +386,7 @@ internal sealed class JournalDurabilityCoordinator
             // Total guard: anything outside the expected set (framework bugs, fatal runtime errors)
             // must still never replace the original error awaiting the caller. The caller
             // already poisoned the pipeline failure slot, so logging here preserves the loud failure.
-            LogManager.MaintenanceAbortFailed(_logger, unexpectedEx);
+            ServerLog.MaintenanceAbortFailed(_logger, unexpectedEx);
             return false;
         }
         finally

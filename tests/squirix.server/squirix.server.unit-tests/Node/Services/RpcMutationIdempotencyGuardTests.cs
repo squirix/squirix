@@ -46,20 +46,19 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
             ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
-
+            NullLoggerFactory.Instance,
+            out _);
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
-        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var attempts = new MutableCount();
-        var executor = new DurableMutationExecutor(journal);
+        var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
         var key = CacheKey.Default("guard-key");
-
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
             coordinator.ExecuteAsync<(DurableMutationExecutor Executor, IJournalCoordinator Journal, CacheKey Key, byte[] Payload, MutableCount Attempts), TryAddAsyncResponse>(
                 ValidOperationId,
@@ -112,19 +111,20 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
             ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
 
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
-        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var key = CacheKey.Default("guard-key");
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        var executor = new DurableMutationExecutor(journal);
+        var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
 
         _ = await coordinator.ExecuteAsync(
             ValidOperationId,
@@ -173,16 +173,17 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
             ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
 
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
-        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var attempts = new MutableCount();
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(

@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
@@ -22,7 +23,7 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
     public async Task WritesPruneSegmentsBeforeReplayPoint(CancellationToken cancellationToken)
     {
         var options = StoreTestSupport.CreateOptions(Dir);
-        using var store = new Ledger(options);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
 
         CreateJournalSegment(1);
         CreateJournalSegment(2);
@@ -65,7 +66,7 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
             DataDir = Dir,
             SnapshotRetentionCount = 2,
         };
-        using var store = new Ledger(options);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
 
         CreateSnapshot(1);
         CreateSnapshot(2);

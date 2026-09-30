@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -30,7 +31,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-duplicate");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
 
         var first = await log.AppendAsync(Append(1UL, 1UL, "dup"), cancellationToken);
@@ -51,7 +52,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-stale-repeat");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
@@ -74,7 +75,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-applied-monotonic");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
@@ -101,7 +102,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-applied-prune");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
@@ -130,7 +131,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-applied-restart");
         var composition = GroupComposition.Create(GroupId);
 
-        await using (var log = new FollowerLog(dir, GroupId, composition))
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
             await log.OpenAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
@@ -140,7 +141,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
             _ = await Assert.That(result.Success).IsTrue();
         }
 
-        await using (var log = new FollowerLog(dir, GroupId, composition))
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
             await log.OpenAsync(cancellationToken);
             _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastAppliedIndex).IsEqualTo(1UL);
@@ -158,7 +159,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-owned-payload");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
 
         var payload = Encoding.UTF8.GetBytes("abcd");
@@ -180,7 +181,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-append");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
 
         var first = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
@@ -208,7 +209,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-base-duplicate-applied");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AdvanceCommitAsync(1UL, cancellationToken)).Success).IsTrue();
@@ -234,7 +235,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-applied-conflict-batch");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
@@ -261,7 +262,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-applied-prev-conflict");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
@@ -286,7 +287,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-predecessor");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
@@ -310,7 +311,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-commit-backward");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
@@ -329,7 +330,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-committed-boundary");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
@@ -352,7 +353,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-committed-conflict");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
@@ -374,7 +375,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-commit-beyond");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
 
@@ -396,7 +397,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-base-duplicate");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AdvanceCommitAsync(1UL, cancellationToken)).Success).IsTrue();
@@ -420,7 +421,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-duplicate-prefix");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken)).Success).IsTrue();
@@ -531,7 +532,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-heartbeat-divergent");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken)).Success).IsTrue();
@@ -559,7 +560,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-higher-term-commit");
         var composition = GroupComposition.Create(GroupId);
 
-        await using (var log = new FollowerLog(dir, GroupId, composition))
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
             await log.OpenAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
@@ -580,7 +581,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         }
 
         // The adopted term survives restart and still governs stale-term rejections.
-        await using (var reopened = new FollowerLog(dir, GroupId, composition))
+        await using (var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
             await reopened.OpenAsync(cancellationToken);
             _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).CurrentTerm).IsEqualTo(2UL);
@@ -603,7 +604,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-compacted-snapshot-base-conflict");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken)).Success).IsTrue();
@@ -631,7 +632,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-applied-reapply");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
@@ -652,7 +653,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-reject");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "one"), cancellationToken);
 
@@ -670,7 +671,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-oversized");
         var composition = GroupComposition.Create(GroupId);
 
-        await using (var log = new FollowerLog(dir, GroupId, composition))
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
             await log.OpenAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
@@ -688,7 +689,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         bytes[bodyLengthOffset + 3] = 0x7F;
         await File.WriteAllBytesAsync(path, bytes, cancellationToken);
 
-        await using var reopened = new FollowerLog(dir, GroupId, composition);
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
     }
@@ -701,7 +702,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-stale-term");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 5UL, "x"), cancellationToken);
 
@@ -722,7 +723,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-snapshot-base-conflict");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken)).Success).IsTrue();
@@ -750,7 +751,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-status");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
 
@@ -773,7 +774,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task TermAtReadsRetainedEntries(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-log-term-at");
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 2UL, "b", 1UL), cancellationToken);
@@ -792,7 +793,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-truncate-conflict");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "old"), cancellationToken);
 
@@ -814,7 +815,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-truncate-mid");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
@@ -845,7 +846,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-unknown-group");
         var composition = GroupComposition.Empty();
 
-        await using var log = new FollowerLog(dir, "unknown", composition);
+        await using var log = new FollowerLog(dir, "unknown", composition, NullLogger<FollowerLog>.Instance);
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.OpenAsync(cancellationToken));
 
         var root = GroupStoragePaths.GetRoot(dir);

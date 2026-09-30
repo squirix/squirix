@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
@@ -63,7 +64,7 @@ public class JournalDecidedEntryContentionBenchmarks
             new SelfLocator(),
             new StubCache(_largeValue),
             _host.Coordinator,
-            new DurableMutationExecutor(_host.Coordinator));
+            new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance));
         _smallEntry = new NodeCacheEntry<string> { Value = "v" };
     }
 

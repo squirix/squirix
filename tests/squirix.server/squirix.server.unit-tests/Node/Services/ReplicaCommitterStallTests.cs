@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
@@ -100,10 +101,9 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var gateway = new StalledGateway();
         await using var registry = await OpenRegistryAsync(cancellationToken);
         await using var defaults = CreateCommitter(registry, local, log);
-        await using var committer = new ReplicaGroupCommitter(registry, new TwoNodeLocator(), gateway, local, OwnedGroup, Fingerprint, 1)
+        await using var committer = new ReplicaGroupCommitter(registry, new TwoNodeLocator(), gateway, local, OwnedGroup, new ReplicaTopologyStamp(Fingerprint, 1), log)
         {
             CommitBudget = ShortCommitBudget,
-            Log = log,
             ShutdownBudget = LogShutdownBudget,
         };
         try
@@ -174,7 +174,8 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     {
         using var hooks = new StallableFollowerLogFaultHooks();
         var log = new LeakRecordingLogger();
-        var registry = await OpenRegistryAsync([OwnedGroup], StallOptions(hooks, log), cancellationToken);
+        using var loggerFactory = new FixedLoggerFactory(log);
+        var registry = await OpenRegistryAsync([OwnedGroup], StallOptions(hooks), loggerFactory, cancellationToken);
         var committer = CreateCommitter(registry, new ScriptedApplyCache(ApplyMode.Fail), log, new AcceptingGateway(hooks.StallNextMetaWrite));
         try
         {
@@ -207,7 +208,8 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     {
         using var hooks = new StallableFollowerLogFaultHooks();
         var log = new LeakRecordingLogger();
-        var registry = await OpenRegistryAsync([OwnedGroup], StallOptions(hooks, log), cancellationToken);
+        using var loggerFactory = new FixedLoggerFactory(log);
+        var registry = await OpenRegistryAsync([OwnedGroup], StallOptions(hooks), loggerFactory, cancellationToken);
         var committer = CreateCommitter(registry, new ScriptedApplyCache(ApplyMode.Fail), log);
         try
         {
@@ -240,7 +242,8 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     {
         using var hooks = new StallableFollowerLogFaultHooks();
         var log = new LeakRecordingLogger();
-        var registry = await OpenRegistryAsync([StalledGroup, IdleGroup], StallOptions(hooks, log), cancellationToken);
+        using var loggerFactory = new FixedLoggerFactory(log);
+        var registry = await OpenRegistryAsync([StalledGroup, IdleGroup], StallOptions(hooks), loggerFactory, cancellationToken);
         var idleLogPath = FollowerLogPaths.Create(Dir, IdleGroup).LogPath;
         try
         {
@@ -278,7 +281,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             await ReleaseStallAsync(hooks, null, registry, StalledGroup);
         }
 
-        await using var reopened = new FollowerLog(Dir, IdleGroup, GroupComposition.Create(IdleGroup));
+        await using var reopened = new FollowerLog(Dir, IdleGroup, GroupComposition.Create(IdleGroup), NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
     }
@@ -377,11 +380,10 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     private static ReplicaGroupCommitter CreateCommitter(
         ReplicaGroupRegistry registry,
         ILogicalNamespacedCache<object?> local,
-        ILogger? log = null,
+        ILogger<ReplicaGroupCommitter>? log = null,
         IReplicaRpcGateway? gateway = null) =>
-        new(registry, new TwoNodeLocator(), gateway ?? new AcceptingGateway(), local, "n1", Fingerprint, 1)
+        new(registry, new TwoNodeLocator(), gateway ?? new AcceptingGateway(), local, "n1", new ReplicaTopologyStamp(Fingerprint, 1), log ?? new LeakRecordingLogger())
         {
-            Log = log ?? new LeakRecordingLogger(),
             ShutdownBudget = TimeSpan.FromMilliseconds(200),
         };
 
@@ -413,10 +415,10 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 
     private static string NewOperationId() => Guid.NewGuid().ToString("N");
 
-    private static FollowerLogOptions StallOptions(StallableFollowerLogFaultHooks hooks, ILogger log) =>
-        new() { FaultHooks = hooks, Log = log, ShutdownBudget = LogShutdownBudget };
+    private static FollowerLogOptions StallOptions(StallableFollowerLogFaultHooks hooks) =>
+        new() { FaultHooks = hooks, ShutdownBudget = LogShutdownBudget };
 
-    private Task<ReplicaGroupRegistry> OpenRegistryAsync(CancellationToken cancellationToken) => OpenRegistryAsync([OwnedGroup], null, cancellationToken);
+    private Task<ReplicaGroupRegistry> OpenRegistryAsync(CancellationToken cancellationToken) => OpenRegistryAsync([OwnedGroup], null, NullLoggerFactory.Instance, cancellationToken);
 
     /// <summary>
     /// Releases the stall, disposes the committer and the registry, and closes the log handle a timed-out dispose leaked, as the
@@ -444,9 +446,9 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             durable.Durability.Dispose();
     }
 
-    private async Task<ReplicaGroupRegistry> OpenRegistryAsync(string[] groupIds, FollowerLogOptions? options, CancellationToken cancellationToken)
+    private async Task<ReplicaGroupRegistry> OpenRegistryAsync(string[] groupIds, FollowerLogOptions? options, ILoggerFactory loggerFactory, CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(Dir, groupIds, 2, Fingerprint, 1, options);
+        var registry = new ReplicaGroupRegistry(Dir, groupIds, 2, Fingerprint, 1, loggerFactory, options);
         try
         {
             await registry.OpenAsync(cancellationToken);
@@ -515,7 +517,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     /// leak event.
     /// </summary>
     [ThreadSafe]
-    private sealed class LeakRecordingLogger : ILogger
+    private sealed class LeakRecordingLogger : ILogger<ReplicaGroupCommitter>, ILogger<FollowerLog>
     {
         private readonly ConcurrentQueue<EventId> _events = new();
         private readonly ConcurrentQueue<object?> _faultedWaiters = new();

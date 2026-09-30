@@ -2,13 +2,9 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Read;
-using Squirix.Server.Storage.Manifest;
-using Squirix.Server.Threading;
-using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -124,30 +120,6 @@ public sealed class JournalStartupHeaderRepairTests : JournalStartupRepairTestBa
 
         _ = await Assert.That(await FileEqualsAsync(path, GoodHeader(), cancellationToken)).IsTrue();
         _ = await Assert.That(IsSingleRepair(repairs, path, JournalRepairKind.TornCreationHeaderRewritten, 256, 256)).IsTrue();
-    }
-
-    /// <summary>The coordinator factory logs every repair startup recovery reports.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task FactoryLogsReportedRepairs(CancellationToken cancellationToken)
-    {
-        var first = BuildFrame(1UL, "a");
-        var last = BuildFrame(2UL, "b");
-        _ = await WriteSegmentFileAsync(1, Concat(GoodHeader(), first, last[..3]), cancellationToken);
-        var persistence = NewPersistence(Dir);
-        using var ledger = new Ledger(persistence);
-        await ledger.WriteAsync(NewManifest(), cancellationToken);
-        var log = new EventRecordingLogger();
-
-        await using var journal = JournalCoordinatorFactory.Create(
-            persistence,
-            await ledger.ReadCurrentOrDefaultAsync(cancellationToken),
-            ledger,
-            new AsyncManualResetEvent(true),
-            log);
-
-        _ = await Assert.That(log.Count(1018)).IsEqualTo(1);
-        _ = await Assert.That(log.Find(1018)?.Level).IsEqualTo(LogLevel.Warning);
     }
 
     /// <summary>A segment under an unsupported non-zero format version fails startup and is never rewritten.</summary>

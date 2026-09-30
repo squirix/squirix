@@ -46,13 +46,14 @@ public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBas
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         var idempotency = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var writer = StoreFactory.CreateWriter(persistence);
 

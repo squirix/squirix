@@ -49,7 +49,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _journal.OnAppended += _onJournalAppended;
-        LogManager.SnapshotTriggerStarted(_log, 1);
+        ServerLog.SnapshotTriggerStarted(_log, 1);
 
         try
         {
@@ -57,7 +57,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         }
         catch (OperationCanceledException)
         {
-            LogManager.SnapshotTriggerCanceled(_log);
+            ServerLog.SnapshotTriggerCanceled(_log);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or UnauthorizedAccessException)
         {
@@ -68,14 +68,14 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         {
             _journal.OnAppended -= _onJournalAppended;
             _ = _snapshotRequests.Writer.TryComplete();
-            LogManager.SnapshotTriggerStopped(_log);
+            ServerLog.SnapshotTriggerStopped(_log);
         }
     }
 
     private void OnJournalAppended(object? sender, EventArgs e)
     {
         if (_log.IsEnabled(LogLevel.Trace))
-            LogManager.SnapshotTriggerJournalAppended(_log);
+            ServerLog.SnapshotTriggerJournalAppended(_log);
 
         _ = _snapshotRequests.Writer.TryWrite(true);
     }
@@ -83,7 +83,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
     private void RecordFatalCrash(Exception ex)
     {
         Volatile.Write(ref _fatalFailure, 1);
-        LogManager.SnapshotTriggerCrashed(_log, ex);
+        ServerLog.SnapshotTriggerCrashed(_log, ex);
     }
 
     private async Task RunSnapshotLoopAsync(CancellationToken stoppingToken)
@@ -106,7 +106,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
             }
 
             if (_log.IsEnabled(LogLevel.Trace))
-                LogManager.SnapshotTriggerTick(_log);
+                ServerLog.SnapshotTriggerTick(_log);
 
             await _coordinator.SnapshotAsync(_journal, stoppingToken).ConfigureAwait(false);
         }

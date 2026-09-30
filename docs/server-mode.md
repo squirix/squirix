@@ -47,13 +47,14 @@ await builder.AddSquirixServerAsync(options =>
     options.UsePersistence("./data");
 });
 
-var app = builder.Build();
-app.MapSquirixServer();
+await using var app = builder.Build();
+await app.MapSquirixServerAsync();
 await app.RunAsync();
 ```
 
 `AddSquirixServerAsync(...)` registers the server runtime and configures the primary Kestrel HTTPS listener (HTTP/1.1 and
-HTTP/2 on one port). `MapSquirixServer()` maps gRPC, health, and metrics endpoints.
+HTTP/2 on one port). `MapSquirixServerAsync()` opens node storage (activated-topology check, journal startup repair, replica group logs) after
+`Build()` and maps gRPC, health, and metrics endpoints; call it once before `StartAsync` or `RunAsync`.
 
 ## Loopback development default (not production posture)
 
@@ -102,8 +103,8 @@ using Squirix.Server;
 var builder = WebApplication.CreateBuilder(args);
 var listenUri = new Uri("https://localhost:5001");
 await builder.AddSquirixServerAsync(options => options.Uri = listenUri);
-var app = builder.Build();
-app.MapSquirixServer();
+await using var app = builder.Build();
+await app.MapSquirixServerAsync(cancellationToken);
 await app.StartAsync(cancellationToken);
 
 await using var client = await SquirixClient.ConnectAsync(listenUri, cancellationToken);

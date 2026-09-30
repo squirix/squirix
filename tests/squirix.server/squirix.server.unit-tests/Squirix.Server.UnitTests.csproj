@@ -16,6 +16,10 @@
     </ItemGroup>
 
     <ItemGroup>
+        <Compile Include="..\..\squirix\squirix.testkit\LoggerArchitectureScanner.cs" Link="Architecture\LoggerArchitectureScanner.cs"/>
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\squirix.server.testkit\Squirix.Server.TestKit.csproj"/>
         <ProjectReference Include="..\..\..\src\squirix.server\Squirix.Server.csproj"/>
     </ItemGroup>

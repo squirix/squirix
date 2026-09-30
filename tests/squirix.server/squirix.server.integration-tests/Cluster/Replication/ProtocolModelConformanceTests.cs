@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.ProtocolModel;
 using Squirix.Server.Cluster.Replication;
@@ -45,7 +46,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
     public async Task ProductionElectionTraceMatchesModel(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-election-trace");
-        await using var log = new FollowerLog(dir, "election-trace", GroupComposition.Create("election-trace"));
+        await using var log = new FollowerLog(dir, "election-trace", GroupComposition.Create("election-trace"), NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(
             new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a")))),

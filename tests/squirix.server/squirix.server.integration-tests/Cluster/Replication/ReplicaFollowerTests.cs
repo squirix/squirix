@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
@@ -207,7 +208,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
 
     private static async Task<ReplicaGroupRegistry> OpenAsync(TempDirectory dir, string groupId, CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(dir, [groupId], 1, Fingerprint, 1UL);
+        var registry = new ReplicaGroupRegistry(dir, [groupId], 1, Fingerprint, 1UL, NullLoggerFactory.Instance);
         await registry.OpenAsync(cancellationToken);
         return registry;
     }

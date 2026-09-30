@@ -88,20 +88,21 @@ internal sealed class JournalReplayKit
     /// <returns>The open session.</returns>
     internal async Task<Session> OpenAsync(FakeTimeProvider clock, CancellationToken cancellationToken)
     {
-        var manifestStore = new Ledger(Persistence);
+        var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance);
         var journal = JournalCoordinatorFactory.Create(
             Persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         var physical = new PhysicalCache<string>(clock);
         var cache = new JournalLoggingCacheDecorator<string>(
             Self,
             RocksDoubles.CreateOwnerLocator(Self),
             new ClientCache<string>(physical, physical),
             journal,
-            new DurableMutationExecutor(journal),
+            new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance),
             clock,
             physical.RawReader);
         return new Session(manifestStore, journal, physical, cache, clock);
@@ -131,7 +132,7 @@ internal sealed class JournalReplayKit
     /// <returns>The recovered cache.</returns>
     internal async Task<PhysicalCache<string>> RecoverAsync(TimeProvider clock, bool compact, CancellationToken cancellationToken)
     {
-        using var manifestStore = new Ledger(Persistence);
+        using var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance);
         if (compact)
             await JournalCompactor.CompactAsync(Persistence, manifestStore, StoreFactory.CreateReader(), cancellationToken);
 

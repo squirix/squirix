@@ -12,7 +12,7 @@ namespace Squirix.Server.UnitTests.Utils;
 
 /// <summary>Replication lifecycle events that operators must see as errors.</summary>
 [Immutable]
-public sealed class LogManagerReplicationTests
+public sealed class ServerLogReplicationTests
 {
     private const int CoordinatorLeakedOnShutdownEventId = 4008;
 
@@ -22,7 +22,7 @@ public sealed class LogManagerReplicationTests
     {
         var log = new EventRecordingLogger();
 
-        LogManager.ReplicaCoordinatorLeakedOnShutdown(log, TimeSpan.FromMilliseconds(200));
+        ServerLog.ReplicaCoordinatorLeakedOnShutdown(log, TimeSpan.FromMilliseconds(200));
 
         _ = await Assert.That(log.Count(CoordinatorLeakedOnShutdownEventId)).IsEqualTo(1);
         _ = await Assert.That(log.Find(CoordinatorLeakedOnShutdownEventId)?.Level).IsEqualTo(LogLevel.Error);

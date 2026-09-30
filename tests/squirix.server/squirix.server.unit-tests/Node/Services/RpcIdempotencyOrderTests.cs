@@ -52,20 +52,21 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
 
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var inner = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
 
         var trace = new OrderingTrace();
         await using var orderingJournal = new OrderingJournal(inner, trace);
         IJournalCoordinator journal = orderingJournal;
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
-        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
-        var executor = new DurableMutationExecutor(journal);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
+        var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
         var key = CacheKey.Default("durability-order-key");
         var payload = JournalEntryPayloadKit.EncodePut("v");
 

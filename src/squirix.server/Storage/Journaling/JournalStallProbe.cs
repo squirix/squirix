@@ -11,11 +11,11 @@ internal sealed class JournalStallProbe
 {
     private readonly StallSlot _gate = new();
     private readonly StallSlot _io = new();
-    private readonly ILogger _log;
+    private readonly JournalSlowOperationReporter _reporter;
 
     internal JournalStallProbe(ILogger log)
     {
-        _log = log;
+        _reporter = new JournalSlowOperationReporter(log);
     }
 
     /// <summary>Records that the mutation gate was acquired by <paramref name="holder" />.</summary>
@@ -45,13 +45,12 @@ internal sealed class JournalStallProbe
     {
         var ioActive = _io.TryRead(out var ioOperation, out var ioStarted);
         var gateActive = _gate.TryRead(out var gateHolder, out var gateAcquired);
-        JournalSlowOperationDiagnostics.ReportWaitCanceled(
-            _log,
+        _reporter.ReportWaitCanceled(
             waitingFor,
             ioActive ? ioOperation : null,
-            ioActive ? JournalSlowOperationDiagnostics.ElapsedMsSince(ioStarted) : 0,
+            ioActive ? JournalSlowOperationReporter.ElapsedMsSince(ioStarted) : 0,
             gateActive ? gateHolder : null,
-            gateActive ? JournalSlowOperationDiagnostics.ElapsedMsSince(gateAcquired) : 0);
+            gateActive ? JournalSlowOperationReporter.ElapsedMsSince(gateAcquired) : 0);
     }
 
     /// <summary>

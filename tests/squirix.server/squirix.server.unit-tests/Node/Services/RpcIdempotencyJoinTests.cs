@@ -328,15 +328,15 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         private readonly AppliedKeys _memory = new();
 
         internal PutTarget(IJournalCoordinator journal, RpcMutationIdempotencyStore store)
-            : this(journal, store, NullLogger.Instance)
+            : this(journal, store, new EventRecordingLogger())
         {
         }
 
-        internal PutTarget(IJournalCoordinator journal, RpcMutationIdempotencyStore store, ILogger log)
+        internal PutTarget(IJournalCoordinator journal, RpcMutationIdempotencyStore store, EventRecordingLogger log)
         {
             _journal = journal;
-            _executor = new DurableMutationExecutor(journal) { Log = log };
-            _coordinator = new RpcMutationIdempotencyCoordinator(store, journal) { Log = log };
+            _executor = new DurableMutationExecutor(journal, log);
+            _coordinator = new RpcMutationIdempotencyCoordinator(store, journal, log);
         }
 
         /// <summary>Gets how many times the mutation handler ran.</summary>

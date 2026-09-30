@@ -1,13 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Hosting;
@@ -27,8 +25,6 @@ public static class Configurator
         // chain here. Runs before any Configurator member; unit tests seed via module initializer.
         ServerSerializerMetadata.RegisterContext(SquirixServerHostingJsonContext.Default);
     }
-
-    private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Configurator");
 
     /// <summary>Applies command-line overrides used by the standalone server host.</summary>
     /// <param name="options">Server options to update.</param>
@@ -146,8 +142,7 @@ public static class Configurator
             }
             catch (Exception exception) when (exception is ObjectDisposedException or SocketException)
             {
-                var port = uri.Port.ToString(CultureInfo.InvariantCulture);
-                LogManager.ListenerReleaseFailed(Logger, exception, port);
+                // Best-effort probe cleanup: the listener is disposed right after and a failed release changes nothing.
             }
         }
     }
@@ -361,7 +356,7 @@ public static class Configurator
             }
             catch (Exception exception) when (exception is ObjectDisposedException or SocketException)
             {
-                LogManager.ListenerReleaseFailed(Logger, exception, "ephemeral");
+                // Best-effort probe cleanup: the listener is disposed right after and a failed release changes nothing.
             }
         }
     }

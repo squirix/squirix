@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -30,7 +31,7 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
         var clock = new FakeTimeProvider();
         var prepared = clock.GetUtcNow().UtcDateTime;
         var cache = NewCache(clock);
-        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock);
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock, NullLogger.Instance);
         await ApplyAsync(cache, factory.PrepareSet("op-0", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 1UL), cancellationToken);
 
         var touch = Decode(await factory.PrepareTouchAsync("op-1", CacheName, Key, Expiration, 2UL, cancellationToken));
@@ -45,7 +46,7 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
     {
         var clock = new FakeTimeProvider();
         var cache = NewCache(clock);
-        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock);
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock, NullLogger.Instance);
         await ApplyAsync(cache, factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 1UL), cancellationToken);
         var deadline = clock.GetUtcNow().UtcDateTime.Add(Expiration);
         var touch = await factory.PrepareTouchAsync("op-2", CacheName, Key, Expiration, 2UL, cancellationToken);
@@ -66,7 +67,7 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
     {
         var clock = new FakeTimeProvider();
         var cache = NewCache(clock);
-        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock);
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock, NullLogger.Instance);
         await ApplyAsync(cache, factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 1UL), cancellationToken);
         var touch = await factory.PrepareTouchAsync("op-2", CacheName, Key, TimeSpan.FromMinutes(1), 2UL, cancellationToken);
 
@@ -84,7 +85,7 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
     {
         var clock = new FakeTimeProvider();
         var cache = NewCache(clock);
-        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock);
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock, NullLogger.Instance);
         await ApplyAsync(cache, factory.PrepareSet("op-0", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 1UL), cancellationToken);
 
         var first = await factory.PrepareTouchAsync("op-1", CacheName, Key, Expiration, 1UL, cancellationToken);
@@ -105,7 +106,7 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
     {
         var clock = new FakeTimeProvider();
         var deadline = clock.GetUtcNow().UtcDateTime.Add(Expiration);
-        var factory = new ReplicaMutationFactory(NewCache(clock), "g1", 1UL, clock);
+        var factory = new ReplicaMutationFactory(NewCache(clock), "g1", 1UL, clock, NullLogger.Instance);
         var entry = new NodeCacheEntry<object?> { Value = "v1", Expiration = Expiration };
         var write = string.Equals(kind, ReplicaMutationKinds.Set, StringComparison.Ordinal) ? factory.PrepareSet("op-1", CacheName, Key, entry, 1UL)
             : await factory.PrepareTryAddAsync("op-1", CacheName, Key, entry, 1UL, cancellationToken);
@@ -127,7 +128,7 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
     {
         var clock = new FakeTimeProvider();
         var now = clock.GetUtcNow().UtcDateTime;
-        var factory = new ReplicaMutationFactory(NewCache(clock), "g1", 1UL, clock);
+        var factory = new ReplicaMutationFactory(NewCache(clock), "g1", 1UL, clock, NullLogger.Instance);
 
         var absoluteFirst = factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1", ExpiresUtc = now.AddMinutes(2), Expiration = Expiration }, 1UL);
         var relativeFirst = factory.PrepareSet("op-2", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1", ExpiresUtc = now.AddHours(1), Expiration = Expiration }, 2UL);

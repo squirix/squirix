@@ -4,6 +4,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Utils;
@@ -92,8 +93,8 @@ public class ReplicaSnapshotBenchmarks
         _dir = new TempDirectory("squirix-replica-snapshot-bench-source");
         _dir2 = new TempDirectory("squirix-replica-snapshot-bench-target");
         var composition = GroupComposition.Create(GroupId);
-        _source = new FollowerLog(_dir, GroupId, composition);
-        _target = new FollowerLog(_dir2, GroupId, composition);
+        _source = new FollowerLog(_dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        _target = new FollowerLog(_dir2, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await _source.OpenAsync(CancellationToken.None).ConfigureAwait(false);
         await _target.OpenAsync(CancellationToken.None).ConfigureAwait(false);
 
@@ -134,7 +135,7 @@ public class ReplicaSnapshotBenchmarks
         _dir?.Dispose();
         _dir = new TempDirectory("squirix-replica-snapshot-bench-source");
 
-        _source = new FollowerLog(_dir, GroupId, GroupComposition.Create(GroupId));
+        _source = new FollowerLog(_dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await _source.OpenAsync(CancellationToken.None).ConfigureAwait(false);
 
         await SeedSourceLogAsync(_source, publishSnapshot).ConfigureAwait(false);
@@ -148,7 +149,7 @@ public class ReplicaSnapshotBenchmarks
         _dir2?.Dispose();
         _dir2 = new TempDirectory("squirix-replica-snapshot-bench-target");
 
-        _target = new FollowerLog(_dir2, GroupId, GroupComposition.Create(GroupId));
+        _target = new FollowerLog(_dir2, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await _target.OpenAsync(CancellationToken.None).ConfigureAwait(false);
     }
 

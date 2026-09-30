@@ -58,14 +58,15 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     public async Task ExpiredPutRemovesEarlierValue(CancellationToken cancellationToken)
     {
         var persistence = Kit.Persistence;
-        using (var manifestStore = new Ledger(persistence))
+        using (var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance))
         {
             await using var journal = JournalCoordinatorFactory.Create(
                 persistence,
                 await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
                 manifestStore,
                 new AsyncManualResetEvent(true),
-                NullLogger.Instance);
+                NullLoggerFactory.Instance,
+                out _);
             var live = new NodeCacheEntry<object?>("earlier");
             var expired = new NodeCacheEntry<object?>("later", expiresUtc: DateTime.UtcNow.AddMinutes(-1));
             await journal.AppendPutUnderGateAsync(new CacheKey(CacheName, Key), JournalEntryPayloadKit.Encode(live), cancellationToken);
@@ -84,14 +85,15 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     public async Task PastDeadlineReplaysAsExpired(CancellationToken cancellationToken)
     {
         var persistence = Kit.Persistence;
-        using (var manifestStore = new Ledger(persistence))
+        using (var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance))
         {
             await using var journal = JournalCoordinatorFactory.Create(
                 persistence,
                 await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
                 manifestStore,
                 new AsyncManualResetEvent(true),
-                NullLogger.Instance);
+                NullLoggerFactory.Instance,
+                out _);
             var expired = new NodeCacheEntry<object?>("v", expiresUtc: DateTime.UtcNow.AddMinutes(-1));
             await journal.AppendPutUnderGateAsync(new CacheKey(CacheName, Key), JournalEntryPayloadKit.Encode(expired), cancellationToken);
             await journal.AwaitDurabilityCommitAsync(cancellationToken);

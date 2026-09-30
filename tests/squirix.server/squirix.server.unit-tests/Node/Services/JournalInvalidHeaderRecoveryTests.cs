@@ -40,7 +40,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : DisposableServerUnitTest
     {
         using var dir = new TempDirectory("squirix-journal-invalid-header-repair");
         var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var journalSegmentPath = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         await File.WriteAllBytesAsync(journalSegmentPath, InvalidJournalHeaderBad, cancellationToken);
         await manifestStore.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null }, cancellationToken);
@@ -50,7 +50,8 @@ public sealed class JournalInvalidHeaderRecoveryTests : DisposableServerUnitTest
                          await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
                          manifestStore,
                          new AsyncManualResetEvent(true),
-                         NullLogger.Instance))
+                         NullLoggerFactory.Instance,
+                         out _))
         {
             await journal.AppendPutUnderGateAsync(CacheKey.Default("k"), BuildPutPayload("v"), cancellationToken);
             await journal.AwaitDurabilityCommitAsync(cancellationToken);

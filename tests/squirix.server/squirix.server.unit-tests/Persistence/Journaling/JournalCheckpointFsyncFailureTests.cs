@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -33,14 +34,15 @@ public sealed class JournalCheckpointFsyncFailureTests : IsolatedStorageTestBase
     public async Task CancelledCheckpointObservesFsyncFailure(CancellationToken cancellationToken)
     {
         var options = CreateOptions();
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         using var writer = new FailingFsyncSegmentWriter(true);
         await using var journal = new JournalCoordinator(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            writer);
+            writer,
+            NullLoggerFactory.Instance);
         await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), Payload, cancellationToken);
 
         using var waiterCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -67,14 +69,15 @@ public sealed class JournalCheckpointFsyncFailureTests : IsolatedStorageTestBase
     public async Task FailedCheckpointFsyncFaultsWaiter(CancellationToken cancellationToken)
     {
         var options = CreateOptions();
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         using var writer = new FailingFsyncSegmentWriter(false);
         await using var journal = new JournalCoordinator(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            writer);
+            writer,
+            NullLoggerFactory.Instance);
         await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), Payload, cancellationToken);
 
         var thrown = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask().WaitAsync(Bound, TimeProvider.System, cancellationToken));

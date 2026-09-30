@@ -34,13 +34,14 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         var buildStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseBuild = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var mutationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -95,13 +96,14 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
         await journal.AppendPutUnderGateAsync(CacheKey.Default("before"), payload, cancellationToken);
@@ -132,13 +134,14 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         var snapshotStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         journal.InFlightApplyGate.Enter();

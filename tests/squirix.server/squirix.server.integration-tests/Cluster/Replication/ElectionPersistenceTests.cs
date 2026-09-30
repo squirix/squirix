@@ -2,6 +2,7 @@ using System;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -85,5 +86,5 @@ public sealed class ElectionPersistenceTests : NodeIntegrationTestBase
     /// <summary>Opens a follower log for the election group without materializing storage yet.</summary>
     /// <param name="dir">The persistence root for the test.</param>
     /// <returns>A follower log for the election group.</returns>
-    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId));
+    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
 }

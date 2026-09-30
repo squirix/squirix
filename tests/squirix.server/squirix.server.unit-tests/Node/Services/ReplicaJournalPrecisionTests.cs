@@ -81,7 +81,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
     {
         var physical = new PhysicalCache<object?>(clock);
         var cache = new ClientCache<object?>(physical, physical);
-        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock);
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock, NullLogger.Instance);
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["t"] = "1" }.ToFrozenDictionary(StringComparer.Ordinal);
         var records = new List<ReplicaLogRecord>();
         await LeaderAppliesAsync(cache, records, factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?>("v1", 3, null, TimeSpan.FromMinutes(10), tags), 1UL), cancellationToken);
@@ -99,20 +99,21 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
 
     private static async Task ApplyThroughJournalAsync(PersistenceOptions persistence, FakeTimeProvider clock, List<ReplicaLogRecord> records, CancellationToken cancellationToken)
     {
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         var physical = new PhysicalCache<object?>(clock);
         var cache = new JournalLoggingCacheDecorator<object?>(
             Self,
             RocksDoubles.CreateOwnerLocator(Self),
             new ClientCache<object?>(physical, physical),
             journal,
-            new DurableMutationExecutor(journal),
+            new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance),
             clock);
         foreach (var record in records)
             await ReplicaCacheApplier.ApplyAsync(cache, record, cancellationToken);
@@ -120,7 +121,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
 
     private async Task<PhysicalCache<object?>> RecoverAsync(PersistenceOptions persistence, TimeProvider clock, CancellationToken cancellationToken)
     {
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var cache = new PhysicalCache<object?>(clock);
         var dependencies = new RecoveryDependencies<object?>(
             persistence,

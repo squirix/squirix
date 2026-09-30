@@ -3,6 +3,7 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
@@ -44,7 +45,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
         _ = expectations.Setups.WaitForStartupAsync(Arg.Any<CancellationToken>()).Callback(startupGate.WaitAsync);
         _ = expectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
         await using var journal = expectations.Instance();
-        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var original = new TryAddAsyncResponse { Added = true };
 
         var flag = new ExecFlag();
@@ -140,7 +141,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     public async Task ReplaySkipsHandlerReexecution(CancellationToken cancellationToken)
     {
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
-        var coordinator = new RpcMutationIdempotencyCoordinator(store);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var ctx = new ExecutionCounter();
 
         var first = await coordinator.ExecuteAsync(

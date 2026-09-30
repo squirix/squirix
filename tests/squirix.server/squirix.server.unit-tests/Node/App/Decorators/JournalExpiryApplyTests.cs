@@ -333,13 +333,13 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
                 FlushInterval = 5,
                 ManifestRetentionCount = 1,
             };
-            var manifestStore = new Ledger(options);
+            var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
             var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
-            var journal = JournalCoordinatorFactory.Create(options, manifest, manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
+            var journal = JournalCoordinatorFactory.Create(options, manifest, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
             return new Harness(manifestStore, journal, clock);
         }
 
         internal JournalLoggingCacheDecorator<string> CreateDecorator(ILogicalNamespacedCache<string> inner, bool useRawReader = false) =>
-            new(Self, RocksDoubles.CreateOwnerLocator(Self), inner, Journal, new DurableMutationExecutor(Journal), _clock, useRawReader ? Physical.RawReader : null);
+            new(Self, RocksDoubles.CreateOwnerLocator(Self), inner, Journal, new DurableMutationExecutor(Journal, NullLogger<DurableMutationExecutor>.Instance), _clock, useRawReader ? Physical.RawReader : null);
     }
 }

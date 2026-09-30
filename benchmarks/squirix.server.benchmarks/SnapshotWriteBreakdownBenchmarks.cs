@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -123,7 +124,7 @@ public class SnapshotWriteBreakdownBenchmarks
                 ManifestRetentionCount = retention,
                 SnapshotRetentionCount = retention,
             };
-            var manifestStore = new Ledger(options);
+            var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
             var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             manifestStore.EnqueueRoll(1, 1, warmup.SetResult, warmup.SetException);
             await warmup.Task.ConfigureAwait(false);

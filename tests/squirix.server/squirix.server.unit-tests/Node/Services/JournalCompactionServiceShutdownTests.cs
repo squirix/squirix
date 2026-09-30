@@ -40,8 +40,8 @@ public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestB
     public async Task ShutdownClearsSnapshotCompactionFlight(CancellationToken cancellationToken)
     {
         var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 1000 };
-        using var store = new Ledger(persistence);
-        await using var journal = JournalCoordinatorFactory.Create(persistence, await store.ReadCurrentOrDefaultAsync(cancellationToken), store, new AsyncManualResetEvent(true), NullLogger.Instance);
+        using var store = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        await using var journal = JournalCoordinatorFactory.Create(persistence, await store.ReadCurrentOrDefaultAsync(cancellationToken), store, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
         await journal.AppendPutUnderGateAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
 

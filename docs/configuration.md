@@ -18,10 +18,10 @@ See [containerization.md](containerization.md) for dev and release image layouts
 
 The standalone `squirix-server` host, `await builder.AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()` load
 `Squirix:Cluster` through `Configurator` when a settings file is discovered or supplied. `StartAsync()`
-then hosts the node through the same `AddSquirixServerAsync` / `MapSquirixServer` pipeline as the standalone executable.
+then hosts the node through the same `AddSquirixServerAsync` / `MapSquirixServerAsync` pipeline as the standalone executable.
 Other sections such as `MemoryPressure`, `Snapshot`, and `PrometheusMetrics` are still merged from the same settings file
 at runtime when present. Custom ASP.NET Core hosts configure cluster topology and optional persistence through
-`SquirixServerOptions` (`UsePersistence()`); `app.MapSquirixServer()` maps gRPC, health, and metrics endpoints.
+`SquirixServerOptions` (`UsePersistence()`); `await app.MapSquirixServerAsync()` opens node storage and maps gRPC, health, and metrics endpoints.
 
 ## Remote client (`SquirixClientOptions`)
 
@@ -389,7 +389,7 @@ Host composition hardcodes the export interval when persistence is enabled (not 
 ### Prometheus metrics (`PrometheusMetrics`)
 
 The optional `PrometheusMetrics` section configures the built-in Prometheus-compatible HTTP scrape endpoint mapped by
-`MapSquirixServer()`.
+`MapSquirixServerAsync()`.
 
 | Field     | Type   | Default in node host | Validation                                              |
 | --------- | ------ | -------------------- | ------------------------------------------------------- |

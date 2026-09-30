@@ -47,7 +47,7 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         await using var journal = await CreateWarmJournalAsync(cancellationToken);
         var memory = new AppliedKeys();
         journal.Writer.Write.Arm();
-        var put = memory.PutAsync(new DurableMutationExecutor(journal.Journal), journal.Journal, "a", cancellationToken);
+        var put = memory.PutAsync(new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance), journal.Journal, "a", cancellationToken);
         await journal.Writer.Write.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         await DisposeOverStuckWriteAsync(journal, put, cancellationToken);
@@ -68,7 +68,7 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         await using var journal = await CreateWarmJournalAsync(cancellationToken);
         var memory = new AppliedKeys();
         journal.Writer.AfterWrite.Arm();
-        var put = memory.PutAsync(new DurableMutationExecutor(journal.Journal), journal.Journal, "a", cancellationToken);
+        var put = memory.PutAsync(new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance), journal.Journal, "a", cancellationToken);
         await journal.Writer.AfterWrite.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         string crashImage;
@@ -102,7 +102,7 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         await using var journal = await CreateWarmJournalAsync(cancellationToken);
         var memory = new AppliedKeys();
         journal.Writer.Write.Arm();
-        var put = memory.PutAsync(new DurableMutationExecutor(journal.Journal) { Log = log }, journal.Journal, "a", cancellationToken);
+        var put = memory.PutAsync(new DurableMutationExecutor(journal.Journal, log), journal.Journal, "a", cancellationToken);
         await journal.Writer.Write.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         SquirixException error;
@@ -141,7 +141,7 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
     {
         await using var journal = new PostEnqueueFaultJournal(groupCommit);
         var memory = new AppliedKeys();
-        var executor = new DurableMutationExecutor(journal) { Log = NullLogger.Instance };
+        var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
 
         var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(memory.PutAsync(executor, journal, "a", cancellationToken));
         var applied = await memory.PutAsync(executor, journal, "a", cancellationToken);
@@ -168,7 +168,7 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         var reason = new IOException("journal device lost");
 
         // The latch lands under the mutation gate, after admission and before the append reaches the ring.
-        var put = new DurableMutationExecutor(journal.Journal) { Log = log }.ExecuteAsync(
+        var put = new DurableMutationExecutor(journal.Journal, log).ExecuteAsync(
             CacheKey.Default("a"),
             static (s, _) =>
             {

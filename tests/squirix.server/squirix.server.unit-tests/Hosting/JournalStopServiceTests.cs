@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Hosting;
@@ -31,7 +32,7 @@ public sealed class JournalStopServiceTests : IsolatedStorageTestBase
         var failure = new IOException("final fsync failed");
         journal.Writer.Flush.Arm();
         await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
-        await using var journalHost = new JournalCoordinatorHost();
+        await using var journalHost = new JournalCoordinatorHost(NullLoggerFactory.Instance);
         journalHost.Attach(journal.Journal);
         using var host = new HostBuilder()
                          .ConfigureServices(services => services.AddHostedService(_ => new JournalStopService(journalHost)))
@@ -52,7 +53,7 @@ public sealed class JournalStopServiceTests : IsolatedStorageTestBase
     [Test]
     public async Task HostWithoutJournalStopsQuietly(CancellationToken cancellationToken)
     {
-        await using var journalHost = new JournalCoordinatorHost();
+        await using var journalHost = new JournalCoordinatorHost(NullLoggerFactory.Instance);
         var service = new JournalStopService(journalHost);
 
         _ = await Assert.That(service.StoppedAsync(cancellationToken).IsCompletedSuccessfully).IsTrue();

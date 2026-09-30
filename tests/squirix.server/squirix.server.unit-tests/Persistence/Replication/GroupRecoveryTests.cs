@@ -3,6 +3,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -22,7 +23,7 @@ public sealed class GroupRecoveryTests : IsolatedStorageTestBase
     [Test]
     public async Task AcquireReturnsNullWhenUnusable(CancellationToken cancellationToken)
     {
-        await using var recovery = new GroupRecovery(Dir, GroupComposition.Create("grp-1"));
+        await using var recovery = new GroupRecovery(Dir, GroupComposition.Create("grp-1"), NullLoggerFactory.Instance);
         _ = await Assert.That(recovery.AcquireLog("unknown")).IsNull();
 
         await recovery.RecoverAllAsync(cancellationToken);
@@ -38,7 +39,7 @@ public sealed class GroupRecoveryTests : IsolatedStorageTestBase
     [Test]
     public async Task FailedRecoveryDisposesLogsAndRollback(CancellationToken cancellationToken)
     {
-        await using var recovery = new GroupRecovery(Dir, GroupComposition.Create("grp-1", "grp-2"));
+        await using var recovery = new GroupRecovery(Dir, GroupComposition.Create("grp-1", "grp-2"), NullLoggerFactory.Instance);
         await recovery.RecoverAllAsync(cancellationToken);
 
         // Corrupt grp-2 metadata, so the next recovery attempt fails mid-loop.
@@ -64,7 +65,7 @@ public sealed class GroupRecoveryTests : IsolatedStorageTestBase
     [Test]
     public async Task LeasedLogSurvivesCloseUntilReleased(CancellationToken cancellationToken)
     {
-        await using var recovery = new GroupRecovery(Dir, GroupComposition.Create("grp-1"));
+        await using var recovery = new GroupRecovery(Dir, GroupComposition.Create("grp-1"), NullLoggerFactory.Instance);
         await recovery.RecoverAllAsync(cancellationToken);
 
         var lease = recovery.AcquireLog("grp-1");
@@ -92,7 +93,7 @@ public sealed class GroupRecoveryTests : IsolatedStorageTestBase
     [Test]
     public async Task RecoverAllAsyncCanRunTwice(CancellationToken cancellationToken)
     {
-        await using var recovery = new GroupRecovery(Dir, GroupComposition.Create("grp-1", "grp-2"));
+        await using var recovery = new GroupRecovery(Dir, GroupComposition.Create("grp-1", "grp-2"), NullLoggerFactory.Instance);
 
         await recovery.RecoverAllAsync(cancellationToken);
         var firstGrp1 = recovery.GetLog("grp-1");

@@ -297,13 +297,14 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             JournalGroupCommitMaxBatch = 8,
         };
 
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
 
         await journal.AppendPutUnderGateAsync(CacheKey.Default("k1"), JournalEntryPayloadKit.EncodePut("v1"), cancellationToken);
         await journal.AppendPutUnderGateAsync(CacheKey.Default("k2"), JournalEntryPayloadKit.EncodePut("v2"), cancellationToken);
@@ -331,8 +332,8 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             JournalGroupCommitMaxBatch = 32,
         };
 
-        using var manifestStore = new Ledger(options);
-        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
 
         try
         {

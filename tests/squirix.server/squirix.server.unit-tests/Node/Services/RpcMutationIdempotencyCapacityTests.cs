@@ -4,6 +4,7 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -56,9 +57,9 @@ public sealed class RpcMutationIdempotencyCapacityTests : IsolatedStorageTestBas
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, CapacityMb, cancellationToken);
         var memory = new AppliedKeys();
-        var executor = new DurableMutationExecutor(journal.Journal);
+        var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
-        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal.Journal);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal.Journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
 
         var attempts = new int[1];
 
@@ -85,9 +86,9 @@ public sealed class RpcMutationIdempotencyCapacityTests : IsolatedStorageTestBas
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, CapacityMb, cancellationToken);
         var memory = new AppliedKeys();
-        var executor = new DurableMutationExecutor(journal.Journal);
+        var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
-        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal.Journal);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal.Journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var attempts = new int[1];
         var value = ValueFillingJournal(8);
 

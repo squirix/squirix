@@ -37,13 +37,14 @@ public sealed class JournalBootstrapHeaderAccountingTests : ServerUnitTestBase
             FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
 
         await journal.AppendPutDurablyUnderGateAsync(new CacheKey(ServerCacheNames.DefaultNamespace, "k"), SamplePayload, cancellationToken);
 

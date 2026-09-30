@@ -2,6 +2,7 @@ using System;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
@@ -119,7 +120,7 @@ public sealed class ReplicaTailRedriveTests : ServerUnitTestBase
 
     private static async Task<FollowerLog> OpenFollowerAsync(string dir, CancellationToken cancellationToken)
     {
-        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         try
         {
             await log.OpenAsync(cancellationToken);

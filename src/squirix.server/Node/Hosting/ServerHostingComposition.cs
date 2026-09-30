@@ -33,7 +33,6 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -59,17 +58,20 @@ internal static class ServerHostingComposition
         return ConfigureBuilderCoreAsync(builder, cluster, args, cancellationToken);
     }
 
-    internal static WebApplication MapServer(WebApplication app)
+    /// <summary>Opens node storage on the built application, then maps middleware and endpoints.</summary>
+    /// <param name="app">The built application.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The supplied application.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the application was already mapped.</exception>
+    internal static async Task<WebApplication> MapServerAsync(WebApplication app, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        LogManager.Configure(app.Services.GetRequiredService<ILoggerFactory>());
+        var options = app.Services.GetRequiredService<SquirixServerEndpointMappingOptions>();
+        if (!options.TryMarkMapped())
+            throw new InvalidOperationException("MapSquirixServerAsync was already called for this application.");
 
-        // The replica group registry is opened eagerly during composition but resolved lazily. Touch it
-        // here so the container tracks the instance and disposes follower-log durability workers on host
-        // shutdown even when no cache operation ever resolved it first; otherwise group files stay locked
-        // and a restart on the same directory fails to open them.
-        _ = app.Services.GetService<ReplicaGroupRegistry>();
+        await OpenStorageAsync(app.Services, cancellationToken).ConfigureAwait(false);
 
         _ = app.Use(static async (context, next) =>
         {
@@ -91,7 +93,6 @@ internal static class ServerHostingComposition
             }
         });
 
-        var options = app.Services.GetRequiredService<SquirixServerEndpointMappingOptions>();
         if (!options.AuthEnabled)
             return MapEndpoints(app, options.AuthEnabled);
         _ = app.UseAuthentication();
@@ -100,48 +101,35 @@ internal static class ServerHostingComposition
         return MapEndpoints(app, options.AuthEnabled);
     }
 
-    /// <summary>Opens the replica group logs for an activated node and registers replication services.</summary>
+    /// <summary>Registers the replica group registry and replication services for an activated node.</summary>
     /// <param name="services">DI service collection.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
     /// <param name="persistence">Resolved persistence options.</param>
     /// <param name="mtlsOptions">Cluster mTLS options resolved for this node.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when every group log is ready.</returns>
     /// <remarks>
     /// One group per peer: every group whose replica set can include this node is served locally.
-    /// Logs open eagerly, so any replication RPC fails closed until its log is ready.
+    /// The logs open in <see cref="OpenStorageAsync" />, so any replication RPC fails closed until its log is ready.
     /// </remarks>
-    private static async Task AddReplicaGroupRegistryAsync(
-        IServiceCollection services,
-        TopologyOptions cluster,
-        PersistenceOptions persistence,
-        MtlsOptions mtlsOptions,
-        CancellationToken cancellationToken)
+    private static void AddReplicaGroupRegistry(IServiceCollection services, TopologyOptions cluster, PersistenceOptions persistence, MtlsOptions mtlsOptions)
     {
-        ImmutableArray<byte> fingerprint = [.. TopologyFingerprint.CreateFromTopology(cluster, mtlsOptions).Bytes];
-        await EnsureActivatedTopologyAsync(persistence.DataDir, fingerprint.AsMemory(), cluster.ConfigurationGeneration, cluster.ReplicaCount, cancellationToken)
-           .ConfigureAwait(false);
+        var activation = new ReplicaGroupActivation([.. TopologyFingerprint.CreateFromTopology(cluster, mtlsOptions).Bytes]);
+        _ = services.AddSingleton(activation);
 
         var groupIds = new string[cluster.Peers.Count];
         for (var i = 0; i < groupIds.Length; i++)
             groupIds[i] = cluster.Peers[i].NodeId;
 
-        var registry = new ReplicaGroupRegistry(persistence.DataDir, groupIds, cluster.ReplicaCount, fingerprint.AsMemory(), cluster.ConfigurationGeneration);
-        try
-        {
-            await registry.OpenAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch
-        {
-            await registry.DisposeAsync().ConfigureAwait(false);
-            throw;
-        }
+        _ = services.AddSingleton(sp => new ReplicaGroupRegistry(
+            persistence.DataDir,
+            groupIds,
+            cluster.ReplicaCount,
+            activation.Fingerprint.AsMemory(),
+            cluster.ConfigurationGeneration,
+            sp.GetRequiredService<ILoggerFactory>()));
 
-        // Factory overloads transfer disposal ownership to the container: the registry closes
-        // follower-log durability workers and the committer drains its coordinator on host shutdown.
-        // AddSingleton(instance) would leak both past shutdown and keep group files locked.
-        _ = services.AddSingleton(_ => registry);
-        _ = services.AddSingleton(sp => CreateReplicaGroupCommitter(sp, fingerprint));
+        // Factory registrations let the container own disposal: the registry closes follower-log durability workers
+        // and the committer drains its coordinator on host shutdown.
+        _ = services.AddSingleton(static sp => CreateReplicaGroupCommitter(sp, sp.GetRequiredService<ReplicaGroupActivation>().Fingerprint));
         _ = services.AddHostedService(static sp => new ReplicaGroupReadinessService(
             sp.GetRequiredService<ReplicaGroupCommitter>(),
             sp.GetRequiredService<ILogger<ReplicaGroupReadinessService>>(),
@@ -178,10 +166,9 @@ internal static class ServerHostingComposition
         sp.GetRequiredService<IReplicaRpcGateway>(),
         sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>(),
         sp.GetRequiredService<TopologyOptions>().NodeId,
-        fingerprint.AsMemory(),
-        sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration)
+        new ReplicaTopologyStamp(fingerprint.AsMemory(), sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration),
+        sp.GetRequiredService<ILogger<ReplicaGroupCommitter>>())
     {
-        Log = sp.GetRequiredService<ILogger<ReplicaGroupCommitter>>(),
         Metrics = sp.GetRequiredService<ReplicationMetrics>(),
         Clock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
     };
@@ -257,7 +244,7 @@ internal static class ServerHostingComposition
 
         _ = builder.Services.AddSquirixRuntimeServices();
         AddSquirixClusterStack(builder.Services, cluster, args);
-        await RegisterPersistenceAndReplicationAsync(builder.Services, cluster, persistence, serverMeter, mtlsOptions, args, cancellationToken).ConfigureAwait(false);
+        RegisterPersistenceAndReplication(builder.Services, cluster, persistence, serverMeter, mtlsOptions, args);
 
         _ = builder.Services.AddSquirixCachePipeline(args.Extensions, persistenceEnabled);
         _ = builder.Services.AddSquirixNodeEndpointServices(persistenceEnabled);
@@ -285,8 +272,8 @@ internal static class ServerHostingComposition
     /// <remarks>
     /// Nothing rewrites the stamp after first activation, so an RF&gt;1 restart with a changed topology fails startup
     /// instead of splitting the replica set, and <see cref="EnsureNotActivatedAsync" /> refuses an RF=1 start on a
-    /// stamped directory. Migrating an existing data directory to a different activated topology, including RF=1 to
-    /// RF&gt;1 and RF&gt;1 to RF=1, is not supported in this release.
+    /// stamped directory. Both checks run before storage opens. Migrating an existing data directory to a different activated
+    /// topology, including RF=1 to RF&gt;1 and RF&gt;1 to RF=1, is not supported in this release.
     /// </remarks>
     private static async Task EnsureActivatedTopologyAsync(
         string dataDir,
@@ -347,6 +334,41 @@ internal static class ServerHostingComposition
             "Start the node with the replica count the directory was activated with, or on an empty data directory.");
     }
 
+    /// <summary>Checks the activated-topology stamp, then opens persistence and the replica group logs in the order that preserves container disposal order.</summary>
+    /// <param name="services">The built service provider.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when every storage component is open.</returns>
+    /// <remarks>
+    /// The topology stamp is checked before persistence opens, so a directory the node refuses is never repaired or otherwise modified.
+    /// The registry is resolved first so the container disposes it last, after the journal host and the ledger.
+    /// Nothing here is undone on failure: the registry closes the logs it opened partially, and the container disposes every component it created, including the registry, when the application is disposed.
+    /// </remarks>
+    private static async Task OpenStorageAsync(IServiceProvider services, CancellationToken cancellationToken)
+    {
+        var persistence = services.GetService<PersistenceOptions>();
+        if (persistence == null)
+            return;
+
+        var registry = services.GetService<ReplicaGroupRegistry>();
+        var cluster = services.GetRequiredService<TopologyOptions>();
+        if (cluster.ReplicaCount <= 1)
+        {
+            await EnsureNotActivatedAsync(persistence.DataDir, cancellationToken).ConfigureAwait(false);
+        }
+        else if (registry != null)
+        {
+            var activation = services.GetRequiredService<ReplicaGroupActivation>();
+            await EnsureActivatedTopologyAsync(persistence.DataDir, activation.Fingerprint.AsMemory(), cluster.ConfigurationGeneration, cluster.ReplicaCount, cancellationToken)
+               .ConfigureAwait(false);
+        }
+
+        await PersistenceServiceRegistration.OpenPersistenceAsync(services, cancellationToken).ConfigureAwait(false);
+        if (registry == null)
+            return;
+
+        await registry.OpenAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
     {
         _ = app.MapSquirixEndpoints(authEnabled);
@@ -363,24 +385,18 @@ internal static class ServerHostingComposition
     /// <param name="serverMeter">The per-host Meter singleton owned by the container.</param>
     /// <param name="mtlsOptions">Cluster mTLS options resolved for this node.</param>
     /// <param name="args">Composition arguments.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the replication stack is registered.</returns>
-    private static async Task RegisterPersistenceAndReplicationAsync(
+    private static void RegisterPersistenceAndReplication(
         IServiceCollection services,
         TopologyOptions cluster,
         PersistenceOptions? persistence,
         Meter serverMeter,
         MtlsOptions mtlsOptions,
-        ICompositionArgs args,
-        CancellationToken cancellationToken)
+        ICompositionArgs args)
     {
         if (persistence == null)
             return;
 
-        if (cluster.ReplicaCount <= 1)
-            await EnsureNotActivatedAsync(persistence.DataDir, cancellationToken).ConfigureAwait(false);
-
-        _ = await services.AddPersistenceServicesAsync(persistence, serverMeter, args.WaitForRecovery, cancellationToken).ConfigureAwait(false);
+        _ = services.AddPersistenceServices(persistence, serverMeter, args.WaitForRecovery);
 
         // Follower-group storage composition. For RF=1 the local composition is empty, so no group storage is
         // materialized; group membership is derived in a later milestone. Registered only when persistence is
@@ -388,10 +404,10 @@ internal static class ServerHostingComposition
         // Note: GroupRecovery.RecoverAllAsync is intentionally NOT invoked from any production path in this
         // milestone; with an empty static composition a call would be a no-op. Recovery wiring is introduced
         // together with group-membership derivation (see the durable ordered follower log specification, M8-05).
-        _ = services.AddSingleton(static sp => new GroupRecovery(sp.GetRequiredService<PersistenceOptions>().DataDir, GroupComposition.Empty()));
+        _ = services.AddSingleton(static sp => new GroupRecovery(sp.GetRequiredService<PersistenceOptions>().DataDir, GroupComposition.Empty(), sp.GetRequiredService<ILoggerFactory>()));
 
         if (cluster.ReplicaCount > 1 && !args.FoundationOnly)
-            await AddReplicaGroupRegistryAsync(services, cluster, persistence, mtlsOptions, cancellationToken).ConfigureAwait(false);
+            AddReplicaGroupRegistry(services, cluster, persistence, mtlsOptions);
     }
 
     private static (MtlsOptions Options, MtlsCertificate Material) ResolveClusterTransportSecurity(
@@ -412,7 +428,7 @@ internal static class ServerHostingComposition
     }
 
     [Immutable]
-    private sealed record SquirixServerEndpointMappingOptions(bool AuthEnabled);
+    private sealed record ReplicaGroupActivation(ImmutableArray<byte> Fingerprint);
 
     /// <summary>
     /// Centralizes Kestrel listen options and transport security for the squirix node process.
@@ -556,5 +572,24 @@ internal static class ServerHostingComposition
         public Action<IServiceCollection>? ServicesConfigure { get; set; }
 
         public bool WaitForRecovery { get; set; } = true;
+    }
+
+    /// <summary>Host authentication state for endpoint mapping, plus the once-only guard for <see cref="MapServerAsync" />.</summary>
+    [ThreadSafe]
+    private sealed class SquirixServerEndpointMappingOptions
+    {
+        private int _mapped;
+
+        internal SquirixServerEndpointMappingOptions(bool authEnabled)
+        {
+            AuthEnabled = authEnabled;
+        }
+
+        /// <summary>Gets a value indicating whether data-plane authentication is enabled.</summary>
+        internal bool AuthEnabled { get; }
+
+        /// <summary>Marks the application as mapped.</summary>
+        /// <returns><see langword="true" /> for the first caller; <see langword="false" /> when the application was already mapped.</returns>
+        internal bool TryMarkMapped() => Interlocked.Exchange(ref _mapped, 1) == 0;
     }
 }

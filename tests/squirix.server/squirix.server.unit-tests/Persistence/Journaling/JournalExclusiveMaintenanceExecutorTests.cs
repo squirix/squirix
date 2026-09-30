@@ -32,13 +32,14 @@ public sealed class JournalExclusiveMaintenanceExecutorTests : IsolatedStorageTe
             FlushInterval = 100,
         };
 
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         var executed = new ExecutionFlag();
         await journal.ExecuteMaintenanceExclusiveAsync(executed.MarkExecutedAsync, cancellationToken);
 

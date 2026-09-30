@@ -15,11 +15,22 @@ namespace Squirix.Server.Node.Hosting;
 /// <summary>Owns the journal coordinator singleton lifetime for dependency injection.</summary>
 internal sealed class JournalCoordinatorHost : IAsyncDisposable
 {
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly ILogger<JournalCoordinatorHost> _log;
     private IJournalCoordinator? _coordinator;
-    private ILogger? _log;
-    private IReadOnlyList<JournalRepair> _startupRepairs = [];
 
-    internal IJournalCoordinator Coordinator => ThrowHelper.Required(_coordinator, "Journal coordinator is not initialized.");
+    /// <summary>Initializes a new instance of the <see cref="JournalCoordinatorHost" /> class.</summary>
+    /// <param name="loggerFactory">Creates the host logger, for startup repairs and disposal failures, and the loggers of the journal components.</param>
+    internal JournalCoordinatorHost(ILoggerFactory loggerFactory)
+    {
+        ArgumentNullException.ThrowIfNull(loggerFactory);
+        _loggerFactory = loggerFactory;
+        _log = loggerFactory.CreateLogger<JournalCoordinatorHost>();
+    }
+
+    /// <summary>Gets the owned journal coordinator.</summary>
+    /// <exception cref="InvalidOperationException">Storage has not been opened.</exception>
+    internal IJournalCoordinator Coordinator => ThrowHelper.Required(_coordinator, "Squirix storage is not opened; call MapSquirixServerAsync before starting the application.");
 
     public async ValueTask DisposeAsync()
     {
@@ -30,14 +41,11 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
         // The container disposes this host as a root and stops at the first exception, so a throw here
         // would skip the manifest ledger, the replica group registry, and its follower logs. The journal
         // itself never throws from disposal; the filter is defence in depth for any other coordinator this host is handed.
-        try
-        {
-            await coordinator.DisposeAsync().ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is TimeoutException or AggregateException or ObjectDisposedException or IOException or InvalidOperationException)
-        {
-            LogManager.JournalDisposeFailedOnHostShutdown(_log ?? LogManager.GetLogger<JournalCoordinatorHost>(), ex);
-        }
+        var failure = await coordinator.DisposeAsync()
+                                       .CaptureFailureAsync(static ex => ex is TimeoutException or AggregateException or ObjectDisposedException or IOException or InvalidOperationException)
+                                       .ConfigureAwait(false);
+        if (failure != null)
+            ServerLog.JournalDisposeFailedOnHostShutdown(_log, failure);
 
         _coordinator = null;
     }
@@ -61,26 +69,39 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
         _coordinator = coordinator;
     }
 
-    /// <summary>Captures the host logger while the container resolves this host, before any disposal.</summary>
-    /// <param name="factory">The host logger factory, when logging is registered.</param>
-    /// <returns>This host.</returns>
-    internal JournalCoordinatorHost AttachLog(ILoggerFactory? factory)
-    {
-        _log = factory?.CreateLogger<JournalCoordinatorHost>();
-        if (_log != null)
-        {
-            JournalCoordinatorFactory.LogRepairs(_startupRepairs, _log);
-            _startupRepairs = [];
-        }
-
-        return this;
-    }
-
-    internal void Initialize(PersistenceOptions persistence, State manifest, Ledger manifestStore, AsyncManualResetEvent gate)
+    /// <summary>Creates the journal coordinator, running startup repair and logging what it repaired.</summary>
+    /// <param name="persistence">Resolved persistence options.</param>
+    /// <param name="manifest">The current manifest state.</param>
+    /// <param name="manifestStore">The manifest ledger.</param>
+    /// <param name="gate">The recovery readiness gate.</param>
+    internal void Open(PersistenceOptions persistence, State manifest, Ledger manifestStore, AsyncManualResetEvent gate)
     {
         if (_coordinator != null)
             return;
 
-        _coordinator = JournalCoordinatorFactory.CreateReporting(persistence, manifest, manifestStore, gate, out _startupRepairs);
+        _coordinator = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, gate, _loggerFactory, out var repairs);
+        LogRepairs(repairs);
+    }
+
+    private void LogRepairs(IReadOnlyList<JournalRepair> repairs)
+    {
+        for (var i = 0; i < repairs.Count; i++)
+        {
+            var repair = repairs[i];
+            switch (repair.Kind)
+            {
+                case JournalRepairKind.HeaderRestored:
+                    ServerLog.JournalHeaderRestored(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
+                    break;
+                case JournalRepairKind.TornCreationHeaderRewritten:
+                    ServerLog.JournalTornCreationRewritten(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
+                    break;
+                case JournalRepairKind.TornTailTruncated:
+                    ServerLog.JournalTornTailTruncated(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(repairs), repair.Kind, "Unsupported journal repair kind.");
+            }
+        }
     }
 }

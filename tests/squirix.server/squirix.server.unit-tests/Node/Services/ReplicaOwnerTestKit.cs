@@ -52,8 +52,8 @@ internal static class ReplicaOwnerTestKit
 
     internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway) => CreateCommitter(registry, gateway, new StubCache());
 
-    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, ILogicalNamespacedCache<object?> cache, ILogger? log = null) =>
-        new(registry, new ThreeNodeLocator(), gateway, cache, "n1", Fingerprint, 1) { Log = log ?? NullLogger.Instance };
+    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, ILogicalNamespacedCache<object?> cache, ILogger<ReplicaGroupCommitter>? log = null) =>
+        new(registry, new ThreeNodeLocator(), gateway, cache, "n1", new ReplicaTopologyStamp(Fingerprint, 1), log ?? NullLogger<ReplicaGroupCommitter>.Instance);
 
     internal static ReplicaGroupCommitter CreateCommitter(
         ReplicaGroupRegistry registry,
@@ -61,13 +61,13 @@ internal static class ReplicaOwnerTestKit
         ILogicalNamespacedCache<object?> cache,
         TimeProvider clock,
         ReplicationMetrics? metrics = null) =>
-        new(registry, new ThreeNodeLocator(), gateway, cache, "n1", Fingerprint, 1) { Log = NullLogger.Instance, Clock = clock, Metrics = metrics };
+        new(registry, new ThreeNodeLocator(), gateway, cache, "n1", new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance) { Clock = clock, Metrics = metrics };
 
     internal static Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, CancellationToken cancellationToken) => OpenRegistryAsync(dir, null, cancellationToken);
 
     internal static async Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, FollowerLogOptions? options, CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(dir, ["n1"], 3, Fingerprint, 1, options);
+        var registry = new ReplicaGroupRegistry(dir, ["n1"], 3, Fingerprint, 1, NullLoggerFactory.Instance, options);
         try
         {
             await registry.OpenAsync(cancellationToken);
@@ -134,7 +134,7 @@ internal static class ReplicaOwnerTestKit
             throw new InvalidOperationException("The owned group log is not open.");
 
         var status = await log.GetStatusAsync(cancellationToken);
-        var factory = new ReplicaMutationFactory(decisionCache, "n1", 1, TimeProvider.System);
+        var factory = new ReplicaMutationFactory(decisionCache, "n1", 1, TimeProvider.System, NullLogger.Instance);
         var index = status.LastLogIndex;
         foreach (var key in keys)
         {

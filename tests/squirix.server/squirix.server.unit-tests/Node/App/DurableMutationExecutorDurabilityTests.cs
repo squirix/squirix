@@ -36,14 +36,15 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
             JournalGroupCommitMaxBatch = 8,
         };
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
-        var executor = new DurableMutationExecutor(journal);
+            NullLoggerFactory.Instance,
+            out _);
+        var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
         var applyState = new ApplyCounter(false);
 
         var applied = await executor.ExecuteAsync(
@@ -81,12 +82,12 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
             JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(5) : TimeSpan.Zero,
         };
 
-        using var manifestStore = new Ledger(options);
-        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
 
         try
         {
-            var executor = new DurableMutationExecutor(journal);
+            var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
             var applyState = new ApplyCounter();
 
             var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, int>(
@@ -122,12 +123,12 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
             ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(options);
-        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
 
         try
         {
-            var executor = new DurableMutationExecutor(journal);
+            var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
             var applyState = new ApplyCounter(false);
 
             var result = await executor.ExecuteAsync(

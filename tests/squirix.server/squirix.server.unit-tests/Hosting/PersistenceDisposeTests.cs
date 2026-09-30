@@ -1,14 +1,17 @@
 using System;
 using System.Diagnostics.Metrics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -59,6 +62,88 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         _ = await Assert.That(entry?.Cause).IsSameReferenceAs(failure);
     }
 
+    /// <summary>The journal host is disposed while the ledger and the replica group logs are still open, and both are released afterwards.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task JournalDisposedBeforeStorageOwners(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("test-persistence-dispose-order");
+        var services = new ServiceCollection();
+        _ = services.AddLogging();
+        _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, meter, false);
+        _ = services.AddSingleton(static sp => new ReplicaGroupRegistry(
+            sp.GetRequiredService<PersistenceOptions>().DataDir,
+            ["group-a"],
+            2,
+            new byte[32],
+            1UL,
+            sp.GetRequiredService<ILoggerFactory>()));
+        var provider = services.BuildServiceProvider();
+
+        // Same order as node startup: the registry is resolved first, then persistence and the group logs open.
+        var registry = provider.GetRequiredService<ReplicaGroupRegistry>();
+        await PersistenceServiceRegistration.OpenPersistenceAsync(provider, cancellationToken);
+        await registry.OpenAsync(cancellationToken);
+        var ledger = provider.GetRequiredService<Ledger>();
+        var groupLog = GroupStoragePaths.GetLogPath(Dir, "group-a");
+        var openAtJournalDispose = false;
+        var host = provider.GetRequiredService<JournalCoordinatorHost>();
+        var journal = host.Coordinator;
+        var expectations = new IJournalCoordinatorCreateExpectations();
+        _ = expectations.Setups.DisposeAsync().Callback(async () =>
+        {
+            _ = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
+            openAtJournalDispose = !CanLockExclusively(groupLog);
+            await journal.DisposeAsync();
+        });
+        host.Attach(expectations.Instance());
+
+        await provider.DisposeAsync();
+
+        _ = await Assert.That(openAtJournalDispose).IsTrue();
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken));
+        _ = await Assert.That(CanLockExclusively(groupLog)).IsTrue();
+    }
+
+    /// <summary>Resolving the journal before storage is opened fails with an explicit error instead of a null journal.</summary>
+    [Test]
+    public async Task ResolvingJournalBeforeOpenThrows()
+    {
+        using var meter = new Meter("test-persistence-unopened");
+        await using var provider = BuildUnopenedProvider(meter, null);
+
+        var thrown = NodeExceptionAssert.For<InvalidOperationException>().Throws(provider, static services => _ = services.GetRequiredService<IJournalCoordinator>());
+
+        _ = await Assert.That(thrown.Message).Contains("MapSquirixServerAsync", StringComparison.Ordinal);
+    }
+
+    /// <summary>Opening storage a second time is refused.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OpeningStorageTwiceThrows(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("test-persistence-open-twice");
+        await using var provider = await BuildProviderAsync(meter, null, cancellationToken);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(PersistenceServiceRegistration.OpenPersistenceAsync(provider, cancellationToken));
+    }
+
+    /// <summary>Tells whether <paramref name="path" /> can be opened for exclusive access, which fails while a durability worker holds it open.</summary>
+    /// <param name="path">The file to probe.</param>
+    /// <returns><see langword="true" /> when no other handle keeps the file open.</returns>
+    private static bool CanLockExclusively(string path)
+    {
+        try
+        {
+            using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Hands the journal host a journal whose dispose fails over the real journal it owns.</summary>
     /// <param name="provider">The persistence service provider.</param>
     /// <returns>The failure the journal dispose throws.</returns>
@@ -87,11 +172,21 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
 
     private async Task<ServiceProvider> BuildProviderAsync(Meter meter, EventRecordingLogger? log, CancellationToken cancellationToken)
     {
-        var services = new ServiceCollection();
-        if (log != null)
-            _ = services.AddLogging(builder => builder.AddProvider(new RecordingLoggerProvider(log)));
+        var provider = BuildUnopenedProvider(meter, log);
+        await PersistenceServiceRegistration.OpenPersistenceAsync(provider, cancellationToken);
+        return provider;
+    }
 
-        _ = await services.AddPersistenceServicesAsync(new PersistenceOptions { DataDir = Dir }, meter, false, cancellationToken);
+    private ServiceProvider BuildUnopenedProvider(Meter meter, EventRecordingLogger? log)
+    {
+        var services = new ServiceCollection();
+        _ = services.AddLogging(builder =>
+        {
+            if (log != null)
+                _ = builder.AddProvider(new RecordingLoggerProvider(log));
+        });
+
+        _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, meter, false);
         return services.BuildServiceProvider();
     }
 }

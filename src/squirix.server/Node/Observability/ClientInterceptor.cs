@@ -29,7 +29,7 @@ internal sealed class ClientInterceptor : Interceptor
     {
         var callOptions = AttachTraceHeaders(context.Options, context.Method.FullName, out var ownedActivity, out var rentedHeaders);
         var updatedContext = new ClientInterceptorContext<TRequest, TResponse>(context.Method, context.Host, callOptions);
-        var scope = Correlation.BeginStandardScope(_log, _nodeId, context.Method.FullName);
+        var scope = _log.BeginScope(Correlation.CreateScopeState(_nodeId, context.Method.FullName));
         var call = base.AsyncUnaryCall(request, updatedContext, continuation);
         return OutboundUnaryCallLease<TResponse>.WrapAsync(scope, ownedActivity, rentedHeaders, call);
     }
@@ -123,10 +123,10 @@ internal sealed class ClientInterceptor : Interceptor
         private readonly AsyncUnaryCall<TResponse> _inner;
         private readonly Activity? _ownedActivity;
         private readonly Metadata? _rentedHeaders;
-        private readonly IDisposable _scope;
+        private readonly IDisposable? _scope;
         private int _disposed;
 
-        private OutboundUnaryCallLease(IDisposable scope, Activity? ownedActivity, Metadata? rentedHeaders, AsyncUnaryCall<TResponse> inner)
+        private OutboundUnaryCallLease(IDisposable? scope, Activity? ownedActivity, Metadata? rentedHeaders, AsyncUnaryCall<TResponse> inner)
         {
             _scope = scope;
             _ownedActivity = ownedActivity;
@@ -134,7 +134,7 @@ internal sealed class ClientInterceptor : Interceptor
             _inner = inner;
         }
 
-        internal static AsyncUnaryCall<TResponse> WrapAsync(IDisposable scope, Activity? ownedActivity, Metadata? rentedHeaders, AsyncUnaryCall<TResponse> inner)
+        internal static AsyncUnaryCall<TResponse> WrapAsync(IDisposable? scope, Activity? ownedActivity, Metadata? rentedHeaders, AsyncUnaryCall<TResponse> inner)
         {
             var lease = new OutboundUnaryCallLease<TResponse>(scope, ownedActivity, rentedHeaders, inner);
             return new AsyncUnaryCall<TResponse>(lease.ResponseAsync(), inner.ResponseHeadersAsync, inner.GetStatus, inner.GetTrailers, lease.DisposeCall);
@@ -151,7 +151,7 @@ internal sealed class ClientInterceptor : Interceptor
             if (Interlocked.Exchange(ref _disposed, 1) != 0)
                 return;
 
-            _scope.Dispose();
+            _scope?.Dispose();
             _ownedActivity?.Dispose();
         }
 

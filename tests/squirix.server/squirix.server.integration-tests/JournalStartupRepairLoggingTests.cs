@@ -1,11 +1,9 @@
 using System;
-using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Squirix.Server.Attributes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
@@ -22,8 +20,8 @@ using TUnit.Core;
 namespace Squirix.Server.IntegrationTests;
 
 /// <summary>
-/// Startup journal repairs are found while the journal is built, before the host logger exists. A real server start over a damaged segment must
-/// still report them to the logger the host registers, and must fail loudly, leaving the file untouched, when the damage is not provably safe to repair.
+/// Startup journal repairs are found while the journal opens. A real server start over a damaged segment must report them to the logger the host
+/// registers, and must fail loudly, leaving the file untouched, when the damage is not provably safe to repair.
 /// </summary>
 public sealed class JournalStartupRepairLoggingTests : NodeIntegrationTestBase
 {
@@ -116,7 +114,7 @@ public sealed class JournalStartupRepairLoggingTests : NodeIntegrationTestBase
     {
         await JournalSegmentLeaseWait.WaitForReleasedAsync(dataDir, cancellationToken);
         var persistence = new PersistenceOptions { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
-        using var ledger = new Ledger(persistence);
+        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         return NodePathKit.Combine(dataDir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(manifest.CurrentJournal)}{FileExtensions.Journal}");
     }
@@ -152,65 +150,6 @@ public sealed class JournalStartupRepairLoggingTests : NodeIntegrationTestBase
         {
             var entry = new NodeCacheEntry<object?> { Value = $"value-{i}", Version = i };
             await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, $"repair-key-{i}", entry, cancellationToken);
-        }
-    }
-
-    /// <summary>One entry the host logged.</summary>
-    /// <param name="EventId">The event id.</param>
-    /// <param name="Level">The log level.</param>
-    /// <param name="Message">The formatted message.</param>
-    [Immutable]
-    private sealed record LoggedEntry(int EventId, LogLevel Level, string Message);
-
-    /// <summary>Logger provider recording every entry the host logs.</summary>
-    [ThreadSafe]
-    private sealed class RecordingLoggerProvider : ILoggerProvider
-    {
-        private readonly ConcurrentQueue<LoggedEntry> _entries = new();
-
-        public ILogger CreateLogger(string categoryName) => new RecordingLogger(this);
-
-        public void Dispose()
-        {
-        }
-
-        /// <summary>Finds the first entry with <paramref name="eventId" />.</summary>
-        /// <param name="eventId">Event id to look for.</param>
-        /// <returns>The entry, or <see langword="null" /> when the host logger never received the event.</returns>
-        internal LoggedEntry? Find(int eventId)
-        {
-            foreach (var entry in _entries)
-            {
-                if (entry.EventId == eventId)
-                    return entry;
-            }
-
-            return null;
-        }
-
-        /// <summary>Registers this provider with the host logger factory.</summary>
-        /// <param name="services">The host service collection.</param>
-        internal void Register(IServiceCollection services) => _ = services.AddSingleton<ILoggerProvider>(this);
-
-        private void Record(LoggedEntry entry) => _entries.Enqueue(entry);
-
-        [Immutable]
-        private sealed class RecordingLogger : ILogger
-        {
-            private readonly RecordingLoggerProvider _owner;
-
-            internal RecordingLogger(RecordingLoggerProvider owner)
-            {
-                _owner = owner;
-            }
-
-            public IDisposable? BeginScope<TState>(TState state)
-                where TState : notnull => null;
-
-            public bool IsEnabled(LogLevel logLevel) => true;
-
-            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-                _owner.Record(new LoggedEntry(eventId.Id, logLevel, formatter(state, exception)));
         }
     }
 }

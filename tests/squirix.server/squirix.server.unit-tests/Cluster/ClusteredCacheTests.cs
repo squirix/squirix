@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
@@ -37,7 +38,7 @@ public sealed class ClusteredCacheTests : ServerUnitTestBase
         await policy.DisposeAsync();
 
         var peers = new ServerPeer[] { new() { NodeId = "node-b", Uri = new Uri("https://localhost:6500") } };
-        await using var pool = new ServerClientPool(peers, new ServerClientPoolArgs { PolicyFactory = _ => policy }, new ServerClientPoolMetrics(meter));
+        await using var pool = new ServerClientPool(peers, new ServerClientPoolArgs { PolicyFactory = _ => policy }, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
         var cache = new ClusteredCache<string>(Self, new ILogicalNamespacedCacheCreateExpectations<string>().Instance(), RocksDoubles.CreateOwnerLocator("node-b"), pool);
 
         var exception = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<string>?>(cache.GetEntryAsync(CacheName, Key, cancellationToken));

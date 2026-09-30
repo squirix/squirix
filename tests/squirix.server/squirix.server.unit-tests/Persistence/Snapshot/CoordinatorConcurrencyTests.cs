@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -26,7 +27,7 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
     [Test]
     public async Task ConcurrentTriggersPublishExactlyOnce(CancellationToken cancellationToken)
     {
-        using var store = new Ledger(new PersistenceOptions { DataDir = Dir });
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
         await store.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
         await using var journal = new SnapshotCutJournal(1, 2);

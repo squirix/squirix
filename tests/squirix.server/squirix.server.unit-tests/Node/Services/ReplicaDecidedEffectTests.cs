@@ -3,6 +3,7 @@ using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -235,7 +236,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
             Clock = clock;
             _physical = new PhysicalCache<object?>(clock);
             Cache = new ClientCache<object?>(_physical, _physical);
-            Factory = new ReplicaMutationFactory(Cache, "g1", 1UL, clock);
+            Factory = new ReplicaMutationFactory(Cache, "g1", 1UL, clock, NullLogger.Instance);
         }
 
         internal ClientCache<object?> Cache { get; }

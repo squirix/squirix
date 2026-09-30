@@ -245,7 +245,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         {
             _options = options;
             _ring = new BoundedJournalRing(ringCapacity);
-            _ledger = new Ledger(options);
+            _ledger = new Ledger(options, NullLogger<Ledger>.Instance);
             _segmentWriter = JournalSegmentWriterFactory.Create(options.JournalPlatformBackend);
             _eventLoop = new JournalEventLoop(
                 new FakeEventLoopHost(_pendingAppends),
@@ -253,6 +253,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
                 _segmentWriter,
                 options,
                 new JournalEventLoopStartup(1, 0, 0, JournalSegmentProbe.Probe(options.DataDir, 1)),
+                NullLogger<JournalEventLoop>.Instance,
                 _backgroundCancellation.Token);
             _stallProbe = new JournalStallProbe(NullLogger.Instance);
         }

@@ -125,12 +125,12 @@ internal sealed class JournalMetricsExporterService : BackgroundService
             catch (IOException ex)
             {
                 // Best-effort metrics scan: transient per-file IO failures should not stop gauge refresh.
-                LogManager.JournalMetricFileProbeFailed(_log, ex, f);
+                ServerLog.JournalMetricFileProbeFailed(_log, ex, f);
             }
             catch (UnauthorizedAccessException ex)
             {
                 // Best-effort metrics scan: transient per-file IO failures should not stop gauge refresh.
-                LogManager.JournalMetricFileProbeFailed(_log, ex, f);
+                ServerLog.JournalMetricFileProbeFailed(_log, ex, f);
             }
         }
 

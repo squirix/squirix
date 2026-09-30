@@ -263,11 +263,11 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
-        var manifestStore = new Ledger(options);
-        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
+        var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
         var physical = new PhysicalCache<string>();
         var inner = new RecordingLogicalCache(physical);
-        var executor = new DurableMutationExecutor(journal);
+        var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
         var rawReader = useRawReader ? physical.RawReader : null;
         var cache = new JournalLoggingCacheDecorator<string>(Self, RocksDoubles.CreateOwnerLocator(owner), inner, journal, executor, null, rawReader);
         return new Harness(dir, manifestStore, journal, inner, cache);
@@ -286,11 +286,11 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
-        var manifestStore = new Ledger(options);
-        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
+        var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
         var physical = new PhysicalCache<string>();
         var inner = new RaceSimulatingInnerCache(physical);
-        var executor = new DurableMutationExecutor(journal);
+        var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
         var cache = new JournalLoggingCacheDecorator<string>(Self, RocksDoubles.CreateOwnerLocator(owner), inner, journal, executor);
         return new Harness(dir, manifestStore, journal, inner, cache);
     }

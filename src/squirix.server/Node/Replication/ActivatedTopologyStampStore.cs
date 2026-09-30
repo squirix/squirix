@@ -25,6 +25,7 @@ internal sealed class ActivatedTopologyStampStore
     private const int MaximumStampBytes = 256;
     private const int StampLength = 4 + 2 + 8 + 4 + FingerprintLength + 4;
     private const ushort Version = 1;
+    private readonly string _directory;
     private readonly string _tempPath;
 
     /// <summary>Initializes a new instance of the <see cref="ActivatedTopologyStampStore" /> class.</summary>
@@ -32,6 +33,7 @@ internal sealed class ActivatedTopologyStampStore
     internal ActivatedTopologyStampStore(string dataDirectory)
     {
         var directory = FilePathValidator.ResolveValidatedDirectoryPath(dataDirectory);
+        _directory = directory;
         StampPath = PathEx.Combine(directory, "topology.stamp");
         _tempPath = PathEx.Combine(directory, "topology.stamp.tmp");
     }
@@ -58,6 +60,9 @@ internal sealed class ActivatedTopologyStampStore
         ArgumentNullException.ThrowIfNull(stamp);
         if (stamp.Fingerprint.Length != FingerprintLength)
             throw new InvalidOperationException("Activated topology fingerprint must be exactly 32 bytes.");
+
+        // The stamp is published before storage opens, so the data directory may not exist yet on a first start.
+        _ = await DirectoryEx.CreateDirectoryAsync(_directory, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var bytes = ArrayPool<byte>.Shared.Rent(StampLength);
         try

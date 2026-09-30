@@ -1,7 +1,6 @@
 using System;
 using System.Net.Http;
 using Grpc.Core.Interceptors;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Transport;
@@ -16,8 +15,6 @@ internal sealed class ServerClientPoolArgs
     internal Interceptor? Interceptor { get; init; }
 
     internal Interceptor? InternalOwnerInterceptor { get; init; }
-
-    internal ILogger? Logger { get; init; }
 
     internal MtlsOptions? MtlsOptions { get; init; }
 

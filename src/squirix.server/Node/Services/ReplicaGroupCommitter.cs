@@ -51,33 +51,35 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <param name="gateway">Follower replication RPCs.</param>
     /// <param name="local">Local cache pipeline used for prepare reads and memory applies.</param>
     /// <param name="selfId">This node identifier; the node owns the group with this identifier.</param>
-    /// <param name="topologyFingerprint">Static topology fingerprint.</param>
-    /// <param name="generation">Static configuration generation.</param>
+    /// <param name="topology">Static topology fingerprint and configuration generation.</param>
+    /// <param name="log">Logger for lifecycle failures.</param>
     internal ReplicaGroupCommitter(
         ReplicaGroupRegistry registry,
         IReplicaGroupLocator locator,
         IReplicaRpcGateway gateway,
         ILogicalNamespacedCache<object?> local,
         string selfId,
-        ReadOnlyMemory<byte> topologyFingerprint,
-        ulong generation)
+        ReplicaTopologyStamp topology,
+        ILogger<ReplicaGroupCommitter> log)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(locator);
         ArgumentNullException.ThrowIfNull(gateway);
         ArgumentNullException.ThrowIfNull(local);
         ArgumentException.ThrowIfNullOrWhiteSpace(selfId);
+        ArgumentNullException.ThrowIfNull(log);
+        Log = log;
         _registry = registry;
         _locator = locator;
         _gateway = gateway;
         _local = local;
-        _applier = new Lazy<ReplicaLeaderApplier>(() => new ReplicaLeaderApplier(local, selfId, selfId, Log, Metrics), LazyThreadSafetyMode.ExecutionAndPublication);
+        _applier = new Lazy<ReplicaLeaderApplier>(() => new ReplicaLeaderApplier(local, Log, selfId, selfId, Metrics), LazyThreadSafetyMode.ExecutionAndPublication);
         GroupId = selfId;
-        _topologyFingerprint = topologyFingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topologyFingerprint))
-            : topologyFingerprint;
-        _generation = generation;
+        _topologyFingerprint = topology.Fingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topology))
+            : topology.Fingerprint;
+        _generation = topology.Generation;
         _probe = new Lazy<ReplicaVerificationProbe>(
-            () => new ReplicaVerificationProbe(registry, locator, gateway, selfId, _topologyFingerprint, generation, Log),
+            () => new ReplicaVerificationProbe(registry, locator, gateway, selfId, _topologyFingerprint, _generation, Log),
             LazyThreadSafetyMode.ExecutionAndPublication);
         CommitBudget = DefaultCommitBudget;
         ShutdownBudget = DefaultShutdownBudget;
@@ -107,9 +109,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the identifier of the owned replica group, which is this node's identifier.</summary>
     internal string GroupId { get; }
 
-    /// <summary>Gets the logger for lifecycle failures; the host logger unless set.</summary>
-    internal ILogger Log { private get; init; } = LogManager.GetLogger<ReplicaGroupCommitter>();
-
     /// <summary>Gets the replication metrics counting the inconsistent log records the committer refuses to apply; none are counted unless set.</summary>
     internal ReplicationMetrics? Metrics { private get; init; }
 
@@ -125,6 +124,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             field = value;
         }
     }
+
+    /// <summary>Gets the logger for lifecycle failures.</summary>
+    private ILogger Log { get; }
 
     private ReplicaLeaderApplier Applier => _applier.Value;
 
@@ -151,7 +153,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             }
             catch (OperationCanceledException)
             {
-                LogManager.ReplicaCommitterLeakedOnShutdownTimeout(Log, ShutdownBudget);
+                ServerLog.ReplicaCommitterLeakedOnShutdownTimeout(Log, ShutdownBudget);
                 return;
             }
         }
@@ -416,7 +418,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             // A durable majority may hold the entry: keep the reservation and sequencing untouched and
             // report the stable contract (gRPC Unavailable with COMMIT_OUTCOME_UNKNOWN), so callers stop
             // instead of retrying under a new identity. The original cause is logged before it is dropped.
-            LogManager.ReplicaCommitOutcomeUnknown(Log, error);
+            ServerLog.ReplicaCommitOutcomeUnknown(Log, error);
             throw ServerOpContract.CommitOutcomeUnknown();
         }
         catch
@@ -532,7 +534,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             eligibility,
             Applier.RecoverTail(tail, term, factory))
         {
-            ShutdownLeakReporter = budget => LogManager.ReplicaCoordinatorLeakedOnShutdown(Log, budget),
+            ShutdownLeakReporter = budget => ServerLog.ReplicaCoordinatorLeakedOnShutdown(Log, budget),
         };
 
         // Verified slots are admitted at the leader's last index before they count, so they cover the recovered tail.
@@ -561,7 +563,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
         catch (Exception error) when (error is not ObjectDisposedException)
         {
-            LogManager.ReplicaPendingApplyFailed(Log, error);
+            ServerLog.ReplicaPendingApplyFailed(Log, error);
             return false;
         }
     }
