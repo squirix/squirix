@@ -43,7 +43,7 @@ internal static class RemoteClientSessionFactory
         {
             pool = new ClientPool(peers, CallPolicyDefaults.Create, handler, callCredentials: BuildCallCredentials(bearerTokenProvider));
             var primaryNodeId = await pool.WarmUpAsync(cancellationToken).ConfigureAwait(false);
-            var failover = new EndpointFailover(pool.BootstrapNodeIds, primaryNodeId);
+            var failover = new EndpointFailover(pool.BootstrapNodeIds, primaryNodeId, CallPolicyDefaults.OperationDeadline, TimeProvider.System);
             var connected = pool;
             pool = null;
             return new RemoteClientSession(connected, failover, SerializationProvider.Create(serializer));

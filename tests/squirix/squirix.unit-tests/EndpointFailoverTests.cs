@@ -22,7 +22,7 @@ public sealed class EndpointFailoverTests : UnitTestBase
     [Test]
     public async Task FailsOverWhenSelectedEndpointDown(CancellationToken cancellationToken)
     {
-        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0");
+        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
         var callCount = new MutableCallCount();
 
         var value = await failover.ExecuteAsync(
@@ -44,10 +44,10 @@ public sealed class EndpointFailoverTests : UnitTestBase
     [Test]
     public async Task NoFailOverOnApplicationRpcErrors(CancellationToken cancellationToken)
     {
-        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0");
+        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
 
         var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
-            failover.ExecuteAsync<int>(static (_, _) => throw new RpcException(new Status(StatusCode.NotFound, "missing")), cancellationToken));
+            failover.ExecuteAsync<int, int>(static (_, _, _) => throw new RpcException(new Status(StatusCode.NotFound, "missing")), 0, cancellationToken));
 
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.NotFound);
     }
@@ -60,7 +60,7 @@ public sealed class EndpointFailoverTests : UnitTestBase
     [Test]
     public async Task NoFailOverOnCommitOutcomeUnknown(CancellationToken cancellationToken)
     {
-        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0");
+        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
         var callCount = new MutableCallCount();
 
         var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
@@ -76,6 +76,15 @@ public sealed class EndpointFailoverTests : UnitTestBase
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(error.Status.Detail).IsEqualTo(CommitOutcomeUnknownException.StableDetail);
         _ = await Assert.That(callCount.Value).IsEqualTo(1);
+    }
+
+    /// <summary>Verifies the operation deadline must be finite and positive.</summary>
+    [Test]
+    public void ConstructorRejectsNonPositiveDeadline()
+    {
+        _ = ExceptionAssert.For<ArgumentOutOfRangeException>().Throws(BootstrapEndpoints, static endpoints => _ = new EndpointFailover(endpoints, "endpoint-0", TimeSpan.Zero, TimeProvider.System));
+        _ = ExceptionAssert.For<ArgumentOutOfRangeException>().Throws(BootstrapEndpoints, static endpoints => _ = new EndpointFailover(endpoints, "endpoint-0", TimeSpan.FromSeconds(-1), TimeProvider.System));
+        _ = ExceptionAssert.For<ArgumentOutOfRangeException>().Throws(BootstrapEndpoints, static endpoints => _ = new EndpointFailover(endpoints, "endpoint-0", Timeout.InfiniteTimeSpan, TimeProvider.System));
     }
 
     private sealed class MutableCallCount

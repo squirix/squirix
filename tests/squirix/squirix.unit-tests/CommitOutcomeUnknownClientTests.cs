@@ -57,7 +57,7 @@ public sealed class CommitOutcomeUnknownClientTests
         _ = poolExpectations.Setups.BeginDrain();
         _ = poolExpectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
         await using var pool = poolExpectations.Instance();
-        var cache = new RemoteCache<string>("demo", new EndpointFailover(["node-0"], "node-0"), pool, RemoteClientSessionFactory.CreateSerializer());
+        var cache = new RemoteCache<string>("demo", new EndpointFailover(["node-0"], "node-0", TimeSpan.FromSeconds(30), TimeProvider.System), pool, RemoteClientSessionFactory.CreateSerializer());
 
         var error = await AsyncAssert.ThrowsAsync<CommitOutcomeUnknownException, bool>(SetAndProjectAsync(cache));
 
