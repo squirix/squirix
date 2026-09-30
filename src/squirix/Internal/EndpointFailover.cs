@@ -113,11 +113,15 @@ internal sealed class EndpointFailover
     /// <summary>Throws when the shared absolute deadline passed without a captured endpoint failure.</summary>
     /// <param name="clock">The time source reading the clock.</param>
     /// <param name="deadlineUtc">The single absolute deadline.</param>
+    /// <param name="peer">The endpoint the operation would have used, recorded as the metric peer.</param>
     /// <exception cref="RpcException">Thrown when the deadline passed.</exception>
-    private static void ThrowIfExpired(TimeProvider clock, DateTimeOffset deadlineUtc)
+    private static void ThrowIfExpired(TimeProvider clock, DateTimeOffset deadlineUtc, string peer)
     {
-        if (IsExpired(clock, deadlineUtc))
-            throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Bootstrap failover deadline exceeded."));
+        if (!IsExpired(clock, deadlineUtc))
+            return;
+
+        RpcTimeoutMetrics.TimeoutsTotal.WithLabels(peer, "overall", "deadline_budget").Inc();
+        throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Bootstrap failover deadline exceeded."));
     }
 
     private int ActiveIndexSnapshot()
@@ -174,7 +178,7 @@ internal sealed class EndpointFailover
         }
 
         if (lastFailure == null)
-            ThrowIfExpired(clock, deadlineUtc);
+            ThrowIfExpired(clock, deadlineUtc, _bootstrapNodeIds[startIndex]);
 
         throw lastFailure ?? new InvalidOperationException("Bootstrap endpoint failover failed without a captured exception.");
     }

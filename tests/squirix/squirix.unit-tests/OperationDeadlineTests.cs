@@ -32,6 +32,7 @@ public sealed class OperationDeadlineTests
         Hang = 0,
         Unavailable = 1,
         Succeed = 2,
+        GrpcDeadline = 3,
     }
 
     /// <summary>A caller token that is never cancelled does not lift the deadline.</summary>
@@ -120,6 +121,23 @@ public sealed class OperationDeadlineTests
         _ = await Assert.That(sink.HasEvent("squirix_rpc_timeouts_total", ("peer", peer), ("kind", "deadline_budget"))).IsTrue();
     }
 
+    /// <summary>A gRPC deadline expiry that coincides with the budget is reported as budget expiry, not retried.</summary>
+    [Test]
+    public async Task GrpcDeadlineFirstRecordsBudgetMetric()
+    {
+        var peer = $"deadline-grpc-{Guid.NewGuid():N}";
+        using var sink = new MeasurementSink("Squirix");
+        await using var harness = new Harness(peer, ShortDeadline, TransportMode.GrpcDeadline, TransportMode.GrpcDeadline, 64, true);
+
+        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(GetAsync(harness.Cache, CancellationToken.None));
+
+        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(error.Status.Detail).IsEqualTo("Request deadline exceeded.");
+        _ = await Assert.That(harness.FirstTransport.Calls.Count).IsEqualTo(1);
+        _ = await Assert.That(sink.HasEvent("squirix_rpc_timeouts_total", ("peer", peer), ("kind", "deadline_budget"))).IsTrue();
+        _ = await Assert.That(sink.HasEvent("squirix_rpc_timeouts_total", ("peer", peer), ("kind", "deadline_exceeded"))).IsFalse();
+    }
+
     /// <summary>The same absolute UTC deadline is sent on every attempt and endpoint.</summary>
     [Test]
     public async Task DeadlineReachesCallOptionsAsUtc()
@@ -194,6 +212,31 @@ public sealed class OperationDeadlineTests
         _ = await Assert.That(elapsed).IsLessThan(CompletionBound);
     }
 
+    /// <summary>A caller token cancelled while queued on the peer semaphore is cancellation, not a deadline failure.</summary>
+    [Test]
+    public async Task CallerCancelWhileQueuedIsCancellation()
+    {
+        var peer = $"deadline-queued-cancel-{Guid.NewGuid():N}";
+        using var sink = new MeasurementSink("Squirix");
+        using var holderSource = new CancellationTokenSource();
+        using var queuedSource = new CancellationTokenSource();
+        await using var harness = new Harness(peer, TimeSpan.FromSeconds(30), TransportMode.Hang, TransportMode.Hang, 1, true);
+
+        var holder = GetAsync(harness.Cache, holderSource.Token);
+        _ = await harness.FirstTransport.WaitForCallAsync();
+        var callsBeforeQueued = harness.FirstTransport.Calls.Count;
+
+        var queued = GetAsync(harness.Cache, queuedSource.Token);
+        await queuedSource.CancelAsync();
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(queued);
+
+        await holderSource.CancelAsync();
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(holder);
+
+        _ = await Assert.That(harness.FirstTransport.Calls.Count).IsEqualTo(callsBeforeQueued);
+        _ = await Assert.That(sink.HasEvent("squirix_rpc_timeouts_total", ("peer", peer), ("kind", "deadline_budget"))).IsFalse();
+    }
+
     private static async ValueTask<bool> GetAsync(RemoteCache<string> cache, CancellationToken cancellationToken)
     {
         _ = await cache.GetValueAsync("key-a", cancellationToken).ConfigureAwait(false);
@@ -236,6 +279,8 @@ public sealed class OperationDeadlineTests
         {
             await _policy.DisposeAsync().ConfigureAwait(false);
             await _pool.DisposeAsync().ConfigureAwait(false);
+            FirstTransport.Dispose();
+            SecondTransport.Dispose();
         }
 
         internal List<CapturedCall> AllCalls() => [.. FirstTransport.Calls, .. SecondTransport.Calls];
@@ -247,7 +292,7 @@ public sealed class OperationDeadlineTests
         }
     }
 
-    private sealed class ScriptedTransport : CallInvoker
+    private sealed class ScriptedTransport : CallInvoker, IDisposable
     {
         private readonly ConcurrentQueue<CapturedCall> _calls = new();
         private readonly TransportMode _mode;
@@ -259,6 +304,8 @@ public sealed class OperationDeadlineTests
         }
 
         internal List<CapturedCall> Calls => [.. _calls];
+
+        public void Dispose() => _firstCall.Dispose();
 
         public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(
             Method<TRequest, TResponse> method,
@@ -287,6 +334,9 @@ public sealed class OperationDeadlineTests
                 case TransportMode.Hang:
                     _ = options.CancellationToken.Register(() => completion.TrySetCanceled(options.CancellationToken));
                     break;
+                case TransportMode.GrpcDeadline:
+                    _ = FailAtDeadlineAsync(completion, options.Deadline!.Value - DateTime.UtcNow);
+                    break;
                 case TransportMode.Unavailable:
                     completion.SetException(new RpcException(new Status(StatusCode.Unavailable, "endpoint down")));
                     break;
@@ -309,6 +359,14 @@ public sealed class OperationDeadlineTests
             throw new InvalidOperationException("The scripted transport supports asynchronous calls only.");
 
         internal Task<bool> WaitForCallAsync() => _firstCall.WaitAsync(CompletionBound, CancellationToken.None);
+
+        private static async Task FailAtDeadlineAsync<TResponse>(TaskCompletionSource<TResponse> completion, TimeSpan remaining)
+        {
+            if (remaining > TimeSpan.Zero)
+                await Task.Delay(remaining, TimeProvider.System, CancellationToken.None).ConfigureAwait(false);
+
+            _ = completion.TrySetException(new RpcException(new Status(StatusCode.DeadlineExceeded, "Deadline Exceeded")));
+        }
 
         private static string ExtractOperationId<TRequest>(TRequest request) => request switch
         {

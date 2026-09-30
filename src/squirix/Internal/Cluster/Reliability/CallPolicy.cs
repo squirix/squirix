@@ -271,7 +271,7 @@ internal sealed class CallPolicy : ICallPolicy
             }
             catch (RpcException rx)
             {
-                return await MapRpcFailureAsync<T>(rx, attempt, effectiveToken).ConfigureAwait(false);
+                return await MapRpcFailureAsync<T>(rx, attempt, effectiveToken, cancellationToken).ConfigureAwait(false);
             }
             catch (HttpRequestException ex)
             {
@@ -314,13 +314,22 @@ internal sealed class CallPolicy : ICallPolicy
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), oce, effectiveToken).ConfigureAwait(false));
         }
 
-        private async ValueTask<AttemptOutcome<T>> MapRpcFailureAsync<T>(RpcException rx, int attempt, CancellationToken effectiveToken)
+        private async ValueTask<AttemptOutcome<T>> MapRpcFailureAsync<T>(RpcException rx, int attempt, CancellationToken effectiveToken, CancellationToken cancellationToken)
         {
             // A mutation may have committed durably even though its outcome is unknown (server write-ahead
             // idempotency intent). Re-sending the same operation would not re-execute (the server gates on the
             // intent), but the outcome is still ambiguous: stop retrying and surface it to the caller.
             if (CallPolicyRetryClassifier.IsCommitOutcomeUnknownStatus(rx))
                 return AttemptOutcome<T>.Stop(rx);
+
+            // The gRPC deadline timer and the budget timer expire at the same instant: when gRPC reports the
+            // expiry first, it is the exhausted operation budget, not a per-attempt timeout to retry.
+            if (rx.StatusCode is StatusCode.Cancelled or StatusCode.DeadlineExceeded && !cancellationToken.IsCancellationRequested &&
+                RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow) is { } remainingBudget && remainingBudget <= TimeSpan.Zero)
+            {
+                RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+                throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
+            }
 
             var canRetry = attempt < _maxAttempts && OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken);
             if (!canRetry)
