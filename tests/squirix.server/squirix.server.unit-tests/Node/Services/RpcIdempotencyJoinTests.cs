@@ -175,7 +175,7 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         try
         {
             await journal.Writer.AfterWrite.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.DisposeStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(original.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             crashImage = journal.ReadStampedPuts(cancellationToken);
             retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(Fingerprint, cancellationToken).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
@@ -208,7 +208,7 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         try
         {
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.DisposeStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(original.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(Fingerprint, cancellationToken).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
         }
@@ -243,7 +243,7 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         try
         {
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.DisposeStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             originalError = await NodeAsyncAssert.ThrowsAsync<RpcException>(original.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(Fingerprint, cancellationToken).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
         }

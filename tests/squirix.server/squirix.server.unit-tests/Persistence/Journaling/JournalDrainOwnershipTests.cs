@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -179,9 +178,9 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         _ = await Assert.That(maintenance.IsCompletedSuccessfully).IsTrue();
     }
 
-    /// <summary>A quiescence timeout fails reachable waiters loudly instead of hanging disposal.</summary>
+    /// <summary>A quiescence timeout is reported to the stop instead of hanging it.</summary>
     [Test]
-    public async Task QuiesceTimeoutFailsWaitersLoudly()
+    public async Task QuiesceTimeoutReportsFailure()
     {
         using var fake = new FakeCoordinatorState(CreateOptions());
         var gate = new JournalProducerGate();
@@ -190,10 +189,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         gate.Enter();
         try
         {
-            var failures = new List<Exception>();
-            var thrown = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(pipeline.QuiesceProducersAsync(failures, TimeSpan.FromMilliseconds(50)));
-            var singleFailure = await Assert.That(failures).HasSingleItem();
-            _ = await Assert.That(thrown).IsSameReferenceAs(singleFailure);
+            _ = await Assert.That(await pipeline.QuiesceProducersAsync(TimeSpan.FromMilliseconds(50))).IsFalse();
         }
         finally
         {

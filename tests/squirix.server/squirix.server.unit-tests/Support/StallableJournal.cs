@@ -94,8 +94,8 @@ internal sealed class StallableJournal : IAsyncDisposable
         CreateCoreAsync(dataDir, groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero, 1, null, (maxTotalBytesMb, maxSegmentMb, maxSegmentCount), cancellationToken);
 
     /// <summary>
-    /// Creates a journal whose disposal gives up on a stuck journal thread after <paramref name="shutdownBudget" />; the grace join
-    /// floor is the same budget, so a leaked disposal returns within about twice the budget.
+    /// Creates a journal whose stop gives up on a stuck journal thread after <paramref name="shutdownBudget" />; the grace join
+    /// floor is the same budget, so a failed stop returns within about twice the budget.
     /// </summary>
     /// <param name="dataDir">Empty journal data directory.</param>
     /// <param name="groupCommit">Whether journal group commit is enabled.</param>
@@ -104,7 +104,30 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started journal.</returns>
     internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, TimeSpan shutdownBudget, ILogger log, CancellationToken cancellationToken) =>
-        CreateCoreAsync(dataDir, groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero, 1, (shutdownBudget, log), DefaultLimits(JournalSegmentLimits.DefaultMaxTotalBytesMb), cancellationToken);
+        CreateAsync(dataDir, groupCommit, shutdownBudget, shutdownBudget, log, cancellationToken);
+
+    /// <summary>Creates a journal whose stop gives up on a stuck journal thread after <paramref name="shutdownBudget" />, then grants a grace join of <paramref name="graceJoinFloor" />.</summary>
+    /// <param name="dataDir">Empty journal data directory.</param>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
+    /// <param name="shutdownBudget">Shared shutdown budget.</param>
+    /// <param name="graceJoinFloor">Least wait of the grace join that follows the budget.</param>
+    /// <param name="log">Logger of the journal coordinator.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started journal.</returns>
+    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, TimeSpan shutdownBudget, TimeSpan graceJoinFloor, ILogger log, CancellationToken cancellationToken) =>
+        CreateAsync(dataDir, groupCommit, shutdownBudget, graceJoinFloor, TimeSpan.FromSeconds(1), log, cancellationToken);
+
+    /// <summary>Creates a journal with explicit shutdown budget, grace join floor, and stage floor.</summary>
+    /// <param name="dataDir">Empty journal data directory.</param>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
+    /// <param name="shutdownBudget">Shared shutdown budget.</param>
+    /// <param name="graceJoinFloor">Least wait of the grace join that follows the budget.</param>
+    /// <param name="stageFloor">Least wait of the quiescence, marker, and first join stages once the budget is spent.</param>
+    /// <param name="log">Logger of the journal coordinator.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started journal.</returns>
+    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, TimeSpan shutdownBudget, TimeSpan graceJoinFloor, TimeSpan stageFloor, ILogger log, CancellationToken cancellationToken) =>
+        CreateCoreAsync(dataDir, groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero, 1, (shutdownBudget, graceJoinFloor, stageFloor, log), DefaultLimits(JournalSegmentLimits.DefaultMaxTotalBytesMb), cancellationToken);
 
     /// <summary>Waits up to <paramref name="window" /> for <paramref name="signal" /> to complete.</summary>
     /// <param name="signal">Signal to observe.</param>
@@ -135,17 +158,17 @@ internal sealed class StallableJournal : IAsyncDisposable
         return string.Join(',', sorted);
     }
 
-    /// <summary>Disposes the journal without releasing the stalls, as a host shutdown over a disk that never returns.</summary>
-    /// <returns>The journal disposal.</returns>
-    internal Task DisposeStalledAsync()
+    /// <summary>Stops the journal without releasing the stalls, as a host shutdown over a disk that never returns.</summary>
+    /// <returns>The journal stop, which fails with a <see cref="TimeoutException" /> while the journal thread stays stuck.</returns>
+    internal Task StopStalledAsync()
     {
         _ = Interlocked.Exchange(ref _journalDisposed, 1);
-        return Journal.DisposeAsync().AsTask();
+        return Journal.StopAsync().AsTask();
     }
 
     /// <summary>
-    /// Releases the stalls after <see cref="DisposeStalledAsync" /> leaked the journal thread, joins it and disposes the writer the
-    /// leaked disposal left open, so the segments can be replayed and the data directory deleted.
+    /// Releases the stalls after <see cref="StopStalledAsync" /> left the journal thread stuck, joins it and disposes the writer the
+    /// failed stop left open, so the segments can be replayed and the data directory deleted.
     /// </summary>
     /// <param name="joinTimeout">Longest wait for the released journal thread to exit.</param>
     /// <returns>An asynchronous operation.</returns>
@@ -224,7 +247,7 @@ internal sealed class StallableJournal : IAsyncDisposable
         string dataDir,
         TimeSpan groupCommitMaxWait,
         int groupCommitMaxBatch,
-        (TimeSpan Budget, ILogger Log)? shutdown,
+        (TimeSpan Budget, TimeSpan GraceFloor, TimeSpan StageFloor, ILogger Log)? shutdown,
         (int TotalMb, int SegmentMb, int SegmentCount) limits,
         CancellationToken cancellationToken)
     {
@@ -248,7 +271,8 @@ internal sealed class StallableJournal : IAsyncDisposable
                 ? new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer, stuck.Log)
                 {
                     ShutdownBudget = stuck.Budget,
-                    GraceJoinFloor = stuck.Budget,
+                    GraceJoinFloor = stuck.GraceFloor,
+                    StageFloor = stuck.StageFloor,
                 }
                 : new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer);
             return new StallableJournal(dataDir, ledger, writer, journal);

@@ -159,7 +159,8 @@ public sealed class SquirixServer : IAsyncDisposable
                 var logger = _app.Logger;
                 try
                 {
-                    // Host.StopAsync cancels this token after HostOptions.ShutdownTimeout; the hosted services honour it.
+                    // Host.StopAsync cancels this token after HostOptions.ShutdownTimeout; most hosted services honour it, but the journal stop
+                    // ignores it and is bounded by its own budget and stage floors, so a stop can overrun the timeout.
                     // It is a cancellation request rather than a hard deadline, so no extra bound is added here.
                     await _app.StopAsync(CancellationToken.None).ConfigureAwait(false);
                 }

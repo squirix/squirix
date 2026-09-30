@@ -15,6 +15,7 @@ namespace Squirix.Server.UnitTests.Support;
 internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
 {
     private readonly IJournalSegmentWriter _inner;
+    private int _disposeCount;
 
     /// <summary>Initializes a new instance of the <see cref="StallableJournalSegmentWriter" /> class over the default file writer.</summary>
     internal StallableJournalSegmentWriter()
@@ -38,12 +39,16 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
     /// <summary>Gets the stall switch applied to <see cref="IJournalSegmentWriter.FlushToDisk" />.</summary>
     internal Stall Flush { get; } = new();
 
+    /// <summary>Gets how many times this writer was disposed.</summary>
+    internal int DisposeCount => Volatile.Read(ref _disposeCount);
+
     /// <summary>Gets the stall switch applied to <see cref="IJournalSegmentWriter.Write" />.</summary>
     internal Stall Write { get; } = new();
 
     /// <summary>Releases every stall, then disposes the inner writer.</summary>
     public void Dispose()
     {
+        _ = Interlocked.Increment(ref _disposeCount);
         ReleaseAll();
         _inner.Dispose();
         AfterWrite.Dispose();
@@ -86,13 +91,18 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
         private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly ManualResetEventSlim _released = new(true);
         private int _armed;
+        private int _disposed;
         private Exception? _failure;
 
         /// <summary>Gets a task that completes once a call has blocked on this armed stall.</summary>
         internal Task Entered => _entered.Task;
 
         /// <summary>Releases the wait handle.</summary>
-        public void Dispose() => _released.Dispose();
+        public void Dispose()
+        {
+            Volatile.Write(ref _disposed, 1);
+            _released.Dispose();
+        }
 
         /// <summary>Makes subsequent calls block until <see cref="Release" />.</summary>
         internal void Arm()
@@ -105,7 +115,10 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
         internal void Release()
         {
             Volatile.Write(ref _armed, 0);
-            _released.Set();
+
+            // A stop that tears the writer down disposes the stalls; releasing them again afterwards is a no-op.
+            if (Volatile.Read(ref _disposed) == 0)
+                _released.Set();
         }
 
         /// <summary>Unblocks the stalled call with <paramref name="failure" />, as a disk that fails after hanging; later calls pass through.</summary>

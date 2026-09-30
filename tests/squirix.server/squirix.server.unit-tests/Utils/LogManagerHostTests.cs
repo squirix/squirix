@@ -30,7 +30,7 @@ public sealed class LogManagerHostTests
         using var factory = new LoggerFactory([provider]);
         LogManager.Configure(factory);
 
-        LogManager.JournalThreadJoinTimedOut(logger, 0);
+        LogManager.JournalThreadJoinTimedOut(logger, 0, 0);
 
         _ = await Assert.That(log.Find(JournalThreadJoinTimedOutEventId)?.Level).IsEqualTo(LogLevel.Error);
     }
@@ -46,7 +46,7 @@ public sealed class LogManagerHostTests
         LogManager.Configure(factory);
         factory.Dispose();
 
-        LogManager.JournalThreadJoinTimedOut(logger, 0);
+        LogManager.JournalThreadJoinTimedOut(logger, 0, 0);
 
         _ = await Assert.That(logger.IsEnabled(LogLevel.Error)).IsFalse();
         _ = await Assert.That(log.Count(JournalThreadJoinTimedOutEventId)).IsEqualTo(0);

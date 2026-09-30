@@ -56,7 +56,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         var payload = JournalEntryPayloadKit.EncodePut("v");
         var refused = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(journal.AppendPutUnderGateAsync(CacheKey.Default("late"), payload, cancellationToken));
         _ = await Assert.That(refused.InnerException).IsTypeOf<ObjectDisposedException>();
-        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(journal, cancellationToken, static (j, token) => _ = j.AwaitDurabilityCommitAsync(token).AsTask());
+        _ = NodeExceptionAssert.For<JournalShutdownRefusedException>().Throws(journal, cancellationToken, static (j, token) => _ = j.AwaitDurabilityCommitAsync(token).AsTask());
     }
 
     /// <summary>Canceling a flush before its checkpoint enters the ring must not leak the ack into the registry.</summary>
@@ -86,33 +86,6 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         _ = await Assert.That(coordinator.DurabilityAcks.TakeAll(new ObjectDisposedException(nameof(JournalCoordinator)), out _)).IsEmpty();
     }
 
-    /// <summary>A join with no budget left records the timeout instead of hanging disposal.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task JoinTimeoutRecordsFailure(CancellationToken cancellationToken)
-    {
-        var options = new PersistenceOptions
-        {
-            DataDir = Dir,
-            JournalMaxSegmentMb = 4,
-            FlushInterval = 600_000,
-            ManifestRetentionCount = 1,
-        };
-
-        using var manifestStore = new Ledger(options);
-        var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
-        await journal.WaitForStartupAsync(cancellationToken);
-        var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
-
-        var failures = new List<Exception>();
-        var timedOut = await coordinator.DurabilityPipeline.AwaitJournalThreadDuringDisposeAsync(failures, TimeSpan.Zero);
-
-        _ = await Assert.That(timedOut).IsTrue();
-        var failure = await Assert.That(failures).HasSingleItem();
-        _ = await Assert.That(failure).IsTypeOf<TimeoutException>();
-    }
-
     /// <summary>A zero-budget join attempt reports the live thread without waiting.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -135,10 +108,10 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         _ = await Assert.That(await coordinator.DurabilityPipeline.TryJoinJournalThreadAsync(TimeSpan.Zero)).IsFalse();
     }
 
-    /// <summary>A marker wait with no budget left aborts disposal loudly instead of hanging.</summary>
+    /// <summary>A marker wait with no time left reports failure instead of hanging the stop.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task MarkerTimeoutAbortsDisposalLoudly(CancellationToken cancellationToken)
+    public async Task MarkerTimeoutReportsFailure(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -154,13 +127,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         await journal.WaitForStartupAsync(cancellationToken);
         var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
-        using var cts = new CancellationTokenSource();
-        await cts.CancelAsync();
-        var failures = new List<Exception>();
-        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(coordinator.DurabilityPipeline.EnqueueShutdownMarkerAsync(failures, cts.Token));
-
-        var failure = await Assert.That(failures).HasSingleItem();
-        _ = await Assert.That(failure).IsTypeOf<TimeoutException>();
+        _ = await Assert.That(await coordinator.DurabilityPipeline.EnqueueShutdownMarkerAsync(TimeSpan.Zero)).IsFalse();
     }
 
     /// <summary>Appends racing disposal on the group-commit path settle explicitly without loss.</summary>

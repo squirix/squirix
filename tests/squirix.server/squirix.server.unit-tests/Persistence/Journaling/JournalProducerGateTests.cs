@@ -48,6 +48,6 @@ public sealed class JournalProducerGateTests : ServerUnitTestBase
         var gate = new JournalProducerGate();
         gate.InitiateShutdown();
 
-        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(gate, static g => g.ThrowIfShutdownInitiated());
+        _ = NodeExceptionAssert.For<JournalShutdownRefusedException>().Throws(gate, static g => g.ThrowIfShutdownInitiated());
     }
 }

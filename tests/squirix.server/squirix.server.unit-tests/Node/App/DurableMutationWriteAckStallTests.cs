@@ -37,12 +37,12 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
     private static readonly string KeyW = CacheKey.Default("w").ToString();
 
     /// <summary>
-    /// A frame the journal thread dequeued but could not write yet is faulted by disposal, and the released write is dropped instead of
-    /// replayed: a graceful shutdown never leaves it durable.
+    /// A frame the journal thread dequeued but could not write yet has its caller faulted commit-unknown by the stop, but the frame stays
+    /// accepted: once the write is released it is written and replayed, so an acknowledged frame is never silently lost.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DisposeDropsFrameStalledBeforeWrite(CancellationToken cancellationToken)
+    public async Task StopKeepsFrameStalledBeforeWrite(CancellationToken cancellationToken)
     {
         await using var journal = await CreateWarmJournalAsync(cancellationToken);
         var memory = new AppliedKeys();
@@ -54,12 +54,12 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         var replayed = journal.Recover(string.Empty, 0, cancellationToken);
 
         _ = await Assert.That(memory.Snapshot).IsEmpty();
-        _ = await Assert.That(replayed).IsEqualTo(KeyW);
+        _ = await Assert.That(replayed).IsEqualTo(StallableJournal.Describe([KeyA, KeyW]));
     }
 
     /// <summary>
     /// A frame whose write reached the file before the disk hung is on disk when disposal faults its caller, so a crash at that point
-    /// replays it; only a released write is truncated again.
+    /// replays it, and the released write keeps it.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -74,7 +74,7 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         string crashImage;
         try
         {
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.DisposeStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             crashImage = journal.ReadStampedPuts(cancellationToken);
         }
@@ -86,7 +86,7 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         var replayed = journal.Recover(string.Empty, 0, cancellationToken);
 
         _ = await Assert.That(crashImage).IsEqualTo(StallableJournal.Describe([KeyA, KeyW]));
-        _ = await Assert.That(replayed).IsEqualTo(KeyW);
+        _ = await Assert.That(replayed).IsEqualTo(StallableJournal.Describe([KeyA, KeyW]));
         _ = await Assert.That(memory.Snapshot).IsEmpty();
     }
 
@@ -108,7 +108,7 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         SquirixException error;
         try
         {
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.DisposeStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
         }
         finally
@@ -197,7 +197,7 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
     {
         try
         {
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.DisposeStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
         }
         finally

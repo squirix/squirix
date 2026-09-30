@@ -1,7 +1,5 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -34,20 +32,6 @@ internal sealed class JournalDurabilityCoordinator
     }
 
     internal Action ThrowIfJournalThreadFailedCheck { get; }
-
-    internal static void ThrowDisposeFailures(List<Exception> failures)
-    {
-        switch (failures.Count)
-        {
-            case 0:
-                return;
-            case 1:
-                ExceptionDispatchInfo.Capture(failures[0]).Throw();
-                break;
-            default:
-                throw new AggregateException("journal coordinator disposal failed.", failures);
-        }
-    }
 
     /// <summary>Waits for the ack of a checkpoint published by <see cref="PublishFlushAsync" />.</summary>
     /// <param name="ack">Ack returned by <see cref="PublishFlushAsync" />.</param>
@@ -83,35 +67,6 @@ internal sealed class JournalDurabilityCoordinator
         {
             DetachDurabilityAck(ack);
         }
-    }
-
-    /// <summary>Waits for the journal thread to exit within the shutdown budget, recording a timeout as a disposal failure.</summary>
-    /// <param name="failures">Disposal failures to record a join timeout into.</param>
-    /// <param name="timeout">Time left in the shared shutdown budget.</param>
-    /// <returns>Whether the join timed out with the journal thread still alive.</returns>
-    internal async ValueTask<bool> AwaitJournalThreadDuringDisposeAsync(List<Exception> failures, TimeSpan timeout)
-    {
-        try
-        {
-            var work = new JoinJournalThreadWork(this, timeout);
-            await WorkPool.RunAsync(work, TaskCreationOptions.LongRunning, _owner.BackgroundCancellation.Token).ConfigureAwait(false);
-            if (work.Joined)
-                return false;
-
-            failures.Add(new TimeoutException($"journal I/O thread did not exit within {timeout}."));
-            return true;
-        }
-        catch (OperationCanceledException) when (_owner.BackgroundCancellation.IsCancellationRequested)
-        {
-            // Dispose Canceled the join wait when teardown already completed.
-            LogManager.DurabilityJoinWaitCanceledOnDispose(_logger);
-        }
-        catch (ObjectDisposedException ex)
-        {
-            failures.Add(ex);
-        }
-
-        return false;
     }
 
     internal void CompleteCheckpointOnJournalThread(JournalWorkItem item)
@@ -196,30 +151,34 @@ internal sealed class JournalDurabilityCoordinator
         await publisher.AwaitAckAsync(end, CancellationToken.None).ConfigureAwait(false);
     }
 
-    /// <summary>Enqueues the shutdown marker or fails disposal loudly when it cannot enter.</summary>
-    /// <param name="failures">Disposal failures to record a marker timeout into.</param>
-    /// <param name="cancellationToken">Budget for the marker wait; cancellation aborts disposal.</param>
-    /// <returns>A task that completes when the marker entered the ring.</returns>
-    internal async ValueTask EnqueueShutdownMarkerAsync(List<Exception> failures, CancellationToken cancellationToken)
+    /// <summary>Enqueues the shutdown marker unless the journal thread already exited.</summary>
+    /// <param name="wait">Time the marker may wait for a ring slot.</param>
+    /// <returns>
+    /// <see langword="true" /> when the marker entered the ring or the journal thread already exited, so nothing is left to enqueue it for;
+    /// <see langword="false" /> when the wait ran out and no marker is on the ring.
+    /// </returns>
+    internal async ValueTask<bool> EnqueueShutdownMarkerAsync(TimeSpan wait)
     {
-        // On a wedged thread with a full ring, the marker wait would otherwise hang disposal
-        // forever, before the join timeout below ever gets to report.
+        // A journal thread that already exited (a latched failure ends it) never dequeues the marker, so a full ring would otherwise
+        // hold the marker for the whole wait.
+        if (!_owner.JournalThread.IsAlive)
+            return true;
+
+        // On a wedged thread with a full ring, the marker wait would otherwise hang the stop forever.
+        using var markerCts = new CancellationTokenSource(wait);
         try
         {
-            await _owner.Ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellationToken).ConfigureAwait(false);
+            await _owner.Ring.EnqueueAsync(JournalWorkItem.Shutdown(), markerCts.Token, ThrowIfJournalThreadExited).ConfigureAwait(false);
+            return true;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (markerCts.IsCancellationRequested)
         {
-            // Without the marker, canceling or tearing down now would let the live thread exit
-            // with queued frames unwritten. Fail reachable waiters explicitly (pending and in flight:
-            // the thread may be stuck in their fsync) and stop instead, keeping the writer, ring, and
-            // gates alive.
-            LogManager.JournalShutdownMarkerTimedOut(_logger);
-            _ = _owner.GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
-            _ = _owner.PendingAppends.FailAll(new ObjectDisposedException(nameof(JournalCoordinator)), _logger, _owner.QueuedAppendsCounter);
-            _ = FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
-            failures.Add(new TimeoutException("shutdown marker did not enter the journal ring within the shutdown budget."));
-            ThrowDisposeFailures(failures);
+            return false;
+        }
+        catch (InvalidOperationException) when (!_owner.JournalThread.IsAlive)
+        {
+            // The thread exited while the marker waited for a slot: the ring took no marker.
+            return true;
         }
     }
 
@@ -319,34 +278,30 @@ internal sealed class JournalDurabilityCoordinator
     }
 
     /// <summary>Quiesces producers so the shutdown marker cannot overtake an admitted enqueue.</summary>
-    /// <param name="failures">Disposal failures to record a quiescence timeout into.</param>
-    /// <param name="remaining">Time left in the shared shutdown budget.</param>
-    /// <returns>A task that completes when producers quiesced, or throws loudly when they did not.</returns>
-    internal async ValueTask QuiesceProducersAsync(List<Exception> failures, TimeSpan remaining)
+    /// <param name="wait">Time producers may take to publish their in-flight enqueues.</param>
+    /// <returns>Whether every in-flight enqueue was published in time; new work is refused from here on either way.</returns>
+    internal ValueTask<bool> QuiesceProducersAsync(TimeSpan wait)
     {
         _producerGate.InitiateShutdown();
-        if (await _producerGate.WaitAsync(remaining).ConfigureAwait(false))
-            return;
-
-        // Producers never quiesced: publishing the marker now could let it overtake an admitted
-        // appending. Fail reachable waiters explicitly (pending and in flight) and stop instead of
-        // proceeding into marker/join/teardown with a broken ordering guarantee.
-        LogManager.JournalProducerQuiescenceTimedOut(_logger);
-        _ = _owner.GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
-        _ = _owner.PendingAppends.FailAll(new ObjectDisposedException(nameof(JournalCoordinator)), _logger, _owner.QueuedAppendsCounter);
-        _ = FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
-        failures.Add(new TimeoutException("journal producers did not quiesce within the shutdown budget."));
-        ThrowDisposeFailures(failures);
+        return _producerGate.WaitAsync(wait);
     }
 
     /// <summary>
     /// Drains appending admitted but never dequeued and returns quarantined buffers to the pool.
     /// Call only after the journal thread is joined: with a live thread the buffers must stay quarantined.
     /// </summary>
-    internal void ReclaimAbandonedAppendsPostJoin()
+    /// <returns>The number of admitted appends that were never written; an upper bound, since an append admitted but refused before the ring is counted too.</returns>
+    internal int ReclaimAbandonedAppendsPostJoin()
     {
-        _ = _owner.PendingAppends.FailAll(new ObjectDisposedException(nameof(JournalCoordinator)), _logger, _owner.QueuedAppendsCounter);
+        var abandoned = _owner.PendingAppends.FailAll(new JournalShutdownRefusedException(nameof(JournalCoordinator)), _logger, _owner.QueuedAppendsCounter);
         _ = _owner.PendingAppends.ReturnQuarantinedBuffers();
+        return abandoned;
+    }
+
+    internal void ThrowIfJournalThreadExited()
+    {
+        if (!_owner.JournalThread.IsAlive)
+            throw new InvalidOperationException("journal I/O thread exited.");
     }
 
     internal void ThrowIfJournalThreadFailed()

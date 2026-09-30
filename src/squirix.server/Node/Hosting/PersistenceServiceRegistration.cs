@@ -101,6 +101,9 @@ internal static class PersistenceServiceRegistration
         _ = services.AddHostedService(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());
 
         _ = services.AddHostedService<JournalMetricsExporterService>();
+
+        // Stops the journal once every other hosted service has stopped, so their final appends reach it.
+        _ = services.AddHostedService(static sp => new JournalStopService(sp.GetRequiredService<JournalCoordinatorHost>()));
     }
 
     private static void RegisterPersistenceRuntime(IServiceCollection services)

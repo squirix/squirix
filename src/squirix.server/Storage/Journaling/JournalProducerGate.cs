@@ -23,7 +23,11 @@ internal sealed class JournalProducerGate
 
     internal void InitiateShutdown() => Volatile.Write(ref _shutdownInitiated, 1);
 
-    internal void ThrowIfShutdownInitiated() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _shutdownInitiated) != 0, this);
+    internal void ThrowIfShutdownInitiated()
+    {
+        if (IsShutdownInitiated)
+            throw new JournalShutdownRefusedException(typeof(JournalProducerGate).FullName!);
+    }
 
     /// <summary>Waits until in-flight enqueues are published, giving up after the timeout.</summary>
     /// <param name="timeout">Maximum time to wait for producers to drain.</param>
