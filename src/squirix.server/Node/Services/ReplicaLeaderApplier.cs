@@ -4,7 +4,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -43,19 +42,20 @@ internal sealed class ReplicaLeaderApplier
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaLeaderApplier" /> class.</summary>
     /// <param name="local">Local cache pipeline the entries are applied to.</param>
+    /// <param name="log">Logger of the inconsistent records.</param>
     /// <param name="groupId">Identifier of the owned replica group, for diagnostics.</param>
     /// <param name="nodeId">Identifier of this node, the node label of the metric.</param>
-    /// <param name="log">Logger of the inconsistent records; nothing is logged when not set.</param>
     /// <param name="metrics">Replication metrics counting the inconsistent records; nothing is counted when not set.</param>
-    internal ReplicaLeaderApplier(ILogicalNamespacedCache<object?> local, string groupId = "", string nodeId = "", ILogger? log = null, ReplicationMetrics? metrics = null)
+    internal ReplicaLeaderApplier(ILogicalNamespacedCache<object?> local, ILogger log, string groupId = "", string nodeId = "", ReplicationMetrics? metrics = null)
     {
         ArgumentNullException.ThrowIfNull(local);
+        ArgumentNullException.ThrowIfNull(log);
         ArgumentNullException.ThrowIfNull(groupId);
         ArgumentNullException.ThrowIfNull(nodeId);
         _local = local;
         _groupId = groupId;
         _nodeId = nodeId;
-        _log = log ?? NullLogger.Instance;
+        _log = log;
         _metrics = metrics;
     }
 

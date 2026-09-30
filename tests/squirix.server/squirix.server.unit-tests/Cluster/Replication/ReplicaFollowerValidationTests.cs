@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
@@ -99,5 +100,5 @@ public sealed class ReplicaFollowerValidationTests : ServerUnitTestBase
 
     /// <summary>Creates a registry that was never opened, so every lookup misses.</summary>
     /// <returns>The closed registry.</returns>
-    private static ReplicaGroupRegistry CreateClosedRegistry() => new("test-root", ["node-a"], 1, ReadOnlyMemory<byte>.Of(9), 1);
+    private static ReplicaGroupRegistry CreateClosedRegistry() => new("test-root", ["node-a"], 1, ReadOnlyMemory<byte>.Of(9), 1, NullLoggerFactory.Instance);
 }

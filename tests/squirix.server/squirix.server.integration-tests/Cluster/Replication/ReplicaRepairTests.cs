@@ -3,6 +3,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
@@ -26,7 +27,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
     public async Task PredecessorConflictAtCommitQuarantines(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-repair-diverged");
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "committed"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(2UL, 2UL, "diverged"), cancellationToken)).Success).IsTrue();
@@ -46,7 +47,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
     public async Task QuarantineOnCommittedBoundary(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-repair-committed");
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "committed"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AdvanceCommitAsync(1UL, cancellationToken)).Success).IsTrue();
@@ -65,7 +66,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
     public async Task ReconcileNoOpAtTailSucceeds(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-repair-noop");
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "committed"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "tail"), cancellationToken)).Success).IsTrue();
@@ -89,7 +90,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
     public async Task ReconcileRejectsStaleLeaderTerm(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-repair-stale-term");
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "committed"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "stale"), cancellationToken)).Success).IsTrue();
@@ -109,7 +110,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
     public async Task ReconcileRejectsStalePredecessorTerm(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-repair-term");
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "committed"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "stale"), cancellationToken)).Success).IsTrue();
@@ -129,7 +130,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
     public async Task ReconcileZeroIndexWithoutQuarantine(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-repair-zero");
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "committed"), cancellationToken)).Success).IsTrue();
 
@@ -147,13 +148,13 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
     public async Task RestartedReplicaRemainsExcluded(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-repair-restart");
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId)))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance))
         {
             await log.OpenAsync(cancellationToken);
             _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "one"), cancellationToken)).Success).IsTrue();
         }
 
-        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);
         var status = await reopened.GetStatusAsync(cancellationToken);
         var fingerprint = new byte[] { 1, 2, 3 };
@@ -179,7 +180,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
         using var dir = new TempDirectory("squirix-repair-truncate");
         var faults = new ArmableFlushFaultHooks(static () => new IOException("simulated crash after durable repair truncation"));
 
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), faults))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults))
         {
             await log.OpenAsync(cancellationToken);
             _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "committed"), cancellationToken)).Success).IsTrue();
@@ -194,7 +195,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
         }
 
-        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);
         var restarted = await reopened.GetStatusAsync(cancellationToken);
         _ = await Assert.That(restarted.LastLogIndex).IsEqualTo(1UL);

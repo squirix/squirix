@@ -3,6 +3,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -231,7 +232,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-replica-idempotency-truncate");
         var faults = new ArmableFlushFaultHooks(static () => new IOException("simulated failure after durable truncate."));
 
-        await using var log = new FollowerLog(dir, "grp-idempotency", GroupComposition.Create("grp-idempotency"), faults);
+        await using var log = new FollowerLog(dir, "grp-idempotency", GroupComposition.Create("grp-idempotency"), NullLogger<FollowerLog>.Instance, faults);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "old"), cancellationToken);

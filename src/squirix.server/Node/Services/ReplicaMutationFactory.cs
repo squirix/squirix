@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -39,18 +38,19 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="groupId">Owned replica group identifier.</param>
     /// <param name="term">Static leader term for prepared mutations.</param>
     /// <param name="clock">Time source that pins the absolute expiration deadlines of prepared records.</param>
-    /// <param name="log">Logger of the records found inconsistent at prepare; nothing is logged when not set.</param>
-    internal ReplicaMutationFactory(ILogicalNamespacedCache<object?> local, string groupId, ulong term, TimeProvider clock, ILogger? log = null)
+    /// <param name="log">Logger of the records found inconsistent at prepare.</param>
+    internal ReplicaMutationFactory(ILogicalNamespacedCache<object?> local, string groupId, ulong term, TimeProvider clock, ILogger log)
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
         ArgumentOutOfRangeException.ThrowIfZero(term);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(log);
         _local = local;
         _groupId = groupId;
         _term = term;
         _clock = clock;
-        _log = log ?? NullLogger.Instance;
+        _log = log;
     }
 
     /// <inheritdoc />

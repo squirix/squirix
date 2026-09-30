@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 
@@ -19,6 +20,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
 {
     private readonly ulong _generation;
     private readonly string[] _groupIds;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly FollowerLogOptions? _options;
     private readonly string _root;
     private readonly int _replicaCount;
@@ -33,6 +35,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     /// <param name="replicaCount">Fixed replica count shared by every group.</param>
     /// <param name="fingerprint">Static topology fingerprint shared by the replica set.</param>
     /// <param name="generation">Static configuration generation shared by the replica set.</param>
+    /// <param name="loggerFactory">Factory creating the logger handed to every group log.</param>
     /// <param name="options">Follower log options applied to every group log.</param>
     /// <exception cref="ArgumentException">Thrown when a group identifier is missing or duplicated.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the replica count is out of range.</exception>
@@ -42,10 +45,12 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         int replicaCount,
         ReadOnlyMemory<byte> fingerprint,
         ulong generation,
+        ILoggerFactory loggerFactory,
         FollowerLogOptions? options = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(root);
         ArgumentNullException.ThrowIfNull(groupIds);
+        ArgumentNullException.ThrowIfNull(loggerFactory);
         if (replicaCount < 1 || replicaCount > PolicyOptions.MaxReplicaCount)
             throw new ArgumentOutOfRangeException(nameof(replicaCount), replicaCount, "Replica count is out of range.");
         ValidateGroupIds(groupIds);
@@ -57,6 +62,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         _replicaCount = replicaCount;
         _fingerprint = fingerprint;
         _generation = generation;
+        _loggerFactory = loggerFactory;
         _options = options;
     }
 
@@ -111,7 +117,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
                 FollowerLog? log = null;
                 try
                 {
-                    log = new FollowerLog(_root, _groupIds[i], GroupComposition.Create(_groupIds[i]), _options);
+                    log = new FollowerLog(_root, _groupIds[i], GroupComposition.Create(_groupIds[i]), _loggerFactory.CreateLogger<FollowerLog>(), _options);
                     await log.OpenAsync(cancellationToken).ConfigureAwait(false);
                     var eligibility = new ReplicaEligibility(_replicaCount);
 

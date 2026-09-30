@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server.Storage.Replication;
 
@@ -24,6 +25,7 @@ internal sealed class GroupRecovery : IAsyncDisposable
     /// <summary>Outstanding leases per published log, guarded by <see cref="_gate" />.</summary>
     private readonly Dictionary<IFollowerLog, int> _leaseCounts = [];
 
+    private readonly ILoggerFactory _loggerFactory;
     private readonly string _persistenceRoot;
 
     /// <summary>Logs displaced from the map while leased, guarded by <see cref="_gate" />.</summary>
@@ -37,12 +39,14 @@ internal sealed class GroupRecovery : IAsyncDisposable
     /// </summary>
     private IReadOnlyDictionary<string, IFollowerLog> _logs = new Dictionary<string, IFollowerLog>(StringComparer.Ordinal);
 
-    internal GroupRecovery(string persistenceRoot, GroupComposition composition)
+    internal GroupRecovery(string persistenceRoot, GroupComposition composition, ILoggerFactory loggerFactory)
     {
         ArgumentNullException.ThrowIfNull(persistenceRoot);
         ArgumentNullException.ThrowIfNull(composition);
+        ArgumentNullException.ThrowIfNull(loggerFactory);
         _persistenceRoot = persistenceRoot;
         _composition = composition;
+        _loggerFactory = loggerFactory;
     }
 
     /// <inheritdoc />
@@ -179,7 +183,7 @@ internal sealed class GroupRecovery : IAsyncDisposable
     /// <summary>Opens a follower log for <paramref name="groupId" /> without materializing storage yet.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <returns>A follower log for the group.</returns>
-    private FollowerLog CreateLog(string groupId) => new(_persistenceRoot, groupId, _composition);
+    private FollowerLog CreateLog(string groupId) => new(_persistenceRoot, groupId, _composition, _loggerFactory.CreateLogger<FollowerLog>());
 
     /// <summary>Opens and recovers every group log in the composition, disposing the already-opened set on failure.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>

@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -57,7 +58,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         _ = faults.Setups.OnFlushed();
         _ = faults.Setups.OnBeforeMemoryApply().Callback(FailOnce("simulated crash before memory apply."));
 
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), faults.Instance()))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance()))
         {
             await log.OpenAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
@@ -225,7 +226,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         _ = faults.Setups.OnFrameWritten().Callback(FailOnce("simulated failure after the frame write."));
         _ = faults.Setups.OnFlushed();
 
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), faults.Instance()))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance()))
         {
             await log.OpenAsync(cancellationToken);
 
@@ -278,7 +279,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         _ = faults.Setups.OnFrameWritten();
         _ = faults.Setups.OnFlushed().Callback(FailOnce("simulated failure after the durable truncate.", () => armed));
 
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), faults.Instance());
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance());
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
@@ -422,5 +423,5 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         };
     }
 
-    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId));
+    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
 }

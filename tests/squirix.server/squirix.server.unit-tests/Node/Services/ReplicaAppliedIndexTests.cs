@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -35,8 +36,8 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
     public async Task ApplyRefusesEntryOutOfOrder(CancellationToken cancellationToken)
     {
         var cache = new StubCache();
-        var applier = new ReplicaLeaderApplier(cache);
-        var factory = new ReplicaMutationFactory(cache, "n1", 1UL, TimeProvider.System);
+        var applier = new ReplicaLeaderApplier(cache, NullLogger.Instance);
+        var factory = new ReplicaMutationFactory(cache, "n1", 1UL, TimeProvider.System, NullLogger.Instance);
         var first = factory.PrepareSet(NewOperationId(), "cache", "k1", Entry("k1"), 1UL);
         var second = factory.PrepareSet(NewOperationId(), "cache", "k2", Entry("k2"), 2UL);
 

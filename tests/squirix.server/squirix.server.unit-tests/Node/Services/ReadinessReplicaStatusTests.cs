@@ -4,6 +4,7 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -120,7 +121,7 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
     public async Task QuarantinedGroupLosesReadiness(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-readiness-quarantine");
-        await using var registry = new ReplicaGroupRegistry(dir, ["node-a"], 3, ReadOnlyMemory<byte>.Of(9), 1);
+        await using var registry = new ReplicaGroupRegistry(dir, ["node-a"], 3, ReadOnlyMemory<byte>.Of(9), 1, NullLoggerFactory.Instance);
         await registry.OpenAsync(cancellationToken);
         var eligibility = registry.EligibilityFor("node-a");
         eligibility.Quarantine(1);
@@ -139,7 +140,7 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
     public async Task StatusCarriesLogRetention(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-readiness-retention");
-        await using var registry = new ReplicaGroupRegistry(dir, ["node-a"], 3, ReadOnlyMemory<byte>.Of(9), 1);
+        await using var registry = new ReplicaGroupRegistry(dir, ["node-a"], 3, ReadOnlyMemory<byte>.Of(9), 1, NullLoggerFactory.Instance);
         await registry.OpenAsync(cancellationToken);
         _ = registry.TryGetLog("node-a", out var log);
         var entry = new FollowerLogEntry(1, 1, ReadOnlyMemory<byte>.Of(1, 2, 3));
@@ -188,7 +189,7 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
     [Test]
     public async Task UnopenedRegistryYieldsNoSnapshots(CancellationToken cancellationToken)
     {
-        await using var registry = new ReplicaGroupRegistry("test-root", ["node-a"], 1, ReadOnlyMemory<byte>.Of(9), 1);
+        await using var registry = new ReplicaGroupRegistry("test-root", ["node-a"], 1, ReadOnlyMemory<byte>.Of(9), 1, NullLoggerFactory.Instance);
         var source = new ReplicaGroupStatusSource(registry, CreateTopology(1), new MtlsOptions(), "node-a");
 
         var snapshots = await source.GetSnapshotsAsync(cancellationToken);

@@ -124,7 +124,7 @@ internal static class ServerHostingComposition
             cluster.ReplicaCount,
             activation.Fingerprint.AsMemory(),
             cluster.ConfigurationGeneration,
-            new FollowerLogOptions { Log = sp.GetRequiredService<ILogger<FollowerLog>>() }));
+            sp.GetRequiredService<ILoggerFactory>()));
 
         // Factory registrations let the container own disposal: the registry closes follower-log durability workers
         // and the committer drains its coordinator on host shutdown.
@@ -165,10 +165,9 @@ internal static class ServerHostingComposition
         sp.GetRequiredService<IReplicaRpcGateway>(),
         sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>(),
         sp.GetRequiredService<TopologyOptions>().NodeId,
-        fingerprint.AsMemory(),
-        sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration)
+        new ReplicaTopologyStamp(fingerprint.AsMemory(), sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration),
+        sp.GetRequiredService<ILogger<ReplicaGroupCommitter>>())
     {
-        Log = sp.GetRequiredService<ILogger<ReplicaGroupCommitter>>(),
         Metrics = sp.GetRequiredService<ReplicationMetrics>(),
         Clock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
     };
@@ -406,7 +405,7 @@ internal static class ServerHostingComposition
         // Note: GroupRecovery.RecoverAllAsync is intentionally NOT invoked from any production path in this
         // milestone; with an empty static composition a call would be a no-op. Recovery wiring is introduced
         // together with group-membership derivation (see the durable ordered follower log specification, M8-05).
-        _ = services.AddSingleton(static sp => new GroupRecovery(sp.GetRequiredService<PersistenceOptions>().DataDir, GroupComposition.Empty()));
+        _ = services.AddSingleton(static sp => new GroupRecovery(sp.GetRequiredService<PersistenceOptions>().DataDir, GroupComposition.Empty(), sp.GetRequiredService<ILoggerFactory>()));
 
         if (cluster.ReplicaCount > 1 && !args.FoundationOnly)
             AddReplicaGroupRegistry(services, cluster, persistence, mtlsOptions);

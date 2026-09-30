@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Google.Protobuf;
 using Grpc.Core;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -135,7 +136,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
         var material = MtlsCertificate.Create(peerCertificate, bundle.Ca);
         var dir = new TempDirectory("squirix-replication-adapter");
-        var registry = new ReplicaGroupRegistry(dir, [groupId], 1, ReadOnlyMemory<byte>.Of(9), topology.ConfigurationGeneration);
+        var registry = new ReplicaGroupRegistry(dir, [groupId], 1, ReadOnlyMemory<byte>.Of(9), topology.ConfigurationGeneration, NullLoggerFactory.Instance);
         await registry.OpenAsync(cancellationToken);
         var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material, registry);
         var header = new ReplicationEnvelopeHeader

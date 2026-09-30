@@ -77,14 +77,15 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// </summary>
     private int _readiness = FollowerLogReadinessValue.Unknown;
 
-    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, FollowerLogOptions? options = null)
+    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, ILogger<FollowerLog> log, FollowerLogOptions? options = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
         ArgumentNullException.ThrowIfNull(composition);
+        ArgumentNullException.ThrowIfNull(log);
         _composition = composition;
         var settings = options ?? new FollowerLogOptions();
         _faults = settings.FaultHooks ?? DefaultFaults;
-        _log = settings.Log ?? LogManager.GetLogger<FollowerLog>();
+        _log = log;
         _shutdownBudget = settings.ShutdownBudget;
         GroupId = groupId;
         var paths = FollowerLogPaths.Create(persistenceRoot, groupId);
@@ -97,8 +98,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         Idempotency = _idempotency;
     }
 
-    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, IFollowerLogFaultHooks faultHooks)
-        : this(persistenceRoot, groupId, composition, new FollowerLogOptions { FaultHooks = faultHooks })
+    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, ILogger<FollowerLog> log, IFollowerLogFaultHooks faultHooks)
+        : this(persistenceRoot, groupId, composition, log, new FollowerLogOptions { FaultHooks = faultHooks })
     {
     }
 

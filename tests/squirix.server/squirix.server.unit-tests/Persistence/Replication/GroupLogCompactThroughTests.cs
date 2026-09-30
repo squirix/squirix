@@ -1,6 +1,7 @@
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -43,7 +44,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
             await AssertCompactedStateAsync(log, cancellationToken);
         }
 
-        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);
         await AssertCompactedStateAsync(reopened, cancellationToken);
     }
@@ -116,7 +117,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         _ = await Assert.That(File.Exists(GroupStoragePaths.GetSnapshotPath(dir, GroupId))).IsTrue();
         _ = await Assert.That(logBytes == HeaderLength()).IsEqualTo(boundary == FaultBoundary.AfterLogReplace);
 
-        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);
 
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
@@ -174,7 +175,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
     /// <returns>The open log.</returns>
     private static async Task<FollowerLog> SeedAsync(string dir, FollowerLogOptions? options, CancellationToken cancellationToken)
     {
-        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), options);
+        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, options);
         try
         {
             await log.OpenAsync(cancellationToken);

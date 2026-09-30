@@ -4,6 +4,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -120,7 +121,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
             ReleaseAndCloseLeakedHandle(log, hooks);
         }
 
-        await using var reopened = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId));
+        await using var reopened = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);
         var tail = await reopened.GetUncommittedTailAsync(cancellationToken);
 
@@ -265,10 +266,10 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
         durable.Durability.Dispose();
     }
 
-    private async Task<FollowerLog> OpenLogAsync(StallableFollowerLogFaultHooks hooks, ILogger logger, CancellationToken cancellationToken)
+    private async Task<FollowerLog> OpenLogAsync(StallableFollowerLogFaultHooks hooks, ILogger<FollowerLog> logger, CancellationToken cancellationToken)
     {
-        var options = new FollowerLogOptions { FaultHooks = hooks, Log = logger, ShutdownBudget = ShutdownBudget };
-        var log = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId), options);
+        var options = new FollowerLogOptions { FaultHooks = hooks, ShutdownBudget = ShutdownBudget };
+        var log = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId), logger, options);
         try
         {
             await log.OpenAsync(cancellationToken);

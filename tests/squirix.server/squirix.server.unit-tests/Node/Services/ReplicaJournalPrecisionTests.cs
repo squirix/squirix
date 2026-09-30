@@ -81,7 +81,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
     {
         var physical = new PhysicalCache<object?>(clock);
         var cache = new ClientCache<object?>(physical, physical);
-        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock);
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock, NullLogger.Instance);
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["t"] = "1" }.ToFrozenDictionary(StringComparer.Ordinal);
         var records = new List<ReplicaLogRecord>();
         await LeaderAppliesAsync(cache, records, factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?>("v1", 3, null, TimeSpan.FromMinutes(10), tags), 1UL), cancellationToken);

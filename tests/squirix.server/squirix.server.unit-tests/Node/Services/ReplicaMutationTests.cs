@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -24,7 +25,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
     public async Task AddDuplicateFails(CancellationToken cancellationToken)
     {
         var cache = new MemoryCache();
-        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System);
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System, NullLogger.Instance);
 
         var first = await factory.PrepareTryAddAsync("op-1", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 1UL, cancellationToken);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(first), cancellationToken);
@@ -46,7 +47,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         var faulting = new ILogicalNamespacedCacheCreateExpectations<object?>();
         _ = faulting.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
                     .ReturnValue(ValueTask.FromException<NodeCacheEntry<object?>?>(fault));
-        var factory = new ReplicaMutationFactory(faulting.Instance(), "g1", 1UL, TimeProvider.System);
+        var factory = new ReplicaMutationFactory(faulting.Instance(), "g1", 1UL, TimeProvider.System, NullLogger.Instance);
 
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(factory.PrepareRemoveAsync("op-1", "cache", "k", 42UL, cancellationToken));
 
@@ -77,7 +78,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
     public async Task RemoveExpirationReportsPresence(CancellationToken cancellationToken)
     {
         var cache = new MemoryCache();
-        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System);
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System, NullLogger.Instance);
         var plain = factory.PrepareSet("op-1", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 1UL);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(plain), cancellationToken);
 
@@ -99,7 +100,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
     public async Task RemoveReturnsPrevious(CancellationToken cancellationToken)
     {
         var cache = new MemoryCache();
-        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System);
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System, NullLogger.Instance);
         var prepared = factory.PrepareSet("op-1", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 1UL);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(prepared), cancellationToken);
 
@@ -122,7 +123,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
     public async Task SetAppliesThroughRecord(CancellationToken cancellationToken)
     {
         var cache = new MemoryCache();
-        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System);
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System, NullLogger.Instance);
         var entry = new NodeCacheEntry<object?> { Value = "v1" };
 
         var mutation = factory.PrepareSet("op-1", "cache", "k", entry, 1UL);
@@ -141,7 +142,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
     public async Task TouchRequiresPresentKey(CancellationToken cancellationToken)
     {
         var cache = new MemoryCache();
-        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System);
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System, NullLogger.Instance);
 
         var missing = await factory.PrepareTouchAsync("op-1", "cache", "k", TimeSpan.FromMinutes(5), 1UL, cancellationToken);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(missing), cancellationToken);
@@ -161,7 +162,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
     public async Task UpdateRequiresPresentKey(CancellationToken cancellationToken)
     {
         var cache = new MemoryCache();
-        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System);
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System, NullLogger.Instance);
 
         var missing = await factory.PrepareUpdateAsync("op-1", "cache", "k", "v9", 1UL, cancellationToken);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(missing), cancellationToken);
