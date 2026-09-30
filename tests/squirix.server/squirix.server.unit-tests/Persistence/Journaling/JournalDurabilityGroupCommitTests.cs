@@ -252,6 +252,32 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         _ = await Assert.That(flushCounter.Value).IsEqualTo(1);
     }
 
+    /// <summary>A backward wall-clock step after a batch is armed neither stretches the journal thread wait nor delays the batch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BackwardClockStepKeepsBatchDeadline(CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions
+        {
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
+            JournalGroupCommitMaxBatch = 32,
+        };
+        var flushCounter = new AtomicCounter();
+        var time = new SteppedWallClock();
+        var groupCommit = new JournalDurabilityGroupCommit(flushCounter.IncrementAction, static () => { }, options, time);
+
+        var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
+        time.StepWallClock(TimeSpan.FromSeconds(-30));
+        var waitMs = groupCommit.GetJournalThreadWaitTimeoutMs();
+        time.Advance(options.JournalGroupCommitMaxWait);
+        groupCommit.DrainDueBatchesOnJournalThread();
+        await ack.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+
+        _ = await Assert.That(waitMs).IsLessThanOrEqualTo(Convert.ToInt32(options.JournalGroupCommitMaxWait.TotalMilliseconds));
+        _ = await Assert.That(ack.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(flushCounter.Value).IsEqualTo(1);
+    }
+
     /// <summary>Ensures an immediate batch flush racing the delay timer does not fail concurrent acks.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -368,6 +394,21 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         internal int Value => Volatile.Read(ref _value);
 
         internal void Increment() => _ = Interlocked.Increment(ref _value);
+    }
+
+    /// <summary>A fake clock whose wall time can step backward while its monotonic timestamp keeps moving forward only.</summary>
+    [ThreadSafe]
+    private sealed class SteppedWallClock : FakeTimeProvider
+    {
+        private long _wallOffsetTicks;
+
+        public override DateTimeOffset GetUtcNow() => base.GetUtcNow().AddTicks(Interlocked.Read(ref _wallOffsetTicks));
+
+        /// <summary>Reads the unstepped time, since the base derives timestamps from the virtual wall time; the monotonic clock never moves back.</summary>
+        /// <returns>The monotonic timestamp.</returns>
+        public override long GetTimestamp() => base.GetUtcNow().UtcTicks;
+
+        internal void StepWallClock(TimeSpan step) => _ = Interlocked.Add(ref _wallOffsetTicks, step.Ticks);
     }
 
     [Immutable]
