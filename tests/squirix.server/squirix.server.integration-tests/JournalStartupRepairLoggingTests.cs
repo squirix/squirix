@@ -23,8 +23,8 @@ using TUnit.Core;
 namespace Squirix.Server.IntegrationTests;
 
 /// <summary>
-/// Startup journal repairs are found while the journal is built, before the host logger exists. A real server start over a damaged segment must
-/// still report them to the logger the host registers, and must fail loudly, leaving the file untouched, when the damage is not provably safe to repair.
+/// Startup journal repairs are found while the journal opens. A real server start over a damaged segment must report them to the logger the host
+/// registers, and must fail loudly, leaving the file untouched, when the damage is not provably safe to repair.
 /// </summary>
 public sealed class JournalStartupRepairLoggingTests : NodeIntegrationTestBase
 {

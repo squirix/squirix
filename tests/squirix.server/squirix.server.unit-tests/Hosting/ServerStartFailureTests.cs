@@ -27,7 +27,7 @@ public sealed class ServerStartFailureTests
         var failure = new InvalidOperationException("Probe start failure.");
         var app = BuildApp(probe, failure);
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartAppAsync(app, static _ => { }, CancellationToken.None));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, CancellationToken.None));
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
         _ = await Assert.That(probe.StopCalls).IsEqualTo(1);
@@ -43,7 +43,7 @@ public sealed class ServerStartFailureTests
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(StartAppAsync(app, static _ => { }, cts.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, cts.Token));
 
         _ = await Assert.That(IsContainerDisposed(app)).IsTrue();
     }
@@ -56,7 +56,7 @@ public sealed class ServerStartFailureTests
         var probe = new StartProbe { CancelOnStart = cts };
         var app = BuildApp(probe, null, null, false, true);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(StartAppAsync(app, static _ => { }, cts.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, cts.Token));
 
         _ = await Assert.That(probe.StopCalls).IsEqualTo(1);
         _ = await Assert.That(probe.DependencyDisposed).IsTrue();
@@ -71,7 +71,7 @@ public sealed class ServerStartFailureTests
         var failure = new InvalidOperationException("Configure failure.");
         var app = BuildApp(probe, null);
 
-        var start = StartAppAsync(app, _ => throw failure, CancellationToken.None);
+        var start = StartAppAsync(app, (_, _) => throw failure, CancellationToken.None);
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(start);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
@@ -87,7 +87,7 @@ public sealed class ServerStartFailureTests
         var log = new EventRecordingLogger();
         var app = BuildApp(probe, failure, log);
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartAppAsync(app, static _ => { }, CancellationToken.None));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, CancellationToken.None));
 
         var entry = log.Find(CleanupFailedEventId);
 
@@ -105,13 +105,13 @@ public sealed class ServerStartFailureTests
         var failure = new InvalidOperationException("Probe start failure.");
         var app = BuildApp(probe, failure, null, true);
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartAppAsync(app, static _ => { }, CancellationToken.None));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, CancellationToken.None));
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
         _ = await Assert.That(probe.DependencyDisposed).IsTrue();
     }
 
-    private static Task<SquirixServer.ApplicationHandle> StartAppAsync(WebApplication app, Action<WebApplication> configure, CancellationToken cancellationToken) =>
+    private static Task<SquirixServer.ApplicationHandle> StartAppAsync(WebApplication app, Func<WebApplication, CancellationToken, Task> configure, CancellationToken cancellationToken) =>
         SquirixServer.ApplicationHandle.StartApplicationAsync(app, configure, cancellationToken).AsTask();
 
     private static bool IsContainerDisposed(WebApplication app)

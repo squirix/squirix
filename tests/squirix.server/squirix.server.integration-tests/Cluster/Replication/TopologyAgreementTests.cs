@@ -7,6 +7,7 @@ using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.IO;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -28,10 +29,13 @@ public sealed class TopologyAgreementTests : NodeIntegrationTestBase
         var options = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = "topology-generation" };
 
         await using var cluster = await StartClusterAsync([new ClusterNode("n1", uriA), new ClusterNode("n2", uriB)], options, cancellationToken);
+        var dataDir = cluster["n1"].DataDir;
         await cluster.StopNodeAsync("n1");
 
         var opt = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, CleanTestDir = false, ExtraScope = "topology-generation", ConfigurationGeneration = 2 };
         var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", opt, cancellationToken));
+
+        await JournalSegmentLeaseWait.WaitForReleasedAsync(dataDir, cancellationToken);
 
         _ = await Assert.That(exception.Message).Contains(": generation changed (stamped 1, configured 2). ", StringComparison.Ordinal);
         _ = await Assert.That(exception.Message).Contains(Unsupported, StringComparison.Ordinal);

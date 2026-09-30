@@ -19,7 +19,7 @@ Product code must not use `InternalsVisibleTo("Squirix.Server")`.
 | Type                                                | Role                                                                                                              |
 |-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|
 | `SquirixServer`                                     | Test/sample lifetime: `StartAsync` + `DisposeAsync` (no exported configure callback; no listen URI on the handle) |
-| `AspNetCoreExtensions`                              | `AddSquirixServerAsync`, `MapSquirixServer` for custom ASP.NET Core hosts                                         |
+| `AspNetCoreExtensions`                              | `AddSquirixServerAsync`, `MapSquirixServerAsync` for custom ASP.NET Core hosts                                    |
 | `Configurator`                                      | Async load, validate, and map `Squirix.settings.json` (`Squirix:Cluster`)                                         |
 | `SquirixServerOptions` / `SquirixServerPeerOptions` | Cluster topology; `UsePersistence()` enables journal/snapshot durability                                          |
 
@@ -40,7 +40,7 @@ await builder.AddSquirixServerAsync(options =>
 });
 
 var app = builder.Build();
-app.MapSquirixServer();
+await app.MapSquirixServerAsync();
 await app.RunAsync();
 ```
 
@@ -87,7 +87,7 @@ squirix-server validate-config --settings Squirix.settings.json --strict
 
 ## Standalone host
 
-The `squirix-server` executable uses the same `AddSquirixServerAsync` / `MapSquirixServer` pipeline. Local dev defaults
+The `squirix-server` executable uses the same `AddSquirixServerAsync` / `MapSquirixServerAsync` pipeline. Local dev defaults
 listen on port **5001**:
 
 ```bash

@@ -74,7 +74,7 @@ public sealed class SquirixServer : IAsyncDisposable
         _ = await builder.AddSquirixServerAsync(target => Configurator.CopyOptions(options, target), loadDiscoveredSettings: false, cancellationToken: cancellationToken)
                          .ConfigureAwait(false);
         var app = builder.Build();
-        return await ApplicationHandle.StartApplicationAsync(app, static application => application.MapSquirixServer(), cancellationToken).ConfigureAwait(false);
+        return await ApplicationHandle.StartApplicationAsync(app, static async (application, token) => _ = await application.MapSquirixServerAsync(token).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
     }
 
     [ThreadSafe]
@@ -108,7 +108,7 @@ public sealed class SquirixServer : IAsyncDisposable
         /// <param name="configure">Callback applied to the built application before it starts.</param>
         /// <param name="cancellationToken">Cancellation token for startup only; cleanup does not observe it.</param>
         /// <returns>A handle owning the started application.</returns>
-        internal static async ValueTask<ApplicationHandle> StartApplicationAsync(WebApplication app, Action<WebApplication> configure, CancellationToken cancellationToken)
+        internal static async ValueTask<ApplicationHandle> StartApplicationAsync(WebApplication app, Func<WebApplication, CancellationToken, Task> configure, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(app);
             ArgumentNullException.ThrowIfNull(configure);
@@ -117,7 +117,7 @@ public sealed class SquirixServer : IAsyncDisposable
 #pragma warning disable CA1031 // The original startup failure is rethrown; cleanup and its logging must never replace it.
             try
             {
-                configure(app);
+                await configure(app, cancellationToken).ConfigureAwait(false);
                 await app.StartAsync(cancellationToken).ConfigureAwait(false);
                 return handle;
             }

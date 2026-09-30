@@ -20,7 +20,6 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.Threading;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -28,12 +27,7 @@ internal static class PersistenceServiceRegistration
 {
     private static readonly string[] ReadyHealthCheckTags = ["ready"];
 
-    internal static async Task<IServiceCollection> AddPersistenceServicesAsync(
-        this IServiceCollection services,
-        PersistenceOptions options,
-        Meter meter,
-        bool waitForRecovery,
-        CancellationToken cancellationToken = default)
+    internal static IServiceCollection AddPersistenceServices(this IServiceCollection services, PersistenceOptions options, Meter meter, bool waitForRecovery)
     {
         ArgumentNullException.ThrowIfNull(options);
         _ = services.AddSingleton(options);
@@ -41,24 +35,31 @@ internal static class PersistenceServiceRegistration
         var failureMetrics = new ManifestRetentionFailureMetrics(meter);
         _ = services.AddSingleton(failureMetrics);
 
-        PersistenceRuntime? owned = null;
-        try
-        {
-            owned = await PersistenceRuntime.CreateAsync(options, failureMetrics, cancellationToken).ConfigureAwait(false);
-            var runtime = owned;
-            _ = services.AddSingleton<PersistenceRuntime>(_ => runtime);
-            owned = null;
-        }
-        finally
-        {
-            if (owned != null)
-                await owned.DisposeAsync().ConfigureAwait(false);
-        }
+        // The runtime is created without I/O so the container owns it from the first resolve; OpenPersistenceAsync opens it after the host is built.
+        _ = services.AddSingleton(sp => new PersistenceRuntime(options, failureMetrics, sp.GetRequiredService<ILoggerFactory>()));
 
         RegisterPersistenceHostedServices(services, waitForRecovery);
         RegisterPersistenceRuntime(services);
 
         return services;
+    }
+
+    /// <summary>Opens the manifest and the journal, running journal startup repair, on a built service provider.</summary>
+    /// <param name="services">The built service provider that owns the persistence components.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the journal is open.</returns>
+    /// <exception cref="InvalidOperationException">Storage is already opened.</exception>
+    /// <remarks>
+    /// The ledger is resolved before the journal host so the container disposes it after the host. When opening fails the runtime
+    /// releases what it opened and the failure is rethrown; the container then disposes the components on application disposal.
+    /// </remarks>
+    internal static async Task OpenPersistenceAsync(IServiceProvider services, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        var runtime = services.GetRequiredService<PersistenceRuntime>();
+        _ = services.GetRequiredService<Ledger>();
+        await runtime.OpenAsync(cancellationToken).ConfigureAwait(false);
+        _ = services.GetRequiredService<JournalCoordinatorHost>();
     }
 
     private static void RegisterPersistenceHostedServices(IServiceCollection services, bool blockOnStart)
@@ -112,7 +113,7 @@ internal static class PersistenceServiceRegistration
         _ = services.AddSingleton<IRetentionCleanupReadinessStatus>(static sp => sp.GetRequiredService<PersistenceRuntime>().Retention);
         _ = services.AddSingleton(static sp => sp.GetRequiredService<PersistenceRuntime>().Ledger);
         _ = services.AddSingleton(static sp => sp.GetRequiredService<PersistenceRuntime>().Gate);
-        _ = services.AddSingleton(static sp => sp.GetRequiredService<PersistenceRuntime>().JournalCoordinator.AttachLog(sp.GetService<ILoggerFactory>()));
+        _ = services.AddSingleton(static sp => sp.GetRequiredService<PersistenceRuntime>().JournalCoordinator);
 
         // The journal host is the only owner of the journal lifetime. The container disposes every disposable a factory
         // returns, so no other registration may hand out the raw journal: each goes through the decorator, which does not
@@ -186,14 +187,18 @@ internal static class PersistenceServiceRegistration
     [Mutable]
     private sealed class PersistenceRuntime : IAsyncDisposable
     {
+        private readonly PersistenceOptions _options;
         private int _disposed;
+        private int _opened;
 
-        private PersistenceRuntime(PersistenceOptions options, ManifestRetentionFailureMetrics failureMetrics)
+        internal PersistenceRuntime(PersistenceOptions options, ManifestRetentionFailureMetrics failureMetrics, ILoggerFactory loggerFactory)
         {
+            ArgumentNullException.ThrowIfNull(loggerFactory);
+            _options = options;
             Retention = new RetentionCleanupReadiness(options);
-            Ledger = new Ledger(options, LogManager.GetLogger<Ledger>(), Retention, failureMetrics);
+            Ledger = new Ledger(options, loggerFactory.CreateLogger<Ledger>(), Retention, failureMetrics);
             Gate = new AsyncManualResetEvent();
-            JournalCoordinator = new JournalCoordinatorHost();
+            JournalCoordinator = new JournalCoordinatorHost(loggerFactory.CreateLogger<JournalCoordinatorHost>());
         }
 
         internal AsyncManualResetEvent Gate { get; }
@@ -213,18 +218,23 @@ internal static class PersistenceServiceRegistration
             Ledger.Dispose();
         }
 
-        internal static async Task<PersistenceRuntime> CreateAsync(PersistenceOptions options, ManifestRetentionFailureMetrics failureMetrics, CancellationToken cancellationToken)
+        /// <summary>Reads the manifest and opens the journal; on failure releases what was opened and rethrows.</summary>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>A task that completes when the journal is open.</returns>
+        /// <exception cref="InvalidOperationException">The runtime is already opened.</exception>
+        internal async Task OpenAsync(CancellationToken cancellationToken)
         {
-            var runtime = new PersistenceRuntime(options, failureMetrics);
+            if (Interlocked.Exchange(ref _opened, 1) != 0)
+                throw new InvalidOperationException("Squirix storage is already opened.");
+
             try
             {
-                var manifest = await runtime.Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-                runtime.JournalCoordinator.Initialize(options, manifest, runtime.Ledger, runtime.Gate);
-                return runtime;
+                var manifest = await Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+                JournalCoordinator.Open(_options, manifest, Ledger, Gate);
             }
             catch
             {
-                await runtime.DisposeAsync().ConfigureAwait(false);
+                await DisposeAsync().ConfigureAwait(false);
                 throw;
             }
         }

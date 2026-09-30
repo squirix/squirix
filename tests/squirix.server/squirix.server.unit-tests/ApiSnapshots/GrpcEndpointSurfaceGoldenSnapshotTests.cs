@@ -18,7 +18,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.ApiSnapshots;
 
-/// <summary>Golden snapshot for the gRPC service surface exposed by <c language="csharp">MapSquirixServer</c>.</summary>
+/// <summary>Golden snapshot for the gRPC service surface exposed by <c language="csharp">MapSquirixServerAsync</c>.</summary>
 [Immutable]
 public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 {
@@ -79,7 +79,7 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         internal static async Task<List<string>> CollectProductionGrpcMethodsAsync()
         {
             await using var app = await BuildProductionHostAsync();
-            _ = app.MapSquirixServer();
+            _ = await app.MapSquirixServerAsync(CancellationToken.None);
             return CollectGrpcMethods(app);
         }
 

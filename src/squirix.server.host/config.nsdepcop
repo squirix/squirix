@@ -4,7 +4,7 @@
 
   The host project is a thin process entrypoint. It must call only the exported
   Squirix.Server bootstrap surface (SquirixServerOptions, SquirixServerConfiguration,
-  AddSquirixServerAsync, MapSquirixServer) and must not reach into internal layers
+  AddSquirixServerAsync, MapSquirixServerAsync) and must not reach into internal layers
   of the server library directly.
 -->
 <NsDepCopConfig IsEnabled="true"

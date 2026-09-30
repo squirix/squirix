@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -15,11 +14,20 @@ namespace Squirix.Server.Node.Hosting;
 /// <summary>Owns the journal coordinator singleton lifetime for dependency injection.</summary>
 internal sealed class JournalCoordinatorHost : IAsyncDisposable
 {
+    private readonly ILogger<JournalCoordinatorHost> _log;
     private IJournalCoordinator? _coordinator;
-    private ILogger? _log;
-    private IReadOnlyList<JournalRepair> _startupRepairs = [];
 
-    internal IJournalCoordinator Coordinator => ThrowHelper.Required(_coordinator, "Journal coordinator is not initialized.");
+    /// <summary>Initializes a new instance of the <see cref="JournalCoordinatorHost" /> class.</summary>
+    /// <param name="log">The logger for startup repairs and disposal failures.</param>
+    internal JournalCoordinatorHost(ILogger<JournalCoordinatorHost> log)
+    {
+        ArgumentNullException.ThrowIfNull(log);
+        _log = log;
+    }
+
+    /// <summary>Gets the owned journal coordinator.</summary>
+    /// <exception cref="InvalidOperationException">Storage has not been opened.</exception>
+    internal IJournalCoordinator Coordinator => ThrowHelper.Required(_coordinator, "Squirix storage is not opened; call MapSquirixServerAsync before starting the application.");
 
     public async ValueTask DisposeAsync()
     {
@@ -34,7 +42,7 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
                                        .CaptureFailureAsync(static ex => ex is TimeoutException or AggregateException or ObjectDisposedException or IOException or InvalidOperationException)
                                        .ConfigureAwait(false);
         if (failure != null)
-            LogManager.JournalDisposeFailedOnHostShutdown(_log ?? LogManager.GetLogger<JournalCoordinatorHost>(), failure);
+            LogManager.JournalDisposeFailedOnHostShutdown(_log, failure);
 
         _coordinator = null;
     }
@@ -58,26 +66,17 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
         _coordinator = coordinator;
     }
 
-    /// <summary>Captures the host logger while the container resolves this host, before any disposal.</summary>
-    /// <param name="factory">The host logger factory, when logging is registered.</param>
-    /// <returns>This host.</returns>
-    internal JournalCoordinatorHost AttachLog(ILoggerFactory? factory)
-    {
-        _log = factory?.CreateLogger<JournalCoordinatorHost>();
-        if (_log != null)
-        {
-            JournalCoordinatorFactory.LogRepairs(_startupRepairs, _log);
-            _startupRepairs = [];
-        }
-
-        return this;
-    }
-
-    internal void Initialize(PersistenceOptions persistence, State manifest, Ledger manifestStore, AsyncManualResetEvent gate)
+    /// <summary>Creates the journal coordinator, running startup repair and logging what it repaired.</summary>
+    /// <param name="persistence">Resolved persistence options.</param>
+    /// <param name="manifest">The current manifest state.</param>
+    /// <param name="manifestStore">The manifest ledger.</param>
+    /// <param name="gate">The recovery readiness gate.</param>
+    internal void Open(PersistenceOptions persistence, State manifest, Ledger manifestStore, AsyncManualResetEvent gate)
     {
         if (_coordinator != null)
             return;
 
-        _coordinator = JournalCoordinatorFactory.CreateReporting(persistence, manifest, manifestStore, gate, out _startupRepairs);
+        _coordinator = JournalCoordinatorFactory.CreateReporting(persistence, manifest, manifestStore, gate, out var repairs);
+        JournalCoordinatorFactory.LogRepairs(repairs, _log);
     }
 }

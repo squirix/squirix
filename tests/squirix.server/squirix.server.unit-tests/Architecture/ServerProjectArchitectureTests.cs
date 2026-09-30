@@ -25,7 +25,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
         var combined = string.Join(Environment.NewLine, Array.ConvertAll(sources, static source => source.Text));
 
         _ = await Assert.That(combined).Contains("AddSquirixServerAsync", StringComparison.Ordinal);
-        _ = await Assert.That(combined).Contains("MapSquirixServer", StringComparison.Ordinal);
+        _ = await Assert.That(combined).Contains("MapSquirixServerAsync", StringComparison.Ordinal);
     }
 
     /// <summary>Ensures the standalone process host stays separate from the packable server runtime.</summary>

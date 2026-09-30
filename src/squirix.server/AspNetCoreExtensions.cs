@@ -32,13 +32,22 @@ public static class AspNetCoreExtensions
         return ConfigureSquirixServerBuilderAsync(builder, configure, settingsPath, loadDiscoveredSettings, configureExtensions, cancellationToken);
     }
 
-    /// <summary>Maps Squirix gRPC, health, and metrics endpoints.</summary>
-    /// <param name="app">The ASP.NET Core application.</param>
+    /// <summary>Opens node storage (topology stamp, manifest, journal startup repair, replica group logs) and maps Squirix gRPC, health, and metrics endpoints.</summary>
+    /// <param name="app">The built ASP.NET Core application.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The supplied application.</returns>
-    public static WebApplication MapSquirixServer(this WebApplication app)
+    /// <exception cref="InvalidOperationException">Thrown when the data directory topology stamp refuses the configured topology, or when storage is already opened.</exception>
+    /// <exception cref="System.IO.InvalidDataException">Thrown when persisted storage state is corrupt or unsupported.</exception>
+    /// <exception cref="System.IO.IOException">Thrown when the storage files cannot be opened.</exception>
+    /// <remarks>
+    /// Call once after <c language="csharp">Build()</c> and before <c language="csharp">StartAsync</c> or
+    /// <c language="csharp">RunAsync</c>. If it throws, dispose the application: the container owns every component
+    /// opened so far and releases its files and locks.
+    /// </remarks>
+    public static Task<WebApplication> MapSquirixServerAsync(this WebApplication app, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(app);
-        return ServerHostingComposition.MapServer(app);
+        return ServerHostingComposition.MapServerAsync(app, cancellationToken);
     }
 
     private static async Task<WebApplicationBuilder> ConfigureSquirixServerBuilderAsync(

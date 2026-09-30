@@ -22,10 +22,17 @@ internal static class NodeHost
         await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
 
         var app = builder.Build();
-        _ = ServerHostingComposition.MapServer(app);
-
-        await app.StartAsync(cancellationToken).ConfigureAwait(false);
-        return app;
+        try
+        {
+            _ = await ServerHostingComposition.MapServerAsync(app, cancellationToken).ConfigureAwait(false);
+            await app.StartAsync(cancellationToken).ConfigureAwait(false);
+            return app;
+        }
+        catch
+        {
+            await app.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     private static void AddDefaultLogging(ILoggingBuilder b)

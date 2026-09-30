@@ -25,8 +25,7 @@ using TUnit.Core.Exceptions;
 namespace Squirix.Server.IntegrationTests;
 
 /// <summary>
-/// The journal and the manifest ledger are built while the host is being composed, before the host logger exists. Their diagnostics must still
-/// reach the logger the host registers, not a null logger. Not run in parallel: the server logging bridge is process-wide, so a concurrently starting host
+/// The journal and the manifest ledger diagnostics must reach the logger the host registers, not a null logger. Not run in parallel: the server logging bridge is process-wide, so a concurrently starting host
 /// would take over the journal's diagnostics.
 /// </summary>
 [NotInParallel]

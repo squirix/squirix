@@ -59,6 +59,29 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         _ = await Assert.That(entry?.Cause).IsSameReferenceAs(failure);
     }
 
+    /// <summary>Resolving the journal before storage is opened fails with an explicit error instead of a null journal.</summary>
+    [Test]
+    public async Task ResolvingJournalBeforeOpenThrows()
+    {
+        using var meter = new Meter("test-persistence-unopened");
+        await using var provider = BuildUnopenedProvider(meter, null);
+
+        var thrown = NodeExceptionAssert.For<InvalidOperationException>().Throws(provider, static services => _ = services.GetRequiredService<IJournalCoordinator>());
+
+        _ = await Assert.That(thrown.Message).Contains("MapSquirixServerAsync", StringComparison.Ordinal);
+    }
+
+    /// <summary>Opening storage a second time is refused.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OpeningStorageTwiceThrows(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("test-persistence-open-twice");
+        await using var provider = await BuildProviderAsync(meter, null, cancellationToken);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(PersistenceServiceRegistration.OpenPersistenceAsync(provider, cancellationToken));
+    }
+
     /// <summary>Hands the journal host a journal whose dispose fails over the real journal it owns.</summary>
     /// <param name="provider">The persistence service provider.</param>
     /// <returns>The failure the journal dispose throws.</returns>
@@ -87,11 +110,21 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
 
     private async Task<ServiceProvider> BuildProviderAsync(Meter meter, EventRecordingLogger? log, CancellationToken cancellationToken)
     {
-        var services = new ServiceCollection();
-        if (log != null)
-            _ = services.AddLogging(builder => builder.AddProvider(new RecordingLoggerProvider(log)));
+        var provider = BuildUnopenedProvider(meter, log);
+        await PersistenceServiceRegistration.OpenPersistenceAsync(provider, cancellationToken);
+        return provider;
+    }
 
-        _ = await services.AddPersistenceServicesAsync(new PersistenceOptions { DataDir = Dir }, meter, false, cancellationToken);
+    private ServiceProvider BuildUnopenedProvider(Meter meter, EventRecordingLogger? log)
+    {
+        var services = new ServiceCollection();
+        _ = services.AddLogging(builder =>
+        {
+            if (log != null)
+                _ = builder.AddProvider(new RecordingLoggerProvider(log));
+        });
+
+        _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, meter, false);
         return services.BuildServiceProvider();
     }
 }

@@ -130,7 +130,7 @@ internal static class Program
             var app = builder.Build();
             await using (app.ConfigureAwait(false))
             {
-                _ = app.MapSquirixServer();
+                _ = await app.MapSquirixServerAsync(CancellationToken.None).ConfigureAwait(false);
                 await app.StartAsync(app.Lifetime.ApplicationStopping).ConfigureAwait(false);
                 await WriteRunServerStatusAsync(command, options, CancellationToken.None).ConfigureAwait(false);
                 await app.WaitForShutdownAsync(app.Lifetime.ApplicationStopping).ConfigureAwait(false);
