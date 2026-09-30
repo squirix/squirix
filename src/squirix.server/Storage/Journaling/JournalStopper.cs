@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -21,6 +22,7 @@ internal sealed class JournalStopper
     private readonly ILogger _log;
     private readonly JournalCoordinator _owner;
     private readonly IDisposable _segmentWriter;
+    private int _abandonedAppends;
     private bool _cancellationRequested;
     private Exception? _latchedBeforeShutdown;
     private bool _markerSettled;
@@ -50,13 +52,16 @@ internal sealed class JournalStopper
         return remaining > floor ? remaining : floor;
     }
 
-    /// <summary>Releases every caller the journal can still reach, pending or in flight, so none outlives a failed stop on a stuck disk.</summary>
+    /// <summary>
+    /// Releases every caller the journal can still reach, pending or in flight, so none outlives a failed stop on a stuck disk. The accepted
+    /// frames stay tracked: a live journal thread still writes them, and a later attempt still drains them.
+    /// </summary>
     /// <returns>The number of released callers whose durable write never completed.</returns>
     internal int FaultReachableWaiters()
     {
         // The frames of these callers may or may not become durable, so they see a commit-unknown failure.
         var faulted = _owner.GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator))) ?? 0;
-        _ = _owner.PendingAppends.FailAll(new ObjectDisposedException(nameof(JournalCoordinator)), _log, _owner.QueuedAppendsCounter);
+        _owner.PendingAppends.FaultWaiters(new ObjectDisposedException(nameof(JournalCoordinator)));
         return faulted + _owner.DurabilityPipeline.FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
     }
 
@@ -113,6 +118,10 @@ internal sealed class JournalStopper
 
     private static TimeSpan StageWait(long deadline, TimeSpan floor) => ShutdownStageWait(deadline, Environment.TickCount64, floor);
 
+    private static bool IsShutdownRefusal(Exception failure) => failure is ObjectDisposedException { ObjectName: { } name }
+                                                                && (string.Equals(name, nameof(JournalCoordinator), StringComparison.Ordinal)
+                                                                    || string.Equals(name, typeof(JournalProducerGate).FullName, StringComparison.Ordinal));
+
     private bool HasAttempted()
     {
         lock (_gate)
@@ -133,23 +142,30 @@ internal sealed class JournalStopper
 
     private ValueTask<bool> JoinJournalThreadAsync(TimeSpan wait) => _owner.JournalThread.IsAlive ? _owner.DurabilityPipeline.TryJoinJournalThreadAsync(wait) : new ValueTask<bool>(true);
 
-    /// <summary>Surfaces the failure the journal thread latched, unless the shutdown itself caused it.</summary>
+    /// <summary>Surfaces the failure the journal thread latched, or the loss of accepted frames, unless the shutdown itself caused it.</summary>
     /// <exception cref="Exception">The latched failure, when it is a data failure.</exception>
+    /// <exception cref="IOException">Accepted frames were abandoned without being written.</exception>
     private void ReportLatchedFailure()
     {
-        if (_owner.GetJournalThreadFailure() is not { } failure)
-            return;
-
-        // A maintenance step refused because shutdown began latches an ObjectDisposedException, which says nothing about the frames.
-        // Any other latch, or one that predates the shutdown, is a failure the caller must see: the final write or fsync may not have happened.
-        if (_latchedBeforeShutdown == null && failure is ObjectDisposedException)
+        if (_owner.GetJournalThreadFailure() is { } failure)
         {
+            // A maintenance step refused because shutdown began latches the refusal, which says nothing about the frames. Any other latch,
+            // or one that predates the shutdown, is a failure the caller must see: the final write or fsync may not have happened.
+            if (_latchedBeforeShutdown != null || !IsShutdownRefusal(failure))
+            {
+                LogManager.JournalFailureSurfacedOnStop(_log, _latchedBeforeShutdown != null, failure);
+                ExceptionDispatchInfo.Capture(failure).Throw();
+            }
+
             LogManager.JournalShutdownInducedFailureIgnored(_log, failure);
-            return;
         }
 
-        LogManager.JournalFailureSurfacedOnStop(_log, _latchedBeforeShutdown != null, failure);
-        ExceptionDispatchInfo.Capture(failure).Throw();
+        if (_abandonedAppends == 0)
+            return;
+
+        var lost = new IOException($"{_abandonedAppends} accepted journal frames were not written.");
+        LogManager.JournalFailureSurfacedOnStop(_log, false, lost);
+        throw lost;
     }
 
     private async Task RunAttemptAsync(TaskCompletionSource attempt, TimeSpan budget)
@@ -161,7 +177,10 @@ internal sealed class JournalStopper
         catch (Exception ex)
         {
             // Every other caller of this attempt replays the same outcome.
-            _ = attempt.TrySetException(ex);
+            // The caller that ran the attempt observes it directly; the shared task is marked observed for callers that never join it.
+            if (attempt.TrySetException(ex))
+                _ = attempt.Task.Exception;
+
             throw;
         }
 
@@ -200,7 +219,7 @@ internal sealed class JournalStopper
             _markerSettled = true;
         }
 
-        var joined = await JoinJournalThreadAsync(StageWait(deadline, TimeSpan.Zero)).ConfigureAwait(false);
+        var joined = await JoinJournalThreadAsync(StageWait(deadline, ShutdownStageFloor)).ConfigureAwait(false);
 
         // The marker is on the ring (or the thread is gone) here: the thread dequeues FIFO, so everything ahead of the marker is drained
         // and written before it observes Shutdown. Cancelling earlier would make it spin on the empty ring or exit with frames queued.
@@ -213,40 +232,51 @@ internal sealed class JournalStopper
         if (!joined)
         {
             var faultedInFlight = FaultReachableWaiters();
-            LogManager.JournalThreadJoinTimedOut(_log, faultedInFlight);
+            LogManager.JournalThreadJoinTimedOut(_log, faultedInFlight, _abandonedAppends);
             if (!await JoinJournalThreadAsync(StageWait(deadline, _owner.GraceJoinFloor)).ConfigureAwait(false))
             {
                 // Tearing down the writer, ring, or gates under a live journal thread corrupts slot accounting and races in-flight
                 // writes, so they stay open; a later stop can finish once the thread exits.
-                LogManager.JournalThreadLeakedOnShutdownTimeout(_log, faultedInFlight);
+                LogManager.JournalThreadLeakedOnShutdownTimeout(_log, faultedInFlight, _abandonedAppends);
                 throw new TimeoutException("journal I/O thread is still alive after shutdown; writer, ring, and gates stay open until a later stop.");
             }
         }
 
-        await TearDownAsync(deadline).ConfigureAwait(false);
+        var disposeFailure = await TearDownAsync(deadline).ConfigureAwait(false);
+
+        // The latched failure comes first: it explains the frames a failing disposal could not.
         ReportLatchedFailure();
+        if (disposeFailure != null)
+            ExceptionDispatchInfo.Capture(disposeFailure).Throw();
     }
 
     /// <summary>Releases the writer, ring, and gates once the journal thread is gone; runs once, since a stopped journal is terminal.</summary>
     /// <param name="deadline">The shared shutdown deadline.</param>
-    /// <returns>A task that completes when the resources are released.</returns>
-    private async Task TearDownAsync(long deadline)
+    /// <returns>A task that completes when the resources are released, with the failure of the writer disposal when it failed.</returns>
+    private async Task<Exception?> TearDownAsync(long deadline)
     {
+        Exception? disposeFailure = null;
         try
         {
-            // Nothing can reach the ring or the thread any more: collect what was admitted but never dequeued and return quarantined
-            // buffers to the pool immediately.
+            // Nothing can reach the ring or the thread any more: what was admitted but never dequeued is abandoned for good (and reported by
+            // the stop), and quarantined buffers return to the pool immediately.
             _ = FaultReachableWaiters();
-            _owner.DurabilityPipeline.ReclaimAbandonedAppendsPostJoin();
+            _abandonedAppends += _owner.DurabilityPipeline.ReclaimAbandonedAppendsPostJoin();
+#pragma warning disable CA1031 // The failure is reported after the remaining resources are released and the in-flight applies had their wait.
             try
             {
                 _segmentWriter.Dispose();
+            }
+            catch (Exception ex)
+            {
+                disposeFailure = ex;
             }
             finally
             {
                 _owner.Ring.Dispose();
                 _owner.BackgroundCancellation.Dispose();
             }
+#pragma warning restore CA1031
 
             await AwaitInFlightAppliesAsync(StageWait(deadline, InFlightApplyWaitFloor)).ConfigureAwait(false);
         }
@@ -256,6 +286,8 @@ internal sealed class JournalStopper
             lock (_gate)
                 _stopped = true;
         }
+
+        return disposeFailure;
     }
 
     /// <summary>

@@ -112,6 +112,31 @@ internal sealed class PendingAppendRegistry
     }
 
     /// <summary>
+    /// Faults the callers waiting on tracked appends and maintenance steps without taking any append: the frames stay tracked and open for
+    /// the journal thread to write, and the registry keeps admitting work. Use it while the journal thread may still be alive.
+    /// </summary>
+    /// <param name="failure">Failure the waiting callers observe.</param>
+    internal void FaultWaiters(Exception failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+        List<TaskCompletionSource> waiters;
+        lock (_sync)
+        {
+            waiters = [];
+            foreach (var entry in _appends.Values)
+            {
+                if (entry.Ack is { } ack)
+                    waiters.Add(ack);
+            }
+
+            waiters.AddRange(_maintenanceAcks);
+        }
+
+        for (var i = 0; i < waiters.Count; i++)
+            _ = waiters[i].TrySetException(failure);
+    }
+
+    /// <summary>
     /// Returns whether the item was taken by a drain: every admitted append is tracked before it can
     /// reach the ring, so a missing entry means a drain already faulted it and took its buffer.
     /// Abandoned items must not be written or released.

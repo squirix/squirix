@@ -44,8 +44,11 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
 
     /// <summary>Stops the owned journal within its own shutdown budget, so a failure to drain it reaches the caller instead of a disposal.</summary>
     /// <returns>A task that completes when the journal is stopped.</returns>
+    /// <remarks>Rethrows whatever <see cref="IJournalCoordinatorShutdown.StopAsync" /> reports; see it for the exact contract of a retry.</remarks>
     /// <exception cref="TimeoutException">The journal thread did not exit in time; the journal stays open until a later stop or disposal.</exception>
-    /// <exception cref="IOException">The final write or flush failed, so acknowledged frames may not be durable.</exception>
+    /// <exception cref="IOException">The final write or flush failed, or accepted frames were lost, so acknowledged frames may not be durable.</exception>
+    /// <exception cref="InvalidOperationException">The journal thread latched a failure, so acknowledged frames may not be durable.</exception>
+    /// <exception cref="ObjectDisposedException">The journal thread latched a failure other than a refused shutdown step.</exception>
     internal ValueTask StopAsync() => _coordinator is IJournalCoordinatorShutdown shutdown ? shutdown.StopAsync() : ValueTask.CompletedTask;
 
     /// <summary>Replaces the owned coordinator; test seam for host disposal over a failing coordinator.</summary>

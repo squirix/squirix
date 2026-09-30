@@ -36,11 +36,11 @@ internal static partial class LogManager
     [LoggerMessage(EventId = 3012, Level = LogLevel.Debug, Message = "Shutdown marker did not enter the journal ring within the shutdown budget")]
     internal static partial void JournalShutdownMarkerTimedOut(ILogger logger);
 
-    [LoggerMessage(EventId = 3013, Level = LogLevel.Error, Message = "Journal I/O thread join timed out during stop; {FaultedInFlightWaiters} in-flight durability waiters faulted")]
-    internal static partial void JournalThreadJoinTimedOut(ILogger logger, int faultedInFlightWaiters);
+    [LoggerMessage(EventId = 3013, Level = LogLevel.Error, Message = "Journal I/O thread join timed out during stop; {FaultedInFlightWaiters} in-flight durability waiters faulted; {AbandonedAppends} accepted appends abandoned")]
+    internal static partial void JournalThreadJoinTimedOut(ILogger logger, int faultedInFlightWaiters, int abandonedAppends);
 
-    [LoggerMessage(EventId = 3014, Level = LogLevel.Error, Message = "Journal I/O thread still alive after the stop deadline; writer, ring, and gates stay open until a later stop; {FaultedInFlightWaiters} in-flight durability waiters faulted")]
-    internal static partial void JournalThreadLeakedOnShutdownTimeout(ILogger logger, int faultedInFlightWaiters);
+    [LoggerMessage(EventId = 3014, Level = LogLevel.Error, Message = "Journal I/O thread still alive after the stop deadline; writer, ring, and gates stay open until a later stop; {FaultedInFlightWaiters} in-flight durability waiters faulted; {AbandonedAppends} accepted appends abandoned")]
+    internal static partial void JournalThreadLeakedOnShutdownTimeout(ILogger logger, int faultedInFlightWaiters, int abandonedAppends);
 
     [LoggerMessage(EventId = 3015, Level = LogLevel.Error, Message = "In-flight memory applies did not finish within the shutdown budget; their callers may fail although their journal frames may be durable")]
     internal static partial void JournalInFlightApplyWaitTimedOut(ILogger logger);

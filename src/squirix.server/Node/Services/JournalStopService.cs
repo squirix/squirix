@@ -7,8 +7,10 @@ using Squirix.Server.Node.Hosting;
 namespace Squirix.Server.Node.Services;
 
 /// <summary>
-/// Stops the journal after every other hosted service has stopped, including the web server that drains in-flight requests, so their
-/// last appends are accepted, drained, and made durable before the journal refuses new work.
+/// Stops the journal in the stopped phase of the host stop, after the stop phase of every hosted service (including the web server that
+/// drains in-flight requests), so their last appends are accepted, drained, and made durable before the journal refuses new work. The stopped
+/// phase of lifecycle services registered earlier runs after this one, so they must not append; with concurrent stops the stopped phases
+/// run concurrently, so a lifecycle service that must append does so in its stop phase.
 /// </summary>
 internal sealed class JournalStopService : IHostedLifecycleService
 {
