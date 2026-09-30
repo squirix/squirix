@@ -29,7 +29,7 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
 
         // The container disposes this host as a root and stops at the first exception, so a throw here
         // would skip the manifest ledger, the replica group registry, and its follower logs. The journal
-        // may throw on a leaked I/O thread (it already reported the leak loudly): log and continue.
+        // itself never throws from disposal; the filter is defence in depth for any other coordinator this host is handed.
         try
         {
             await coordinator.DisposeAsync().ConfigureAwait(false);
@@ -41,6 +41,12 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
 
         _coordinator = null;
     }
+
+    /// <summary>Stops the owned journal within its own shutdown budget, so a failure to drain it reaches the caller instead of a disposal.</summary>
+    /// <returns>A task that completes when the journal is stopped.</returns>
+    /// <exception cref="TimeoutException">The journal thread did not exit in time; the journal stays open until a later stop or disposal.</exception>
+    /// <exception cref="IOException">The final write or flush failed, so acknowledged frames may not be durable.</exception>
+    internal ValueTask StopAsync() => _coordinator is IJournalCoordinatorShutdown shutdown ? shutdown.StopAsync() : ValueTask.CompletedTask;
 
     /// <summary>Replaces the owned coordinator; test seam for host disposal over a failing coordinator.</summary>
     /// <param name="coordinator">The coordinator this host owns and disposes from now on.</param>
