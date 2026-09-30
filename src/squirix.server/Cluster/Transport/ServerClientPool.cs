@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
 
@@ -162,35 +163,24 @@ internal sealed class ServerClientPool : IServerClientPool
 
     private void DisposeChannels()
     {
-#pragma warning disable CA1031 // Shutdown drain: one bad peer must not leak the remaining peers.
+        // Shutdown drain: one bad peer must not leak the remaining peers.
         for (var i = 0; i < _nodeIds.Length; i++)
         {
             var nodeId = _nodeIds[i];
-            try
-            {
-                _channels[nodeId].Dispose();
+            var failure = Isolated.Run(_channels[nodeId], static channel => channel.Dispose());
+            if (failure == null)
                 _metrics.AddDisposal();
-            }
-            catch (Exception exception)
-            {
-                ServerLog.ClientPoolChannelDisposeFailed(_logger, exception, nodeId);
-            }
+            else
+                ServerLog.ClientPoolChannelDisposeFailed(_logger, failure, nodeId);
         }
-#pragma warning restore CA1031
     }
 
     private async Task DisposePolicyAsync(string nodeId)
     {
-#pragma warning disable CA1031 // Shutdown drain: one bad peer must not leak the remaining peers.
-        try
-        {
-            await _policies[nodeId].DisposeAsync().ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            ServerLog.ClientPoolPolicyDisposeFailed(_logger, exception, nodeId);
-        }
-#pragma warning restore CA1031
+        // Shutdown drain: one bad peer must not leak the remaining peers, so every failure is logged instead of thrown.
+        var failure = await Isolated.RunAsync(_policies[nodeId], static policy => policy.DisposeAsync()).ConfigureAwait(false);
+        if (failure != null)
+            ServerLog.ClientPoolPolicyDisposeFailed(_logger, failure, nodeId);
     }
 
     private void RegisterPeer(ServerPeer peer, ServerClientPoolArgs args)
