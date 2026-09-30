@@ -112,7 +112,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
             RocksDoubles.CreateOwnerLocator(Self),
             new ClientCache<object?>(physical, physical),
             journal,
-            new DurableMutationExecutor(journal),
+            new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance),
             clock);
         foreach (var record in records)
             await ReplicaCacheApplier.ApplyAsync(cache, record, cancellationToken);

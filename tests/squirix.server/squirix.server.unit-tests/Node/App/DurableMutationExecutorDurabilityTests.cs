@@ -43,7 +43,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
             manifestStore,
             new AsyncManualResetEvent(true),
             NullLogger.Instance);
-        var executor = new DurableMutationExecutor(journal);
+        var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
         var applyState = new ApplyCounter(false);
 
         var applied = await executor.ExecuteAsync(
@@ -86,7 +86,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
 
         try
         {
-            var executor = new DurableMutationExecutor(journal);
+            var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
             var applyState = new ApplyCounter();
 
             var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, int>(
@@ -127,7 +127,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
 
         try
         {
-            var executor = new DurableMutationExecutor(journal);
+            var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
             var applyState = new ApplyCounter(false);
 
             var result = await executor.ExecuteAsync(

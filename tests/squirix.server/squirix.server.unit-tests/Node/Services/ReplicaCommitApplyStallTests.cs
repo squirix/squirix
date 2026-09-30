@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -65,7 +66,7 @@ public sealed class ReplicaCommitApplyStallTests : IsolatedStorageTestBase
         internal JournalApplyPipeline(JournalCoordinator journal)
         {
             _journal = journal;
-            _executor = new DurableMutationExecutor(journal);
+            _executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
         }
 
         internal AppliedKeys Memory { get; } = new();

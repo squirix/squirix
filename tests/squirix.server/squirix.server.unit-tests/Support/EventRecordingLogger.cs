@@ -2,12 +2,14 @@ using System;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Node.App;
+using Squirix.Server.Node.Services;
 
 namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Logger double recording the event id, level and exception of every entry.</summary>
 [ThreadSafe]
-internal sealed class EventRecordingLogger : ILogger
+internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, ILogger<RpcMutationIdempotencyCoordinator>
 {
     private readonly ConcurrentQueue<(int EventId, LogLevel Level, Exception? Cause)> _events = new();
 

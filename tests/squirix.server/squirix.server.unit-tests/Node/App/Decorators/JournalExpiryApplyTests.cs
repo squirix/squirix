@@ -340,6 +340,6 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         }
 
         internal JournalLoggingCacheDecorator<string> CreateDecorator(ILogicalNamespacedCache<string> inner, bool useRawReader = false) =>
-            new(Self, RocksDoubles.CreateOwnerLocator(Self), inner, Journal, new DurableMutationExecutor(Journal), _clock, useRawReader ? Physical.RawReader : null);
+            new(Self, RocksDoubles.CreateOwnerLocator(Self), inner, Journal, new DurableMutationExecutor(Journal, NullLogger<DurableMutationExecutor>.Instance), _clock, useRawReader ? Physical.RawReader : null);
     }
 }

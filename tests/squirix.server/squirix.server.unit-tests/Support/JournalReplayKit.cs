@@ -101,7 +101,7 @@ internal sealed class JournalReplayKit
             RocksDoubles.CreateOwnerLocator(Self),
             new ClientCache<string>(physical, physical),
             journal,
-            new DurableMutationExecutor(journal),
+            new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance),
             clock,
             physical.RawReader);
         return new Session(manifestStore, journal, physical, cache, clock);

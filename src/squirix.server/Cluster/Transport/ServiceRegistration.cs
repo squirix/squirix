@@ -38,14 +38,14 @@ internal static class ServiceRegistration
                             sp.GetRequiredService<ServerCallPolicyInstrumentation>(),
                             timeouts: new CallPolicyTimeouts(TimeSpan.FromSeconds(3), TimeSpan.FromMilliseconds(60), TimeSpan.FromMilliseconds(600)))),
                         PeerHandlerFactory = peerHandlerFactory,
-                        Logger = sp.GetService<ILogger<ServerClientPool>>(),
                         Interceptor = sp.GetRequiredService<ClientInterceptor>(),
                         MtlsOptions = mtlsOptions,
                         Certificate = certificate,
                         InterNodeMtlsEnabled = interNodeMtlsEnabled,
                         InternalOwnerInterceptor = interNodeMtlsEnabled ? sp.GetRequiredService<InternalOwnerClientInterceptor>() : null,
                     },
-                    sp.GetRequiredService<ServerClientPoolMetrics>());
+                    sp.GetRequiredService<ServerClientPoolMetrics>(),
+                    sp.GetRequiredService<ILogger<ServerClientPool>>());
             });
 
             return services;

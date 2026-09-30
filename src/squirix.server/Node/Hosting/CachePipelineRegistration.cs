@@ -1,6 +1,7 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -97,7 +98,7 @@ internal static class CachePipelineRegistration
     {
         if (persistenceEnabled)
         {
-            _ = services.AddSingleton(static sp => new DurableMutationExecutor(sp.GetRequiredService<IJournalCoordinator>()));
+            _ = services.AddSingleton(static sp => new DurableMutationExecutor(sp.GetRequiredService<IJournalCoordinator>(), sp.GetRequiredService<ILogger<DurableMutationExecutor>>()));
             _ = services.AddSingleton(static sp => new JournalLoggingCacheDecorator<object?>(
                 sp.GetRequiredService<TopologyOptions>().NodeId,
                 sp.GetRequiredService<INodeLocator>(),

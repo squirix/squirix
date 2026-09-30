@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -40,7 +41,7 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
     public async Task ApplyErrorAfterRingEntryLatchesPipeline(bool groupCommit, CancellationToken cancellationToken)
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, cancellationToken);
-        var executor = new DurableMutationExecutor(journal.Journal);
+        var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
         var failure = new InvalidOperationException("memory apply failed");
         var memory = new AppliedKeys();
 
@@ -93,7 +94,7 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
         var memory = new AppliedKeys();
         using var caller = new CancellationTokenSource();
 
-        var put = memory.PutAsync(new DurableMutationExecutor(journal.Journal), journal.Journal, "a", caller.Token);
+        var put = memory.PutAsync(new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance), journal.Journal, "a", caller.Token);
         await CancelAfterAppendAsync(journal, caller, cancellationToken);
 
         // The batch deadline is never reached, so only a wait that honored the canceled caller would complete here.
@@ -115,7 +116,7 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
         var reason = new IOException("journal device lost");
         using var caller = new CancellationTokenSource();
 
-        var put = memory.PutAsync(new DurableMutationExecutor(journal.Journal), journal.Journal, "a", caller.Token);
+        var put = memory.PutAsync(new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance), journal.Journal, "a", caller.Token);
         await CancelAfterAppendAsync(journal, caller, cancellationToken);
 
         // The batch deadline is never reached, so only a wait that honored the canceled caller would complete here.
@@ -137,7 +138,7 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
     public async Task PostRingCancellationStillAppliesAndWaits(bool groupCommit, CancellationToken cancellationToken)
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, cancellationToken);
-        var executor = new DurableMutationExecutor(journal.Journal);
+        var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
         var applyObservedCancellation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         journal.Writer.Flush.Arm();
         using var caller = new CancellationTokenSource();
@@ -194,7 +195,7 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var memory = new AppliedKeys();
-        var executor = new DurableMutationExecutor(journal.Journal);
+        var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
         _ = await memory.PutAsync(executor, journal.Journal, "a", cancellationToken);
         _ = await memory.PutAsync(executor, journal.Journal, "b", cancellationToken);
 
@@ -224,7 +225,7 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
 
     private static async Task<DurableMutationExecutor> CancelDuringStalledFlushAsync(StallableJournal journal, AppliedKeys memory, CancellationToken cancellationToken)
     {
-        var executor = new DurableMutationExecutor(journal.Journal);
+        var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
         journal.Writer.Flush.Arm();
         using var caller = new CancellationTokenSource();
 

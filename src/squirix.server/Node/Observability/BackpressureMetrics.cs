@@ -12,8 +12,8 @@ namespace Squirix.Server.Node.Observability;
 [Mutable]
 internal sealed class BackpressureMetrics
 {
-    private static readonly ILogger Logger = LogManager.GetLogger("Squirix.Server.Node.Observability.BackpressureMetrics");
     private readonly Counter<long> _bypassTotalCtr;
+    private readonly ILogger<BackpressureMetrics> _logger;
 
     private readonly Meter _meter;
     private readonly Lock _observerGate = new();
@@ -26,8 +26,10 @@ internal sealed class BackpressureMetrics
     private readonly Counter<long> _rejectTotalCtr;
     private readonly Counter<long> _slowdownTotalCtr;
 
-    internal BackpressureMetrics(Meter meter)
+    internal BackpressureMetrics(Meter meter, ILogger<BackpressureMetrics> logger)
     {
+        ArgumentNullException.ThrowIfNull(logger);
+        _logger = logger;
         _meter = meter;
         _bypassTotalCtr = meter.CreateCounter<long>("squirix_backpressure_bypass_total");
         _queueCancellationsTotalCtr = meter.CreateCounter<long>("squirix_backpressure_queue_cancellations_total");
@@ -138,12 +140,12 @@ internal sealed class BackpressureMetrics
                 catch (ObjectDisposedException ex)
                 {
                     // Keep metrics observation resilient if one observer source is torn down concurrently.
-                    LogManager.BackpressureObservationFailed(Logger, ex);
+                    LogManager.BackpressureObservationFailed(_logger, ex);
                 }
                 catch (InvalidOperationException ex)
                 {
                     // Keep metrics observation resilient if one observer source is torn down concurrently.
-                    LogManager.BackpressureObservationFailed(Logger, ex);
+                    LogManager.BackpressureObservationFailed(_logger, ex);
                 }
             }
 

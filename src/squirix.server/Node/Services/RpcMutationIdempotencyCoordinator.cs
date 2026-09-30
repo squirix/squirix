@@ -17,23 +17,23 @@ namespace Squirix.Server.Node.Services;
 internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotencyCoordinator
 {
     private readonly IJournalCoordinator? _journal;
+    private readonly ILogger<RpcMutationIdempotencyCoordinator> _logger;
     private readonly RpcMutationIdempotencyStore _store;
 
-    internal RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store, IJournalCoordinator journal)
-        : this(store)
+    internal RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store, IJournalCoordinator journal, ILogger<RpcMutationIdempotencyCoordinator> logger)
+        : this(store, logger)
     {
         ArgumentNullException.ThrowIfNull(journal);
         _journal = journal;
     }
 
-    internal RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store)
+    internal RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store, ILogger<RpcMutationIdempotencyCoordinator> logger)
     {
         ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(logger);
         _store = store;
+        _logger = logger;
     }
-
-    /// <summary>Gets the logger for commit-unknown causes; the host logger unless set.</summary>
-    internal ILogger Log { private get; init; } = LogManager.GetLogger<RpcMutationIdempotencyCoordinator>();
 
     public async Task<TResponse> ExecuteAsync<TState, TResponse>(
         string rawOperationId,
@@ -193,7 +193,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         {
             // The stamped mutation frame may be durable while its outcome is not (shutdown, the failure latch, a rejected outcome
             // frame), so the first caller gets the same unknown outcome a retry gets, never a definite failure.
-            LogManager.DurableMutationOutcomeUnknown(Log, ex);
+            LogManager.DurableMutationOutcomeUnknown(_logger, ex);
             throw ServerOpContract.CommitOutcomeUnknown().ToRpcException();
         }
     }

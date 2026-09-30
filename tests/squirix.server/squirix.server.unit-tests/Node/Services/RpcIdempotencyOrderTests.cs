@@ -64,8 +64,8 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
         await using var orderingJournal = new OrderingJournal(inner, trace);
         IJournalCoordinator journal = orderingJournal;
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
-        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
-        var executor = new DurableMutationExecutor(journal);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
+        var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
         var key = CacheKey.Default("durability-order-key");
         var payload = JournalEntryPayloadKit.EncodePut("v");
 

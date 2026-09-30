@@ -24,16 +24,17 @@ internal sealed class ServerClientPool : IServerClientPool
     private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new(StringComparer.Ordinal);
 
     private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new(StringComparer.Ordinal);
-    private readonly ILogger? _logger;
+    private readonly ILogger<ServerClientPool> _logger;
     private readonly ServerClientPoolMetrics _metrics;
     private readonly string[] _nodeIds;
     private readonly ConcurrentDictionary<string, IServerCallPolicy> _policies = new(StringComparer.Ordinal);
     private int _disposed;
 
-    internal ServerClientPool(IReadOnlyList<ServerPeer> peers, ServerClientPoolArgs args, ServerClientPoolMetrics metrics)
+    internal ServerClientPool(IReadOnlyList<ServerPeer> peers, ServerClientPoolArgs args, ServerClientPoolMetrics metrics, ILogger<ServerClientPool> logger)
     {
         ArgumentNullException.ThrowIfNull(args);
-        _logger = args.Logger;
+        ArgumentNullException.ThrowIfNull(logger);
+        _logger = logger;
         _metrics = metrics;
         var nodeIds = new string[peers.Count];
 

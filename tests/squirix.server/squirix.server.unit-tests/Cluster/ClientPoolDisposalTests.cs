@@ -4,6 +4,7 @@ using System.Diagnostics.Metrics;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
@@ -34,7 +35,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             ["n1"] = new(null),
             ["n2"] = new(null),
         };
-        var pool = new ServerClientPool(BuildPeers(3), new ServerClientPoolArgs { PolicyFactory = nodeId => policies[nodeId] }, new ServerClientPoolMetrics(meter));
+        var pool = new ServerClientPool(BuildPeers(3), new ServerClientPoolArgs { PolicyFactory = nodeId => policies[nodeId] }, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
         await using (pool)
         {
             await pool.DisposeAsync();
@@ -57,7 +58,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             PolicyFactory = static _ => new RecordingPolicy(null),
             OwnedHandlerFactory = (_, _) => Track(created),
         };
-        var pool = new ServerClientPool(BuildPeers(3), args, new ServerClientPoolMetrics(meter));
+        var pool = new ServerClientPool(BuildPeers(3), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
         await pool.DisposeAsync();
 
         await AssertAllDisposedAsync(created, 3);
@@ -73,7 +74,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         using var certificate = LoadCertificate(bundle);
         var created = new List<TrackingHandler>();
         var args = MtlsArgs(certificate, null, (_, _) => Track(created));
-        var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter));
+        var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
         await pool.DisposeAsync();
 
         await AssertAllDisposedAsync(created, 2);
@@ -91,7 +92,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         try
         {
             var args = MtlsArgs(certificate, _ => Track(supplied), null);
-            var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter));
+            var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
             await pool.DisposeAsync();
 
             _ = await Assert.That(supplied.Count).IsEqualTo(2);

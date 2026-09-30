@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
@@ -83,7 +84,7 @@ public class DurableMutationGroupCommitBenchmarks
             JournalMaxSegmentMb = 64,
         };
         _host = await JournalBenchmarkHost.CreateAsync("durable-mutation-gc-bench", options, CancellationToken.None).ConfigureAwait(false);
-        _executor = new DurableMutationExecutor(_host.Coordinator);
+        _executor = new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance);
         _putPayload = new byte[PutPayloadBytes];
         Array.Fill(_putPayload, Convert.ToByte('m'));
         _nextWriterId = 0;

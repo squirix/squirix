@@ -83,7 +83,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, ShutdownBudget, NullLogger.Instance, cancellationToken);
         var memory = new AppliedKeys();
-        var put = StartStuckPutAsync(journal, memory, NullLogger.Instance, cancellationToken);
+        var put = StartStuckPutAsync(journal, memory, NullLogger<DurableMutationExecutor>.Instance, cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         var (disposeError, putError) = await DisposeOverStuckFsyncAsync(journal, put, null, cancellationToken);
@@ -181,7 +181,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         try
         {
             // The put parks on the gate held here, before its frame is encoded or enqueued.
-            var put = memory.PutAsync(new DurableMutationExecutor(journal.Journal) { Log = log }, journal.Journal, "a", cancellationToken);
+            var put = memory.PutAsync(new DurableMutationExecutor(journal.Journal, log), journal.Journal, "a", cancellationToken);
             await journal.ShutdownAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
         }
@@ -206,7 +206,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, ShutdownBudget, NullLogger.Instance, cancellationToken);
         var memory = new AppliedKeys();
-        var put = StartStuckPutAsync(journal, memory, NullLogger.Instance, cancellationToken);
+        var put = StartStuckPutAsync(journal, memory, NullLogger<DurableMutationExecutor>.Instance, cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         var (_, putError) = await DisposeOverStuckFsyncAsync(journal, put, null, cancellationToken);
@@ -247,7 +247,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, true, cancellationToken);
         var memory = new AppliedKeys();
-        var put = StartStuckPutAsync(journal, memory, NullLogger.Instance, cancellationToken);
+        var put = StartStuckPutAsync(journal, memory, NullLogger<DurableMutationExecutor>.Instance, cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         bool completedWhileGated;
@@ -402,7 +402,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     {
         var log = new LeakRecordingLogger();
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, ShutdownBudget, log, cancellationToken);
-        var put = StartStuckPutAsync(journal, new AppliedKeys(), NullLogger.Instance, cancellationToken);
+        var put = StartStuckPutAsync(journal, new AppliedKeys(), NullLogger<DurableMutationExecutor>.Instance, cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await DisposeOverStuckFsyncAsync(journal, put, null, cancellationToken);
@@ -443,10 +443,10 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     /// <param name="log">Logger of the executor running the put.</param>
     /// <param name="cancellationToken">Caller cancellation token.</param>
     /// <returns>The put, stuck in its durability wait once the stall is entered.</returns>
-    private static Task<int> StartStuckPutAsync(StallableJournal journal, AppliedKeys memory, ILogger log, CancellationToken cancellationToken)
+    private static Task<int> StartStuckPutAsync(StallableJournal journal, AppliedKeys memory, ILogger<DurableMutationExecutor> log, CancellationToken cancellationToken)
     {
         journal.Writer.Flush.Arm();
-        return memory.PutAsync(new DurableMutationExecutor(journal.Journal) { Log = log }, journal.Journal, "a", cancellationToken);
+        return memory.PutAsync(new DurableMutationExecutor(journal.Journal, log), journal.Journal, "a", cancellationToken);
     }
 
     /// <summary>Maps a caller-visible failure to the gRPC status the transport boundary sends, or <see langword="null" /> when it is no stable contract.</summary>
@@ -456,7 +456,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
 
     /// <summary>Logger double recording the level and the faulted in-flight waiter count of each journal shutdown event.</summary>
     [ThreadSafe]
-    private sealed class LeakRecordingLogger : ILogger
+    private sealed class LeakRecordingLogger : ILogger<DurableMutationExecutor>
     {
         private const string FaultedWaitersKey = "FaultedInFlightWaiters";
 

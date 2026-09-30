@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics.Metrics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Attributes;
@@ -64,7 +65,8 @@ internal static class RuntimeServiceRegistration
             {
                 var store = sp.GetRequiredService<RpcMutationIdempotencyStore>();
                 var journal = sp.GetService<IJournalCoordinator>();
-                return journal != null ? new RpcMutationIdempotencyCoordinator(store, journal) : new RpcMutationIdempotencyCoordinator(store);
+                var logger = sp.GetRequiredService<ILogger<RpcMutationIdempotencyCoordinator>>();
+                return journal != null ? new RpcMutationIdempotencyCoordinator(store, journal, logger) : new RpcMutationIdempotencyCoordinator(store, logger);
             });
             _ = services.AddSingleton<IRpcMutationIdempotencyCoordinator>(static sp => sp.GetRequiredService<RpcMutationIdempotencyCoordinator>());
             _ = services.AddSingleton(static sp => sp.GetRequiredService<IInboundEndpointCacheOperations<object?>>().ForCache(ServerCacheNames.DefaultNamespace));
@@ -101,7 +103,7 @@ internal static class RuntimeServiceRegistration
             // The per-host Meter instance is owned by the host composition, which registers it through the factory
             // overload (so the DI container disposes it on shutdown) before AddSquirixRuntimeServices runs. This
             // method only registers the metrics types against that shared meter.
-            _ = services.AddSingleton(static sp => new BackpressureMetrics(sp.GetRequiredService<Meter>()));
+            _ = services.AddSingleton(static sp => new BackpressureMetrics(sp.GetRequiredService<Meter>(), sp.GetRequiredService<ILogger<BackpressureMetrics>>()));
             _ = services.AddSingleton(static sp => new CacheMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new CompactionMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new IdempotencyMetrics(sp.GetRequiredService<Meter>()));

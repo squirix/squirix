@@ -3,6 +3,7 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -38,7 +39,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     {
         var store = CreateStore();
         store.RecordSuccess(ValidOperationId, "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
-        var coordinator = new RpcMutationIdempotencyCoordinator(store);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var flag = new ExecFlag();
 
         var response = await coordinator.ExecuteAsync(
@@ -63,7 +64,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     {
         var store = CreateStore();
         _ = store.ReserveIntent(ValidOperationId, "fp-1", null, out _);
-        var coordinator = new RpcMutationIdempotencyCoordinator(store);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var flag = new ExecFlag();
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
@@ -89,7 +90,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     public async Task CoordinatorExecutesOnceAndRecordsOutcome(CancellationToken cancellationToken)
     {
         var store = CreateStore();
-        var coordinator = new RpcMutationIdempotencyCoordinator(store);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var flag = new ExecFlag();
 
         var response = await coordinator.ExecuteAsync(
@@ -126,7 +127,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     public async Task MemoryThrowReleasesForRetry(CancellationToken cancellationToken)
     {
         var store = CreateStore();
-        var coordinator = new RpcMutationIdempotencyCoordinator(store);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var flag = new ExecFlag();
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
@@ -159,7 +160,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     public async Task JoinerExecutesAfterReleasedIntent(CancellationToken cancellationToken)
     {
         var store = CreateStore();
-        var coordinator = new RpcMutationIdempotencyCoordinator(store);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var flag = new ExecFlag();
 
@@ -201,7 +202,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     {
         var store = CreateStore();
         await using var journal = CreateOutcomeFailingJournal();
-        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var flag = new ExecFlag();
 
@@ -245,7 +246,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     {
         var store = CreateStore();
         await using var journal = CreateOutcomeFailingJournal();
-        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var flag = new ExecFlag();
 
         var firstError = await NodeAsyncAssert.ThrowsAsync<RpcException>(
@@ -401,7 +402,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     {
         var store = CreateStore();
         store.RestoreStarted(ValidOperationId, DateTime.UtcNow);
-        var coordinator = new RpcMutationIdempotencyCoordinator(store);
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var flag = new ExecFlag();
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(

@@ -23,15 +23,15 @@ internal sealed class DurableMutationExecutor
 
     private readonly ConcurrentDictionary<CacheKey, byte> _inFlight = new();
     private readonly IJournalCoordinator _journal;
+    private readonly ILogger<DurableMutationExecutor> _logger;
 
-    internal DurableMutationExecutor(IJournalCoordinator journal)
+    internal DurableMutationExecutor(IJournalCoordinator journal, ILogger<DurableMutationExecutor> logger)
     {
         ArgumentNullException.ThrowIfNull(journal);
+        ArgumentNullException.ThrowIfNull(logger);
         _journal = journal;
+        _logger = logger;
     }
-
-    /// <summary>Gets the logger for commit-unknown causes; the host logger unless set.</summary>
-    internal ILogger Log { private get; init; } = LogManager.GetLogger<DurableMutationExecutor>();
 
     internal async ValueTask<TResult> ExecuteAsync<TState, TResult>(
         CacheKey? conflictKey,
@@ -170,7 +170,7 @@ internal sealed class DurableMutationExecutor
     /// <remarks>The frame may be durable while this process never applied it, and a restart replays it, so the caller must not see a definite failure.</remarks>
     private SquirixException ReportCommitOutcomeUnknown(Exception cause)
     {
-        LogManager.DurableMutationOutcomeUnknown(Log, cause);
+        LogManager.DurableMutationOutcomeUnknown(_logger, cause);
         return ServerOpContract.CommitOutcomeUnknown();
     }
 

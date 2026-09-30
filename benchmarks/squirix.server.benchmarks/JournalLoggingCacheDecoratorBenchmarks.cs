@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
@@ -57,7 +58,7 @@ public class JournalLoggingCacheDecoratorBenchmarks
             JournalMaxSegmentMb = 64,
         };
         _host = await JournalBenchmarkHost.CreateAsync("journal-decorator-bench", options, CancellationToken.None).ConfigureAwait(false);
-        _decorator = new JournalLoggingCacheDecorator<string>(Self, new SelfLocator(), new FakeCache(), _host.Coordinator, new DurableMutationExecutor(_host.Coordinator));
+        _decorator = new JournalLoggingCacheDecorator<string>(Self, new SelfLocator(), new FakeCache(), _host.Coordinator, new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance));
         _entry = new NodeCacheEntry<string> { Value = "v" };
     }
 
