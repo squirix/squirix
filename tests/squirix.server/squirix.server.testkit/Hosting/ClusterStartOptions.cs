@@ -1,4 +1,5 @@
 using System;
+using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit.Mtls;
 
@@ -25,6 +26,9 @@ public class ClusterStartOptions
 
     /// <summary>Gets optional per-node security settings.</summary>
     public TestNodeSecurityOptions? Security { get; init; }
+
+    /// <summary>Gets an optional hook that registers additional services on the node after the server composition, for test probes.</summary>
+    public Action<IServiceCollection>? ServicesConfigure { get; init; }
 
     /// <summary>
     /// Gets the node time source. When set, cache expiration (and every subsystem resolving

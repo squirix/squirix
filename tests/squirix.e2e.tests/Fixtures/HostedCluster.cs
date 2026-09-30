@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.Server.TestKit;
@@ -54,9 +55,10 @@ internal sealed class HostedCluster : IAsyncDisposable
         TestNodeSecurityOptions? security = null,
         bool persistence = false,
         TimeProvider? timeProvider = null,
+        Action<string, IServiceCollection>? configure = null,
         CancellationToken cancellationToken = default)
     {
-        var options = new MultiNodeStartOptions { Security = security, TimeProvider = timeProvider };
+        var options = new MultiNodeStartOptions { Security = security, TimeProvider = timeProvider, ServicesConfigure = configure };
         return StartAsync(SingleNodeIds, options, name, persistence, cancellationToken);
     }
 
@@ -173,6 +175,7 @@ internal sealed class HostedCluster : IAsyncDisposable
         Security = startOptions.Security,
         MtlsProfile = startOptions.GetProfile(nodeId),
         TimeProvider = startOptions.TimeProvider,
+        ServicesConfigure = startOptions.ServicesConfigure == null ? null : services => startOptions.ServicesConfigure(nodeId, services),
     };
 
     /// <summary>Allocates listen URIs, starts each node with a shared topology, and rolls back on partial failure.</summary>

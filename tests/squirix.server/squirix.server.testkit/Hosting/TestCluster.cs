@@ -431,6 +431,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             MtlsOptions = mtlsOptions,
             Certificate = mtlsMaterial,
             TimeProvider = startOptions?.TimeProvider,
+            ServicesConfigure = startOptions?.ServicesConfigure,
         };
     }
 

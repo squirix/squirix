@@ -25,7 +25,7 @@ public sealed class FailoverRetryTests : UnitTestBase
     [Test]
     public async Task BootstrapSwitchPreservesOperationId(CancellationToken cancellationToken)
     {
-        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0");
+        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
         var observer = new OperationObserver("operation-preserve-1");
 
         var value = await failover.ExecuteAsync(
@@ -50,19 +50,17 @@ public sealed class FailoverRetryTests : UnitTestBase
     [Test]
     public async Task ExpiredDeadlineRejectsBeforeFirstAttempt(CancellationToken cancellationToken)
     {
-        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0");
+        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromMilliseconds(500), new SteppingTimeProvider(TimeSpan.FromSeconds(1)));
         var observer = new OperationObserver("operation-expired-1");
 
         var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
-            failover.ExecuteWithDeadlineAsync(
+            failover.ExecuteAsync(
                 static (nodeId, state, _) =>
                 {
                     state.Observed.Add((nodeId, state.OperationId));
                     return new ValueTask<int>(42);
                 },
                 observer,
-                TimeSpan.FromSeconds(-1),
-                null,
                 cancellationToken));
 
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
@@ -74,7 +72,7 @@ public sealed class FailoverRetryTests : UnitTestBase
     [Test]
     public async Task HttpFailureFailsOverToNextEndpoint(CancellationToken cancellationToken)
     {
-        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0");
+        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
         var observer = new OperationObserver("operation-http-1");
 
         var value = await failover.ExecuteAsync(
@@ -95,7 +93,7 @@ public sealed class FailoverRetryTests : UnitTestBase
     [Test]
     public async Task IoFailureFailsOverToNextEndpoint(CancellationToken cancellationToken)
     {
-        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0");
+        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
         var observer = new OperationObserver("operation-io-1");
 
         var value = await failover.ExecuteAsync(
@@ -116,19 +114,17 @@ public sealed class FailoverRetryTests : UnitTestBase
     [Test]
     public async Task SecondStaleTermPropagatesWithoutBouncing(CancellationToken cancellationToken)
     {
-        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0");
+        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
         var observer = new OperationObserver("operation-stale-2");
 
         var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
-            failover.ExecuteWithDeadlineAsync<OperationObserver, int>(
+            failover.ExecuteAsync<OperationObserver, int>(
                 static (nodeId, state, _) =>
                 {
                     state.Observed.Add((nodeId, state.OperationId));
                     throw new RpcException(new Status(StatusCode.FailedPrecondition, "stale-term"));
                 },
                 observer,
-                TimeSpan.FromSeconds(30),
-                null,
                 cancellationToken));
 
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
@@ -140,10 +136,10 @@ public sealed class FailoverRetryTests : UnitTestBase
     [Test]
     public async Task StaleTermReroutesOnceWithOperationId(CancellationToken cancellationToken)
     {
-        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0");
+        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
         var observer = new OperationObserver("operation-stale-1");
 
-        var value = await failover.ExecuteWithDeadlineAsync(
+        var value = await failover.ExecuteAsync(
             static (nodeId, state, _) =>
             {
                 state.Observed.Add((nodeId, state.OperationId));
@@ -151,8 +147,6 @@ public sealed class FailoverRetryTests : UnitTestBase
                     : new ValueTask<int>(42);
             },
             observer,
-            TimeSpan.FromSeconds(30),
-            null,
             cancellationToken);
 
         _ = await Assert.That(value).IsEqualTo(42);
@@ -164,7 +158,25 @@ public sealed class FailoverRetryTests : UnitTestBase
     /// <summary>An unknown bootstrap primary is a configuration error.</summary>
     [Test]
     public void UnknownPrimaryThrows() =>
-        _ = ExceptionAssert.For<InvalidOperationException>().Throws(BootstrapEndpoints, static endpoints => _ = new EndpointFailover(endpoints, "unknown"));
+        _ = ExceptionAssert.For<InvalidOperationException>().Throws(BootstrapEndpoints, static endpoints => _ = new EndpointFailover(endpoints, "unknown", TimeSpan.FromSeconds(30), TimeProvider.System));
+
+    private sealed class SteppingTimeProvider : TimeProvider
+    {
+        private readonly TimeSpan _step;
+        private DateTimeOffset _now = new(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        internal SteppingTimeProvider(TimeSpan step)
+        {
+            _step = step;
+        }
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            var current = _now;
+            _now += _step;
+            return current;
+        }
+    }
 
     private sealed class OperationObserver
     {

@@ -1,6 +1,5 @@
 using System;
 using Grpc.AspNetCore.Server;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -17,7 +16,4 @@ internal sealed class BlackBoxStartOptions : ClusterStartOptions
 
     /// <summary>Gets optional memory pressure overrides; <see langword="null" /> keeps the server defaults.</summary>
     internal TestNodeMemoryPressureOptions? MemoryPressureOptions { get; init; }
-
-    /// <summary>Gets an optional hook that adds or replaces services in the node container.</summary>
-    internal Action<IServiceCollection>? ServicesConfigure { get; init; }
 }

@@ -74,6 +74,39 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
                         .Contains(static entry => string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(entry.Value));
     }
 
+    /// <summary>Verifies the tighter of the caller deadline and the context deadline reaches the forwarded call, and that no deadline stays none.</summary>
+    [Test]
+    public async Task InterceptorAppliesEffectiveDeadline()
+    {
+        var capture = new DeadlineCapture();
+        var interceptor = CreateInterceptor();
+        var method = CreateUnaryStringMethod();
+        var contextDeadline = DateTime.UtcNow.AddSeconds(5);
+        var looserCaller = contextDeadline.AddSeconds(30);
+        var tighterCaller = contextDeadline.AddSeconds(-2);
+
+        using (var none = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", default), capture.OnContinueAsync))
+            _ = await Assert.That(capture.Deadline).IsNull();
+
+        using (ServerRpcDeadlineContext.Push(contextDeadline))
+        {
+            using var absent = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", default), capture.OnContinueAsync);
+            _ = await Assert.That(capture.Deadline).IsEqualTo(contextDeadline);
+
+            using var loose = interceptor.AsyncUnaryCall(
+                "req",
+                new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(deadline: looserCaller)),
+                capture.OnContinueAsync);
+            _ = await Assert.That(capture.Deadline).IsEqualTo(contextDeadline);
+
+            using var tight = interceptor.AsyncUnaryCall(
+                "req",
+                new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(deadline: tighterCaller)),
+                capture.OnContinueAsync);
+            _ = await Assert.That(capture.Deadline).IsEqualTo(tighterCaller);
+        }
+    }
+
     /// <summary>Ensures the interceptor clones caller headers instead of mutating them.</summary>
     [Test]
     public async Task InterceptorLeavesCallerHeadersUnmodified()
@@ -261,6 +294,23 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         internal Method<string, string> Method { get; }
 
         internal Metadata SharedHeaders { get; }
+    }
+
+    private sealed class DeadlineCapture
+    {
+        internal DateTime? Deadline { get; private set; }
+
+        internal AsyncUnaryCall<string> OnContinueAsync(string request, ClientInterceptorContext<string, string> context)
+        {
+            _ = request;
+            Deadline = context.Options.Deadline;
+            return new AsyncUnaryCall<string>(
+                Task.FromResult("ok"),
+                Task.FromResult(Metadata.Empty),
+                static () => Status.DefaultSuccess,
+                static () => Metadata.Empty,
+                static () => { });
+        }
     }
 
     private sealed class HeaderCapture

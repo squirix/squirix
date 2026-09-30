@@ -1,5 +1,3 @@
-using System;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Hosting;
@@ -24,8 +22,6 @@ internal sealed class IntegrationStartOptions : ClusterStartOptions
     internal bool OmitClusterMtls { get; init; }
 
     internal PersistenceOptions? PersistenceOptions { get; init; }
-
-    internal Action<IServiceCollection>? ServicesConfigure { get; init; }
 
     internal bool UsePersistence { get; init; }
 

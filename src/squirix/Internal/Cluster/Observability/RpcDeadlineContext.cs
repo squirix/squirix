@@ -8,7 +8,8 @@ internal static class RpcDeadlineContext
 {
     private static readonly AsyncLocal<DateTime?> DeadlineUtc = new();
 
-    private static DateTime? CurrentDeadlineUtc => DeadlineUtc.Value;
+    /// <summary>Gets the ambient absolute operation deadline in UTC, or <see langword="null" /> when none is set.</summary>
+    internal static DateTime? CurrentDeadlineUtc => DeadlineUtc.Value;
 
     internal static TimeSpan? GetRemainingBudget(DateTime nowUtc)
     {
