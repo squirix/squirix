@@ -290,10 +290,10 @@ internal sealed class JournalDurabilityCoordinator
     /// Drains appending admitted but never dequeued and returns quarantined buffers to the pool.
     /// Call only after the journal thread is joined: with a live thread the buffers must stay quarantined.
     /// </summary>
-    /// <returns>The number of admitted appends that were never written.</returns>
+    /// <returns>The number of admitted appends that were never written; an upper bound, since an append admitted but refused before the ring is counted too.</returns>
     internal int ReclaimAbandonedAppendsPostJoin()
     {
-        var abandoned = _owner.PendingAppends.FailAll(new ObjectDisposedException(nameof(JournalCoordinator)), _logger, _owner.QueuedAppendsCounter);
+        var abandoned = _owner.PendingAppends.FailAll(new JournalShutdownRefusedException(nameof(JournalCoordinator)), _logger, _owner.QueuedAppendsCounter);
         _ = _owner.PendingAppends.ReturnQuarantinedBuffers();
         return abandoned;
     }

@@ -26,6 +26,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
 
+    private static readonly TimeSpan DefaultStageFloor = TimeSpan.FromSeconds(1);
+
     private static readonly ParameterizedThreadStart RunEventLoopCallback = static state =>
     {
         if (state is JournalEventLoop eventLoop)
@@ -56,6 +58,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         _log = log ?? LogManager.GetLogger<JournalCoordinator>();
         GraceJoinFloor = DefaultGraceJoinFloor;
         ShutdownBudget = DefaultShutdownBudget;
+        StageFloor = DefaultStageFloor;
         Options = opt;
         Ledger = manifestStore;
         StartupGate = startupGate;
@@ -157,6 +160,19 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         init
         {
             value.ThrowIfNegativeOrZero(nameof(value), "The shutdown budget must be greater than zero.");
+
+            field = value;
+        }
+    }
+
+    /// <summary>Gets the least wait each stop stage (quiescence, marker, first join) is granted once the shutdown budget is spent; 1 second unless set.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The floor is not positive.</exception>
+    internal TimeSpan StageFloor
+    {
+        get;
+        init
+        {
+            value.ThrowIfNegativeOrZero(nameof(value), "The stage floor must be greater than zero.");
 
             field = value;
         }

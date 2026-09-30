@@ -16,8 +16,6 @@ internal sealed class JournalStopper
 {
     private static readonly TimeSpan InFlightApplyWaitFloor = TimeSpan.FromSeconds(1);
 
-    private static readonly TimeSpan ShutdownStageFloor = TimeSpan.FromSeconds(1);
-
     private readonly Lock _gate = new();
     private readonly ILogger _log;
     private readonly JournalCoordinator _owner;
@@ -60,9 +58,9 @@ internal sealed class JournalStopper
     internal int FaultReachableWaiters()
     {
         // The frames of these callers may or may not become durable, so they see a commit-unknown failure.
-        var faulted = _owner.GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator))) ?? 0;
-        _owner.PendingAppends.FaultWaiters(new ObjectDisposedException(nameof(JournalCoordinator)));
-        return faulted + _owner.DurabilityPipeline.FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
+        var faulted = _owner.GroupCommit?.CancelPending(new JournalShutdownRefusedException(nameof(JournalCoordinator))) ?? 0;
+        _owner.PendingAppends.FaultWaiters(new JournalShutdownRefusedException(nameof(JournalCoordinator)));
+        return faulted + _owner.DurabilityPipeline.FailPendingDurabilityAcks(new JournalShutdownRefusedException(nameof(JournalCoordinator)));
     }
 
     /// <summary>Runs or joins a stop attempt.</summary>
@@ -118,10 +116,6 @@ internal sealed class JournalStopper
 
     private static TimeSpan StageWait(long deadline, TimeSpan floor) => ShutdownStageWait(deadline, Environment.TickCount64, floor);
 
-    private static bool IsShutdownRefusal(Exception failure) => failure is ObjectDisposedException { ObjectName: { } name }
-                                                                && (string.Equals(name, nameof(JournalCoordinator), StringComparison.Ordinal)
-                                                                    || string.Equals(name, typeof(JournalProducerGate).FullName, StringComparison.Ordinal));
-
     private bool HasAttempted()
     {
         lock (_gate)
@@ -151,7 +145,7 @@ internal sealed class JournalStopper
         {
             // A maintenance step refused because shutdown began latches the refusal, which says nothing about the frames. Any other latch,
             // or one that predates the shutdown, is a failure the caller must see: the final write or fsync may not have happened.
-            if (_latchedBeforeShutdown != null || !IsShutdownRefusal(failure))
+            if (_latchedBeforeShutdown != null || failure is not JournalShutdownRefusedException)
             {
                 LogManager.JournalFailureSurfacedOnStop(_log, _latchedBeforeShutdown != null, failure);
                 ExceptionDispatchInfo.Capture(failure).Throw();
@@ -163,6 +157,8 @@ internal sealed class JournalStopper
         if (_abandonedAppends == 0)
             return;
 
+        // An upper bound: a producer preempted between admission (Track) and the producer gate for the whole stop is counted although it then
+        // gets a definite refusal before the ring, so its caller was never acknowledged.
         var lost = new IOException($"{_abandonedAppends} accepted journal frames were not written.");
         LogManager.JournalFailureSurfacedOnStop(_log, false, lost);
         throw lost;
@@ -201,14 +197,14 @@ internal sealed class JournalStopper
         // of it (ring FIFO), and work arriving later is rejected explicitly instead of being dropped or hung.
         if (!_markerSettled)
         {
-            if (!await _owner.DurabilityPipeline.QuiesceProducersAsync(StageWait(deadline, ShutdownStageFloor)).ConfigureAwait(false))
+            if (!await _owner.DurabilityPipeline.QuiesceProducersAsync(StageWait(deadline, _owner.StageFloor)).ConfigureAwait(false))
             {
                 LogManager.JournalProducerQuiescenceTimedOut(_log);
                 _ = FaultReachableWaiters();
                 throw new TimeoutException("journal producers did not quiesce within the shutdown budget.");
             }
 
-            if (!await _owner.DurabilityPipeline.EnqueueShutdownMarkerAsync(StageWait(deadline, ShutdownStageFloor)).ConfigureAwait(false))
+            if (!await _owner.DurabilityPipeline.EnqueueShutdownMarkerAsync(StageWait(deadline, _owner.StageFloor)).ConfigureAwait(false))
             {
                 // Without the marker, cancelling or tearing down now would let the live thread exit with queued frames unwritten.
                 LogManager.JournalShutdownMarkerTimedOut(_log);
@@ -219,7 +215,7 @@ internal sealed class JournalStopper
             _markerSettled = true;
         }
 
-        var joined = await JoinJournalThreadAsync(StageWait(deadline, ShutdownStageFloor)).ConfigureAwait(false);
+        var joined = await JoinJournalThreadAsync(StageWait(deadline, _owner.StageFloor)).ConfigureAwait(false);
 
         // The marker is on the ring (or the thread is gone) here: the thread dequeues FIFO, so everything ahead of the marker is drained
         // and written before it observes Shutdown. Cancelling earlier would make it spin on the empty ring or exit with frames queued.
@@ -232,12 +228,12 @@ internal sealed class JournalStopper
         if (!joined)
         {
             var faultedInFlight = FaultReachableWaiters();
-            LogManager.JournalThreadJoinTimedOut(_log, faultedInFlight, _abandonedAppends);
+            LogManager.JournalThreadJoinTimedOut(_log, faultedInFlight, _owner.PendingAppends.PendingCount);
             if (!await JoinJournalThreadAsync(StageWait(deadline, _owner.GraceJoinFloor)).ConfigureAwait(false))
             {
                 // Tearing down the writer, ring, or gates under a live journal thread corrupts slot accounting and races in-flight
                 // writes, so they stay open; a later stop can finish once the thread exits.
-                LogManager.JournalThreadLeakedOnShutdownTimeout(_log, faultedInFlight, _abandonedAppends);
+                LogManager.JournalThreadLeakedOnShutdownTimeout(_log, faultedInFlight, _owner.PendingAppends.PendingCount);
                 throw new TimeoutException("journal I/O thread is still alive after shutdown; writer, ring, and gates stay open until a later stop.");
             }
         }

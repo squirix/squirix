@@ -56,7 +56,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         var payload = JournalEntryPayloadKit.EncodePut("v");
         var refused = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(journal.AppendPutUnderGateAsync(CacheKey.Default("late"), payload, cancellationToken));
         _ = await Assert.That(refused.InnerException).IsTypeOf<ObjectDisposedException>();
-        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(journal, cancellationToken, static (j, token) => _ = j.AwaitDurabilityCommitAsync(token).AsTask());
+        _ = NodeExceptionAssert.For<JournalShutdownRefusedException>().Throws(journal, cancellationToken, static (j, token) => _ = j.AwaitDurabilityCommitAsync(token).AsTask());
     }
 
     /// <summary>Canceling a flush before its checkpoint enters the ring must not leak the ack into the registry.</summary>

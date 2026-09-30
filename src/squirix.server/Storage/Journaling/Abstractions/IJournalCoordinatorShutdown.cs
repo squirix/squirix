@@ -19,7 +19,7 @@ internal interface IJournalCoordinatorShutdown
     /// callers waiting on a durable write are released with a commit-unknown failure, and the accepted frames stay queued, so a live journal
     /// thread still writes them and a later call resumes the stop from where it stopped (the marker is never enqueued twice). The stop is terminal
     /// once the journal thread exited and the resources were released; later calls then report the same outcome as the call that finished it,
-    /// which is a success only when no accepted frame was lost.
+    /// which is a success only when no accepted frame was lost (the reported loss is an upper bound: an append admitted but refused before the ring is counted too).
     /// </remarks>
     /// <exception cref="TimeoutException">A stop stage did not finish in time; the journal thread and its resources stay open (not terminal).</exception>
     /// <exception cref="System.IO.IOException">

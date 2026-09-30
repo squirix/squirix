@@ -115,7 +115,19 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started journal.</returns>
     internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, TimeSpan shutdownBudget, TimeSpan graceJoinFloor, ILogger log, CancellationToken cancellationToken) =>
-        CreateCoreAsync(dataDir, groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero, 1, (shutdownBudget, graceJoinFloor, log), DefaultLimits(JournalSegmentLimits.DefaultMaxTotalBytesMb), cancellationToken);
+        CreateAsync(dataDir, groupCommit, shutdownBudget, graceJoinFloor, TimeSpan.FromSeconds(1), log, cancellationToken);
+
+    /// <summary>Creates a journal with explicit shutdown budget, grace join floor, and stage floor.</summary>
+    /// <param name="dataDir">Empty journal data directory.</param>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
+    /// <param name="shutdownBudget">Shared shutdown budget.</param>
+    /// <param name="graceJoinFloor">Least wait of the grace join that follows the budget.</param>
+    /// <param name="stageFloor">Least wait of the quiescence, marker, and first join stages once the budget is spent.</param>
+    /// <param name="log">Logger of the journal coordinator.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started journal.</returns>
+    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, TimeSpan shutdownBudget, TimeSpan graceJoinFloor, TimeSpan stageFloor, ILogger log, CancellationToken cancellationToken) =>
+        CreateCoreAsync(dataDir, groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero, 1, (shutdownBudget, graceJoinFloor, stageFloor, log), DefaultLimits(JournalSegmentLimits.DefaultMaxTotalBytesMb), cancellationToken);
 
     /// <summary>Waits up to <paramref name="window" /> for <paramref name="signal" /> to complete.</summary>
     /// <param name="signal">Signal to observe.</param>
@@ -235,7 +247,7 @@ internal sealed class StallableJournal : IAsyncDisposable
         string dataDir,
         TimeSpan groupCommitMaxWait,
         int groupCommitMaxBatch,
-        (TimeSpan Budget, TimeSpan GraceFloor, ILogger Log)? shutdown,
+        (TimeSpan Budget, TimeSpan GraceFloor, TimeSpan StageFloor, ILogger Log)? shutdown,
         (int TotalMb, int SegmentMb, int SegmentCount) limits,
         CancellationToken cancellationToken)
     {
@@ -260,6 +272,7 @@ internal sealed class StallableJournal : IAsyncDisposable
                 {
                     ShutdownBudget = stuck.Budget,
                     GraceJoinFloor = stuck.GraceFloor,
+                    StageFloor = stuck.StageFloor,
                 }
                 : new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer);
             return new StallableJournal(dataDir, ledger, writer, journal);
