@@ -24,6 +24,9 @@ internal sealed class ServerClientPool : IServerClientPool
 {
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(10);
 
+    /// <summary>The longest finite timeout <see cref="Task.WaitAsync(TimeSpan, TimeProvider)" /> accepts.</summary>
+    private static readonly TimeSpan MaxShutdownBudget = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
+
     private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new(StringComparer.Ordinal);
 
     private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new(StringComparer.Ordinal);
@@ -41,8 +44,8 @@ internal sealed class ServerClientPool : IServerClientPool
         ArgumentNullException.ThrowIfNull(logger);
         _logger = logger;
         _metrics = metrics;
-        if (args.ShutdownBudget < TimeSpan.Zero && args.ShutdownBudget != Timeout.InfiniteTimeSpan)
-            throw new ArgumentOutOfRangeException(nameof(args), args.ShutdownBudget, "The shutdown budget must not be negative.");
+        if (args.ShutdownBudget is { } budget && budget != Timeout.InfiniteTimeSpan && (budget < TimeSpan.Zero || budget > MaxShutdownBudget))
+            throw new ArgumentOutOfRangeException(nameof(args), budget, "The shutdown budget must be between zero and the longest timeout a task wait accepts, or infinite.");
 
         _shutdownBudget = args.ShutdownBudget ?? DefaultShutdownBudget;
         _timeProvider = args.TimeProvider ?? TimeProvider.System;
@@ -178,7 +181,7 @@ internal sealed class ServerClientPool : IServerClientPool
     private async Task DisposePolicyAsync(string nodeId)
     {
         // Shutdown drain: one bad peer must not leak the remaining peers, so every failure is logged instead of thrown.
-        var failure = await _policies[nodeId].DisposeAsync().CaptureFailureAsync().ConfigureAwait(false);
+        var failure = await _policies[nodeId].CaptureDisposeFailureAsync().ConfigureAwait(false);
         if (failure != null)
             ServerLog.ClientPoolPolicyDisposeFailed(_logger, failure, nodeId);
     }

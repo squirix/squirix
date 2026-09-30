@@ -61,6 +61,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
             await AssertAllDisposedAsync(created, 2);
             _ = await Assert.That(log.Find(DrainTimedOutEventId)?.Level).IsEqualTo(LogLevel.Warning);
+            _ = await Assert.That(log.FindMessage(DrainTimedOutEventId)).Contains("peers still busy: n0.", StringComparison.Ordinal);
         }
         finally
         {
@@ -92,6 +93,29 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             _ = await Assert.That(policies["n2"].Disposed).IsTrue();
             _ = await Assert.That(sink.HasEvent(PoolDisposalsTotalInstrumentName)).IsTrue();
         }
+    }
+
+    /// <summary>A policy whose disposal throws before returning its task must not leak the remaining peers or channels either.</summary>
+    [Test]
+    public async Task DisposeContinuesAfterPolicyThrow()
+    {
+        using var meter = new Meter("Squirix");
+        using var sink = new NodeMeasurementSink(meter);
+        var second = new RecordingPolicy(null);
+        var third = new RecordingPolicy(null);
+        var policies = new Dictionary<string, IServerCallPolicy>(StringComparer.Ordinal)
+        {
+            ["n0"] = new ThrowingPolicy(new InvalidOperationException("Policy disposal threw.")),
+            ["n1"] = second,
+            ["n2"] = third,
+        };
+        var pool = new ServerClientPool(BuildPeers(3), new ServerClientPoolArgs { PolicyFactory = nodeId => policies[nodeId] }, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
+
+        await pool.DisposeAsync();
+
+        _ = await Assert.That(second.Disposed).IsTrue();
+        _ = await Assert.That(third.Disposed).IsTrue();
+        _ = await Assert.That(sink.HasEvent(PoolDisposalsTotalInstrumentName)).IsTrue();
     }
 
     /// <summary>Disposing the pool must dispose every default handler the pool created for its peers.</summary>
@@ -221,6 +245,26 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             throw new NotSupportedException("StuckPolicy does not execute calls.");
 
         internal void Release() => _ = _drained.TrySetResult();
+    }
+
+    /// <summary>A policy whose disposal throws before returning its task.</summary>
+    private sealed class ThrowingPolicy : IServerCallPolicy
+    {
+        private readonly Exception _failure;
+
+        internal ThrowingPolicy(Exception failure)
+        {
+            _failure = failure;
+        }
+
+        public void BeginDrain()
+        {
+        }
+
+        public ValueTask DisposeAsync() => throw _failure;
+
+        public ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("ThrowingPolicy does not execute calls.");
     }
 
     private sealed class RecordingPolicy : IServerCallPolicy

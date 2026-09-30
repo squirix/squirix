@@ -28,15 +28,16 @@ internal static class TaskExtensions
         }
     }
 
-    /// <summary>Awaits the task and returns any failure instead of throwing it.</summary>
-    /// <param name="task">The value task to await; this call consumes it.</param>
-    /// <returns>The failure, or <see langword="null" /> when the task completed successfully.</returns>
+    /// <summary>Disposes <paramref name="disposable" /> and returns any failure instead of throwing it, including one thrown before the disposal task is returned.</summary>
+    /// <param name="disposable">The object to dispose.</param>
+    /// <returns>The failure, or <see langword="null" /> when the disposal completed.</returns>
     /// <remarks>For best-effort work such as shutdown drains, where one failure must not stop the rest and the caller reports it.</remarks>
-    internal static async ValueTask<Exception?> CaptureFailureAsync(this ValueTask task)
+    internal static async ValueTask<Exception?> CaptureDisposeFailureAsync(this IAsyncDisposable disposable)
     {
+        ArgumentNullException.ThrowIfNull(disposable);
         try
         {
-            await task.ConfigureAwait(false);
+            await disposable.DisposeAsync().ConfigureAwait(false);
             return null;
         }
         catch (Exception ex)
