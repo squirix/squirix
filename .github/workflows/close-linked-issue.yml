@@ -13,17 +13,39 @@ jobs:
         permissions:
             issues: write
         steps:
-            -   name: Close issue referenced as [#N] in PR title
+            -   name: Close issues referenced in the PR title and body
                 env:
                     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                     PR_TITLE: ${{ github.event.pull_request.title }}
+                    PR_BODY: ${{ github.event.pull_request.body }}
                     PR_NUMBER: ${{ github.event.pull_request.number }}
                 run: |
+                    issues=()
+
+                    # [#N] at the start of the PR title.
                     if [[ "$PR_TITLE" =~ ^\[#([0-9]+)\] ]]; then
-                        issue="${BASH_REMATCH[1]}"
-                    else
-                        echo "No [#N] reference in PR title; nothing to close."
+                        issues+=("${BASH_REMATCH[1]}")
+                    fi
+
+                    # GitHub closing keywords in the PR body (close/fix/resolve and their forms) followed by a same-repository #N.
+                    # Keyword closing does not run for merges into a non-default branch, so the workflow closes these itself.
+                    while IFS= read -r number; do
+                        issues+=("$number")
+                    done < <(printf '%s\n' "$PR_BODY" \
+                        | grep -oiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+#[0-9]+\b' \
+                        | grep -oE '[0-9]+$' || true)
+
+                    if [[ ${#issues[@]} -eq 0 ]]; then
+                        echo "No [#N] in the PR title and no closing keyword in the PR body; nothing to close."
                         exit 0
                     fi
-                    gh issue close "$issue" --repo "$GITHUB_REPOSITORY" \
-                        --comment "Closed automatically with merged PR #${PR_NUMBER}."
+
+                    for issue in $(printf '%s\n' "${issues[@]}" | sort -un); do
+                        state=$(gh issue view "$issue" --repo "$GITHUB_REPOSITORY" --json state --jq .state 2>/dev/null || echo MISSING)
+                        if [[ "$state" != "OPEN" ]]; then
+                            echo "Issue #$issue is $state; skipping."
+                            continue
+                        fi
+                        gh issue close "$issue" --repo "$GITHUB_REPOSITORY" \
+                            --comment "Closed automatically with merged PR #${PR_NUMBER}."
+                    done
