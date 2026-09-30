@@ -70,8 +70,7 @@ internal sealed class ServerClientPool : IServerClientPool
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
-        // Every policy drains from here on, so the peers drain in parallel. One budget bounds the wait, so a peer whose in-flight call
-        // never ends cannot hold up host shutdown; the channels are disposed either way.
+        // The peers drain in parallel under one budget, so a stuck peer cannot hold up host shutdown; channels are disposed either way.
         BeginDrain();
         var drains = new Task[_nodeIds.Length];
         for (var i = 0; i < _nodeIds.Length; i++)
@@ -166,7 +165,6 @@ internal sealed class ServerClientPool : IServerClientPool
 
     private void DisposeChannels()
     {
-        // Shutdown drain: one bad peer must not leak the remaining peers.
         for (var i = 0; i < _nodeIds.Length; i++)
         {
             var nodeId = _nodeIds[i];
@@ -180,7 +178,6 @@ internal sealed class ServerClientPool : IServerClientPool
 
     private async Task DisposePolicyAsync(string nodeId)
     {
-        // Shutdown drain: one bad peer must not leak the remaining peers, so every failure is logged instead of thrown.
         var failure = await _policies[nodeId].CaptureDisposeFailureAsync().ConfigureAwait(false);
         if (failure != null)
             ServerLog.ClientPoolPolicyDisposeFailed(_logger, failure, nodeId);
