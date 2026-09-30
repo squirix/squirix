@@ -8,7 +8,8 @@ namespace Squirix.Server.Threading;
 /// <summary>Disposable handle returned by <see cref="AsyncLock.LockAsync" />; releases the lock when disposed.</summary>
 /// <remarks>
 /// Releasing never throws: after the owning lock was disposed while this holder was still out (a bounded shutdown
-/// gave up waiting for it), the release only marks the lock free.
+/// gave up waiting for it), the release only marks the lock free. The release names this acquisition's generation, so
+/// a copy of a holder that was already released cannot release the acquisition that came after it.
 /// </remarks>
 [ThreadSafe]
 internal struct AsyncLockHolder : IDisposable, IEquatable<AsyncLockHolder>
@@ -36,7 +37,7 @@ internal struct AsyncLockHolder : IDisposable, IEquatable<AsyncLockHolder>
         if (_owner == null || Interlocked.Exchange(ref _released, 1) == 1)
             return;
 
-        _owner.Release();
+        _owner.Release(_generation);
     }
 
     public readonly bool Equals(AsyncLockHolder other) => ReferenceEquals(_owner, other._owner) && _generation == other._generation && _released == other._released;
