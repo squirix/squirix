@@ -158,7 +158,14 @@ internal static class JournalReadPath
                 _segmentEnumerator = null;
             }
 
-            JournalRecord IJournalRecordEnumerator.Current => _segmentEnumerator!.Current;
+            JournalRecord IJournalRecordEnumerator.Current
+            {
+                get
+                {
+                    ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+                    return ThrowHelper.Required(_segmentEnumerator, "Enumerator is not positioned on a valid record.").Current;
+                }
+            }
 
             void IDisposable.Dispose()
             {
