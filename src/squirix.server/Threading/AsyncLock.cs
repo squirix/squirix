@@ -112,22 +112,28 @@ internal sealed class AsyncLock : IDisposable
         }
     }
 
-    /// <summary>Hands ownership to the oldest queued waiter, or marks the lock free when none is queued.</summary>
+    /// <summary>Releases the acquisition issued <paramref name="generation"/>: hands ownership to the oldest queued waiter, or marks the lock free when none is queued.</summary>
+    /// <param name="generation">The generation of the releasing acquisition.</param>
     /// <remarks>
-    /// Never throws; after <see cref="Dispose"/> the queue is empty, so it only marks the lock free. A hand-off issues the
-    /// next generation before completing the waiter, so the releasing ownership stops matching <see cref="IsHeldBy"/> at once
-    /// and the new holder observes its own generation when it resumes.
+    /// Never throws. A release by an acquisition that no longer holds the lock, such as a copy of a holder that was already
+    /// released, is ignored: it can neither hand the lock off nor free it from under the current holder. After
+    /// <see cref="Dispose"/> the queue is empty, so the current holder's release only marks the lock free. A hand-off issues
+    /// the next generation before completing the waiter, so the releasing ownership stops matching <see cref="IsHeldBy"/> at
+    /// once and the new holder observes its own generation when it resumes.
     /// </remarks>
-    internal void Release()
+    internal void Release(ulong generation)
     {
         lock (_sync)
         {
+            if (generation == 0 || generation != _holderGeneration)
+                return;
+
             while (_head != null)
             {
                 var waiter = _head;
                 Unlink(waiter);
-                var generation = IssueGeneration();
-                if (waiter.TrySetResult(new AsyncLockHolder(this, generation)))
+                var next = IssueGeneration();
+                if (waiter.TrySetResult(new AsyncLockHolder(this, next)))
                     return;
             }
 

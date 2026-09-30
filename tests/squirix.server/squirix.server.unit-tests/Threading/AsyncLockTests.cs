@@ -197,6 +197,57 @@ public sealed class AsyncLockTests : ServerUnitTestBase
         asyncLock.Dispose();
     }
 
+    /// <summary>
+    /// Disposing a copy of an already released holder does not free the lock from under the holder that took it free next,
+    /// so a later acquisition still waits.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StaleHolderCopyKeepsFreeTakeOwnership(CancellationToken cancellationToken)
+    {
+        var asyncLock = new AsyncLock();
+        var first = await asyncLock.LockAsync(cancellationToken);
+        var staleCopy = first;
+        first.Dispose();
+        var second = await asyncLock.LockAsync(cancellationToken);
+
+        staleCopy.Dispose();
+        var thirdWait = asyncLock.LockAsync(cancellationToken);
+
+        _ = await Assert.That(second.Ownership.Holds(asyncLock)).IsTrue();
+        _ = await Assert.That(thirdWait.IsCompleted).IsFalse();
+
+        second.Dispose();
+        (await thirdWait).Dispose();
+        asyncLock.Dispose();
+    }
+
+    /// <summary>
+    /// Disposing a copy of an already released holder neither hands the lock on nor frees it: the holder that came next keeps
+    /// the lock, and the waiter behind it stays queued.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StaleHolderCopyKeepsSuccessorOwnership(CancellationToken cancellationToken)
+    {
+        var asyncLock = new AsyncLock();
+        var first = await asyncLock.LockAsync(cancellationToken);
+        var staleCopy = first;
+        var secondWait = asyncLock.LockAsync(cancellationToken);
+        var thirdWait = asyncLock.LockAsync(cancellationToken);
+
+        first.Dispose();
+        var second = await secondWait;
+        staleCopy.Dispose();
+
+        _ = await Assert.That(second.Ownership.Holds(asyncLock)).IsTrue();
+        _ = await Assert.That(thirdWait.IsCompleted).IsFalse();
+
+        second.Dispose();
+        (await thirdWait).Dispose();
+        asyncLock.Dispose();
+    }
+
     private static async Task RunStressRoundAsync(bool disposeMidway, CancellationToken cancellationToken)
     {
         var state = new StressState(new AsyncLock());
