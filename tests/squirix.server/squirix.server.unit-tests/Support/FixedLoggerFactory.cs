@@ -1,20 +1,20 @@
 using System;
-using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Logger factory handing out one logger for every category; holds nothing that needs disposal.</summary>
-[ThreadSafe]
+[Immutable]
 internal sealed class FixedLoggerFactory : ILoggerFactory
 {
-    private static readonly ConditionalWeakTable<ILogger, ILoggerFactory> Factories = [];
-
     private readonly ILogger _logger;
 
-    private FixedLoggerFactory(ILogger logger)
+    /// <summary>Initializes a new instance of the <see cref="FixedLoggerFactory" /> class.</summary>
+    /// <param name="logger">The logger returned for every category.</param>
+    internal FixedLoggerFactory(ILogger logger)
     {
+        ArgumentNullException.ThrowIfNull(logger);
         _logger = logger;
     }
 
@@ -27,14 +27,5 @@ internal sealed class FixedLoggerFactory : ILoggerFactory
     /// <inheritdoc />
     public void Dispose()
     {
-    }
-
-    /// <summary>Gets the factory that returns <paramref name="logger" /> for every category.</summary>
-    /// <param name="logger">The logger returned for every category.</param>
-    /// <returns>The factory; its disposal is a no-op.</returns>
-    internal static ILoggerFactory For(ILogger logger)
-    {
-        ArgumentNullException.ThrowIfNull(logger);
-        return Factories.GetValue(logger, static l => new FixedLoggerFactory(l));
     }
 }

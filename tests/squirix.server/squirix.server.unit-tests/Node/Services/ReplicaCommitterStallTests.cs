@@ -174,7 +174,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     {
         using var hooks = new StallableFollowerLogFaultHooks();
         var log = new LeakRecordingLogger();
-        using var loggerFactory = new SingleLoggerFactory(log);
+        using var loggerFactory = new FixedLoggerFactory(log);
         var registry = await OpenRegistryAsync([OwnedGroup], StallOptions(hooks), loggerFactory, cancellationToken);
         var committer = CreateCommitter(registry, new ScriptedApplyCache(ApplyMode.Fail), log, new AcceptingGateway(hooks.StallNextMetaWrite));
         try
@@ -208,7 +208,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     {
         using var hooks = new StallableFollowerLogFaultHooks();
         var log = new LeakRecordingLogger();
-        using var loggerFactory = new SingleLoggerFactory(log);
+        using var loggerFactory = new FixedLoggerFactory(log);
         var registry = await OpenRegistryAsync([OwnedGroup], StallOptions(hooks), loggerFactory, cancellationToken);
         var committer = CreateCommitter(registry, new ScriptedApplyCache(ApplyMode.Fail), log);
         try
@@ -242,7 +242,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     {
         using var hooks = new StallableFollowerLogFaultHooks();
         var log = new LeakRecordingLogger();
-        using var loggerFactory = new SingleLoggerFactory(log);
+        using var loggerFactory = new FixedLoggerFactory(log);
         var registry = await OpenRegistryAsync([StalledGroup, IdleGroup], StallOptions(hooks), loggerFactory, cancellationToken);
         var idleLogPath = FollowerLogPaths.Create(Dir, IdleGroup).LogPath;
         try
@@ -460,27 +460,6 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         }
 
         return registry;
-    }
-
-    [Immutable]
-    private sealed class SingleLoggerFactory : ILoggerFactory
-    {
-        private readonly ILogger _logger;
-
-        internal SingleLoggerFactory(ILogger logger)
-        {
-            _logger = logger;
-        }
-
-        public void AddProvider(ILoggerProvider provider)
-        {
-        }
-
-        public ILogger CreateLogger(string categoryName) => _logger;
-
-        public void Dispose()
-        {
-        }
     }
 
     [Immutable]

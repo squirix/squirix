@@ -30,7 +30,10 @@ public sealed class HostLogIsolationTests : NodeIntegrationTestBase
     private const int JournalWaitCanceledWhileStalledEventId = 1014;
     private const int TornTailTruncatedEventId = 1018;
 
-    /// <summary>A repair found while one host opens its journal is logged by that host only, under the journal host category.</summary>
+    /// <summary>
+    /// A repair found while one host opens its journal is logged by that host only, under the journal host category. The hosts start
+    /// sequentially, so this is a smoke check; isolation is proven by <see cref="StallWarningReachesOnlyOwnLogger" />.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task RepairsReachOnlyOwnHostLogger(CancellationToken cancellationToken)

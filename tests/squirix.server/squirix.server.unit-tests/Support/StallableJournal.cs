@@ -19,13 +19,15 @@ namespace Squirix.Server.UnitTests.Support;
 internal sealed class StallableJournal : IAsyncDisposable
 {
     private readonly string _dataDir;
+    private readonly ILoggerFactory _loggerFactory;
     private int _journalDisposed;
     private int _disposed;
     private int _writerDisposed;
 
-    private StallableJournal(string dataDir, Ledger ledger, StallableJournalSegmentWriter writer, JournalCoordinator journal)
+    private StallableJournal(string dataDir, Ledger ledger, StallableJournalSegmentWriter writer, JournalCoordinator journal, ILoggerFactory loggerFactory)
     {
         _dataDir = dataDir;
+        _loggerFactory = loggerFactory;
         Ledger = ledger;
         Writer = writer;
         Journal = journal;
@@ -54,6 +56,7 @@ internal sealed class StallableJournal : IAsyncDisposable
         finally
         {
             Ledger.Dispose();
+            _loggerFactory.Dispose();
         }
     }
 
@@ -265,23 +268,25 @@ internal sealed class StallableJournal : IAsyncDisposable
         };
         var ledger = new Ledger(options, NullLogger<Ledger>.Instance);
         var writer = new StallableJournalSegmentWriter();
+        ILoggerFactory loggerFactory = shutdown is { } logged ? new FixedLoggerFactory(logged.Log) : NullLoggerFactory.Instance;
         try
         {
             var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
             var journal = shutdown is { } stuck
-                ? new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer, FixedLoggerFactory.For(stuck.Log))
+                ? new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer, loggerFactory)
                 {
                     ShutdownBudget = stuck.Budget,
                     GraceJoinFloor = stuck.GraceFloor,
                     StageFloor = stuck.StageFloor,
                 }
-                : new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer, NullLoggerFactory.Instance);
-            return new StallableJournal(dataDir, ledger, writer, journal);
+                : new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer, loggerFactory);
+            return new StallableJournal(dataDir, ledger, writer, journal, loggerFactory);
         }
         catch
         {
             writer.Dispose();
             ledger.Dispose();
+            loggerFactory.Dispose();
             throw;
         }
     }
