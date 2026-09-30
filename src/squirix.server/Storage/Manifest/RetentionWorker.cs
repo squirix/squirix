@@ -18,6 +18,7 @@ internal sealed class RetentionWorker : IWorkPoolItem
     private readonly IRetentionCleanupReadinessStatus? _retentionReadiness;
     private volatile State? _pendingRetentionManifest;
     private int _retentionWorkerScheduled;
+    private int _stopped;
 
     internal RetentionWorker(RetentionContext retentionContext, IRetentionCleanupReadinessStatus? retentionReadiness)
     {
@@ -31,8 +32,9 @@ internal sealed class RetentionWorker : IWorkPoolItem
         {
             while (true)
             {
+                // Checked right before each pass, so a stop that lands while a pass runs prevents the next one.
                 var manifest = Interlocked.Exchange(ref _pendingRetentionManifest, null);
-                if (manifest == null)
+                if (manifest == null || Volatile.Read(ref _stopped) != 0)
                     break;
 
                 var cleanupFailed = RetentionCleanup.Run(_retentionContext, manifest);
@@ -50,12 +52,21 @@ internal sealed class RetentionWorker : IWorkPoolItem
 
     internal void ScheduleRetentionCleanup(State manifest)
     {
+        if (Volatile.Read(ref _stopped) != 0)
+            return;
+
         _pendingRetentionManifest = manifest;
         if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) != 0)
             return;
 
         StartRetentionWorkerLoop();
     }
+
+    /// <summary>
+    /// Stops the worker: work scheduled from now on is ignored, and a pass that has not yet taken its work does not start. A pass already
+    /// running, or one that took its work just before the stop, finishes.
+    /// </summary>
+    internal void Stop() => Volatile.Write(ref _stopped, 1);
 
     private void StartRetentionWorkerLoop() => _ = WorkPool.RunAsync(this, TaskCreationOptions.LongRunning, CancellationToken.None);
 
@@ -64,7 +75,7 @@ internal sealed class RetentionWorker : IWorkPoolItem
     private bool TryRestartIfPendingWorkRemains()
     {
         // Another thread may publish work while the drain loop exits with the schedule flag still held.
-        if (_pendingRetentionManifest == null)
+        if (_pendingRetentionManifest == null || Volatile.Read(ref _stopped) != 0)
             return false;
 
         if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) != 0)

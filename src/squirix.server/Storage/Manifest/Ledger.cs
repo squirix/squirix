@@ -49,6 +49,9 @@ internal sealed class Ledger : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
+        // Retention stops before the publisher drains: a roll committed during the drain would otherwise schedule a cleanup
+        // that deletes files in the data directory after this ledger is gone.
+        _retentionWorker.Stop();
         _publisher.Dispose();
         _gate.Dispose();
     }
