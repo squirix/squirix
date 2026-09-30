@@ -57,9 +57,53 @@ internal sealed class EndpointFailover
     {
         ArgumentNullException.ThrowIfNull(action);
 
-        var deadlineUtc = _timeProvider.GetUtcNow() + _operationDeadline;
+        var clock = _timeProvider;
+        var deadlineUtc = clock.GetUtcNow() + _operationDeadline;
         using var deadlineScope = RpcDeadlineContext.Push(deadlineUtc.UtcDateTime);
-        return await ExecuteCoreAsync(action, state, deadlineUtc, cancellationToken).ConfigureAwait(false);
+        var startIndex = ActiveIndexSnapshot();
+        Exception? lastFailure = null;
+        var rerouted = false;
+
+        for (var attempt = 0; attempt < _bootstrapNodeIds.Count; attempt++)
+        {
+            if (IsExpired(clock, deadlineUtc))
+                break;
+
+            var nodeIndex = (startIndex + attempt) % _bootstrapNodeIds.Count;
+            var nodeId = _bootstrapNodeIds[nodeIndex];
+            var hasMoreEndpoints = attempt < _bootstrapNodeIds.Count - 1;
+
+            try
+            {
+                var result = await action(nodeId, state, cancellationToken).ConfigureAwait(false);
+                if (nodeIndex != startIndex)
+                    SetActiveIndex(nodeIndex);
+
+                return result;
+            }
+            catch (RpcException ex) when (IsRetryableStaleTerm(ex, rerouted, hasMoreEndpoints))
+            {
+                rerouted = true;
+                lastFailure = ex;
+            }
+            catch (RpcException ex) when (IsRetryableTransport(ex) && !IsCommitOutcomeUnknown(ex) && hasMoreEndpoints)
+            {
+                lastFailure = ex;
+            }
+            catch (HttpRequestException ex) when (hasMoreEndpoints)
+            {
+                lastFailure = ex;
+            }
+            catch (IOException ex) when (hasMoreEndpoints)
+            {
+                lastFailure = ex;
+            }
+        }
+
+        if (lastFailure == null)
+            ThrowIfExpired(clock, deadlineUtc, _bootstrapNodeIds[startIndex]);
+
+        throw lastFailure ?? new InvalidOperationException("Bootstrap endpoint failover failed without a captured exception.");
     }
 
     /// <summary>
@@ -128,59 +172,6 @@ internal sealed class EndpointFailover
     {
         lock (_activeIndexGate)
             return _activeIndex;
-    }
-
-    private async ValueTask<TResult> ExecuteCoreAsync<TState, TResult>(
-        Func<string, TState, CancellationToken, ValueTask<TResult>> action,
-        TState state,
-        DateTimeOffset deadlineUtc,
-        CancellationToken cancellationToken)
-    {
-        var clock = _timeProvider;
-        var startIndex = ActiveIndexSnapshot();
-        Exception? lastFailure = null;
-        var rerouted = false;
-
-        for (var attempt = 0; attempt < _bootstrapNodeIds.Count; attempt++)
-        {
-            if (IsExpired(clock, deadlineUtc))
-                break;
-
-            var nodeIndex = (startIndex + attempt) % _bootstrapNodeIds.Count;
-            var nodeId = _bootstrapNodeIds[nodeIndex];
-            var hasMoreEndpoints = attempt < _bootstrapNodeIds.Count - 1;
-
-            try
-            {
-                var result = await action(nodeId, state, cancellationToken).ConfigureAwait(false);
-                if (nodeIndex != startIndex)
-                    SetActiveIndex(nodeIndex);
-
-                return result;
-            }
-            catch (RpcException ex) when (IsRetryableStaleTerm(ex, rerouted, hasMoreEndpoints))
-            {
-                rerouted = true;
-                lastFailure = ex;
-            }
-            catch (RpcException ex) when (IsRetryableTransport(ex) && !IsCommitOutcomeUnknown(ex) && hasMoreEndpoints)
-            {
-                lastFailure = ex;
-            }
-            catch (HttpRequestException ex) when (hasMoreEndpoints)
-            {
-                lastFailure = ex;
-            }
-            catch (IOException ex) when (hasMoreEndpoints)
-            {
-                lastFailure = ex;
-            }
-        }
-
-        if (lastFailure == null)
-            ThrowIfExpired(clock, deadlineUtc, _bootstrapNodeIds[startIndex]);
-
-        throw lastFailure ?? new InvalidOperationException("Bootstrap endpoint failover failed without a captured exception.");
     }
 
     private void SetActiveIndex(int nodeIndex)
