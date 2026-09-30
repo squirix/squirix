@@ -38,7 +38,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     private readonly JournalCoordinatorAppendPipeline _appendPipeline;
     private readonly VolatileField<Exception> _flushLoopFailure = new();
-    private readonly ILogger _log;
+    private readonly JournalSlowOperationReporter _slowOperations;
     private readonly JournalProducerGate _producerGate = new();
 
     private readonly JournalStopper _stopper;
@@ -47,26 +47,28 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     private ulong _nextSequence;
     private long _ops;
 
-    internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, AsyncManualResetEvent startupGate)
-        : this(opt, manifest, manifestStore, startupGate, JournalSegmentWriterFactory.Create(opt.JournalPlatformBackend))
+    internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, AsyncManualResetEvent startupGate, ILoggerFactory loggerFactory)
+        : this(opt, manifest, manifestStore, startupGate, JournalSegmentWriterFactory.Create(opt.JournalPlatformBackend), loggerFactory)
     {
     }
 
-    internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, AsyncManualResetEvent startupGate, IJournalSegmentWriter segmentWriter, ILogger? log = null)
+    internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, AsyncManualResetEvent startupGate, IJournalSegmentWriter segmentWriter, ILoggerFactory loggerFactory)
     {
         ArgumentNullException.ThrowIfNull(segmentWriter);
-        _log = log ?? LogManager.GetLogger<JournalCoordinator>();
+        ArgumentNullException.ThrowIfNull(loggerFactory);
+        var log = loggerFactory.CreateLogger<JournalCoordinator>();
+        _slowOperations = new JournalSlowOperationReporter(log);
         GraceJoinFloor = DefaultGraceJoinFloor;
         ShutdownBudget = DefaultShutdownBudget;
         StageFloor = DefaultStageFloor;
         Options = opt;
         Ledger = manifestStore;
         StartupGate = startupGate;
-        StallProbe = new JournalStallProbe(_log);
+        StallProbe = new JournalStallProbe(log);
         var probedWriter = new ProbedJournalSegmentWriter(segmentWriter, StallProbe);
-        _stopper = new JournalStopper(this, probedWriter, _log);
+        _stopper = new JournalStopper(this, probedWriter, log);
         _appendPipeline = new JournalCoordinatorAppendPipeline(this, _producerGate);
-        DurabilityPipeline = new JournalDurabilityCoordinator(this, this, LogManager.GetLogger<JournalDurabilityCoordinator>(), _producerGate);
+        DurabilityPipeline = new JournalDurabilityCoordinator(this, this, loggerFactory.CreateLogger<JournalDurabilityCoordinator>(), _producerGate);
         var bridge = new JournalEventLoopBridge(this, DurabilityPipeline);
         var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(Options.DataDir);
         var currentSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
@@ -74,7 +76,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         // Taken after the factory's startup tail repair, which is the last startup step that changes the current segment.
         var activeSegment = JournalSegmentProbe.Probe(Options.DataDir, currentSegmentIndex);
         var eventLoopStartup = new JournalEventLoopStartup(currentSegmentIndex, totalBytes, segmentCount, activeSegment);
-        EventLoop = new JournalEventLoop(bridge, Ring, probedWriter, Options, eventLoopStartup, BackgroundCancellation.Token);
+        EventLoop = new JournalEventLoop(bridge, Ring, probedWriter, Options, eventLoopStartup, loggerFactory.CreateLogger<JournalEventLoop>(), BackgroundCancellation.Token);
         GroupCommit = Options.IsJournalGroupCommitEnabled ? new JournalDurabilityGroupCommit(EventLoop.FlushGroupCommitOnJournalThread, Ring.NotifyWorkAvailable, Options, onWaitCanceled: StallProbe.ReportWaitCanceled) : null;
         EventLoop.AttachGroupCommit(GroupCommit);
         _ = DirectoryEx.CreateDirectory(Options.DataDir);
@@ -265,7 +267,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         {
             StallProbe.GateReleased();
             mutationGuard.Dispose();
-            JournalSlowOperationDiagnostics.ReportMutationGateHold(_log, acquiredTimestamp, nameof(ExecuteMaintenanceExclusiveAsync));
+            _slowOperations.ReportMutationGateHold(acquiredTimestamp, nameof(ExecuteMaintenanceExclusiveAsync));
         }
     }
 
@@ -323,7 +325,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         {
             StallProbe.GateReleased();
             gateGuard.Dispose();
-            JournalSlowOperationDiagnostics.ReportMutationGateHold(_log, acquiredTimestamp, nameof(ExecuteUnderSnapshotBarrierAsync));
+            _slowOperations.ReportMutationGateHold(acquiredTimestamp, nameof(ExecuteUnderSnapshotBarrierAsync));
         }
     }
 
@@ -360,7 +362,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         {
             StallProbe.GateReleased();
             gateGuard.Dispose();
-            JournalSlowOperationDiagnostics.ReportMutationGateHold(_log, acquiredTimestamp, nameof(ExecuteUnderSnapshotBarrierAsync));
+            _slowOperations.ReportMutationGateHold(acquiredTimestamp, nameof(ExecuteUnderSnapshotBarrierAsync));
         }
     }
 
@@ -453,7 +455,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         {
             StallProbe.GateReleased();
             holder.Dispose();
-            JournalSlowOperationDiagnostics.ReportMutationGateHold(_log, acquiredTimestamp, nameof(ExecuteSnapshotCutAsync));
+            _slowOperations.ReportMutationGateHold(acquiredTimestamp, nameof(ExecuteSnapshotCutAsync));
         }
     }
 

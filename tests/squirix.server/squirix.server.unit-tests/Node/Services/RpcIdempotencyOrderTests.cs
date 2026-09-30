@@ -58,7 +58,8 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
 
         var trace = new OrderingTrace();
         await using var orderingJournal = new OrderingJournal(inner, trace);

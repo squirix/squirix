@@ -42,7 +42,8 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
         var applyState = new ApplyCounter(false);
 
@@ -82,7 +83,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         };
 
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
-        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
 
         try
         {
@@ -123,7 +124,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         };
 
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
-        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
 
         try
         {

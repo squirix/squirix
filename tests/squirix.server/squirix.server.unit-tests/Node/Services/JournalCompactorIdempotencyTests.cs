@@ -100,7 +100,8 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
                          await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken),
                          scenario.Ledger,
                          new AsyncManualResetEvent(true),
-                         NullLogger.Instance))
+                         NullLoggerFactory.Instance,
+                         out _))
         {
             var ambientScope = new object();
             RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId);
@@ -147,7 +148,8 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
                          await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken),
                          scenario.Ledger,
                          new AsyncManualResetEvent(true),
-                         NullLogger.Instance))
+                         NullLoggerFactory.Instance,
+                         out _))
         {
             var ambientScope = new object();
             RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId);
@@ -228,7 +230,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
     private static async Task WritePutAndIdempotencyAsync(PersistenceOptions persistence, Ledger manifestStore, CancellationToken cancellationToken)
     {
         var readCurrentOrDefaultAsync = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(persistence, readCurrentOrDefaultAsync, manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
+        await using var journal = JournalCoordinatorFactory.Create(persistence, readCurrentOrDefaultAsync, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
         await journal.AppendPutUnderGateAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
         var bytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
         await journal.AppendIdempotencyOutcomeAsync(OperationId, Fingerprint, bytes, cancellationToken);

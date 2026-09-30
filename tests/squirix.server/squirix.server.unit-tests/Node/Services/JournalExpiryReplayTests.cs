@@ -65,7 +65,8 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
                 await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
                 manifestStore,
                 new AsyncManualResetEvent(true),
-                NullLogger.Instance);
+                NullLoggerFactory.Instance,
+                out _);
             var live = new NodeCacheEntry<object?>("earlier");
             var expired = new NodeCacheEntry<object?>("later", expiresUtc: DateTime.UtcNow.AddMinutes(-1));
             await journal.AppendPutUnderGateAsync(new CacheKey(CacheName, Key), JournalEntryPayloadKit.Encode(live), cancellationToken);
@@ -91,7 +92,8 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
                 await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
                 manifestStore,
                 new AsyncManualResetEvent(true),
-                NullLogger.Instance);
+                NullLoggerFactory.Instance,
+                out _);
             var expired = new NodeCacheEntry<object?>("v", expiresUtc: DateTime.UtcNow.AddMinutes(-1));
             await journal.AppendPutUnderGateAsync(new CacheKey(CacheName, Key), JournalEntryPayloadKit.Encode(expired), cancellationToken);
             await journal.AwaitDurabilityCommitAsync(cancellationToken);

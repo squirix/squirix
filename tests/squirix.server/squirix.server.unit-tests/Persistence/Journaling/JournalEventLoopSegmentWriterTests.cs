@@ -87,7 +87,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         var host = new FakeEventLoopHost(registry, counter);
         using var ring = new BoundedJournalRing(4);
         using var segmentWriter = new FakeSegmentWriter();
-        var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 1024L * 1024L, 1, JournalSegmentProbe.Probe(Dir, 1)), CancellationToken.None, NullLogger.Instance);
+        var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 1024L * 1024L, 1, JournalSegmentProbe.Probe(Dir, 1)), NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
         var buffer = ArrayPool<byte>.Shared.Rent(64);
         var item = JournalWorkItem.Append(buffer, 64);
         registry.Track(item, buffer, 64, null);
@@ -136,7 +136,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
         // Every segment the journal thread opens looks nearly full, so the append rolls, and rolls again once the first roll completes.
         using var segmentWriter = new FakeSegmentWriter((1024L * 1024L) - 10L);
-        var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 0L, 1, JournalSegmentProbe.Probe(Dir, 1)), CancellationToken.None, NullLogger.Instance);
+        var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 0L, 1, JournalSegmentProbe.Probe(Dir, 1)), NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
         host.RollPublished = eventLoop.MarkSegmentRollCompletionPending;
         var buffer = ArrayPool<byte>.Shared.Rent(64);
         var item = JournalWorkItem.Append(buffer, 64);
@@ -332,7 +332,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         using var ring = new BoundedJournalRing(4);
         using var segmentWriter = JournalSegmentWriterFactory.Create(options.JournalPlatformBackend);
         var startup = new JournalEventLoopStartup(1, JournalFraming.FileHeaderSize, 1, JournalSegmentProbe.Probe(Dir, 1));
-        var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, startup, CancellationToken.None, NullLogger.Instance);
+        var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, startup, NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
         var rollsPublished = 0;
         host.RollPublished = () =>
         {

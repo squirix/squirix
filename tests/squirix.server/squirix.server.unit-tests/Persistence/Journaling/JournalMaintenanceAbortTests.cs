@@ -46,7 +46,8 @@ public sealed class JournalMaintenanceAbortTests : IsolatedStorageTestBase
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         await journal.WaitForStartupAsync(cancellationToken);
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
@@ -91,7 +92,8 @@ public sealed class JournalMaintenanceAbortTests : IsolatedStorageTestBase
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         await journal.WaitForStartupAsync(cancellationToken);
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
@@ -141,7 +143,8 @@ public sealed class JournalMaintenanceAbortTests : IsolatedStorageTestBase
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         await journal.WaitForStartupAsync(cancellationToken);
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 

@@ -38,7 +38,8 @@ public sealed class JournalExclusiveMaintenanceExecutorTests : IsolatedStorageTe
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         var executed = new ExecutionFlag();
         await journal.ExecuteMaintenanceExclusiveAsync(executed.MarkExecutedAsync, cancellationToken);
 

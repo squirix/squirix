@@ -59,7 +59,7 @@ public sealed class JournalBackendContractTests
         var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         var gate = new AsyncManualResetEvent(true);
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None);
-        var coordinator = JournalCoordinatorFactory.Create(options, manifest, manifestStore, gate, NullLogger.Instance);
+        var coordinator = JournalCoordinatorFactory.Create(options, manifest, manifestStore, gate, NullLoggerFactory.Instance, out _);
         return new CoordinatorContext(dir, options, manifestStore, coordinator);
     }
 

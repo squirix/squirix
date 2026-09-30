@@ -1,13 +1,16 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
@@ -20,10 +23,11 @@ using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests;
 
-/// <summary>Two hosts in one process each report their journal startup repairs to their own logger and never to the other host's.</summary>
+/// <summary>Two hosts in one process each report their journal startup repairs and stall warnings to their own logger and never to the other host's.</summary>
 public sealed class HostLogIsolationTests : NodeIntegrationTestBase
 {
     private const string CacheName = "default";
+    private const int JournalWaitCanceledWhileStalledEventId = 1014;
     private const int TornTailTruncatedEventId = 1018;
 
     /// <summary>A repair found while one host opens its journal is logged by that host only, under the journal host category.</summary>
@@ -41,6 +45,38 @@ public sealed class HostLogIsolationTests : NodeIntegrationTestBase
 
         await AssertRepairLoggedOnlyForAsync(recorderA, pathA, pathB);
         await AssertRepairLoggedOnlyForAsync(recorderB, pathB, pathA);
+    }
+
+    /// <summary>A stall warning raised by one host journal is logged by that host only.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="InvalidOperationException">The host journal does not expose its stall probe.</exception>
+    [Test]
+    public async Task StallWarningReachesOnlyOwnLogger(CancellationToken cancellationToken)
+    {
+        using var recorderA = new RecordingLoggerProvider();
+        using var recorderB = new RecordingLoggerProvider();
+        await using var clusterA = await StartClusterAsync("node-a", Options("log-isolation-stall-a", true, recorderA), cancellationToken);
+        await using var clusterB = await StartClusterAsync("node-b", Options("log-isolation-stall-b", true, recorderB), cancellationToken);
+        if (clusterA["node-a"].GetRequiredService<JournalCoordinatorHost>().Coordinator is not IJournalStallProbeSource journal)
+            throw new InvalidOperationException("the host journal does not expose its stall probe.");
+
+        // The node is idle, so its journal thread performs no segment I/O and the test is the only writer of the probe.
+        var started = Stopwatch.GetTimestamp();
+        journal.StallProbe.IoStarted(nameof(IJournalSegmentWriter.FlushToDisk));
+        try
+        {
+            while (Stopwatch.GetElapsedTime(started).TotalMilliseconds <= JournalSlowOperationReporter.WarningThresholdMs)
+                await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken);
+
+            journal.StallProbe.ReportWaitCanceled("durability commit");
+        }
+        finally
+        {
+            journal.StallProbe.IoFinished();
+        }
+
+        _ = await Assert.That(recorderA.Find(JournalWaitCanceledWhileStalledEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(recorderB.Find(JournalWaitCanceledWhileStalledEventId)).IsNull();
     }
 
     private static async Task AssertRepairLoggedOnlyForAsync(RecordingLoggerProvider recorder, string ownPath, string otherPath)

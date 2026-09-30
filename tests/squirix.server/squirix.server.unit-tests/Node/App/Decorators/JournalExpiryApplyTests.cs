@@ -335,7 +335,7 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
             };
             var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
             var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
-            var journal = JournalCoordinatorFactory.Create(options, manifest, manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
+            var journal = JournalCoordinatorFactory.Create(options, manifest, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
             return new Harness(manifestStore, journal, clock);
         }
 

@@ -17,6 +17,7 @@ namespace Squirix.Server.Storage.Journaling;
 internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLoopDrainState, IJournalEventLoopRollState
 {
     private readonly JournalEventLoopSegmentWriter _segmentWriterOps;
+    private readonly JournalSlowOperationReporter _slowOperations;
     private long _activeSegmentWrittenBytes;
     private int _journalSegmentCount;
     private long _journalTotalBytes;
@@ -30,10 +31,12 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         IJournalSegmentWriter segmentWriter,
         PersistenceOptions opt,
         JournalEventLoopStartup startup,
-        CancellationToken bgToken,
-        ILogger? logger = null)
+        ILogger<JournalEventLoop> logger,
+        CancellationToken bgToken)
     {
-        JournalLog = logger ?? LogManager.GetLogger<JournalEventLoop>();
+        ArgumentNullException.ThrowIfNull(logger);
+        JournalLog = logger;
+        _slowOperations = new JournalSlowOperationReporter(logger);
         Host = host;
         Ring = ring;
         SegmentWriter = segmentWriter;
@@ -123,7 +126,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         }
         finally
         {
-            JournalSlowOperationDiagnostics.ReportFsync(JournalLog, startedTimestamp);
+            _slowOperations.ReportFsync(startedTimestamp);
         }
     }
 

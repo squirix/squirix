@@ -41,7 +41,8 @@ public sealed class JournalGroupCommitFlushFailureTests : IsolatedStorageTestBas
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            writer);
+            writer,
+            NullLoggerFactory.Instance);
         var key = new CacheKey("ns", "k");
 
         await journal.AppendPutUnderGateAsync(key, Payload, cancellationToken);

@@ -54,7 +54,7 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
         try
         {
             // The warning fires only once the I/O has been in progress for the slow-operation threshold.
-            while (Stopwatch.GetElapsedTime(started).TotalMilliseconds <= JournalSlowOperationDiagnostics.WarningThresholdMs)
+            while (Stopwatch.GetElapsedTime(started).TotalMilliseconds <= JournalSlowOperationReporter.WarningThresholdMs)
                 await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken);
 
             journal.StallProbe.ReportWaitCanceled("durability commit");

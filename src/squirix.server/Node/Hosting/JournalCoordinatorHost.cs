@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -14,15 +15,17 @@ namespace Squirix.Server.Node.Hosting;
 /// <summary>Owns the journal coordinator singleton lifetime for dependency injection.</summary>
 internal sealed class JournalCoordinatorHost : IAsyncDisposable
 {
+    private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<JournalCoordinatorHost> _log;
     private IJournalCoordinator? _coordinator;
 
     /// <summary>Initializes a new instance of the <see cref="JournalCoordinatorHost" /> class.</summary>
-    /// <param name="log">The logger for startup repairs and disposal failures.</param>
-    internal JournalCoordinatorHost(ILogger<JournalCoordinatorHost> log)
+    /// <param name="loggerFactory">Creates the host logger, for startup repairs and disposal failures, and the loggers of the journal components.</param>
+    internal JournalCoordinatorHost(ILoggerFactory loggerFactory)
     {
-        ArgumentNullException.ThrowIfNull(log);
-        _log = log;
+        ArgumentNullException.ThrowIfNull(loggerFactory);
+        _loggerFactory = loggerFactory;
+        _log = loggerFactory.CreateLogger<JournalCoordinatorHost>();
     }
 
     /// <summary>Gets the owned journal coordinator.</summary>
@@ -76,7 +79,29 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
         if (_coordinator != null)
             return;
 
-        _coordinator = JournalCoordinatorFactory.CreateReporting(persistence, manifest, manifestStore, gate, out var repairs);
-        JournalCoordinatorFactory.LogRepairs(repairs, _log);
+        _coordinator = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, gate, _loggerFactory, out var repairs);
+        LogRepairs(repairs);
+    }
+
+    private void LogRepairs(IReadOnlyList<JournalRepair> repairs)
+    {
+        for (var i = 0; i < repairs.Count; i++)
+        {
+            var repair = repairs[i];
+            switch (repair.Kind)
+            {
+                case JournalRepairKind.HeaderRestored:
+                    LogManager.JournalHeaderRestored(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
+                    break;
+                case JournalRepairKind.TornCreationHeaderRewritten:
+                    LogManager.JournalTornCreationRewritten(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
+                    break;
+                case JournalRepairKind.TornTailTruncated:
+                    LogManager.JournalTornTailTruncated(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(repairs), repair.Kind, "Unsupported journal repair kind.");
+            }
+        }
     }
 }

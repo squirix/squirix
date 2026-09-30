@@ -38,7 +38,8 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         var beginCalls = new List<(JournalOperationKind Kind, JournalOperationTraceContext Context)>();
         await using var journal = new TracingJournalCoordinatorDecorator(core, CreateRecordingTracer(beginCalls));
 
@@ -59,7 +60,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 600_000 };
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
-        await using var core = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
+        await using var core = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
         var journal = new TracingJournalCoordinatorDecorator(core, new IJournalOperationTracerCreateExpectations().Instance());
 
         await journal.DisposeAsync();
@@ -77,7 +78,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 600_000 };
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
-        await using var core = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLogger.Instance);
+        await using var core = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
         var journal = new TracingJournalCoordinatorDecorator(core, new IJournalOperationTracerCreateExpectations().Instance());
         var forwarded = 0;
         journal.OnAppended += (_, _) => Interlocked.Increment(ref forwarded);
@@ -114,7 +115,8 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         var beginCalls = new List<(JournalOperationKind Kind, JournalOperationTraceContext Context)>();
         await using var journal = new TracingJournalCoordinatorDecorator(core, CreateRecordingTracer(beginCalls));
 

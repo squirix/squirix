@@ -269,13 +269,13 @@ internal sealed class StallableJournal : IAsyncDisposable
         {
             var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
             var journal = shutdown is { } stuck
-                ? new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer, stuck.Log)
+                ? new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer, FixedLoggerFactory.For(stuck.Log))
                 {
                     ShutdownBudget = stuck.Budget,
                     GraceJoinFloor = stuck.GraceFloor,
                     StageFloor = stuck.StageFloor,
                 }
-                : new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer);
+                : new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer, NullLoggerFactory.Instance);
             return new StallableJournal(dataDir, ledger, writer, journal);
         }
         catch

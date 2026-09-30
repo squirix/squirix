@@ -45,7 +45,8 @@ public sealed class JournalDisposeDrainTests : IsolatedStorageTestBase
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         await journal.WaitForStartupAsync(cancellationToken);
 
         // Fire-and-forget: no durability waits, disposal must still persist every frame.

@@ -63,7 +63,8 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true),
-            NullLogger.Instance);
+            NullLoggerFactory.Instance,
+            out _);
         var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
         var writer = StoreFactory.CreateWriter(persistence);
         var overflowPayload = JournalEntryPayloadKit.EncodePut(new string('y', RollOverflowChars));
