@@ -4,7 +4,9 @@ using System.Diagnostics.Metrics;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
@@ -21,7 +23,52 @@ namespace Squirix.Server.UnitTests.Cluster;
 [Immutable]
 public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 {
+    private const int DrainTimedOutEventId = 5003;
+
     private const string PoolDisposalsTotalInstrumentName = "squirix_peer_pool_disposals_total";
+
+    /// <summary>
+    /// A peer whose drain never ends does not hold disposal past the shutdown budget: the timeout is logged and every channel is still
+    /// disposed.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeBoundedByShutdownBudget(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        var log = new EventRecordingLogger();
+        var clock = new FakeTimeProvider();
+        var stuck = new StuckPolicy();
+        var healthy = new RecordingPolicy(null);
+        try
+        {
+            var created = new List<TrackingHandler>();
+            var args = new ServerClientPoolArgs
+            {
+                PolicyFactory = nodeId => string.Equals(nodeId, "n0", StringComparison.Ordinal) ? stuck : healthy,
+                OwnedHandlerFactory = (_, _) => Track(created),
+                ShutdownBudget = TimeSpan.FromSeconds(10),
+                TimeProvider = clock,
+            };
+            var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter), log);
+
+            var disposing = pool.DisposeAsync().AsTask();
+            _ = await Assert.That(disposing.IsCompleted).IsFalse();
+            _ = await Assert.That(healthy.Disposed).IsTrue();
+
+            clock.Advance(TimeSpan.FromSeconds(10));
+            await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+            await AssertAllDisposedAsync(created, 2);
+            _ = await Assert.That(log.Find(DrainTimedOutEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        }
+        finally
+        {
+            stuck.Release();
+            await stuck.DisposeAsync();
+            await healthy.DisposeAsync();
+        }
+    }
 
     /// <summary>An unexpected policy disposal failure must not leak the remaining peers or channels.</summary>
     [Test]
@@ -157,6 +204,23 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
             base.Dispose(disposing);
         }
+    }
+
+    /// <summary>A policy whose drain never completes, as a peer with an in-flight call that ignores cancellation.</summary>
+    private sealed class StuckPolicy : IServerCallPolicy
+    {
+        private readonly TaskCompletionSource _drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void BeginDrain()
+        {
+        }
+
+        public ValueTask DisposeAsync() => new(_drained.Task);
+
+        public ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("StuckPolicy does not execute calls.");
+
+        internal void Release() => _ = _drained.TrySetResult();
     }
 
     private sealed class RecordingPolicy : IServerCallPolicy

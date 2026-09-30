@@ -21,6 +21,8 @@ namespace Squirix.Server.Cluster.Transport;
 [Mutable]
 internal sealed class ServerClientPool : IServerClientPool
 {
+    private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(10);
+
     private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new(StringComparer.Ordinal);
 
     private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new(StringComparer.Ordinal);
@@ -28,6 +30,8 @@ internal sealed class ServerClientPool : IServerClientPool
     private readonly ServerClientPoolMetrics _metrics;
     private readonly string[] _nodeIds;
     private readonly ConcurrentDictionary<string, IServerCallPolicy> _policies = new(StringComparer.Ordinal);
+    private readonly TimeSpan _shutdownBudget;
+    private readonly TimeProvider _timeProvider;
     private int _disposed;
 
     internal ServerClientPool(IReadOnlyList<ServerPeer> peers, ServerClientPoolArgs args, ServerClientPoolMetrics metrics, ILogger<ServerClientPool> logger)
@@ -36,6 +40,11 @@ internal sealed class ServerClientPool : IServerClientPool
         ArgumentNullException.ThrowIfNull(logger);
         _logger = logger;
         _metrics = metrics;
+        if (args.ShutdownBudget < TimeSpan.Zero && args.ShutdownBudget != Timeout.InfiniteTimeSpan)
+            throw new ArgumentOutOfRangeException(nameof(args), args.ShutdownBudget, "The shutdown budget must not be negative.");
+
+        _shutdownBudget = args.ShutdownBudget ?? DefaultShutdownBudget;
+        _timeProvider = args.TimeProvider ?? TimeProvider.System;
         var nodeIds = new string[peers.Count];
 
         for (var i = 0; i < peers.Count; i++)
@@ -57,37 +66,23 @@ internal sealed class ServerClientPool : IServerClientPool
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
+        // Every policy drains from here on, so the peers drain in parallel. One budget bounds the wait, so a peer whose in-flight call
+        // never ends cannot hold up host shutdown; the channels are disposed either way.
         BeginDrain();
-#pragma warning disable CA1031 // Shutdown drain: one bad peer must not leak the remaining peers.
+        var drains = new Task[_nodeIds.Length];
         for (var i = 0; i < _nodeIds.Length; i++)
+            drains[i] = DisposePolicyAsync(_nodeIds[i]);
+
+        try
         {
-            var nodeId = _nodeIds[i];
-            try
-            {
-                await _policies[nodeId].DisposeAsync().ConfigureAwait(false);
-            }
-            catch (Exception exception)
-            {
-                if (_logger != null)
-                    ServerLog.ClientPoolPolicyDisposeFailed(_logger, exception, nodeId);
-            }
+            await Task.WhenAll(drains).WaitAsync(_shutdownBudget, _timeProvider).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            ServerLog.ClientPoolDrainTimedOut(_logger, _shutdownBudget, BusyPeers(drains));
         }
 
-        for (var i = 0; i < _nodeIds.Length; i++)
-        {
-            var nodeId = _nodeIds[i];
-            try
-            {
-                _channels[nodeId].Dispose();
-                _metrics.AddDisposal();
-            }
-            catch (Exception exception)
-            {
-                if (_logger != null)
-                    ServerLog.ClientPoolChannelDisposeFailed(_logger, exception, nodeId);
-            }
-        }
-#pragma warning restore CA1031
+        DisposeChannels();
     }
 
     public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId) => _cacheClients[nodeId];
@@ -151,6 +146,51 @@ internal sealed class ServerClientPool : IServerClientPool
     {
         for (var i = 0; i < _nodeIds.Length; i++)
             _policies[_nodeIds[i]].BeginDrain();
+    }
+
+    private string BusyPeers(Task[] drains)
+    {
+        var busy = new List<string>(drains.Length);
+        for (var i = 0; i < drains.Length; i++)
+        {
+            if (!drains[i].IsCompleted)
+                busy.Add(_nodeIds[i]);
+        }
+
+        return string.Join(", ", busy);
+    }
+
+    private void DisposeChannels()
+    {
+#pragma warning disable CA1031 // Shutdown drain: one bad peer must not leak the remaining peers.
+        for (var i = 0; i < _nodeIds.Length; i++)
+        {
+            var nodeId = _nodeIds[i];
+            try
+            {
+                _channels[nodeId].Dispose();
+                _metrics.AddDisposal();
+            }
+            catch (Exception exception)
+            {
+                ServerLog.ClientPoolChannelDisposeFailed(_logger, exception, nodeId);
+            }
+        }
+#pragma warning restore CA1031
+    }
+
+    private async Task DisposePolicyAsync(string nodeId)
+    {
+#pragma warning disable CA1031 // Shutdown drain: one bad peer must not leak the remaining peers.
+        try
+        {
+            await _policies[nodeId].DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            ServerLog.ClientPoolPolicyDisposeFailed(_logger, exception, nodeId);
+        }
+#pragma warning restore CA1031
     }
 
     private void RegisterPeer(ServerPeer peer, ServerClientPoolArgs args)
