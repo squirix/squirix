@@ -90,16 +90,26 @@ internal static class StoreFactory
                 _strict = strict;
                 _cancellationToken = cancellationToken;
                 _handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.SequentialScan);
-                if (RandomAccess.GetLength(_handle) < SnapshotCodec.FileHeaderSize + SnapshotCodec.FileFooterSize)
-                    throw new InvalidDataException("Binary snapshot file is truncated.");
+                try
+                {
+                    if (RandomAccess.GetLength(_handle) < SnapshotCodec.FileHeaderSize + SnapshotCodec.FileFooterSize)
+                        throw new InvalidDataException("Binary snapshot file is truncated.");
 
-                Span<byte> header = stackalloc byte[SnapshotCodec.FileHeaderSize];
-                if (!HandleEx.TryReadExact(_handle, header, ref _offset))
-                    throw new EndOfStreamException("Binary snapshot file header is truncated.");
+                    Span<byte> header = stackalloc byte[SnapshotCodec.FileHeaderSize];
+                    if (!HandleEx.TryReadExact(_handle, header, ref _offset))
+                        throw new EndOfStreamException("Binary snapshot file header is truncated.");
 
-                SnapshotCodec.ValidateFileHeader(header);
-                _crc = Crc32C.Append(Crc32C.InitialValue, SnapshotCodec.Version);
-                _footerOffset = RandomAccess.GetLength(_handle) - SnapshotCodec.FileFooterSize;
+                    SnapshotCodec.ValidateFileHeader(header);
+                    _crc = Crc32C.Append(Crc32C.InitialValue, SnapshotCodec.Version);
+                    _footerOffset = RandomAccess.GetLength(_handle) - SnapshotCodec.FileFooterSize;
+                }
+                catch
+                {
+                    // A throwing constructor hands the caller nothing to dispose, so the handle is released here;
+                    // otherwise it stays open until finalization and blocks deleting the rejected file.
+                    _handle.Dispose();
+                    throw;
+                }
             }
 
             public object Current
