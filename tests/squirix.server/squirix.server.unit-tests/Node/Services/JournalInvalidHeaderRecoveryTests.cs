@@ -51,6 +51,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : DisposableServerUnitTest
                          manifestStore,
                          new AsyncManualResetEvent(true),
                          NullLoggerFactory.Instance,
+                         TimeProvider.System,
                          out _))
         {
             await journal.AppendPutUnderGateAsync(CacheKey.Default("k"), BuildPutPayload("v"), cancellationToken);

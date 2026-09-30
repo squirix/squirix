@@ -52,6 +52,7 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
             manifestStore,
             new AsyncManualResetEvent(true),
             NullLoggerFactory.Instance,
+            TimeProvider.System,
             out _);
         await journal.WaitForStartupAsync(cancellationToken);
 
@@ -93,6 +94,7 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
             manifestStore,
             new AsyncManualResetEvent(true),
             NullLoggerFactory.Instance,
+            TimeProvider.System,
             out _);
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 

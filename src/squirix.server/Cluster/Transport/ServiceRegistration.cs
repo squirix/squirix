@@ -36,6 +36,7 @@ internal static class ServiceRegistration
                     {
                         PolicyFactory = callPolicyFactory ?? (_ => new ServerCallPolicy(
                             sp.GetRequiredService<ServerCallPolicyInstrumentation>(),
+                            timeProvider: sp.GetService<TimeProvider>(),
                             timeouts: new CallPolicyTimeouts(TimeSpan.FromSeconds(3), TimeSpan.FromMilliseconds(60), TimeSpan.FromMilliseconds(600)))),
                         PeerHandlerFactory = peerHandlerFactory,
                         Interceptor = sp.GetRequiredService<ClientInterceptor>(),

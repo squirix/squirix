@@ -64,6 +64,7 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             NullLoggerFactory.Instance,
+            TimeProvider.System,
             out _);
         var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
         var writer = StoreFactory.CreateWriter(persistence);

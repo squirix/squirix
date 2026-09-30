@@ -47,24 +47,32 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     private ulong _nextSequence;
     private long _ops;
 
-    internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, AsyncManualResetEvent startupGate, ILoggerFactory loggerFactory)
-        : this(opt, manifest, manifestStore, startupGate, JournalSegmentWriterFactory.Create(opt.JournalPlatformBackend), loggerFactory)
+    internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, AsyncManualResetEvent startupGate, ILoggerFactory loggerFactory, TimeProvider? timeProvider = null)
+        : this(opt, manifest, manifestStore, startupGate, JournalSegmentWriterFactory.Create(opt.JournalPlatformBackend), loggerFactory, timeProvider)
     {
     }
 
-    internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, AsyncManualResetEvent startupGate, IJournalSegmentWriter segmentWriter, ILoggerFactory loggerFactory)
+    internal JournalCoordinator(
+        PersistenceOptions opt,
+        State manifest,
+        Ledger manifestStore,
+        AsyncManualResetEvent startupGate,
+        IJournalSegmentWriter segmentWriter,
+        ILoggerFactory loggerFactory,
+        TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(segmentWriter);
         ArgumentNullException.ThrowIfNull(loggerFactory);
         var log = loggerFactory.CreateLogger<JournalCoordinator>();
-        _slowOperations = new JournalSlowOperationReporter(log);
+        var clock = timeProvider ?? TimeProvider.System;
+        _slowOperations = new JournalSlowOperationReporter(log, clock);
         GraceJoinFloor = DefaultGraceJoinFloor;
         ShutdownBudget = DefaultShutdownBudget;
         StageFloor = DefaultStageFloor;
         Options = opt;
         Ledger = manifestStore;
         StartupGate = startupGate;
-        StallProbe = new JournalStallProbe(log);
+        StallProbe = new JournalStallProbe(log, clock);
         var probedWriter = new ProbedJournalSegmentWriter(segmentWriter, StallProbe);
         _stopper = new JournalStopper(this, probedWriter, log);
         _appendPipeline = new JournalCoordinatorAppendPipeline(this, _producerGate);

@@ -44,7 +44,7 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
     {
         var options = CreateOptions(Dir);
         using var ledger = new Ledger(options, NullLogger<Ledger>.Instance);
-        await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
+        await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
         await journal.WaitForStartupAsync(cancellationToken);
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
@@ -99,7 +99,7 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
     {
         var options = CreateOptions(Dir);
         using var ledger = new Ledger(options, NullLogger<Ledger>.Instance);
-        await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
+        await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
         await journal.WaitForStartupAsync(cancellationToken);
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 

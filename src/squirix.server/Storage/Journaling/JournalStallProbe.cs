@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using System;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
@@ -12,30 +12,39 @@ internal sealed class JournalStallProbe
     private readonly StallSlot _gate = new();
     private readonly StallSlot _io = new();
     private readonly JournalSlowOperationReporter _reporter;
+    private readonly TimeProvider _timeProvider;
 
-    internal JournalStallProbe(ILogger log)
+    /// <summary>Initializes a new instance of the <see cref="JournalStallProbe" /> class.</summary>
+    /// <param name="log">The logger stall warnings go to.</param>
+    /// <param name="timeProvider">
+    /// The clock every recorded timestamp is taken from; readers measure them with the same clock. Its timestamps must be non-zero,
+    /// since zero marks an idle slot.
+    /// </param>
+    internal JournalStallProbe(ILogger log, TimeProvider timeProvider)
     {
-        _reporter = new JournalSlowOperationReporter(log);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        _timeProvider = timeProvider;
+        _reporter = new JournalSlowOperationReporter(log, timeProvider);
     }
 
     /// <summary>Records that the mutation gate was acquired by <paramref name="holder" />.</summary>
     /// <param name="holder">The gate holder site.</param>
-    /// <returns>The acquisition timestamp.</returns>
-    internal long GateAcquired(string holder) => _gate.Begin(holder);
+    /// <returns>The acquisition timestamp, taken from the probe clock.</returns>
+    internal long GateAcquired(string holder) => _gate.Begin(holder, _timeProvider.GetTimestamp());
 
     /// <summary>Records that the mutation gate was released.</summary>
     internal void GateReleased() => _gate.End();
 
     /// <summary>Records that a journal segment I/O operation started.</summary>
     /// <param name="operation">The operation name.</param>
-    internal void IoStarted(string operation) => _ = _io.Begin(operation);
+    internal void IoStarted(string operation) => _ = _io.Begin(operation, _timeProvider.GetTimestamp());
 
     /// <summary>Records that the journal segment I/O operation finished.</summary>
     internal void IoFinished() => _io.End();
 
     /// <summary>Reads the journal segment I/O operation in progress, if any; lock-free and allocation-free, safe from any thread.</summary>
     /// <param name="operation">The operation name, when one is in progress.</param>
-    /// <param name="startedTimestamp">The <see cref="Stopwatch.GetTimestamp" /> value taken when the operation started.</param>
+    /// <param name="startedTimestamp">The probe clock timestamp taken when the operation started.</param>
     /// <returns><see langword="true" /> when an operation is in progress; <see langword="false" /> when none is or the read kept racing a writer.</returns>
     internal bool TryReadIo(out string? operation, out long startedTimestamp) => _io.TryRead(out operation, out startedTimestamp);
 
@@ -48,9 +57,9 @@ internal sealed class JournalStallProbe
         _reporter.ReportWaitCanceled(
             waitingFor,
             ioActive ? ioOperation : null,
-            ioActive ? JournalSlowOperationReporter.ElapsedMsSince(ioStarted) : 0,
+            ioActive ? _reporter.ElapsedMsSince(ioStarted) : 0,
             gateActive ? gateHolder : null,
-            gateActive ? JournalSlowOperationReporter.ElapsedMsSince(gateAcquired) : 0);
+            gateActive ? _reporter.ElapsedMsSince(gateAcquired) : 0);
     }
 
     /// <summary>
@@ -63,9 +72,8 @@ internal sealed class JournalStallProbe
         private long _started;
         private long _version;
 
-        internal long Begin(string label)
+        internal long Begin(string label, long timestamp)
         {
-            var timestamp = Stopwatch.GetTimestamp();
             _ = Interlocked.Increment(ref _version);
             _label = label;
             _started = timestamp;

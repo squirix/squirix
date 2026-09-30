@@ -36,7 +36,7 @@ internal static class PersistenceServiceRegistration
         _ = services.AddSingleton(failureMetrics);
 
         // The runtime is created without I/O so the container owns it from the first resolve; OpenPersistenceAsync opens it after the host is built.
-        _ = services.AddSingleton(sp => new PersistenceRuntime(options, failureMetrics, sp.GetRequiredService<ILoggerFactory>()));
+        _ = services.AddSingleton(sp => new PersistenceRuntime(options, failureMetrics, sp.GetRequiredService<ILoggerFactory>(), ResolveClock(sp)));
 
         RegisterPersistenceHostedServices(services, waitForRecovery);
         RegisterPersistenceRuntime(services);
@@ -94,7 +94,8 @@ internal static class PersistenceServiceRegistration
                 sp.GetRequiredService<Ledger>(),
                 sp.GetRequiredService<ISnapshotReader>(),
                 sp.GetRequiredService<PersistenceOptions>(),
-                sp.GetRequiredService<TopologyOptions>()),
+                sp.GetRequiredService<TopologyOptions>(),
+                ResolveClock(sp)),
             sp.GetRequiredService<CompactionMetrics>()));
 
         _ = services.AddSingleton<IJournalCompactionStatus>(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());
@@ -155,7 +156,8 @@ internal static class PersistenceServiceRegistration
                 sp.GetRequiredService<IIdempotencySnapshotExporter>(),
                 sp.GetRequiredService<TopologyOptions>().NodeId,
                 sp.GetRequiredService<IBackgroundSnapshotMemoryThrottle>(),
-                sp.GetRequiredService<ISnapshotTelemetry>())));
+                sp.GetRequiredService<ISnapshotTelemetry>()),
+            ResolveClock(sp)));
     }
 
     private static void RegisterRuntimeHealthChecks(IServiceCollection services)
@@ -166,7 +168,6 @@ internal static class PersistenceServiceRegistration
             HealthStatus.Unhealthy,
             ReadyHealthCheckTags);
 
-        // The stall probe records Stopwatch timestamps: measure them with the system clock, never a clock a test registered.
         var journalMaintenance = new HealthCheckRegistration(
             "journal_maintenance",
             static sp => new JournalMaintenanceReadinessHealthCheck(
@@ -175,7 +176,7 @@ internal static class PersistenceServiceRegistration
                 sp.GetRequiredService<ISnapshotReadinessStatus>(),
                 FindStallProbe(sp.GetRequiredService<JournalCoordinatorHost>().Coordinator),
                 sp.GetRequiredService<PersistenceOptions>().JournalStallDegradedThreshold,
-                TimeProvider.System),
+                ResolveClock(sp)),
             HealthStatus.Unhealthy,
             ReadyHealthCheckTags);
         var storageRetentionCleanup = new HealthCheckRegistration(
@@ -185,6 +186,11 @@ internal static class PersistenceServiceRegistration
             ReadyHealthCheckTags);
         _ = services.AddHealthChecks().Add(journalRecovery).Add(journalMaintenance).Add(storageRetentionCleanup);
     }
+
+    /// <summary>Resolves the server clock; the system clock when the container has none registered.</summary>
+    /// <param name="sp">The service provider.</param>
+    /// <returns>The clock the persistence components measure time with.</returns>
+    private static TimeProvider ResolveClock(IServiceProvider sp) => sp.GetService<TimeProvider>() ?? TimeProvider.System;
 
     /// <summary>Finds the segment I/O stall probe of the owned journal; a coordinator without one reports no stall.</summary>
     /// <param name="coordinator">The journal coordinator owned by the host.</param>
@@ -198,14 +204,14 @@ internal static class PersistenceServiceRegistration
         private int _disposed;
         private int _opened;
 
-        internal PersistenceRuntime(PersistenceOptions options, ManifestRetentionFailureMetrics failureMetrics, ILoggerFactory loggerFactory)
+        internal PersistenceRuntime(PersistenceOptions options, ManifestRetentionFailureMetrics failureMetrics, ILoggerFactory loggerFactory, TimeProvider timeProvider)
         {
             ArgumentNullException.ThrowIfNull(loggerFactory);
             _options = options;
             Retention = new RetentionCleanupReadiness(options);
             Ledger = new Ledger(options, loggerFactory.CreateLogger<Ledger>(), Retention, failureMetrics);
             Gate = new AsyncManualResetEvent();
-            JournalCoordinator = new JournalCoordinatorHost(loggerFactory);
+            JournalCoordinator = new JournalCoordinatorHost(loggerFactory, timeProvider);
         }
 
         internal AsyncManualResetEvent Gate { get; }

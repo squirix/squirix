@@ -32,7 +32,7 @@ public sealed class JournalStopServiceTests : IsolatedStorageTestBase
         var failure = new IOException("final fsync failed");
         journal.Writer.Flush.Arm();
         await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
-        await using var journalHost = new JournalCoordinatorHost(NullLoggerFactory.Instance);
+        await using var journalHost = new JournalCoordinatorHost(NullLoggerFactory.Instance, TimeProvider.System);
         journalHost.Attach(journal.Journal);
         using var host = new HostBuilder()
                          .ConfigureServices(services => services.AddHostedService(_ => new JournalStopService(journalHost)))
@@ -53,7 +53,7 @@ public sealed class JournalStopServiceTests : IsolatedStorageTestBase
     [Test]
     public async Task HostWithoutJournalStopsQuietly(CancellationToken cancellationToken)
     {
-        await using var journalHost = new JournalCoordinatorHost(NullLoggerFactory.Instance);
+        await using var journalHost = new JournalCoordinatorHost(NullLoggerFactory.Instance, TimeProvider.System);
         var service = new JournalStopService(journalHost);
 
         _ = await Assert.That(service.StoppedAsync(cancellationToken).IsCompletedSuccessfully).IsTrue();

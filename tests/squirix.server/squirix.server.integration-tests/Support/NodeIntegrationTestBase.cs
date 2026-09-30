@@ -460,6 +460,8 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 },
                 WaitForRecovery = options.WaitForRecovery,
                 ServicesConfigure = options.ServicesConfigure,
+                TimeProvider = options.TimeProvider,
+                BackpressureOptions = options.BackpressureOptions,
                 PersistenceOptions = persistenceOptions,
                 SecurityOptions = options.Security?.ToServerOptions(),
                 MtlsOptions = mtlsOptions,
@@ -498,10 +500,10 @@ public abstract class NodeIntegrationTestBase : IDisposable
         /// <exception cref="NotSupportedException">Thrown when an unsupported member is set to a non-default value.</exception>
         internal static void ThrowIfUnsupportedClusterStartOptions(IntegrationStartOptions options)
         {
-            if (options.DataDir != null || options.MtlsProfile != TestNodeProfile.Normal || options.TimeProvider != null)
+            if (options.DataDir != null || options.MtlsProfile != TestNodeProfile.Normal)
             {
                 throw new NotSupportedException(
-                    "IntegrationStartOptions does not wire DataDir, MtlsProfile, or TimeProvider into node startup; use PersistenceOptions/UsePersistence for persistence.");
+                    "IntegrationStartOptions does not wire DataDir or MtlsProfile into node startup; use PersistenceOptions/UsePersistence for persistence.");
             }
         }
     }

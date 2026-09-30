@@ -17,15 +17,19 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<JournalCoordinatorHost> _log;
+    private readonly TimeProvider _timeProvider;
     private IJournalCoordinator? _coordinator;
 
     /// <summary>Initializes a new instance of the <see cref="JournalCoordinatorHost" /> class.</summary>
     /// <param name="loggerFactory">Creates the host logger, for startup repairs and disposal failures, and the loggers of the journal components.</param>
-    internal JournalCoordinatorHost(ILoggerFactory loggerFactory)
+    /// <param name="timeProvider">The server clock the journal stall probe and slow-operation warnings measure with.</param>
+    internal JournalCoordinatorHost(ILoggerFactory loggerFactory, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(loggerFactory);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         _loggerFactory = loggerFactory;
         _log = loggerFactory.CreateLogger<JournalCoordinatorHost>();
+        _timeProvider = timeProvider;
     }
 
     /// <summary>Gets the owned journal coordinator.</summary>
@@ -79,7 +83,7 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
         if (_coordinator != null)
             return;
 
-        _coordinator = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, gate, _loggerFactory, out var repairs);
+        _coordinator = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, gate, _loggerFactory, _timeProvider, out var repairs);
         LogRepairs(repairs);
     }
 
