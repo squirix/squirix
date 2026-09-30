@@ -1,6 +1,5 @@
 using System;
 using System.Buffers;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -18,15 +17,14 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Single-writer pipelined journal coordinator with binary frames (see docs/journal-binary-format.md).</summary>
-internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordinatorAppendState, IJournalCoordinatorState, IJournalCoordinatorSnapshotState
+internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordinatorShutdown, IJournalCoordinatorAppendState, IJournalCoordinatorState,
+    IJournalCoordinatorSnapshotState
 {
     private const int RingCapacity = 4096;
 
     private static readonly TimeSpan DefaultGraceJoinFloor = TimeSpan.FromSeconds(5);
 
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
-
-    private static readonly TimeSpan InFlightApplyWaitFloor = TimeSpan.FromSeconds(1);
 
     private static readonly ParameterizedThreadStart RunEventLoopCallback = static state =>
     {
@@ -41,7 +39,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     private readonly ILogger _log;
     private readonly JournalProducerGate _producerGate = new();
 
-    private readonly ProbedJournalSegmentWriter _segmentWriter;
+    private readonly JournalStopper _stopper;
     private long _bytes;
     private int _disposed;
     private ulong _nextSequence;
@@ -62,7 +60,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         Ledger = manifestStore;
         StartupGate = startupGate;
         StallProbe = new JournalStallProbe(_log);
-        _segmentWriter = new ProbedJournalSegmentWriter(segmentWriter, StallProbe);
+        var probedWriter = new ProbedJournalSegmentWriter(segmentWriter, StallProbe);
+        _stopper = new JournalStopper(this, probedWriter, _log);
         _appendPipeline = new JournalCoordinatorAppendPipeline(this, _producerGate);
         DurabilityPipeline = new JournalDurabilityCoordinator(this, this, LogManager.GetLogger<JournalDurabilityCoordinator>(), _producerGate);
         var bridge = new JournalEventLoopBridge(this, DurabilityPipeline);
@@ -72,7 +71,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         // Taken after the factory's startup tail repair, which is the last startup step that changes the current segment.
         var activeSegment = JournalSegmentProbe.Probe(Options.DataDir, currentSegmentIndex);
         var eventLoopStartup = new JournalEventLoopStartup(currentSegmentIndex, totalBytes, segmentCount, activeSegment);
-        EventLoop = new JournalEventLoop(bridge, Ring, _segmentWriter, Options, eventLoopStartup, BackgroundCancellation.Token);
+        EventLoop = new JournalEventLoop(bridge, Ring, probedWriter, Options, eventLoopStartup, BackgroundCancellation.Token);
         GroupCommit = Options.IsJournalGroupCommitEnabled ? new JournalDurabilityGroupCommit(EventLoop.FlushGroupCommitOnJournalThread, Ring.NotifyWorkAvailable, Options, onWaitCanceled: StallProbe.ReportWaitCanceled) : null;
         EventLoop.AttachGroupCommit(GroupCommit);
         _ = DirectoryEx.CreateDirectory(Options.DataDir);
@@ -141,7 +140,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     /// <exception cref="ArgumentOutOfRangeException">The floor is not positive.</exception>
     internal TimeSpan GraceJoinFloor
     {
-        private get;
+        get;
         init
         {
             value.ThrowIfNegativeOrZero(nameof(value), "The grace join floor must be greater than zero.");
@@ -154,7 +153,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
     internal TimeSpan ShutdownBudget
     {
-        private get;
+        get;
         init
         {
             value.ThrowIfNegativeOrZero(nameof(value), "The shutdown budget must be greater than zero.");
@@ -223,61 +222,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         return GroupCommit?.AwaitCommitAsync(cancellationToken) ?? DurabilityPipeline.EnqueueFlushAsync(cancellationToken);
     }
 
-    public async ValueTask DisposeAsync()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1)
-            return;
-
-        var failures = new List<Exception>();
-
-        // All shutdown stages share one budget (the host default): quiescence, marker, join, and grace join must fit it cumulatively instead of stacking independent fixed waits.
-        var shutdownDeadline = Environment.TickCount64 + Convert.ToInt64(ShutdownBudget.TotalMilliseconds);
-
-        // Quiesce producers BEFORE the shutdown marker enters the ring: the gate guarantees every
-        // admitted enqueue is published ahead of the marker (ring FIFO), and work arriving after
-        // shutdown is rejected explicitly instead of being silently dropped or hung.
-        await DurabilityPipeline.QuiesceProducersAsync(failures, RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false);
-
-        // The shutdown marker must enter the ring BEFORE background cancellation is requested: the
-        // journal thread dequeues FIFO, so every item enqueued before it is drained and written, and
-        // only then does the thread observe Shutdown and exit. Cancelling first would let the thread
-        // exit via OperationCanceledException while frames were still queued, silently dropping them.
-        using var markerCts = new CancellationTokenSource(RemainingBeforeShutdown(shutdownDeadline));
-        await DurabilityPipeline.EnqueueShutdownMarkerAsync(failures, markerCts.Token).ConfigureAwait(false);
-        var joinTimedOut = await DurabilityPipeline.AwaitJournalThreadDuringDisposeAsync(failures, RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false);
-        try
-        {
-            await BackgroundCancellation.CancelAsync().ConfigureAwait(false);
-        }
-        catch (ObjectDisposedException)
-        {
-            // Concurrent teardown can dispose the CTS before cancellation is observed.
-            LogManager.JournalBackgroundCancellationDisposedOnDispose(_log);
-        }
-
-        // The join budget is spent: release every reachable waiter, including the callers whose fsync
-        // never returned, so no caller outlives dispose on a stuck disk.
-        var faultedInFlight = GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator))) ?? 0;
-        _ = PendingAppends.FailAll(new ObjectDisposedException(nameof(JournalCoordinator)), _log, QueuedAppendsCounter);
-        faultedInFlight += DurabilityPipeline.FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
-        if (joinTimedOut)
-            LogManager.JournalThreadJoinTimedOut(_log, faultedInFlight);
-
-        await JournalShutdown.JoinJournalThreadWithGraceAsync(this, failures, RemainingBeforeShutdown(shutdownDeadline), faultedInFlight).ConfigureAwait(false);
-
-        _segmentWriter.Dispose();
-        Ring.Dispose();
-        BackgroundCancellation.Dispose();
-        await JournalShutdown.AwaitInFlightAppliesAsync(this, RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false);
-        MutationGate.Dispose();
-        JournalDurabilityCoordinator.ThrowDisposeFailures(failures);
-
-        static TimeSpan RemainingBeforeShutdown(long shutdownDeadline)
-        {
-            var remainingMs = shutdownDeadline - Environment.TickCount64;
-            return remainingMs <= 0 ? TimeSpan.Zero : TimeSpan.FromMilliseconds(remainingMs);
-        }
-    }
+    public ValueTask DisposeAsync() => Interlocked.Exchange(ref _disposed, 1) == 1 ? ValueTask.CompletedTask : _stopper.StopOnDisposeAsync();
 
     public async ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
     {
@@ -407,6 +352,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public Exception? GetJournalThreadFailure() => _flushLoopFailure.Read();
 
+    /// <inheritdoc />
+    public ValueTask StopAsync() => _stopper.StopAsync(ShutdownBudget);
+
     void IJournalCoordinatorAppendState.EnsureAppendAdmission(int frameLength)
     {
         // Conservative admission: a frame admitted here is never rejected for capacity by the journal thread. The caller holds
@@ -454,6 +402,13 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => StartupGate.WaitAsync(cancellationToken);
 
+    /// <summary>Stops the journal within <paramref name="budget" />; see <see cref="IJournalCoordinatorShutdown.StopAsync" />.</summary>
+    /// <param name="budget">Shared budget of the stop stages; each stage still gets its own floor once the budget is spent.</param>
+    /// <returns>A task that completes when the journal is stopped.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="budget" /> is not positive.</exception>
+    /// <exception cref="TimeoutException">A stop stage did not finish in time; the journal thread and its resources stay open.</exception>
+    internal ValueTask StopAsync(TimeSpan budget) => _stopper.StopAsync(budget);
+
     private async ValueTask<(ulong Sequence, TBarrier BarrierState, TaskCompletionSource Checkpoint)> CaptureSnapshotCutAsync<TState, TBarrier>(
         TState state,
         Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
@@ -483,60 +438,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             StallProbe.GateReleased();
             holder.Dispose();
             JournalSlowOperationDiagnostics.ReportMutationGateHold(_log, acquiredTimestamp, nameof(ExecuteSnapshotCutAsync));
-        }
-    }
-
-    /// <summary>Bounded shutdown stages that follow the journal thread join.</summary>
-    private static class JournalShutdown
-    {
-        /// <summary>
-        /// Gives callers whose frame is already durable a bounded chance to apply it to memory before the mutation gate is disposed
-        /// under them, so they get a definite success instead of a commit-unknown failure.
-        /// </summary>
-        /// <param name="coordinator">The disposing coordinator.</param>
-        /// <param name="remaining">Time left in the shared shutdown budget; the wait never drops below a one-second floor.</param>
-        /// <returns>A task that completes when the in-flight applies drained or the wait gave up.</returns>
-        internal static async ValueTask AwaitInFlightAppliesAsync(JournalCoordinator coordinator, TimeSpan remaining)
-        {
-            // Called only after the journal thread joined and every durability waiter completed or faulted, so an applier still
-            // counted here waits only for the mutation gate or its own memory apply. Disposal holds that gate at no point, so the wait cannot deadlock
-            // with such an applier; a gate held elsewhere is bounded by the timeout, after which the applier fails on the disposed gate.
-            using var timeout = new CancellationTokenSource(TimeSpan.FromTicks(Math.Max(remaining.Ticks, InFlightApplyWaitFloor.Ticks)));
-            try
-            {
-                await coordinator.InFlightApplyGate.WaitAsync(timeout.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                LogManager.JournalInFlightApplyWaitTimedOut(coordinator._log);
-            }
-        }
-
-        /// <summary>Joins the journal thread with a last-chance grace period, leaking the writer, ring, and gates when it stays alive.</summary>
-        /// <param name="coordinator">The disposing coordinator.</param>
-        /// <param name="failures">The shutdown failures collected so far.</param>
-        /// <param name="remaining">Time left in the shared shutdown budget; the grace join never drops below its floor.</param>
-        /// <param name="faultedInFlight">The number of callers released because their durable write never completed.</param>
-        /// <returns>A task that completes when the thread joined or was leaked.</returns>
-        internal static async ValueTask JoinJournalThreadWithGraceAsync(JournalCoordinator coordinator, List<Exception> failures, TimeSpan remaining, int faultedInFlight)
-        {
-            // The grace join always gets a floor: with an exhausted budget, the thread still deserves
-            // a last chance before its resources are leaked.
-            var graceJoin = TimeSpan.FromTicks(Math.Max(remaining.Ticks, coordinator.GraceJoinFloor.Ticks));
-            if (coordinator.JournalThread.IsAlive && !await coordinator.DurabilityPipeline.TryJoinJournalThreadAsync(graceJoin).ConfigureAwait(false))
-            {
-                // The join timed out: tearing down the writer, ring, or gates under a live journal
-                // thread corrupts slot accounting and races in-flight writes. Leak them instead and
-                // surface the timeout loudly alongside any earlier stage failures.
-                LogManager.JournalThreadLeakedOnShutdownTimeout(coordinator._log, faultedInFlight);
-                failures.Add(new TimeoutException("journal I/O thread is still alive after shutdown; writer, ring, and gates are leaked."));
-                JournalDurabilityCoordinator.ThrowDisposeFailures(failures);
-                return;
-            }
-
-            // The thread is dead: collect anything admitted but never dequeued and return quarantined
-            // buffers to the pool immediately (no live-thread race remains).
-            coordinator.DurabilityPipeline.ReclaimAbandonedAppendsPostJoin();
         }
     }
 

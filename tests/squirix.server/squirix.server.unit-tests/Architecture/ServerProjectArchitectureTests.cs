@@ -114,11 +114,11 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
     public async Task JournalThreadShouldBeJoinedOnDispose(CancellationToken cancellationToken)
     {
         var root = RepositoryPaths.FindRepositoryRoot();
-        var coordinatorText = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "Storage", "Journaling", "JournalCoordinator.cs"), cancellationToken);
+        var stopperText = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "Storage", "Journaling", "JournalStopper.cs"), cancellationToken);
         var durabilityText = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "Storage", "Journaling", "JournalDurabilityCoordinator.cs"), cancellationToken);
 
         _ = await Assert.That(durabilityText).Contains("JournalThread.Join(", StringComparison.Ordinal);
-        _ = await Assert.That(coordinatorText).Contains("AwaitJournalThreadDuringDisposeAsync", StringComparison.Ordinal);
+        _ = await Assert.That(stopperText).Contains("JoinJournalThreadAsync", StringComparison.Ordinal);
     }
 
     /// <summary>Ensures repository projects and sources do not hide dependencies with global or implicit usings.</summary>

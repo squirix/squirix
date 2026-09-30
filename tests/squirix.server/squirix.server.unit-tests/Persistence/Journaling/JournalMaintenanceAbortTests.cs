@@ -104,8 +104,7 @@ public sealed class JournalMaintenanceAbortTests : IsolatedStorageTestBase
 
         // Quiescing producers initiates shutdown while the maintenance action is still
         // in flight, so the abort branch observes the shutdown flag when the action throws.
-        // It throws on timeout, so reaching the next line proves quiescence succeeded.
-        await pipelined.DurabilityPipeline.QuiesceProducersAsync([], TimeSpan.FromSeconds(10));
+        _ = await Assert.That(await pipelined.DurabilityPipeline.QuiesceProducersAsync(TimeSpan.FromSeconds(10))).IsTrue();
         _ = gate.Release.TrySetResult();
 
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pending);

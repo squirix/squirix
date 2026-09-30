@@ -73,13 +73,13 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         _ = await Assert.That(observed).IsSameReferenceAs(failure);
     }
 
-    /// <summary>Disposal over a stuck fsync faults its caller within the budget and reports the leaked journal thread as a timeout.</summary>
+    /// <summary>A stop over a stuck fsync faults its caller within the budget and reports the live journal thread as a timeout.</summary>
     /// <param name="groupCommit">Whether the stuck fsync belongs to a taken group commit batch instead of a plain checkpoint.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task DisposeReleasesStuckFsyncCaller(bool groupCommit, CancellationToken cancellationToken)
+    public async Task StopReleasesStuckFsyncCaller(bool groupCommit, CancellationToken cancellationToken)
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, ShutdownBudget, NullLogger.Instance, cancellationToken);
         var memory = new AppliedKeys();
@@ -88,7 +88,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
 
         var (disposeError, putError) = await DisposeOverStuckFsyncAsync(journal, put, null, cancellationToken);
 
-        _ = await Assert.That(IsShutdownTimeout(disposeError)).IsTrue().Because(disposeError.ToString());
+        _ = await Assert.That(disposeError).IsTypeOf<TimeoutException>().Because(disposeError.ToString());
         _ = await Assert.That(putError).IsTypeOf<SquirixException>();
         _ = await Assert.That(memory.Snapshot).IsEmpty();
     }
@@ -424,7 +424,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     {
         try
         {
-            var disposeError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.DisposeStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var disposeError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             var putError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             return (disposeError, putError);
         }
@@ -435,23 +435,6 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
 
             await journal.ReclaimLeakedAsync(StallTimeout);
         }
-    }
-
-    private static bool IsShutdownTimeout(Exception error)
-    {
-        if (error is TimeoutException)
-            return true;
-
-        if (error is not AggregateException aggregate)
-            return false;
-
-        foreach (var inner in aggregate.InnerExceptions)
-        {
-            if (inner is not TimeoutException)
-                return false;
-        }
-
-        return true;
     }
 
     /// <summary>Arms the fsync stall and starts a put of key <c language="text">a</c>; wait for the stall to be entered before acting on it.</summary>
