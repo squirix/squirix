@@ -13,6 +13,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -103,6 +104,34 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         _ = await Assert.That(openAtJournalDispose).IsTrue();
         _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken));
         _ = await Assert.That(CanLockExclusively(groupLog)).IsTrue();
+    }
+
+    /// <summary>The ledger stays open while the journal is disposed even when the journal host is resolved before the ledger.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LedgerOutlivesHostResolvedFirst(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("test-persistence-host-first");
+        var provider = BuildUnopenedProvider(meter, null);
+
+        // Resolving the host before anything resolves the ledger is the order that used to dispose the ledger first.
+        var host = provider.GetRequiredService<JournalCoordinatorHost>();
+        await PersistenceServiceRegistration.OpenPersistenceAsync(provider, cancellationToken);
+        var ledger = provider.GetRequiredService<Ledger>();
+        var journal = host.Coordinator;
+        Exception? readFailure = null;
+        var expectations = new IJournalCoordinatorCreateExpectations();
+        _ = expectations.Setups.DisposeAsync().Callback(async () =>
+        {
+            readFailure = await ledger.ReadCurrentOrDefaultAsync(cancellationToken).CaptureFailureAsync(static ex => ex is ObjectDisposedException);
+            await journal.DisposeAsync();
+        });
+        host.Attach(expectations.Instance());
+
+        await provider.DisposeAsync();
+
+        _ = await Assert.That(readFailure).IsNull();
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken));
     }
 
     /// <summary>Resolving the journal before storage is opened fails with an explicit error instead of a null journal.</summary>

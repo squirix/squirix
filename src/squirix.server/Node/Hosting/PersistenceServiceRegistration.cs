@@ -50,14 +50,13 @@ internal static class PersistenceServiceRegistration
     /// <returns>A task that completes when the journal is open.</returns>
     /// <exception cref="InvalidOperationException">Storage is already opened.</exception>
     /// <remarks>
-    /// The ledger is resolved before the journal host so the container disposes it after the host. When opening fails the runtime
-    /// releases what it opened and the failure is rethrown; the container then disposes the components on application disposal.
+    /// When opening fails the runtime releases what it opened and the failure is rethrown; the container then disposes the components
+    /// on application disposal.
     /// </remarks>
     internal static async Task OpenPersistenceAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(services);
         var runtime = services.GetRequiredService<PersistenceRuntime>();
-        _ = services.GetRequiredService<Ledger>();
         await runtime.OpenAsync(cancellationToken).ConfigureAwait(false);
         _ = services.GetRequiredService<JournalCoordinatorHost>();
     }
@@ -113,7 +112,15 @@ internal static class PersistenceServiceRegistration
         _ = services.AddSingleton<IRetentionCleanupReadinessStatus>(static sp => sp.GetRequiredService<PersistenceRuntime>().Retention);
         _ = services.AddSingleton(static sp => sp.GetRequiredService<PersistenceRuntime>().Ledger);
         _ = services.AddSingleton(static sp => sp.GetRequiredService<PersistenceRuntime>().Gate);
-        _ = services.AddSingleton(static sp => sp.GetRequiredService<PersistenceRuntime>().JournalCoordinator);
+
+        // The journal publishes manifest rolls to the ledger until its thread is joined, so the ledger must be disposed after the
+        // host. The container disposes in reverse order of creation, tracking a service when its factory returns, so resolving the
+        // ledger inside this factory tracks it before the host whatever resolves the host first.
+        _ = services.AddSingleton(static sp =>
+        {
+            _ = sp.GetRequiredService<Ledger>();
+            return sp.GetRequiredService<PersistenceRuntime>().JournalCoordinator;
+        });
 
         // The journal host is the only owner of the journal lifetime. The container disposes every disposable a factory
         // returns, so no other registration may hand out the raw journal: each goes through the decorator, which does not
