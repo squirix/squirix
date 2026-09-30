@@ -6,9 +6,9 @@ namespace Squirix.Server.Node.Observability;
 
 internal static class ServerRpcDeadlineContext
 {
-    private static readonly AsyncLocal<DateTime?> DeadlineUtc = new();
+    private static readonly AsyncLocal<Scope?> Current = new();
 
-    private static DateTime? CurrentDeadlineUtc => DeadlineUtc.Value;
+    private static DateTime? CurrentDeadlineUtc => Current.Value?.Deadline;
 
     internal static DateTime? EffectiveDeadline(DateTime? existingDeadlineUtc)
     {
@@ -27,9 +27,9 @@ internal static class ServerRpcDeadlineContext
 
     internal static IDisposable Push(DateTime? deadlineUtc)
     {
-        var previous = DeadlineUtc.Value;
-        DeadlineUtc.Value = Normalize(deadlineUtc);
-        return new Scope(previous);
+        var scope = new Scope(Normalize(deadlineUtc), Current.Value);
+        Current.Value = scope;
+        return scope;
     }
 
     private static DateTime? Normalize(DateTime? deadlineUtc) => deadlineUtc switch
@@ -40,16 +40,38 @@ internal static class ServerRpcDeadlineContext
         { } value => value.ToUniversalTime(),
     };
 
-    [Immutable]
+    /// <summary>One pushed deadline, chained to the scope that was current before it.</summary>
+    /// <remarks>
+    /// The ambient value is the scope itself, so a dispose acts only when this very scope is current: a repeated dispose, or the
+    /// dispose of an outer scope while an inner one is current, changes nothing. When it does act, it restores the nearest enclosing
+    /// scope that is still live, so a scope disposed out of order is never brought back.
+    /// </remarks>
+    [Mutable]
     private sealed class Scope : IDisposable
     {
-        private readonly DateTime? _previous;
+        private readonly Scope? _parent;
+        private int _disposed;
 
-        internal Scope(DateTime? previous)
+        internal Scope(DateTime? deadline, Scope? parent)
         {
-            _previous = previous;
+            Deadline = deadline;
+            _parent = parent;
         }
 
-        public void Dispose() => DeadlineUtc.Value = _previous;
+        internal DateTime? Deadline { get; }
+
+        private bool IsDisposed => Volatile.Read(ref _disposed) != 0;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0 || !ReferenceEquals(Current.Value, this))
+                return;
+
+            var restored = _parent;
+            while (restored?.IsDisposed == true)
+                restored = restored._parent;
+
+            Current.Value = restored;
+        }
     }
 }
