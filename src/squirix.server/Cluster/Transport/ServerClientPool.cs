@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
 
@@ -21,6 +22,11 @@ namespace Squirix.Server.Cluster.Transport;
 [Mutable]
 internal sealed class ServerClientPool : IServerClientPool
 {
+    private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(10);
+
+    /// <summary>The longest finite timeout <see cref="Task.WaitAsync(TimeSpan, TimeProvider)" /> accepts.</summary>
+    private static readonly TimeSpan MaxShutdownBudget = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
+
     private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new(StringComparer.Ordinal);
 
     private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new(StringComparer.Ordinal);
@@ -28,6 +34,8 @@ internal sealed class ServerClientPool : IServerClientPool
     private readonly ServerClientPoolMetrics _metrics;
     private readonly string[] _nodeIds;
     private readonly ConcurrentDictionary<string, IServerCallPolicy> _policies = new(StringComparer.Ordinal);
+    private readonly TimeSpan _shutdownBudget;
+    private readonly TimeProvider _timeProvider;
     private int _disposed;
 
     internal ServerClientPool(IReadOnlyList<ServerPeer> peers, ServerClientPoolArgs args, ServerClientPoolMetrics metrics, ILogger<ServerClientPool> logger)
@@ -36,6 +44,11 @@ internal sealed class ServerClientPool : IServerClientPool
         ArgumentNullException.ThrowIfNull(logger);
         _logger = logger;
         _metrics = metrics;
+        if (args.ShutdownBudget is { } budget && budget != Timeout.InfiniteTimeSpan && (budget < TimeSpan.Zero || budget > MaxShutdownBudget))
+            throw new ArgumentOutOfRangeException(nameof(args), budget, "The shutdown budget must be between zero and the longest timeout a task wait accepts, or infinite.");
+
+        _shutdownBudget = args.ShutdownBudget ?? DefaultShutdownBudget;
+        _timeProvider = args.TimeProvider ?? TimeProvider.System;
         var nodeIds = new string[peers.Count];
 
         for (var i = 0; i < peers.Count; i++)
@@ -57,37 +70,22 @@ internal sealed class ServerClientPool : IServerClientPool
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
+        // The peers drain in parallel under one budget, so a stuck peer cannot hold up host shutdown; channels are disposed either way.
         BeginDrain();
-#pragma warning disable CA1031 // Shutdown drain: one bad peer must not leak the remaining peers.
+        var drains = new Task[_nodeIds.Length];
         for (var i = 0; i < _nodeIds.Length; i++)
+            drains[i] = DisposePolicyAsync(_nodeIds[i]);
+
+        try
         {
-            var nodeId = _nodeIds[i];
-            try
-            {
-                await _policies[nodeId].DisposeAsync().ConfigureAwait(false);
-            }
-            catch (Exception exception)
-            {
-                if (_logger != null)
-                    ServerLog.ClientPoolPolicyDisposeFailed(_logger, exception, nodeId);
-            }
+            await Task.WhenAll(drains).WaitAsync(_shutdownBudget, _timeProvider).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            ServerLog.ClientPoolDrainTimedOut(_logger, _shutdownBudget, BusyPeers(drains));
         }
 
-        for (var i = 0; i < _nodeIds.Length; i++)
-        {
-            var nodeId = _nodeIds[i];
-            try
-            {
-                _channels[nodeId].Dispose();
-                _metrics.AddDisposal();
-            }
-            catch (Exception exception)
-            {
-                if (_logger != null)
-                    ServerLog.ClientPoolChannelDisposeFailed(_logger, exception, nodeId);
-            }
-        }
-#pragma warning restore CA1031
+        DisposeChannels();
     }
 
     public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId) => _cacheClients[nodeId];
@@ -151,6 +149,38 @@ internal sealed class ServerClientPool : IServerClientPool
     {
         for (var i = 0; i < _nodeIds.Length; i++)
             _policies[_nodeIds[i]].BeginDrain();
+    }
+
+    private string BusyPeers(Task[] drains)
+    {
+        var busy = new List<string>(drains.Length);
+        for (var i = 0; i < drains.Length; i++)
+        {
+            if (!drains[i].IsCompleted)
+                busy.Add(_nodeIds[i]);
+        }
+
+        return string.Join(", ", busy);
+    }
+
+    private void DisposeChannels()
+    {
+        for (var i = 0; i < _nodeIds.Length; i++)
+        {
+            var nodeId = _nodeIds[i];
+            var failure = Isolated.Run(_channels[nodeId], static channel => channel.Dispose());
+            if (failure == null)
+                _metrics.AddDisposal();
+            else
+                ServerLog.ClientPoolChannelDisposeFailed(_logger, failure, nodeId);
+        }
+    }
+
+    private async Task DisposePolicyAsync(string nodeId)
+    {
+        var failure = await _policies[nodeId].CaptureDisposeFailureAsync().ConfigureAwait(false);
+        if (failure != null)
+            ServerLog.ClientPoolPolicyDisposeFailed(_logger, failure, nodeId);
     }
 
     private void RegisterPeer(ServerPeer peer, ServerClientPoolArgs args)

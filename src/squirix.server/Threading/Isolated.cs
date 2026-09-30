@@ -22,9 +22,7 @@ internal static class Isolated
             action(state);
             return null;
         }
-#pragma warning disable CA1031 // Isolation is the purpose of this helper: every failure is returned to the caller, which decides how to report it.
         catch (Exception exception)
-#pragma warning restore CA1031
         {
             return exception;
         }

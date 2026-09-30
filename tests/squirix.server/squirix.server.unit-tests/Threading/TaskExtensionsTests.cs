@@ -56,4 +56,43 @@ public sealed class TaskExtensionsTests
 
         _ = await Assert.That(failure).IsSameReferenceAs(expected);
     }
+
+    /// <summary>A disposal that faults is returned instead of thrown.</summary>
+    [Test]
+    public async Task CaptureDisposeReturnsFault()
+    {
+        var expected = new InvalidOperationException("dispose faulted");
+
+        var failure = await Failing(expected, false).CaptureDisposeFailureAsync();
+
+        _ = await Assert.That(failure).IsSameReferenceAs(expected);
+    }
+
+    /// <summary>A disposal that throws before returning its task is returned instead of thrown.</summary>
+    [Test]
+    public async Task CaptureDisposeReturnsSyncThrow()
+    {
+        var expected = new InvalidOperationException("dispose threw");
+
+        var failure = await Failing(expected, true).CaptureDisposeFailureAsync();
+
+        _ = await Assert.That(failure).IsSameReferenceAs(expected);
+    }
+
+    private static FailingDisposable Failing(Exception failure, bool throwDirectly) => new(failure, throwDirectly);
+
+    /// <summary>Fails its disposal either by throwing directly or by returning a faulted task.</summary>
+    private sealed class FailingDisposable : IAsyncDisposable
+    {
+        private readonly Exception _failure;
+        private readonly bool _throwDirectly;
+
+        internal FailingDisposable(Exception failure, bool throwDirectly)
+        {
+            _failure = failure;
+            _throwDirectly = throwDirectly;
+        }
+
+        public ValueTask DisposeAsync() => _throwDirectly ? throw _failure : ValueTask.FromException(_failure);
+    }
 }
