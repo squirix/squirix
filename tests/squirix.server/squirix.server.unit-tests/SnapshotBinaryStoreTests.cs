@@ -137,6 +137,35 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
             static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: token).AsTask());
     }
 
+    /// <summary>A snapshot rejected for an invalid header leaves no open handle behind, so the file can be taken exclusively right away.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LoadStrictAsyncReleasesFileOnBadHeader(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-binary-snapshot-bad-header");
+        var options = new PersistenceOptions { DataDir = dir };
+        var writer = StoreFactory.CreateWriter(options);
+        var reader = StoreFactory.CreateReader();
+        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
+        {
+            (CacheKey.Default("k"), new NodeCacheEntry<object?> { Value = "v", Version = 1 }),
+        };
+
+        var path = await writer.WriteAsync(1, items, [], cancellationToken);
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+        bytes[0] ^= 0xFF;
+        await File.WriteAllBytesAsync(path, bytes, cancellationToken);
+
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            reader,
+            path,
+            cancellationToken,
+            static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: token).AsTask());
+
+        using var exclusive = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        _ = await Assert.That(exclusive.IsInvalid).IsFalse();
+    }
+
     /// <summary>Writes mixed entries and idempotency records, then loads them back.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
