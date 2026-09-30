@@ -13,6 +13,7 @@ using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
@@ -114,11 +115,14 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         await using var cluster = await StartClusterAsync("node_clock_snapshot", new IntegrationStartOptions { UsePersistence = true, TimeProvider = clock }, cancellationToken);
         var node = cluster["node_clock_snapshot"];
+        var snapshot = node.GetRequiredService<Coordinator>();
         var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        node.GetRequiredService<Coordinator>().SnapshotCompleted += (_, _) => published.TrySetResult();
-
-        // The first write after start triggers the first snapshot.
+        snapshot.SnapshotCompleted += (_, _) => published.TrySetResult();
         await GetCache(node).SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, "clock:k1", BuildEntry("v"), cancellationToken);
+
+        // The trigger service may subscribe to journal appends only after this write and then ticks on the unmoving test clock, so
+        // request the first snapshot directly; if the service already runs one, this call returns and that snapshot is awaited.
+        await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken);
         await published.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         var fresh = await GetSnapshotAgeSecondsAsync(node.Uri, cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(90));
