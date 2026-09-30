@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.Internal;
+using Squirix.Internal.Threading;
 
 namespace Squirix.Client;
 
@@ -11,8 +12,8 @@ namespace Squirix.Client;
 public sealed class SquirixClient : ISquirixClient
 {
     private readonly IRemoteClientSession _remoteSession;
-    private int _disposeOnce;
     private int _disposed;
+    private Task? _disposeTask;
 
     private SquirixClient(IRemoteClientSession remoteSession)
     {
@@ -56,15 +57,8 @@ public sealed class SquirixClient : ISquirixClient
     /// Ends the logical client session. Idempotent. InternalCache facades obtained via <see cref="GetCacheAsync{T}" /> throw
     /// <see cref="ObjectDisposedException" /> on subsequent operations. Remote transport resources owned by this session are released.
     /// </summary>
-    /// <returns>A <see cref="ValueTask" /> that completes when disposal finishes.</returns>
-    public async ValueTask DisposeAsync()
-    {
-        if (Interlocked.CompareExchange(ref _disposeOnce, 1, 0) != 0)
-            return;
-
-        _ = Interlocked.Exchange(ref _disposed, 1);
-        await _remoteSession.DisposeAsync().ConfigureAwait(false);
-    }
+    /// <returns>A <see cref="ValueTask" /> that completes when disposal finishes, also for a call made while another one is still disposing.</returns>
+    public ValueTask DisposeAsync() => new(AsyncLazyInitializer.EnsureStartedAsync(ref _disposeTask, this, static client => client.DisposeCoreAsync()));
 
     /// <summary>Returns the primary <see cref="ICache{T}" /> facade for a logical cache name.</summary>
     /// <typeparam name="T">The value type stored in the cache.</typeparam>
@@ -95,6 +89,12 @@ public sealed class SquirixClient : ISquirixClient
         ArgumentNullException.ThrowIfNull(options);
         foreach (var context in options.JsonSerializerContexts)
             ClientSerializerMetadata.RegisterContext(context);
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        Volatile.Write(ref _disposed, 1);
+        await _remoteSession.DisposeAsync().ConfigureAwait(false);
     }
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
