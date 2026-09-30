@@ -12,6 +12,7 @@ using Grpc.Net.Client;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
+using Squirix.Internal.Threading;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Internal.Cluster.Transport;
@@ -33,7 +34,7 @@ internal sealed class ClientPool : IClientPool
     private readonly string[] _nodeIds;
     private readonly ConcurrentDictionary<string, ICallPolicy> _policies = new(StringComparer.OrdinalIgnoreCase);
     private readonly TimeProvider _timeProvider;
-    private int _disposed;
+    private Task? _disposeTask;
 
     internal ClientPool(
         Peer[] peers,
@@ -69,39 +70,7 @@ internal sealed class ClientPool : IClientPool
 
     void IClientPool.BeginDrain() => BeginDrain();
 
-    public async ValueTask DisposeAsync()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1)
-            return;
-
-        BeginDrain();
-        for (var i = 0; i < _nodeIds.Length; i++)
-        {
-            var nodeId = _nodeIds[i];
-            try
-            {
-                await _policies[nodeId].DisposeAsync().ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is ObjectDisposedException or IOException)
-            {
-                // Best-effort drain: one failing policy dispose must not block disposal of other peers; the failure is intentionally ignored.
-            }
-        }
-
-        for (var i = 0; i < _nodeIds.Length; i++)
-        {
-            var nodeId = _nodeIds[i];
-            try
-            {
-                _channels[nodeId].Dispose();
-                ClientPoolMetrics.AddDisposal();
-            }
-            catch (Exception ex) when (ex is ObjectDisposedException or IOException)
-            {
-                // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted; the failure is intentionally ignored.
-            }
-        }
-    }
+    public ValueTask DisposeAsync() => new(AsyncLazyInitializer.EnsureStartedAsync(ref _disposeTask, this, static pool => pool.DisposeCoreAsync()));
 
     public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId) => _cacheClients[nodeId];
 
@@ -165,6 +134,37 @@ internal sealed class ClientPool : IClientPool
     {
         for (var i = 0; i < _nodeIds.Length; i++)
             _policies[_nodeIds[i]].BeginDrain();
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        BeginDrain();
+        for (var i = 0; i < _nodeIds.Length; i++)
+        {
+            var nodeId = _nodeIds[i];
+            try
+            {
+                await _policies[nodeId].DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is ObjectDisposedException or IOException)
+            {
+                // Best-effort drain: one failing policy dispose must not block disposal of other peers; the failure is intentionally ignored.
+            }
+        }
+
+        for (var i = 0; i < _nodeIds.Length; i++)
+        {
+            var nodeId = _nodeIds[i];
+            try
+            {
+                _channels[nodeId].Dispose();
+                ClientPoolMetrics.AddDisposal();
+            }
+            catch (Exception ex) when (ex is ObjectDisposedException or IOException)
+            {
+                // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted; the failure is intentionally ignored.
+            }
+        }
     }
 
     private string[] RegisterPeers(

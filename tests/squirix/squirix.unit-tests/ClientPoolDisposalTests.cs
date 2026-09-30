@@ -45,6 +45,49 @@ public sealed class ClientPoolDisposalTests
         _ = await Assert.That(shared.Disposed).IsFalse();
     }
 
+    /// <summary>A repeated dispose disposes each peer policy once.</summary>
+    [Test]
+    public async Task RepeatedDisposeRunsOnceAsync()
+    {
+        var disposals = 0;
+        var expectations = new ICallPolicyCreateExpectations();
+        _ = expectations.Setups.BeginDrain();
+        _ = expectations.Setups.DisposeAsync().Callback(() =>
+        {
+            disposals++;
+            return ValueTask.CompletedTask;
+        });
+        var policy = expectations.Instance();
+        var pool = new ClientPool(Peers, _ => policy, static () => new TrackingHandler());
+
+        await pool.DisposeAsync();
+        await pool.DisposeAsync();
+
+        _ = await Assert.That(disposals).IsEqualTo(Peers.Length);
+    }
+
+    /// <summary>A dispose racing a running one completes only when the running disposal has finished.</summary>
+    [Test]
+    public async Task SecondDisposeWaitsForFirstAsync()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var expectations = new ICallPolicyCreateExpectations();
+        _ = expectations.Setups.BeginDrain();
+        _ = expectations.Setups.DisposeAsync().ReturnValue(new ValueTask(release.Task));
+        var policy = expectations.Instance();
+        var pool = new ClientPool([Peers[0]], _ => policy, static () => new TrackingHandler());
+
+        var first = StartDisposeAsync(pool);
+        var second = StartDisposeAsync(pool);
+        _ = await Assert.That(second.IsCompleted).IsFalse();
+
+        release.SetResult();
+        await first;
+        await second;
+    }
+
+    private static Task StartDisposeAsync(ClientPool pool) => pool.DisposeAsync().AsTask();
+
     private static TrackingHandler Track(List<TrackingHandler> created)
     {
         var handler = new TrackingHandler();
