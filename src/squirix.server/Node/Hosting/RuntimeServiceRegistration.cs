@@ -33,7 +33,7 @@ internal static class RuntimeServiceRegistration
             _ = services.AddSingleton<IRemoteInvocationState>(static sp => sp.GetRequiredService<RemoteInvocationContextAccessor>());
             _ = services.AddHttpContextAccessor();
             _ = services.AddSingleton<IBackpressureClientIdResolver>(static sp => new HttpContextClientIdResolver(sp.GetRequiredService<IHttpContextAccessor>()));
-            _ = services.AddSingleton<IBackpressureGate>(static sp => new AdmissionGate(sp.GetRequiredService<AdmissionOptions>(), sp.GetRequiredService<BackpressureMetrics>()));
+            _ = services.AddSingleton<IBackpressureGate>(static sp => new AdmissionGate(sp.GetRequiredService<AdmissionOptions>(), sp.GetRequiredService<BackpressureMetrics>(), sp.GetService<TimeProvider>()));
             _ = services.AddSingleton<IMemoryPressureStateEvaluator>(static sp => new StateEvaluator(sp.GetRequiredService<IOptions<PressureOptions>>()));
             _ = services.AddSingleton<MemoryUsageAccounting>();
             _ = services.AddSingleton<IMemoryUsageAccounting>(static sp => sp.GetRequiredService<MemoryUsageAccounting>());

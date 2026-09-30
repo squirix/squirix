@@ -106,6 +106,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             NullLoggerFactory.Instance,
+            clock,
             out _);
         var physical = new PhysicalCache<object?>(clock);
         var cache = new JournalLoggingCacheDecorator<object?>(

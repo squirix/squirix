@@ -95,6 +95,7 @@ internal sealed class JournalReplayKit
             manifestStore,
             new AsyncManualResetEvent(true),
             NullLoggerFactory.Instance,
+            clock,
             out _);
         var physical = new PhysicalCache<string>(clock);
         var cache = new JournalLoggingCacheDecorator<string>(

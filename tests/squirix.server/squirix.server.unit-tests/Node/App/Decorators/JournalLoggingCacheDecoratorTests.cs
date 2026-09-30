@@ -264,7 +264,14 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             ManifestRetentionCount = 1,
         };
         var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
-        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
+        var journal = JournalCoordinatorFactory.Create(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            NullLoggerFactory.Instance,
+            TimeProvider.System,
+            out _);
         var physical = new PhysicalCache<string>();
         var inner = new RecordingLogicalCache(physical);
         var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
@@ -287,7 +294,14 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             ManifestRetentionCount = 1,
         };
         var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
-        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
+        var journal = JournalCoordinatorFactory.Create(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            NullLoggerFactory.Instance,
+            TimeProvider.System,
+            out _);
         var physical = new PhysicalCache<string>();
         var inner = new RaceSimulatingInnerCache(physical);
         var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);

@@ -16,14 +16,23 @@ internal static class JournalCoordinatorFactory
     /// <param name="store">The manifest ledger.</param>
     /// <param name="gate">The startup gate.</param>
     /// <param name="loggerFactory">Creates the loggers of the coordinator and its components.</param>
+    /// <param name="timeProvider">The clock the journal stall probe and slow-operation warnings measure with.</param>
     /// <param name="repairs">Every repair startup recovery applied to a segment file; empty when nothing changed.</param>
     /// <returns>The coordinator.</returns>
-    internal static IJournalCoordinator Create(PersistenceOptions persistence, State manifest, Ledger store, AsyncManualResetEvent gate, ILoggerFactory loggerFactory, out IReadOnlyList<JournalRepair> repairs)
+    internal static IJournalCoordinator Create(
+        PersistenceOptions persistence,
+        State manifest,
+        Ledger store,
+        AsyncManualResetEvent gate,
+        ILoggerFactory loggerFactory,
+        TimeProvider timeProvider,
+        out IReadOnlyList<JournalRepair> repairs)
     {
         ArgumentNullException.ThrowIfNull(persistence);
         ArgumentNullException.ThrowIfNull(loggerFactory);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         JournalRecoveryScan.DeleteOrphanedRollTempFiles(persistence.DataDir);
         repairs = JournalRecoveryScan.PrepareActiveSegmentForSequenceScan(manifest, persistence);
-        return new JournalCoordinator(persistence, manifest, store, gate, loggerFactory);
+        return new JournalCoordinator(persistence, manifest, store, gate, loggerFactory, timeProvider);
     }
 }

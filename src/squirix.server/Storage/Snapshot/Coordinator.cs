@@ -39,10 +39,11 @@ internal sealed class Coordinator
     private readonly string _nodeId;
     private readonly ISnapshotWriter _snapWriter;
     private readonly ISnapshotTelemetry _telemetry;
+    private readonly TimeProvider _timeProvider;
     private readonly TriggerState _triggerState;
     private int _exclusiveOwner;
 
-    internal Coordinator(TriggerOptions opt, IJournalMetrics journal, CoordinatorDependencies deps)
+    internal Coordinator(TriggerOptions opt, IJournalMetrics journal, CoordinatorDependencies deps, TimeProvider? timeProvider = null)
     {
         _triggerState = new TriggerState(opt, journal);
         ArgumentNullException.ThrowIfNull(deps);
@@ -53,6 +54,7 @@ internal sealed class Coordinator
         _nodeId = deps.NodeId;
         _backgroundSnapshotMemoryThrottle = deps.BackgroundSnapshotMemoryThrottle;
         _telemetry = deps.Telemetry;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public event EventHandler<CompletedEventArgs>? SnapshotCompleted;
@@ -72,7 +74,7 @@ internal sealed class Coordinator
 
     internal async ValueTask SnapshotAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
-        if (!_triggerState.ShouldTrigger(DateTime.UtcNow, IsInFlight))
+        if (!_triggerState.ShouldTrigger(_timeProvider.GetUtcNow().UtcDateTime, IsInFlight))
             return;
         if (ShouldSuppressBackgroundSnapshot())
             return;
@@ -122,10 +124,11 @@ internal sealed class Coordinator
     private async ValueTask<CapturedSnapshotBundle> CaptureSnapshotBundleAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
         _captureScratch.Clear();
-        var utcNow = DateTime.UtcNow;
+        var utcNow = _timeProvider.GetUtcNow().UtcDateTime;
         await _entryCapture.CaptureEntriesAsync(_captureScratch.Items, utcNow, cancellationToken).ConfigureAwait(false);
 
-        _idempotency.ExportSnapshot(_captureScratch.IdempotencyRecords, utcNow);
+        // The idempotency store stamps and ages its records with the system clock, so its export sweep must compare on that clock too.
+        _idempotency.ExportSnapshot(_captureScratch.IdempotencyRecords, DateTime.UtcNow);
         return new CapturedSnapshotBundle(_captureScratch.Items, journal.CurrentSegmentIndex, journal.NextSequence, _captureScratch.IdempotencyRecords);
     }
 
@@ -152,7 +155,7 @@ internal sealed class Coordinator
         if (ManifestMovedSince(baseline, prev))
             return null;
 
-        var now = DateTime.UtcNow;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
         var updated = new State
         {
             Format = prev.Format,

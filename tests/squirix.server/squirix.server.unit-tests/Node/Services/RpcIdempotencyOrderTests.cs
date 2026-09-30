@@ -59,6 +59,7 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             NullLoggerFactory.Instance,
+            TimeProvider.System,
             out _);
 
         var trace = new OrderingTrace();

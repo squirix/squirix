@@ -46,6 +46,7 @@ public sealed class JournalDisposeDrainTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             NullLoggerFactory.Instance,
+            TimeProvider.System,
             out _);
         await journal.WaitForStartupAsync(cancellationToken);
 

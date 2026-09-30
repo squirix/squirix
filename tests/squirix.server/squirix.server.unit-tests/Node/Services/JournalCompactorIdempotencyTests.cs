@@ -101,6 +101,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
                          scenario.Ledger,
                          new AsyncManualResetEvent(true),
                          NullLoggerFactory.Instance,
+                         TimeProvider.System,
                          out _))
         {
             var ambientScope = new object();
@@ -149,6 +150,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
                          scenario.Ledger,
                          new AsyncManualResetEvent(true),
                          NullLoggerFactory.Instance,
+                         TimeProvider.System,
                          out _))
         {
             var ambientScope = new object();
@@ -230,7 +232,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
     private static async Task WritePutAndIdempotencyAsync(PersistenceOptions persistence, Ledger manifestStore, CancellationToken cancellationToken)
     {
         var readCurrentOrDefaultAsync = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(persistence, readCurrentOrDefaultAsync, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
+        await using var journal = JournalCoordinatorFactory.Create(persistence, readCurrentOrDefaultAsync, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
         await journal.AppendPutUnderGateAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
         var bytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
         await journal.AppendIdempotencyOutcomeAsync(OperationId, Fingerprint, bytes, cancellationToken);

@@ -41,6 +41,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             NullLoggerFactory.Instance,
+            TimeProvider.System,
             out _);
         var buildStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseBuild = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -103,6 +104,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             NullLoggerFactory.Instance,
+            TimeProvider.System,
             out _);
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
@@ -141,6 +143,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             NullLoggerFactory.Instance,
+            TimeProvider.System,
             out _);
         var snapshotStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 

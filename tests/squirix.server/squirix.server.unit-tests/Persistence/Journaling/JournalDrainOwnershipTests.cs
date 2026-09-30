@@ -255,7 +255,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
                 new JournalEventLoopStartup(1, 0, 0, JournalSegmentProbe.Probe(options.DataDir, 1)),
                 NullLogger<JournalEventLoop>.Instance,
                 _backgroundCancellation.Token);
-            _stallProbe = new JournalStallProbe(NullLogger.Instance);
+            _stallProbe = new JournalStallProbe(NullLogger.Instance, TimeProvider.System);
         }
 
         CancellationTokenSource IJournalCoordinatorState.BackgroundCancellation => _backgroundCancellation;

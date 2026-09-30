@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
@@ -169,6 +170,30 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
         _ = await Assert.That(stalled.Status).IsEqualTo(HealthStatus.Degraded);
         _ = await Assert.That(stalled.Description).Contains($": {nameof(IJournalSegmentWriter.FlushToDisk)} ", StringComparison.Ordinal);
         _ = await Assert.That(recovered.Status).IsEqualTo(HealthStatus.Healthy);
+    }
+
+    /// <summary>A flush in progress degrades readiness once the journal clock passes the threshold, with no real stall.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StallDegradesOnFakeClock(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var journal = await StallableJournal.CreateAsync(Dir, clock, cancellationToken);
+        await using var traced = new TracingJournalCoordinatorDecorator(journal.Journal, new OpenTelemetryJournalOperationTracer());
+        var check = CreateCheck(traced, journal.Journal.StallProbe, clock);
+        journal.Writer.Flush.Arm();
+        await traced.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
+        var commit = traced.AwaitDurabilityCommitAsync(cancellationToken).AsTask();
+        await journal.Writer.Flush.Entered.WaitAsync(Bound, TimeProvider.System, cancellationToken);
+
+        var fresh = await check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        clock.Advance(Threshold);
+        var stalled = await check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        journal.Writer.Flush.Release();
+        await commit.WaitAsync(Bound, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(fresh.Status).IsEqualTo(HealthStatus.Healthy);
+        _ = await Assert.That(stalled.Status).IsEqualTo(HealthStatus.Degraded);
     }
 
     /// <summary>A segment write in progress for the threshold degrades readiness and names the operation; readiness recovers once it returns.</summary>

@@ -44,6 +44,7 @@ public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             NullLoggerFactory.Instance,
+            TimeProvider.System,
             out _);
         await journal.WaitForStartupAsync(cancellationToken);
         var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;

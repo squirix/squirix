@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using Microsoft.Extensions.Logging;
@@ -36,7 +35,9 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     {
         ArgumentNullException.ThrowIfNull(logger);
         JournalLog = logger;
-        _slowOperations = new JournalSlowOperationReporter(logger);
+
+        // Only the slow-fsync warning reads this clock, and it times real disk I/O: the system clock, never a test clock.
+        _slowOperations = new JournalSlowOperationReporter(logger, TimeProvider.System);
         Host = host;
         Ring = ring;
         SegmentWriter = segmentWriter;
@@ -118,7 +119,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         if (!IsDurabilityFlushPending)
             return;
 
-        var startedTimestamp = Stopwatch.GetTimestamp();
+        var startedTimestamp = _slowOperations.GetTimestamp();
         try
         {
             SegmentWriter.FlushToDisk();

@@ -53,6 +53,7 @@ public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBas
             manifestStore,
             new AsyncManualResetEvent(true),
             NullLoggerFactory.Instance,
+            TimeProvider.System,
             out _);
         var idempotency = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var writer = StoreFactory.CreateWriter(persistence);

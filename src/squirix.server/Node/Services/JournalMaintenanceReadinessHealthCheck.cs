@@ -28,8 +28,8 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
     /// <param name="stallProbe">The probe of the journal segment I/O in progress, or <see langword="null" /> when none is wired.</param>
     /// <param name="stallThreshold">How long one segment I/O call may stay in progress before readiness is degraded.</param>
     /// <param name="timeProvider">
-    /// The clock the stall duration is measured with; it must share the <see cref="System.Diagnostics.Stopwatch" /> timestamp base the probe
-    /// records, as <see cref="TimeProvider.System" /> does.
+    /// The clock the stall duration is measured with; it must be the clock the probe takes its timestamps from, so both share one
+    /// timestamp base.
     /// </param>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="stallThreshold" /> is not positive.</exception>
     internal JournalMaintenanceReadinessHealthCheck(

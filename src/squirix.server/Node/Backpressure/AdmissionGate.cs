@@ -29,7 +29,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _timeProvider = timeProvider ?? TimeProvider.System;
         _options.Validate();
         _slots = new AsyncSemaphore(_options.MaxInFlight);
-        _nodeRateLimiter = RateLimiter.Create(_options.NodeRateLimitPerSecond, _options.NodeRateLimitBurst);
+        _nodeRateLimiter = RateLimiter.Create(_options.NodeRateLimitPerSecond, _options.NodeRateLimitBurst, _timeProvider);
         _observerRegistration = _metrics.RegisterObservers(ObserveInFlight, ObserveQueueDepth, ObserveTrackedClients);
     }
 
@@ -45,7 +45,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             return disabledResult.Value;
 
         cancellationToken.ThrowIfCancellationRequested();
-        var client = _clients.GetOrAdd(clientId, static (_, options) => new ClientState(options), _options);
+        var client = _clients.GetOrAdd(clientId, static (_, gate) => new ClientState(gate._options, gate._timeProvider), this);
 
         var nodeRateLimitReject = RejectByNodeRateLimitIfLimited(transport, operation);
         if (nodeRateLimitReject != null)
@@ -258,9 +258,9 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         private int _inFlight;
         private int _queueDepth;
 
-        internal ClientState(AdmissionOptions options)
+        internal ClientState(AdmissionOptions options, TimeProvider timeProvider)
         {
-            _rateLimiter = RateLimiter.Create(options.PerClientRateLimitPerSecond, options.PerClientRateLimitBurst);
+            _rateLimiter = RateLimiter.Create(options.PerClientRateLimitPerSecond, options.PerClientRateLimitBurst, timeProvider);
         }
 
         internal bool? HasRecentActivity => _rateLimiter?.HasRecentActivity;
@@ -281,15 +281,17 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         private readonly double _burst;
         private readonly Lock _gate = new();
         private readonly double _ratePerSecond;
+        private readonly TimeProvider _timeProvider;
         private long _lastTick;
         private double _tokens;
 
-        private RateLimiter(int ratePerSecond, int burst)
+        private RateLimiter(int ratePerSecond, int burst, TimeProvider timeProvider)
         {
             _ratePerSecond = ratePerSecond;
             _burst = burst;
             _tokens = burst;
-            _lastTick = Stopwatch.GetTimestamp();
+            _timeProvider = timeProvider;
+            _lastTick = timeProvider.GetTimestamp();
         }
 
         internal bool HasRecentActivity
@@ -298,19 +300,20 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             {
                 lock (_gate)
                 {
-                    Refill(Stopwatch.GetTimestamp());
+                    Refill(_timeProvider.GetTimestamp());
                     return _tokens < _burst;
                 }
             }
         }
 
-        internal static RateLimiter? Create(int? ratePerSecond, int? burst) => ratePerSecond != null && burst != null ? new RateLimiter(ratePerSecond.Value, burst.Value) : null;
+        internal static RateLimiter? Create(int? ratePerSecond, int? burst, TimeProvider timeProvider) =>
+            ratePerSecond != null && burst != null ? new RateLimiter(ratePerSecond.Value, burst.Value, timeProvider) : null;
 
         internal bool TryAcquire()
         {
             lock (_gate)
             {
-                Refill(Stopwatch.GetTimestamp());
+                Refill(_timeProvider.GetTimestamp());
                 if (_tokens < 1d)
                     return false;
 
@@ -321,7 +324,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
         private void Refill(long now)
         {
-            var elapsed = Stopwatch.GetElapsedTime(_lastTick, now).TotalSeconds;
+            var elapsed = _timeProvider.GetElapsedTime(_lastTick, now).TotalSeconds;
             if (elapsed <= 0d)
                 return;
 

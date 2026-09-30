@@ -150,6 +150,7 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
             scenario.Ledger,
             new AsyncManualResetEvent(true),
             NullLoggerFactory.Instance,
+            TimeProvider.System,
             out _);
 
         await journal.AppendPutUnderGateAsync(CacheKey.Default("idempotency-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
@@ -174,6 +175,7 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
             scenario.Ledger,
             new AsyncManualResetEvent(true),
             NullLoggerFactory.Instance,
+            TimeProvider.System,
             out _);
 
         var ambientScope = new object();

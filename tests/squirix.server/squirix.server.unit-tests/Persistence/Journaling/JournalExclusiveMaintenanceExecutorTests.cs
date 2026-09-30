@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -39,6 +40,7 @@ public sealed class JournalExclusiveMaintenanceExecutorTests : IsolatedStorageTe
             manifestStore,
             new AsyncManualResetEvent(true),
             NullLoggerFactory.Instance,
+            TimeProvider.System,
             out _);
         var executed = new ExecutionFlag();
         await journal.ExecuteMaintenanceExclusiveAsync(executed.MarkExecutedAsync, cancellationToken);

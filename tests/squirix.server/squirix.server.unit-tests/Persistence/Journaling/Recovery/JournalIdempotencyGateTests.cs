@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -36,7 +37,7 @@ public sealed class JournalIdempotencyGateTests : IsolatedStorageTestBase
         var persistence = CreatePersistence(Dir);
         using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(persistence, manifest, ledger, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, out _);
+        await using var journal = JournalCoordinatorFactory.Create(persistence, manifest, ledger, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
 
         var snapshotState = (await Assert.That(journal).IsTypeOf<IJournalCoordinatorSnapshotState>())!;
         var gateGuard = await snapshotState.MutationGate.LockAsync(cancellationToken);

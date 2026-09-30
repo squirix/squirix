@@ -12,22 +12,30 @@ internal sealed class JournalSlowOperationReporter
     internal const int WarningThresholdMs = 1000;
 
     private readonly ILogger _logger;
+    private readonly TimeProvider _timeProvider;
 
     /// <summary>Initializes a new instance of the <see cref="JournalSlowOperationReporter" /> class.</summary>
     /// <param name="logger">The logger the warnings go to.</param>
-    internal JournalSlowOperationReporter(ILogger logger)
+    /// <param name="timeProvider">The clock every timestamp handed to this reporter is taken from and measured with.</param>
+    internal JournalSlowOperationReporter(ILogger logger, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         _logger = logger;
+        _timeProvider = timeProvider;
     }
 
     /// <summary>Returns the milliseconds elapsed since <paramref name="timestamp" />, or zero when it is zero (not in progress).</summary>
-    /// <param name="timestamp">A <see cref="Stopwatch.GetTimestamp" /> value, or zero.</param>
+    /// <param name="timestamp">A <see cref="GetTimestamp" /> value, or zero.</param>
     /// <returns>The elapsed milliseconds, or zero.</returns>
-    internal static long ElapsedMsSince(long timestamp) => timestamp == 0 ? 0 : ElapsedMs(timestamp);
+    internal long ElapsedMsSince(long timestamp) => timestamp == 0 ? 0 : ElapsedMs(timestamp);
+
+    /// <summary>Reads the current timestamp of the reporter clock.</summary>
+    /// <returns>The timestamp to hand back to this reporter.</returns>
+    internal long GetTimestamp() => _timeProvider.GetTimestamp();
 
     /// <summary>Warns when an fsync started at <paramref name="startedTimestamp" /> exceeded the threshold; never throws.</summary>
-    /// <param name="startedTimestamp">The <see cref="Stopwatch.GetTimestamp" /> value taken before the fsync.</param>
+    /// <param name="startedTimestamp">The <see cref="GetTimestamp" /> value taken before the fsync.</param>
     internal void ReportFsync(long startedTimestamp)
     {
         var elapsedMs = ElapsedMs(startedTimestamp);
@@ -39,7 +47,7 @@ internal sealed class JournalSlowOperationReporter
     }
 
     /// <summary>Warns when a mutation gate held since <paramref name="acquiredTimestamp" /> exceeded the threshold; never throws.</summary>
-    /// <param name="acquiredTimestamp">The <see cref="Stopwatch.GetTimestamp" /> value taken after the gate was acquired.</param>
+    /// <param name="acquiredTimestamp">The <see cref="GetTimestamp" /> value taken after the gate was acquired.</param>
     /// <param name="holder">The gate holder site.</param>
     internal void ReportMutationGateHold(long acquiredTimestamp, string holder)
     {
@@ -79,5 +87,5 @@ internal sealed class JournalSlowOperationReporter
             Trace.TraceError($"Journal slow-operation warning could not be logged: {failure}");
     }
 
-    private static long ElapsedMs(long startedTimestamp) => Convert.ToInt64(Stopwatch.GetElapsedTime(startedTimestamp).TotalMilliseconds);
+    private long ElapsedMs(long startedTimestamp) => Convert.ToInt64(_timeProvider.GetElapsedTime(startedTimestamp).TotalMilliseconds);
 }

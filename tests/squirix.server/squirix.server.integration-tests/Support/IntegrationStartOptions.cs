@@ -1,4 +1,5 @@
 using Squirix.Server.Attributes;
+using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Hosting;
 
@@ -8,6 +9,8 @@ namespace Squirix.Server.IntegrationTests.Support;
 [Immutable]
 internal sealed class IntegrationStartOptions : ClusterStartOptions
 {
+    internal AdmissionOptions? BackpressureOptions { get; init; }
+
     internal bool CleanTestDir { get; init; } = true;
 
     internal string? ExtraScope { get; init; }
