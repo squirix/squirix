@@ -65,3 +65,16 @@ dotnet_diagnostic.VSTHRD012.severity = none # provide JoinableTaskFactory where 
 dotnet_diagnostic.VSTHRD106.severity = none # use InvokeAsync to raise async events
 dotnet_diagnostic.VSTHRD108.severity = none # assert thread affinity unconditionally
 dotnet_diagnostic.VSTHRD109.severity = none # switch instead of assert in async methods
+
+# Duplicates: each of these reports the same code as a cheaper rule that stays enabled (named after each entry).
+# Because the remaining rule fails the build first, the SonarCloud scanner build loses nothing by skipping these.
+dotnet_diagnostic.AsyncFixer02.severity = none # blocking call inside async method; kept: CA1849, S6966, EPC35
+dotnet_diagnostic.VSTHRD103.severity = none # call async methods when in an async method; kept: CA1849, S6966, EPC35
+dotnet_diagnostic.MA0011.severity = none # IFormatProvider is missing; kept: CA1305
+dotnet_diagnostic.MA0001.severity = none # StringComparison is missing; kept: CA1307, CA1309, CA1310
+dotnet_diagnostic.MA0074.severity = none # avoid implicit culture-sensitive methods; kept: CA1307, CA1309, CA1310
+dotnet_diagnostic.S1144.severity = none # unused private types or members; kept: IDE0051, CA1823, RCS1213
+dotnet_diagnostic.S4487.severity = none # unread private fields; kept: IDE0052
+dotnet_diagnostic.S1854.severity = none # unused assignments; kept: IDE0059
+dotnet_diagnostic.S1172.severity = none # unused method parameters; kept: IDE0060
+dotnet_diagnostic.S2933.severity = none # fields only assigned in the constructor should be readonly; kept: IDE0044, RCS1169
