@@ -12,3 +12,16 @@ dotnet_diagnostic.RS0031.severity = none
 # invocation. Disabling it here, compilation-wide, lets the compiler skip the analyzer; a per-file .editorconfig
 # severity only hides its diagnostics while it still runs.
 dotnet_diagnostic.VSTHRD010.severity = none
+
+# Sonar security rules for surfaces squirix does not have (SQL, CSP, CORS, JWT, password storage). They never fire here,
+# yet cost several seconds of analyzer time per build. Disabled compilation-wide for the same reason as VSTHRD010;
+# this also removes them from the SonarCloud scanner build.
+dotnet_diagnostic.S2053.severity = none # password hashing functions should use an unpredictable salt
+dotnet_diagnostic.S2077.severity = none # SQL queries should not be dynamically formatted
+dotnet_diagnostic.S2115.severity = none # a secure password should be used when connecting to a database
+dotnet_diagnostic.S2857.severity = none # SQL keywords should be delimited by whitespace
+dotnet_diagnostic.S5122.severity = none # CORS policy should be restricted to trusted origins
+dotnet_diagnostic.S5344.severity = none # passwords should not be stored in plaintext or with a fast hashing algorithm
+dotnet_diagnostic.S5659.severity = none # JWT should be signed and verified with strong cipher algorithms
+dotnet_diagnostic.S6781.severity = none # JWT secret keys should not be disclosed
+dotnet_diagnostic.S7039.severity = none # content security policies should be restrictive
