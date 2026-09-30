@@ -46,9 +46,10 @@ internal sealed class ClientInterceptor : Interceptor
             ownedActivity = activity;
         }
 
-        // No trace headers to attach — keep caller headers untouched (including null).
+        // No trace headers to attach — keep caller headers untouched (including null), but the operation
+        // deadline must still reach the forwarded call.
         if (activity == null)
-            return options;
+            return options.WithDeadline(ServerRpcDeadlineContext.EffectiveDeadline(options.Deadline) ?? options.Deadline ?? DateTime.MaxValue);
 
         // Clone caller headers into a freshly rented bag; never mutate options.Headers in place,
         // so a Metadata instance shared across calls cannot bleed trace headers or race.
