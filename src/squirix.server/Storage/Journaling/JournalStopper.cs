@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -21,7 +22,9 @@ internal sealed class JournalStopper
     private readonly JournalCoordinator _owner;
     private readonly IDisposable _segmentWriter;
     private bool _cancellationRequested;
+    private Exception? _latchedBeforeShutdown;
     private bool _markerSettled;
+    private bool _shutdownLatchCaptured;
     private Task? _stopAttempt;
     private bool _stopped;
 
@@ -130,6 +133,25 @@ internal sealed class JournalStopper
 
     private ValueTask<bool> JoinJournalThreadAsync(TimeSpan wait) => _owner.JournalThread.IsAlive ? _owner.DurabilityPipeline.TryJoinJournalThreadAsync(wait) : new ValueTask<bool>(true);
 
+    /// <summary>Surfaces the failure the journal thread latched, unless the shutdown itself caused it.</summary>
+    /// <exception cref="Exception">The latched failure, when it is a data failure.</exception>
+    private void ReportLatchedFailure()
+    {
+        if (_owner.GetJournalThreadFailure() is not { } failure)
+            return;
+
+        // A maintenance step refused because shutdown began latches an ObjectDisposedException, which says nothing about the frames.
+        // Any other latch, or one that predates the shutdown, is a failure the caller must see: the final write or fsync may not have happened.
+        if (_latchedBeforeShutdown == null && failure is ObjectDisposedException)
+        {
+            LogManager.JournalShutdownInducedFailureIgnored(_log, failure);
+            return;
+        }
+
+        LogManager.JournalFailureSurfacedOnStop(_log, _latchedBeforeShutdown != null, failure);
+        ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
     private async Task RunAttemptAsync(TaskCompletionSource attempt, TimeSpan budget)
     {
         try
@@ -150,6 +172,11 @@ internal sealed class JournalStopper
     {
         // Every stage shares one budget and gets a floor of its own, so an exhausted budget still yields a bounded, real attempt.
         var deadline = Environment.TickCount64 + Convert.ToInt64(budget.TotalMilliseconds);
+        if (!_shutdownLatchCaptured)
+        {
+            _latchedBeforeShutdown = _owner.GetJournalThreadFailure();
+            _shutdownLatchCaptured = true;
+        }
 
         // The marker is enqueued once, and only after producers quiesced: the gate guarantees every admitted enqueue is published ahead
         // of it (ring FIFO), and work arriving later is rejected explicitly instead of being dropped or hung.
@@ -197,6 +224,7 @@ internal sealed class JournalStopper
         }
 
         await TearDownAsync(deadline).ConfigureAwait(false);
+        ReportLatchedFailure();
     }
 
     /// <summary>Releases the writer, ring, and gates once the journal thread is gone; runs once, since a stopped journal is terminal.</summary>

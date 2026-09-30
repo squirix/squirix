@@ -56,4 +56,10 @@ internal static partial class LogManager
 
     [LoggerMessage(EventId = 3019, Level = LogLevel.Error, Message = "Journal stop failed during dispose; the journal thread or its resources may remain open")]
     internal static partial void JournalStopFailedOnDispose(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 3020, Level = LogLevel.Error, Message = "Journal I/O failure surfaced while stopping; frames acknowledged before it may not be durable (latched before shutdown: {LatchedBeforeShutdown})")]
+    internal static partial void JournalFailureSurfacedOnStop(ILogger logger, bool latchedBeforeShutdown, Exception exception);
+
+    [LoggerMessage(EventId = 3021, Level = LogLevel.Debug, Message = "Journal pipeline was failed by the shutdown itself (a refused maintenance step); not a data failure")]
+    internal static partial void JournalShutdownInducedFailureIgnored(ILogger logger, Exception exception);
 }

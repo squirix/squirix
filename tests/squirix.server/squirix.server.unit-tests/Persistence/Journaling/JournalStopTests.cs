@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -29,6 +30,10 @@ public sealed class JournalStopTests : IsolatedStorageTestBase
     private const int QuiescenceTimedOutEventId = 3011;
 
     private const int StopFailedOnDisposeEventId = 3019;
+
+    private const int FailureSurfacedEventId = 3020;
+
+    private const int ShutdownInducedEventId = 3021;
 
     private const int RingCapacity = 4096;
 
@@ -187,6 +192,100 @@ public sealed class JournalStopTests : IsolatedStorageTestBase
         await journal.Journal.StopAsync();
 
         _ = await Assert.That(journal.Writer.DisposeCount).IsEqualTo(1);
+    }
+
+    /// <summary>A journal thread that already exited on a failure is not sent a marker, and the failure is reported by the stop.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StopAfterThreadFailureSkipsMarker(CancellationToken cancellationToken)
+    {
+        var log = new EventRecordingLogger();
+        await using var journal = await StallableJournal.CreateAsync(Dir, false, TimeSpan.FromSeconds(5), log, cancellationToken);
+        var failure = new IOException("write failed");
+        journal.Writer.Write.Arm();
+        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), Payload, cancellationToken);
+        await journal.Writer.Write.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        journal.Writer.Write.ReleaseWithFailure(failure);
+        _ = await Assert.That(await journal.Journal.DurabilityPipeline.TryJoinJournalThreadAsync(StallTimeout)).IsTrue();
+
+        var reported = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+
+        _ = await Assert.That(reported).IsSameReferenceAs(failure);
+        _ = await Assert.That(log.Count(MarkerTimedOutEventId)).IsEqualTo(0);
+        _ = await Assert.That(journal.Writer.DisposeCount).IsEqualTo(1);
+    }
+
+    /// <summary>A final flush that fails is reported by the stop, and logged as a data failure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedFinalFlushSurfacesOnStop(CancellationToken cancellationToken)
+    {
+        var log = new EventRecordingLogger();
+        await using var journal = await StallableJournal.CreateAsync(Dir, false, TimeSpan.FromSeconds(10), log, cancellationToken);
+        var failure = new IOException("final fsync failed");
+        journal.Writer.Flush.Arm();
+        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), Payload, cancellationToken);
+
+        var stop = journal.Journal.StopAsync().AsTask();
+        await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        journal.Writer.Flush.ReleaseWithFailure(failure);
+        var reported = await NodeAsyncAssert.ThrowsAsync<IOException>(stop.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+
+        _ = await Assert.That(reported).IsSameReferenceAs(failure);
+        _ = await Assert.That(log.Find(FailureSurfacedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(journal.Writer.DisposeCount).IsEqualTo(1);
+    }
+
+    /// <summary>Disposal over a failed final flush does not throw, and logs the failure as its cause.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeLogsFailedFinalFlush(CancellationToken cancellationToken)
+    {
+        var log = new EventRecordingLogger();
+        await using var journal = await StallableJournal.CreateAsync(Dir, false, TimeSpan.FromSeconds(10), log, cancellationToken);
+        var failure = new IOException("final fsync failed");
+        journal.Writer.Flush.Arm();
+        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), Payload, cancellationToken);
+
+        var dispose = journal.Journal.DisposeAsync().AsTask();
+        await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        journal.Writer.Flush.ReleaseWithFailure(failure);
+        await dispose.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(log.Find(StopFailedOnDisposeEventId)?.Cause).IsSameReferenceAs(failure);
+    }
+
+    /// <summary>A failure the shutdown itself caused by refusing a maintenance step is not reported as a data failure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ShutdownInducedFailureIsNotRethrown(CancellationToken cancellationToken)
+    {
+        var log = new EventRecordingLogger();
+        await using var journal = await StallableJournal.CreateAsync(Dir, false, TimeSpan.FromSeconds(10), log, cancellationToken);
+        await journal.Journal.AppendPutDurablyUnderGateAsync(CacheKey.Default("a"), Payload, cancellationToken);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var maintenance = journal.Journal.ExecuteMaintenanceExclusiveAsync(
+            async ct =>
+            {
+                _ = entered.TrySetResult();
+                await release.Task.WaitAsync(ct);
+            },
+            cancellationToken).AsTask();
+        await entered.Task.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+        // An in-flight apply holds the stop in its teardown, after it faulted the waiters and closed the pending registry, so the refused
+        // maintenance end is latched before the stop reads the latch.
+        journal.Journal.InFlightApplyGate.Enter();
+        var stop = journal.Journal.StopAsync().AsTask();
+        await WaitUntilAsync(() => journal.Journal.PendingAppends.Failure != null, cancellationToken);
+        _ = release.TrySetResult();
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(maintenance.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        journal.Journal.InFlightApplyGate.Exit();
+        await stop.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(log.Find(ShutdownInducedEventId)?.Level).IsEqualTo(LogLevel.Debug);
+        _ = await Assert.That(log.Count(FailureSurfacedEventId)).IsEqualTo(0);
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, CancellationToken cancellationToken)
