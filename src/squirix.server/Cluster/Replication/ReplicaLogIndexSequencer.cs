@@ -32,12 +32,10 @@ internal sealed class ReplicaLogIndexSequencer : IDisposable
         throw new InvalidOperationException("Replica log index is exhausted.");
     }
 
-    internal void Complete(ulong index, bool appended)
+    internal void Complete(ulong index)
     {
         if (index != _nextIndex)
             throw new InvalidOperationException("Replica log-index reservation no longer matches the next index.");
-        if (!appended)
-            return;
         if (_nextIndex == ulong.MaxValue)
             throw new InvalidOperationException("Replica log index is exhausted.");
 
