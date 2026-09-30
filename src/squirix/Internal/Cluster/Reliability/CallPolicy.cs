@@ -189,7 +189,19 @@ internal sealed class CallPolicy : ICallPolicy
             CancellationToken cancellationToken)
         {
             var queueWaitStarted = Stopwatch.GetTimestamp();
-            await _semaphore.WaitAsync(effectiveToken).ConfigureAwait(false);
+            try
+            {
+                await _semaphore.WaitAsync(effectiveToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (hasDeadlineBudget && !cancellationToken.IsCancellationRequested)
+            {
+                // The operation deadline can expire while queued on the per-peer semaphore. Surface it as
+                // the same deadline-budget RpcException the retry loop produces instead of leaking a raw
+                // OperationCanceledException.
+                RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+                throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
+            }
+
             CallPolicyMetrics.ObserveQueueWaitSeconds(_peer, Stopwatch.GetElapsedTime(queueWaitStarted));
             try
             {
