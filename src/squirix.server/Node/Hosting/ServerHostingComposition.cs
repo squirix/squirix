@@ -268,8 +268,8 @@ internal static class ServerHostingComposition
     /// <remarks>
     /// Nothing rewrites the stamp after first activation, so an RF&gt;1 restart with a changed topology fails startup
     /// instead of splitting the replica set, and <see cref="EnsureNotActivatedAsync" /> refuses an RF=1 start on a
-    /// stamped directory. Migrating an existing data directory to a different activated topology, including RF=1 to
-    /// RF&gt;1 and RF&gt;1 to RF=1, is not supported in this release.
+    /// stamped directory. Both checks run before storage opens. Migrating an existing data directory to a different activated
+    /// topology, including RF=1 to RF&gt;1 and RF&gt;1 to RF=1, is not supported in this release.
     /// </remarks>
     private static async Task EnsureActivatedTopologyAsync(
         string dataDir,
@@ -330,11 +330,12 @@ internal static class ServerHostingComposition
             "Start the node with the replica count the directory was activated with, or on an empty data directory.");
     }
 
-    /// <summary>Opens persistence, the activated-topology stamp, and the replica group logs in the order that preserves container disposal order.</summary>
+    /// <summary>Checks the activated-topology stamp, then opens persistence and the replica group logs in the order that preserves container disposal order.</summary>
     /// <param name="services">The built service provider.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when every storage component is open.</returns>
     /// <remarks>
+    /// The topology stamp is checked before persistence opens, so a directory the node refuses is never repaired or otherwise modified.
     /// The registry is resolved first so the container disposes it last, after the journal host and the ledger.
     /// Nothing here is undone on failure: the container releases every component it created when the application is disposed.
     /// </remarks>
@@ -347,15 +348,20 @@ internal static class ServerHostingComposition
         var registry = services.GetService<ReplicaGroupRegistry>();
         var cluster = services.GetRequiredService<TopologyOptions>();
         if (cluster.ReplicaCount <= 1)
+        {
             await EnsureNotActivatedAsync(persistence.DataDir, cancellationToken).ConfigureAwait(false);
+        }
+        else if (registry != null)
+        {
+            var activation = services.GetRequiredService<ReplicaGroupActivation>();
+            await EnsureActivatedTopologyAsync(persistence.DataDir, activation.Fingerprint.AsMemory(), cluster.ConfigurationGeneration, cluster.ReplicaCount, cancellationToken)
+               .ConfigureAwait(false);
+        }
 
         await PersistenceServiceRegistration.OpenPersistenceAsync(services, cancellationToken).ConfigureAwait(false);
         if (registry == null)
             return;
 
-        var activation = services.GetRequiredService<ReplicaGroupActivation>();
-        await EnsureActivatedTopologyAsync(persistence.DataDir, activation.Fingerprint.AsMemory(), cluster.ConfigurationGeneration, cluster.ReplicaCount, cancellationToken)
-           .ConfigureAwait(false);
         try
         {
             await registry.OpenAsync(cancellationToken).ConfigureAwait(false);
