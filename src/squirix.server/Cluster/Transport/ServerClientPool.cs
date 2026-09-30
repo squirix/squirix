@@ -178,7 +178,7 @@ internal sealed class ServerClientPool : IServerClientPool
     private async Task DisposePolicyAsync(string nodeId)
     {
         // Shutdown drain: one bad peer must not leak the remaining peers, so every failure is logged instead of thrown.
-        var failure = await _policies[nodeId].DisposeAsync().CaptureFailureAsync(static _ => true).ConfigureAwait(false);
+        var failure = await _policies[nodeId].DisposeAsync().CaptureFailureAsync().ConfigureAwait(false);
         if (failure != null)
             ServerLog.ClientPoolPolicyDisposeFailed(_logger, failure, nodeId);
     }

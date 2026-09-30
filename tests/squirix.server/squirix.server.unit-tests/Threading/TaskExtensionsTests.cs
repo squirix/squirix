@@ -56,4 +56,15 @@ public sealed class TaskExtensionsTests
 
         _ = await Assert.That(failure).IsSameReferenceAs(expected);
     }
+
+    /// <summary>Without a filter every failure of a value task is returned instead of thrown.</summary>
+    [Test]
+    public async Task CaptureAnyValueTaskFailure()
+    {
+        var expected = new InvalidOperationException("unexpected");
+
+        var failure = await ValueTask.FromException(expected).CaptureFailureAsync();
+
+        _ = await Assert.That(failure).IsSameReferenceAs(expected);
+    }
 }

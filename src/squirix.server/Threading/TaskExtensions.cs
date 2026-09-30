@@ -30,6 +30,24 @@ internal static class TaskExtensions
         }
     }
 
+    /// <summary>Awaits the task and returns any failure instead of throwing it.</summary>
+    /// <param name="task">The value task to await; this call consumes it.</param>
+    /// <returns>The failure, or <see langword="null" /> when the task completed successfully.</returns>
+    /// <remarks>For best-effort work such as shutdown drains, where one failure must not stop the rest and the caller reports it.</remarks>
+    [SuppressMessage("Usage", "VSTHRD003", Justification = "Awaiting the caller's task is the purpose of this helper; the caller owns the work it represents.")]
+    internal static async ValueTask<Exception?> CaptureFailureAsync(this ValueTask task)
+    {
+        try
+        {
+            await task.ConfigureAwait(false);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
     /// <summary>Awaits the task and returns a failure <paramref name="filter" /> accepts instead of throwing it; any other failure propagates.</summary>
     /// <param name="task">The value task to await; this call consumes it.</param>
     /// <param name="filter">Selects the failures to capture, expected to be a <see langword="static" /> lambda so the call does not allocate a closure.</param>
