@@ -62,9 +62,14 @@ internal static class ServerHostingComposition
     /// <param name="app">The built application.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The supplied application.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the application was already mapped.</exception>
     internal static async Task<WebApplication> MapServerAsync(WebApplication app, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(app);
+
+        var options = app.Services.GetRequiredService<SquirixServerEndpointMappingOptions>();
+        if (!options.TryMarkMapped())
+            throw new InvalidOperationException("MapSquirixServerAsync was already called for this application.");
 
         await OpenStorageAsync(app.Services, cancellationToken).ConfigureAwait(false);
 
@@ -88,7 +93,6 @@ internal static class ServerHostingComposition
             }
         });
 
-        var options = app.Services.GetRequiredService<SquirixServerEndpointMappingOptions>();
         if (!options.AuthEnabled)
             return MapEndpoints(app, options.AuthEnabled);
         _ = app.UseAuthentication();
@@ -337,7 +341,7 @@ internal static class ServerHostingComposition
     /// <remarks>
     /// The topology stamp is checked before persistence opens, so a directory the node refuses is never repaired or otherwise modified.
     /// The registry is resolved first so the container disposes it last, after the journal host and the ledger.
-    /// Nothing here is undone on failure: the container releases every component it created when the application is disposed.
+    /// Nothing here is undone on failure: the registry closes the logs it opened partially, and the container disposes every component it created, including the registry, when the application is disposed.
     /// </remarks>
     private static async Task OpenStorageAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
@@ -362,15 +366,7 @@ internal static class ServerHostingComposition
         if (registry == null)
             return;
 
-        try
-        {
-            await registry.OpenAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch
-        {
-            await registry.DisposeAsync().ConfigureAwait(false);
-            throw;
-        }
+        await registry.OpenAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
@@ -433,9 +429,6 @@ internal static class ServerHostingComposition
 
     [Immutable]
     private sealed record ReplicaGroupActivation(ImmutableArray<byte> Fingerprint);
-
-    [Immutable]
-    private sealed record SquirixServerEndpointMappingOptions(bool AuthEnabled);
 
     /// <summary>
     /// Centralizes Kestrel listen options and transport security for the squirix node process.
@@ -579,5 +572,24 @@ internal static class ServerHostingComposition
         public Action<IServiceCollection>? ServicesConfigure { get; set; }
 
         public bool WaitForRecovery { get; set; } = true;
+    }
+
+    /// <summary>Host authentication state for endpoint mapping, plus the once-only guard for <see cref="MapServerAsync" />.</summary>
+    [ThreadSafe]
+    private sealed class SquirixServerEndpointMappingOptions
+    {
+        private int _mapped;
+
+        internal SquirixServerEndpointMappingOptions(bool authEnabled)
+        {
+            AuthEnabled = authEnabled;
+        }
+
+        /// <summary>Gets a value indicating whether data-plane authentication is enabled.</summary>
+        internal bool AuthEnabled { get; }
+
+        /// <summary>Marks the application as mapped.</summary>
+        /// <returns><see langword="true" /> for the first caller; <see langword="false" /> when the application was already mapped.</returns>
+        internal bool TryMarkMapped() => Interlocked.Exchange(ref _mapped, 1) == 0;
     }
 }

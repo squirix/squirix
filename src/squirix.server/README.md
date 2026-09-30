@@ -39,7 +39,7 @@ await builder.AddSquirixServerAsync(options =>
     options.UsePersistence("./data");
 });
 
-var app = builder.Build();
+await using var app = builder.Build();
 await app.MapSquirixServerAsync();
 await app.RunAsync();
 ```

@@ -98,6 +98,31 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
         _ = await Assert.That(persistence.DataDir).IsEqualTo(Dir);
     }
 
+    /// <summary>Ensures a second mapping call fails on a node without persistence instead of mapping the endpoints twice.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SecondMapCallThrows(CancellationToken cancellationToken)
+    {
+        var builder = WebApplication.CreateBuilder(
+            new WebApplicationOptions
+            {
+                EnvironmentName = "Development",
+            });
+
+        _ = await builder.AddSquirixServerAsync(
+            static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
+            loadDiscoveredSettings: false,
+            cancellationToken: cancellationToken);
+
+        await using var app = builder.Build();
+        _ = await app.MapSquirixServerAsync(cancellationToken);
+        var endpointCount = GetMappedEndpoints(app).Count;
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(app.MapSquirixServerAsync(cancellationToken));
+
+        _ = await Assert.That(GetMappedEndpoints(app).Count).IsEqualTo(endpointCount);
+    }
+
     /// <summary>Ensures package extensions receive the host authentication state while mapping protocol endpoints.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

@@ -36,11 +36,12 @@ public static class AspNetCoreExtensions
     /// <param name="app">The built ASP.NET Core application.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The supplied application.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when the data directory topology stamp refuses the configured topology, or when storage is already opened.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the data directory topology stamp refuses the configured topology, or when this application was already mapped.</exception>
+    /// <exception cref="OperationCanceledException">Thrown when <paramref name="cancellationToken" /> is canceled while storage opens.</exception>
     /// <exception cref="System.IO.InvalidDataException">Thrown when persisted storage state is corrupt or unsupported.</exception>
     /// <exception cref="System.IO.IOException">Thrown when the storage files cannot be opened.</exception>
     /// <remarks>
-    /// Call once after <c language="csharp">Build()</c> and before <c language="csharp">StartAsync</c> or
+    /// Call exactly once per application, after <c language="csharp">Build()</c> and before <c language="csharp">StartAsync</c> or
     /// <c language="csharp">RunAsync</c>. If it throws, dispose the application: the container owns every component
     /// opened so far and releases its files and locks.
     /// </remarks>
