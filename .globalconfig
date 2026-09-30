@@ -7,3 +7,74 @@ roslynator_analyzers.enabled_by_default = true
 # On-disk sources re-enable RS0030/RS0031 via the root .editorconfig.
 dotnet_diagnostic.RS0030.severity = none
 dotnet_diagnostic.RS0031.severity = none
+
+# VSTHRD010 checks main-thread affinity for the VS SDK UI thread, which squirix does not have, yet it inspects every
+# invocation. Disabling it here, compilation-wide, lets the compiler skip the analyzer; a per-file .editorconfig
+# severity only hides its diagnostics while it still runs.
+dotnet_diagnostic.VSTHRD010.severity = none
+
+# Sonar security rules for surfaces squirix does not have (SQL, CSP, CORS, JWT, password storage). They never fire here,
+# yet cost several seconds of analyzer time per build. Disabled compilation-wide for the same reason as VSTHRD010;
+# this also removes them from the SonarCloud scanner build.
+dotnet_diagnostic.S2053.severity = none # password hashing functions should use an unpredictable salt
+dotnet_diagnostic.S2077.severity = none # SQL queries should not be dynamically formatted
+dotnet_diagnostic.S2115.severity = none # a secure password should be used when connecting to a database
+dotnet_diagnostic.S2857.severity = none # SQL keywords should be delimited by whitespace
+dotnet_diagnostic.S5122.severity = none # CORS policy should be restricted to trusted origins
+dotnet_diagnostic.S5344.severity = none # passwords should not be stored in plaintext or with a fast hashing algorithm
+dotnet_diagnostic.S5659.severity = none # JWT should be signed and verified with strong cipher algorithms
+dotnet_diagnostic.S6781.severity = none # JWT secret keys should not be disclosed
+dotnet_diagnostic.S7039.severity = none # content security policies should be restrictive
+
+# Rules for surfaces squirix does not have: no symmetric or asymmetric encryption, no MVC controllers, cookies, CSRF,
+# Blazor or Azure Functions, no signed XML, XSLT or archive extraction, no JoinableTaskFactory, no web input reaching SQL,
+# XSS, redirect, XPath, XML, XAML, DLL or regex sinks, and OS commands only in tests. Hashing, TLS, certificates,
+# minimal-API routes and file-path taint analysis stay enabled.
+dotnet_diagnostic.BL0005.severity = none # component parameter should not be set outside of its component
+dotnet_diagnostic.BL0006.severity = none # do not use RenderTree types
+dotnet_diagnostic.CA2100.severity = none # review SQL queries for security vulnerabilities
+dotnet_diagnostic.CA3001.severity = none # review code for SQL injection vulnerabilities
+dotnet_diagnostic.CA3002.severity = none # review code for XSS vulnerabilities
+dotnet_diagnostic.CA3006.severity = none # review code for process command injection vulnerabilities
+dotnet_diagnostic.CA3007.severity = none # review code for open redirect vulnerabilities
+dotnet_diagnostic.CA3008.severity = none # review code for XPath injection vulnerabilities
+dotnet_diagnostic.CA3009.severity = none # review code for XML injection vulnerabilities
+dotnet_diagnostic.CA3010.severity = none # review code for XAML injection vulnerabilities
+dotnet_diagnostic.CA3011.severity = none # review code for DLL injection vulnerabilities
+dotnet_diagnostic.CA3012.severity = none # review code for regex injection vulnerabilities
+dotnet_diagnostic.CA3076.severity = none # insecure XSLT script execution
+dotnet_diagnostic.CA5389.severity = none # do not add archive item's path to the target file system path
+dotnet_diagnostic.CA5390.severity = none # do not hard-code encryption key
+dotnet_diagnostic.S2092.severity = none # creating cookies without the "secure" flag is security-sensitive
+dotnet_diagnostic.S3330.severity = none # creating cookies without the "HttpOnly" flag is security-sensitive
+dotnet_diagnostic.S4036.severity = none # searching OS commands in PATH is security-sensitive
+dotnet_diagnostic.S4502.severity = none # CSRF protections should not be disabled
+dotnet_diagnostic.S5542.severity = none # encryption algorithms should be used with secure mode and padding scheme
+dotnet_diagnostic.S5547.severity = none # cipher algorithms should be robust
+dotnet_diagnostic.S6377.severity = none # XML signatures should be validated securely
+dotnet_diagnostic.S6419.severity = none # Azure Functions should be stateless
+dotnet_diagnostic.S6420.severity = none # client instances should not be recreated on each Azure Function invocation
+dotnet_diagnostic.S6421.severity = none # Azure Functions should use structured error handling
+dotnet_diagnostic.S6423.severity = none # Azure Functions should log all failures
+dotnet_diagnostic.S6424.severity = none # interfaces for durable entities should satisfy the restrictions
+dotnet_diagnostic.S6934.severity = none # a Route attribute should be added to the controller when an action has a route template
+dotnet_diagnostic.S6961.severity = none # API controllers should derive from ControllerBase instead of Controller
+dotnet_diagnostic.VSTHRD001.severity = none # avoid legacy thread switching methods
+dotnet_diagnostic.VSTHRD004.severity = none # await SwitchToMainThreadAsync
+dotnet_diagnostic.VSTHRD012.severity = none # provide JoinableTaskFactory where allowed
+dotnet_diagnostic.VSTHRD106.severity = none # use InvokeAsync to raise async events
+dotnet_diagnostic.VSTHRD108.severity = none # assert thread affinity unconditionally
+dotnet_diagnostic.VSTHRD109.severity = none # switch instead of assert in async methods
+
+# Duplicates: each of these reports the same code as a cheaper rule that stays enabled (named after each entry).
+# Because the remaining rule fails the build first, the SonarCloud scanner build loses nothing by skipping these.
+dotnet_diagnostic.AsyncFixer02.severity = none # blocking call inside async method; kept: CA1849, S6966, EPC35
+dotnet_diagnostic.VSTHRD103.severity = none # call async methods when in an async method; kept: CA1849, S6966, EPC35
+dotnet_diagnostic.MA0011.severity = none # IFormatProvider is missing; kept: CA1305
+dotnet_diagnostic.MA0001.severity = none # StringComparison is missing; kept: CA1307, CA1309, CA1310
+dotnet_diagnostic.MA0074.severity = none # avoid implicit culture-sensitive methods; kept: CA1307, CA1309, CA1310
+dotnet_diagnostic.S1144.severity = none # unused private types or members; kept: IDE0051, CA1823, RCS1213
+dotnet_diagnostic.S4487.severity = none # unread private fields; kept: IDE0052
+dotnet_diagnostic.S1854.severity = none # unused assignments; kept: IDE0059
+dotnet_diagnostic.S1172.severity = none # unused method parameters; kept: IDE0060
+dotnet_diagnostic.S2933.severity = none # fields only assigned in the constructor should be readonly; kept: IDE0044, RCS1169
