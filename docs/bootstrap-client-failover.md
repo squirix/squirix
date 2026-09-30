@@ -38,11 +38,32 @@ The client SDK keeps the same `operation_id` when it retries a mutating RPC on t
 nodes propagate that id through owner-routing hops, so a retry that reaches a different entry node still deduplicates on
 the key owner when the payload fingerprint matches. See [api.md](api.md) for `operation_id` format and replay rules.
 
+## Operation deadline
+
+Every exported `ICache<T>` operation runs under one absolute deadline, 15s after the operation starts. The deadline is
+shared by everything the operation does: retries on one endpoint (3 attempts of up to 3s each), failover to the next
+bootstrap endpoint, and the server-side routing to the key owner. It does not grow with the number of endpoints.
+
+- The client sends the deadline to the server as the gRPC call deadline. The entry node and any owner-routing hop work
+  within the same remaining budget.
+- When the deadline passes, the operation fails with `RpcException` and status `DeadlineExceeded`; no further attempt or
+  endpoint is tried. When the last endpoint failed with a transport error just before the deadline, that error is
+  surfaced instead.
+- A caller `CancellationToken` still applies: whichever of the token and the deadline fires first ends the operation.
+  Caller cancellation surfaces as `OperationCanceledException`.
+- A mutation that fails with `DeadlineExceeded` may still have been applied on the server. Treat its outcome as unknown:
+  a new call gets a new `operation_id`, so read the key back before repeating a change that is not idempotent.
+- Deadline expiry is counted in `squirix_rpc_timeouts_total` with tags `scope=overall` and `kind=deadline_budget`.
+
 ## Testing
 
 - E2E (`ClientBootstrapConnectTests`) exercises the public `SquirixClient.ConnectAsync` path with a live endpoint plus
   an unreachable peer using production connect defaults.
 - Client integration tests (`ClientPoolWarmUpTests`) cover unreachable-only warm-up with explicit fail-fast options.
+- Client unit tests (`OperationDeadlineTests`) drive a real `RemoteCache` against hung endpoints and check the shared
+  deadline, its gRPC call deadline, caller cancellation and the `operation_id` across retries.
+- E2E (`OperationDeadlineE2ETests`) checks that the server receives the client deadline and that an owner-routing hop
+  gets a budget no larger than the entry node's.
 
 ## What this is not
 
