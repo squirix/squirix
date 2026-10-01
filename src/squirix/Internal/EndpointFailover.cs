@@ -34,8 +34,8 @@ internal sealed class EndpointFailover
     /// <param name="primaryNodeId">The node id of the endpoint tried first.</param>
     /// <param name="operationDeadline">The finite positive duration each operation may take in total.</param>
     /// <param name="timeProvider">
-    /// The clock used to compute the deadline. It must track wall-clock UTC: the pushed absolute deadline is compared
-    /// against <see cref="DateTime.UtcNow" /> by the call policy and by the gRPC client.
+    /// The clock the operation deadline is computed and counted down on: the call policy measures the budget on its monotonic timestamp,
+    /// and the deadline handed to the gRPC client is rebuilt from that budget on the system clock.
     /// </param>
     internal EndpointFailover(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId, TimeSpan operationDeadline, TimeProvider timeProvider)
     {

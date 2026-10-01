@@ -91,7 +91,8 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
                 return await _executor.RunQueuedExecutionAsync(state, action, false, cancellationToken, cancellationToken).ConfigureAwait(false);
 
             // The budget counts down on the clock its deadline was pushed with; a spent budget cancels at once.
-            using var budgetTimer = new CancellationTokenSource(budgetRemaining.Value > TimeSpan.Zero ? budgetRemaining.Value : TimeSpan.Zero, ServerRpcDeadlineContext.CurrentClock ?? TimeProvider.System);
+            var budgetDelay = budgetRemaining.Value > TimeSpan.Zero ? budgetRemaining.Value : TimeSpan.Zero;
+            using var budgetTimer = new CancellationTokenSource(budgetDelay, ServerRpcDeadlineContext.CurrentClock ?? TimeProvider.System);
             using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budgetTimer.Token);
             return await _executor.RunQueuedExecutionAsync(state, action, true, budgetCts.Token, cancellationToken).ConfigureAwait(false);
         }
@@ -403,8 +404,8 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             if (ShouldUseEffectiveTokenDirectly(budgetRemaining, perAttempt))
                 return await ExecuteAttemptCoreAsync(state, action, attempt, effectiveToken, cancellationToken, effectiveToken).ConfigureAwait(false);
 
-            // The attempt timeout runs on the server clock; the budget bounds it through the effective token.
-            using var attemptTimer = new CancellationTokenSource(budgetRemaining == null || perAttempt < budgetRemaining.Value ? perAttempt : Timeout.InfiniteTimeSpan, _timeProvider);
+            // The attempt timeout runs on the server clock, so a test clock must be advanced for it to fire; the budget bounds it through the effective token.
+            using var attemptTimer = new CancellationTokenSource(perAttempt, _timeProvider);
             using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken, attemptTimer.Token);
             return await ExecuteAttemptCoreAsync(state, action, attempt, effectiveToken, cancellationToken, attemptCts.Token).ConfigureAwait(false);
         }

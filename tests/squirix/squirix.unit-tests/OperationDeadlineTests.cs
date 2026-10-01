@@ -23,6 +23,8 @@ namespace Squirix.UnitTests;
 [Immutable]
 public sealed class OperationDeadlineTests
 {
+    private static readonly TimeSpan ClockJitter = TimeSpan.FromMilliseconds(50);
+
     private static readonly TimeSpan ShortDeadline = TimeSpan.FromMilliseconds(400);
     private static readonly TimeSpan LongPerAttempt = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan CompletionBound = TimeSpan.FromSeconds(5);
@@ -153,10 +155,12 @@ public sealed class OperationDeadlineTests
         var first = captured[0].Deadline;
         _ = await Assert.That(first).IsNotNull();
         _ = await Assert.That(first!.Value.Kind).IsEqualTo(DateTimeKind.Utc);
-        _ = await Assert.That(first.Value).IsGreaterThanOrEqualTo(before + ShortDeadline);
-        _ = await Assert.That(first.Value).IsLessThanOrEqualTo(after + ShortDeadline);
+
+        // Each attempt rebuilds the gRPC deadline from the shared budget, so the values agree up to the clock-read jitter.
+        _ = await Assert.That(first.Value).IsGreaterThanOrEqualTo(before + ShortDeadline - ClockJitter);
+        _ = await Assert.That(first.Value).IsLessThanOrEqualTo(after + ShortDeadline + ClockJitter);
         foreach (var call in captured)
-            _ = await Assert.That(call.Deadline).IsEqualTo(first);
+            _ = await Assert.That((call.Deadline!.Value - first.Value).Duration() < ClockJitter).IsTrue();
     }
 
     /// <summary>Two hung endpoints end with a deadline failure far below the per-attempt timeout.</summary>

@@ -139,6 +139,24 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
     }
 
+    /// <summary>The budget counts down on the clock its deadline was pushed with, even when the policy runs on another clock.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BudgetFollowsPushClock(CancellationToken cancellationToken)
+    {
+        var pushClock = new SteppedWallClock();
+        await using var policy = CreatePolicy(new CallPolicyTimeouts(TimeSpan.FromHours(2), TimeSpan.Zero, TimeSpan.Zero), 1, peer: "budget-push-clock", timeProvider: TimeProvider.System);
+        using var scope = ServerRpcDeadlineContext.Push(pushClock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), pushClock);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var call = policy.ExecuteAsync(entered, static (signal, ct) => BlockUntilCanceledAsync(signal, ct), cancellationToken).AsTask();
+        await entered.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
+        pushClock.Advance(TimeSpan.FromHours(1));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, cancellationToken)));
+
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+    }
+
     /// <summary>The per-attempt timeout runs on the policy clock, with no real delay.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

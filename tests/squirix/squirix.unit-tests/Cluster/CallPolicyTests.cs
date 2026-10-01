@@ -92,6 +92,20 @@ public sealed class CallPolicyTests
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
     }
 
+    /// <summary>The deadline handed to gRPC is the remaining budget from the current system time, whatever clock the deadline was pushed with.</summary>
+    [Test]
+    public async Task ForwardDeadlineFollowsBudget()
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        using var scope = RpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
+        clock.Advance(TimeSpan.FromMinutes(10));
+
+        var expected = DateTime.UtcNow + TimeSpan.FromMinutes(50);
+        var forwarded = RpcDeadlineContext.ForwardDeadlineUtc;
+
+        _ = await Assert.That(forwarded is { } value && (value - expected).Duration() < TimeSpan.FromSeconds(1)).IsTrue();
+    }
+
     /// <summary>The per-attempt timeout runs on the policy clock, with no real delay.</summary>
     [Test]
     public async Task AttemptTimeoutRunsOnPolicyClock()

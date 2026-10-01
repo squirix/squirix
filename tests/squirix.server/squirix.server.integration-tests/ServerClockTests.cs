@@ -234,6 +234,9 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
     [ThreadSafe]
     private sealed class CallerTimerClock : FakeTimeProvider
     {
+        /// <summary>The node retries a peer with a backoff of at most 600 ms and gives each attempt 3 s, so this window holds the backoff only.</summary>
+        private static readonly TimeSpan BackoffWindow = TimeSpan.FromSeconds(1);
+
         private readonly AsyncLocal<bool> _recording = new();
         private int _count;
 
@@ -246,7 +249,7 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
 
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
-            if (_recording.Value && dueTime < TimeSpan.FromSeconds(1))
+            if (_recording.Value && dueTime < BackoffWindow)
                 _ = Interlocked.Increment(ref _count);
 
             return base.CreateTimer(callback, state, dueTime, period);

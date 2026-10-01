@@ -91,19 +91,19 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         using (ServerRpcDeadlineContext.Push(contextDeadline, TimeProvider.System))
         {
             using var absent = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", default), capture.OnContinueAsync);
-            _ = await Assert.That(capture.Deadline).IsEqualTo(contextDeadline);
+            _ = await Assert.That(IsNear(capture.Deadline, contextDeadline)).IsTrue();
 
             using var loose = interceptor.AsyncUnaryCall(
                 "req",
                 new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(deadline: looserCaller)),
                 capture.OnContinueAsync);
-            _ = await Assert.That(capture.Deadline).IsEqualTo(contextDeadline);
+            _ = await Assert.That(IsNear(capture.Deadline, contextDeadline)).IsTrue();
 
             using var tight = interceptor.AsyncUnaryCall(
                 "req",
                 new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(deadline: tighterCaller)),
                 capture.OnContinueAsync);
-            _ = await Assert.That(capture.Deadline).IsEqualTo(tighterCaller);
+            _ = await Assert.That(IsNear(capture.Deadline, tighterCaller)).IsTrue();
         }
     }
 
@@ -220,6 +220,12 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
             return Task.Factory.StartNew(() => InvokeCallAsync(state, cancellationToken), cancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
         }
     }
+
+    /// <summary>Checks that a forwarded deadline matches the expected one within the time the test itself takes to run.</summary>
+    /// <param name="actual">The forwarded deadline.</param>
+    /// <param name="expected">The expected deadline.</param>
+    /// <returns><see langword="true" /> when they are within one second.</returns>
+    private static bool IsNear(DateTime? actual, DateTime expected) => actual is { } value && (value - expected).Duration() < TimeSpan.FromSeconds(1);
 
     private static async Task AssertEntriesEqualAsync(List<string> expected, List<string> actual)
     {

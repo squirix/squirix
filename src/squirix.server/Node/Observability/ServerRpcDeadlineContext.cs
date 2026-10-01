@@ -11,12 +11,12 @@ internal static class ServerRpcDeadlineContext
     /// <summary>Gets the clock the current deadline counts down on, or <see langword="null" /> when no deadline is set.</summary>
     internal static TimeProvider? CurrentClock => Current.Value?.Budget?.Clock;
 
-    private static DateTime? CurrentDeadlineUtc => Current.Value?.Deadline;
+    private static DateTime? ForwardDeadlineUtc => Current.Value?.Budget?.ForwardDeadlineUtc;
 
     internal static DateTime? EffectiveDeadline(DateTime? existingDeadlineUtc)
     {
         var existing = Normalize(existingDeadlineUtc);
-        var current = CurrentDeadlineUtc;
+        var current = ForwardDeadlineUtc;
         var deadline = existing <= current ? existing : current;
         var time = current == null ? existing : deadline;
         return existing == null ? current : time;

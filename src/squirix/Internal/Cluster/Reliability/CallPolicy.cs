@@ -87,7 +87,8 @@ internal sealed class CallPolicy : ICallPolicy
                 return await _executor.RunQueuedExecutionAsync(action, state, false, cancellationToken, cancellationToken).ConfigureAwait(false);
 
             // The budget counts down on the clock its deadline was pushed with; a spent budget cancels at once.
-            using var budgetTimer = new CancellationTokenSource(budgetRemaining.Value > TimeSpan.Zero ? budgetRemaining.Value : TimeSpan.Zero, RpcDeadlineContext.CurrentClock ?? TimeProvider.System);
+            var budgetDelay = budgetRemaining.Value > TimeSpan.Zero ? budgetRemaining.Value : TimeSpan.Zero;
+            using var budgetTimer = new CancellationTokenSource(budgetDelay, RpcDeadlineContext.CurrentClock ?? TimeProvider.System);
             using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budgetTimer.Token);
             return await _executor.RunQueuedExecutionAsync(action, state, true, budgetCts.Token, cancellationToken).ConfigureAwait(false);
         }
@@ -399,8 +400,8 @@ internal sealed class CallPolicy : ICallPolicy
             if (ShouldUseEffectiveTokenDirectly(budget, remaining))
                 return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, effectiveToken).ConfigureAwait(false);
 
-            // The attempt timeout runs on the policy clock; the budget bounds it through the effective token.
-            using var attemptTimer = new CancellationTokenSource(budget == null || remaining < budget.Value ? remaining : Timeout.InfiniteTimeSpan, _timeProvider);
+            // The attempt timeout runs on the policy clock, so a test clock must be advanced for it to fire; the budget bounds it through the effective token.
+            using var attemptTimer = new CancellationTokenSource(remaining, _timeProvider);
             using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken, attemptTimer.Token);
             return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, attemptCts.Token).ConfigureAwait(false);
         }
