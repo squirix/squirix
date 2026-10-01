@@ -24,11 +24,14 @@ COPY src/squirix.server/ src/squirix.server/
 COPY src/squirix.server.host/ src/squirix.server.host/
 COPY src/squirix.attributes/ src/squirix.attributes/
 
+# Analyzers only report diagnostics, and the CI analyzed build already runs them over these projects, so the image build skips them.
 RUN dotnet publish src/squirix.server.host/Squirix.Server.Host.csproj \
     -c Release \
     -o /app/publish \
     -p:PublishReadyToRun=false \
-    -p:PublishSingleFile=false
+    -p:PublishSingleFile=false \
+    -p:RunAnalyzers=false \
+    -p:EnforceCodeStyleInBuild=false
 
 # Development HTTPS PFX for Kestrel. SANs cover Docker Compose DNS names and localhost host access.
 FROM mcr.microsoft.com/dotnet/sdk:11.0 AS https-cert

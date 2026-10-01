@@ -40,74 +40,9 @@ jobs:
                 with:
                     persist-credentials: false
 
-            -   name: Paths Filter
-                # Pin includes some-with-excludes so negated !**/*.ndproj|ndrules actually exclude.
-                uses: dorny/paths-filter@4711b7a31b4aa89103d8c6ffab2e3b8e7b6381c7 # master (some-with-excludes)
+            -   name: Detect Changes
                 id: filter
-                with:
-                    predicate-quantifier: 'some-with-excludes'
-                    filters: |
-                        code:
-                          - 'src/**'
-                          - 'tests/**'
-                          - 'tools/**'
-                          - 'build/**'
-                          - 'examples/**'
-                          - 'benchmarks/**'
-                          - 'samples/**'
-                          - '.github/workflows/**'
-                          - '.github/actions/**'
-                          - 'Directory.Build.props'
-                          - 'Directory.Packages.props'
-                          - 'global.json'
-                          - 'stylecop.json'
-                          - 'BannedSymbols.txt'
-                          - 'BannedSymbols.Reflection.txt'
-                          - 'BannedSymbols.Time.txt'
-                          - '.globalconfig'
-                          - '.editorconfig'
-                          - '.pvsconfig'
-                          - 'squirix.slnx'
-                          - 'squirix.slnx.DotSettings'
-                          - 'clean-bin-obj.bat'
-                          - 'clean-bin-obj.sh'
-                          # NDepend project/rules edits must not trigger the code CI matrix.
-                          - '!**/*.ndproj'
-                          - '!**/*.ndrules'
-                          # PVS-Studio suppress baselines must not trigger the code CI matrix.
-                          - '!**/*.suppress'
-                          - '!**/*.suppress.json'
-                        docs:
-                          - '**/*.md'
-                          - 'docs/**'
-                          - 'contributing.md'
-                          - '.markdownlint.json'
-                          - '.markdownlint-cli2.jsonc'
-                        docker:
-                          - 'docker/Dockerfile'
-                          - 'docker/Dockerfile.release'
-                          - 'docker/**'
-                          - '.dockerignore'
-                          - 'src/squirix/**'
-                          - 'src/shared/**'
-                          - 'src/squirix.server/**'
-                          - 'src/squirix.server.host/**'
-                          - 'Directory.Build.props'
-                          - 'Directory.Packages.props'
-                          - 'global.json'
-                          - 'stylecop.json'
-                          - 'BannedSymbols.txt'
-                          - 'BannedSymbols.Reflection.txt'
-                          - 'BannedSymbols.Time.txt'
-                          - '.globalconfig'
-                          - '.editorconfig'
-                          - 'squirix.slnx'
-                        ndepend:
-                          # NDepend gate config edits (rules/project/sync scripts) run the NDepend
-                          # job without triggering the full code matrix (excluded from `code` above).
-                          - 'build/ndepend/**'
-                          - '**/*.ndproj'
-                          - '**/*.ndrules'
+                uses: ./.github/actions/detect-changes
 
     markdownlint:
         name: Documentation Lint (Markdownlint)
@@ -225,19 +160,21 @@ jobs:
                     push: false
                     tags: squirix-server:ci
                     cache-from: type=gha
-                    cache-to: type=gha,mode=max
+                    # A cache written by a pull request run is visible only to that pull request, and exporting it costs
+                    # 7-45 s per run. Pull requests read the layers that develop and main write and export nothing.
+                    cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max' || '' }}
 
     # Per-OS builds so ubuntu consumers are not blocked on Windows/macOS restore+build.
     # Keep display names identical to the former matrix jobs for branch-protection continuity.
+    # The ubuntu build heads the longest job chain, so it does not wait for the Detect Changes job: it starts with the
+    # workflow, classifies the change set itself with the same action and skips the build when no code changed. A build
+    # that had nothing to do still ends as a success, so the jobs that consume its artifact check the `built` output.
     build-ubuntu:
         name: Build (ubuntu-latest / net10.0)
         runs-on: ubuntu-latest
         timeout-minutes: 45
-        needs: changes
-        if: |
-            needs.changes.outputs.code == 'true' ||
-            github.event_name == 'schedule' ||
-            github.event_name == 'workflow_dispatch'
+        outputs:
+            built: ${{ steps.gate.outputs.build }}
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -253,7 +190,16 @@ jobs:
                 with:
                     persist-credentials: false
 
+            -   name: Detect Changes
+                id: changes
+                uses: ./.github/actions/detect-changes
+
+            -   name: Decide Whether To Build
+                id: gate
+                run: echo "build=${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
+
             -   name: Build Release Outputs
+                if: steps.gate.outputs.build == 'true'
                 uses: ./.github/actions/build-release
                 with:
                     artifact-os: ubuntu-latest
@@ -262,14 +208,23 @@ jobs:
                     # Pull requests build the test artifact without analyzers; analyze-ubuntu runs the analyzed build in parallel.
                     analyzers: ${{ github.event_name != 'pull_request' }}
                     test-only-artifact: ${{ github.event_name == 'pull_request' }}
+                    host-runtimes-only: ${{ github.event_name == 'pull_request' }}
 
     # Pull request only: the analyzed (TreatWarningsAsErrors) build that build-ubuntu skips for speed. It uploads nothing.
+    # Like build-ubuntu it starts with the workflow and classifies the change set itself.
+    # Analyzers run inside each project's compilation and the projects depend on each other in a chain, so one runner
+    # cannot spread the work. Each shard therefore gets a runner of its own, compiles the whole solution and analyzes only
+    # its own projects; together the shards analyze every project exactly once.
     analyze-ubuntu:
-        name: Analyze (ubuntu-latest / net10.0)
+        name: Analyze (ubuntu-latest / net10.0 / ${{ matrix.shard }})
         runs-on: ubuntu-latest
         timeout-minutes: 45
-        needs: changes
-        if: github.event_name == 'pull_request' && needs.changes.outputs.code == 'true'
+        if: github.event_name == 'pull_request'
+        strategy:
+            fail-fast: false
+            matrix:
+                # One entry per shard in SquirixAnalysisShards (Directory.Build.props); a shard missing here is never analyzed.
+                shard: [ default, server-unit-tests, server-tests ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -285,12 +240,31 @@ jobs:
                 with:
                     persist-credentials: false
 
+            -   name: Detect Changes
+                id: changes
+                uses: ./.github/actions/detect-changes
+
             -   name: Analyzed Release Build
+                if: steps.changes.outputs.code == 'true'
                 uses: ./.github/actions/build-release
                 with:
                     artifact-os: ubuntu-latest
                     framework: net10.0
+                    analysis-shard: ${{ matrix.shard }}
                     upload-outputs: "false"
+
+            # The build already fails on a shard name Directory.Build.props does not declare, so an equal count means the
+            # matrix above and the declared shards are the same set and no declared shard is left without a job.
+            -   name: Verify Every Analysis Shard Has A Job
+                if: steps.changes.outputs.code == 'true' && strategy.job-index == 0
+                shell: bash
+                run: |
+                    declared="$(dotnet msbuild src/squirix/Squirix.csproj -getProperty:SquirixAnalysisShards)"
+                    IFS=';' read -r -a shards <<< "$declared"
+                    if [ "${#shards[@]}" -ne "${{ strategy.job-total }}" ]; then
+                      echo "Directory.Build.props declares ${#shards[@]} analysis shards ($declared) but this job runs ${{ strategy.job-total }}." >&2
+                      exit 1
+                    fi
 
     build-windows:
         name: Build (windows-latest / net10.0)
@@ -494,11 +468,14 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 20
         needs: [ build-ubuntu ]
+        if: needs.build-ubuntu.outputs.built == 'true'
         strategy:
             fail-fast: false
             max-parallel: 8
             matrix:
-                suite: [ smoke, unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node, protocol-model ]
+                # Pull requests run the five suites that take a few seconds each back to back in one job (the `light` group)
+                # and the server unit tests as two parallel halves. Other events keep one suite per job for now.
+                suite: ${{ fromJSON(github.event_name == 'pull_request' && '["light","server-unit-a","server-unit-b","server-integration","e2e-multi-node"]' || '["smoke","unit","client-integration","server-unit","server-integration","e2e-single-node","e2e-multi-node","protocol-model"]') }}
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -648,7 +625,7 @@ jobs:
         timeout-minutes: 10
         needs: [ build-ubuntu ]
         # PR fast path: explorer runs on push/schedule/dispatch only.
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && needs.build-ubuntu.outputs.built == 'true'
         steps:
             -   name: Set Git Options
                 run: |
@@ -747,7 +724,7 @@ jobs:
         timeout-minutes: 15
         needs: [ build-ubuntu ]
         # PR fast path: discovery check runs on push/schedule/dispatch only.
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && needs.build-ubuntu.outputs.built == 'true'
         steps:
             -   name: Set Git Options
                 run: |
@@ -1502,19 +1479,15 @@ jobs:
             - sonarcloud
             - pvs-studio
             - ndepend
-        if: |
-            always() && (
-              needs.changes.outputs.docs == 'true' ||
-              needs.changes.outputs.code == 'true' ||
-              needs.changes.outputs.docker == 'true' ||
-             needs.changes.outputs.ndepend == 'true' ||
-              github.event_name == 'schedule' ||
-              github.event_name == 'workflow_dispatch'
-            )
+        # This is the only required status check, and GitHub counts a skipped required check as passed. The job therefore runs
+        # on every event and every change set: it must never be skipped, or a failed Detect Changes job (all outputs empty) and
+        # a change set outside every filter would both make a pull request mergeable with nothing verified.
+        if: always()
         steps:
             -   name: Verify Required Checks For This Change Set
                 shell: bash
                 env:
+                    RESULT_CHANGES: ${{ needs.changes.result }}
                     DOCS_CHANGED: ${{ needs.changes.outputs.docs }}
                     CODE_CHANGED: ${{ needs.changes.outputs.code }}
                     EVENT_NAME: ${{ github.event_name }}
@@ -1609,6 +1582,10 @@ jobs:
                       echo "FAIL $name result=$result" >&2
                       failed=1
                     }
+
+                    # Every requirement above is derived from the change detection outputs, so a detection that did not
+                    # succeed leaves nothing to trust: fail instead of treating every check as not required.
+                    assert_success "changes" "true" "$RESULT_CHANGES"
 
                     assert_success "markdownlint" "$require_docs" "$RESULT_MARKDOWNLINT"
                     # PR fast path: skipped on pull_request, required otherwise.
