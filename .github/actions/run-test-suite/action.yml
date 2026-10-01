@@ -1,5 +1,5 @@
 name: Run Test Suite
-description: Download build outputs and run one CI test suite (optional coverage on Ubuntu).
+description: Download build outputs and run one CI test suite or suite group (optional coverage on Ubuntu).
 
 inputs:
   os:
@@ -10,7 +10,7 @@ inputs:
     required: false
     default: net10.0
   suite:
-    description: Suite id (unit, client-integration, server-unit, server-integration, smoke, e2e-single-node, e2e-multi-node, protocol-model).
+    description: Suite or group id defined in tools/ci/select-test-suite.py (for example unit, server-unit, server-unit-a, e2e-multi-node, or the light group).
     required: true
   collect-coverage:
     description: When true, collect Coverlet coverage (Ubuntu only).
@@ -96,64 +96,92 @@ runs:
       working-directory: ${{ runner.temp }}
       run: bash "${{ github.workspace }}/tools/ci/ensure-dev-https-cert.sh"
 
+    # A suite id selects one test host run, or for a group several runs back to back. Every run keeps its own name for the
+    # log, the TRX file and the coverage directory, so a single suite produces the same files whether it runs alone or in a group.
     - name: Run Test Suite
       shell: bash
       env:
-        PROJECT: ${{ steps.select.outputs.project }}
-        FILTER: ${{ steps.select.outputs.filter }}
+        RUNS: ${{ steps.select.outputs.runs }}
         DIRECT: ${{ steps.mode.outputs.direct }}
       run: |
         set -o pipefail
-        echo "Suite '${{ inputs.suite }}': project '$PROJECT', filter '${FILTER:-<none>}'."
-        FILTER_ARGS=()
-        if [ -n "$FILTER" ]; then
-          FILTER_ARGS=(--treenode-filter "$FILTER")
-        fi
+        failed=()
+        # The runs are read from descriptor 3 so a test host cannot consume the remaining lines through its standard input.
+        while IFS=$'\t' read -r -u 3 name project filter; do
+          if [ -z "$name" ]; then continue; fi
+          echo "Suite '$name': project '$project', filter '${filter:-<none>}'."
+          filter_args=()
+          if [ -n "$filter" ]; then
+            filter_args=(--treenode-filter "$filter")
+          fi
 
-        if [ "$DIRECT" = "true" ]; then
-          # The test host is named after its project; it accepts the same Microsoft.Testing.Platform options and exit codes.
-          host="$(dirname "$PROJECT")/bin/Release/${{ inputs.framework }}/$(basename "$PROJECT" .csproj)"
-          if [ "$RUNNER_OS" = "Windows" ]; then host="$host.exe"; fi
-          "$host" \
-            "${FILTER_ARGS[@]}" \
-            --report-trx --report-trx-filename ${{ inputs.suite }}.trx \
-            --results-directory "${{ github.workspace }}/TestResults" \
-            --timeout 1h 2>&1 | tee "test-output-${{ inputs.suite }}.log"
-        elif [ "${{ inputs.collect-coverage }}" = "true" ]; then
-          mkdir -p "coverage/${{ inputs.suite }}"
-          dotnet test --project "$PROJECT" --framework ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
-            "${FILTER_ARGS[@]}" \
-            --report-trx --report-trx-filename ${{ inputs.suite }}.trx \
-            --results-directory "${{ github.workspace }}/coverage/${{ inputs.suite }}" \
-            --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml \
-            --timeout 1h 2>&1 | tee "test-output-${{ inputs.suite }}.log"
-        else
-          dotnet test --project "$PROJECT" --framework ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
-            "${FILTER_ARGS[@]}" \
-            --report-trx --report-trx-filename ${{ inputs.suite }}.trx \
-            --timeout 1h 2>&1 | tee "test-output-${{ inputs.suite }}.log"
+          status=0
+          if [ "$DIRECT" = "true" ]; then
+            # The test host is named after its project; it accepts the same Microsoft.Testing.Platform options and exit codes.
+            host="$(dirname "$project")/bin/Release/${{ inputs.framework }}/$(basename "$project" .csproj)"
+            if [ "$RUNNER_OS" = "Windows" ]; then host="$host.exe"; fi
+            "$host" \
+              "${filter_args[@]}" \
+              --report-trx --report-trx-filename "$name.trx" \
+              --results-directory "${{ github.workspace }}/TestResults" \
+              --timeout 1h 2>&1 | tee "test-output-$name.log" || status=$?
+          elif [ "${{ inputs.collect-coverage }}" = "true" ]; then
+            mkdir -p "coverage/$name"
+            dotnet test --project "$project" --framework ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
+              "${filter_args[@]}" \
+              --report-trx --report-trx-filename "$name.trx" \
+              --results-directory "${{ github.workspace }}/coverage/$name" \
+              --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml \
+              --timeout 1h 2>&1 | tee "test-output-$name.log" || status=$?
+          else
+            dotnet test --project "$project" --framework ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
+              "${filter_args[@]}" \
+              --report-trx --report-trx-filename "$name.trx" \
+              --timeout 1h 2>&1 | tee "test-output-$name.log" || status=$?
+          fi
+
+          # A group keeps going after a failed suite so one job reports every failing suite, then fails as a whole.
+          if [ "$status" -ne 0 ]; then
+            echo "Suite '$name' failed with exit code $status." >&2
+            failed+=("$name")
+          fi
+        done 3<<< "$RUNS"
+
+        if [ ${#failed[@]} -ne 0 ]; then
+          echo "Failed suites: ${failed[*]}" >&2
+          exit 1
         fi
 
     - name: Fail On Empty Test Selection
       shell: bash
+      env:
+        RUNS: ${{ steps.select.outputs.runs }}
       run: |
-        if grep -q "Zero tests ran" "test-output-${{ inputs.suite }}.log"; then
-          echo "Suite '${{ inputs.suite }}' matched zero tests. Failing the build." >&2
-          exit 1
-        fi
+        while IFS=$'\t' read -r name _; do
+          if [ -z "$name" ]; then continue; fi
+          if grep -q "Zero tests ran" "test-output-$name.log"; then
+            echo "Suite '$name' matched zero tests. Failing the build." >&2
+            exit 1
+          fi
+        done <<< "$RUNS"
 
     - name: Verify Suite Coverage Was Collected
       if: inputs.collect-coverage == 'true'
       shell: bash
+      env:
+        RUNS: ${{ steps.select.outputs.runs }}
       run: |
-        mapfile -t files < <(find "coverage/${{ inputs.suite }}" -name coverage.cobertura.xml -type f 2>/dev/null || true)
-        if [ ${#files[@]} -eq 0 ]; then
-          echo "Suite '${{ inputs.suite }}' passed, but no coverage.cobertura.xml was produced." >&2
-          echo "Coverage directory contents:" >&2
-          find "coverage/${{ inputs.suite }}" -type f -print 2>/dev/null || true
-          ls -R "coverage/${{ inputs.suite }}" || true
-          exit 1
-        fi
+        while IFS=$'\t' read -r name _; do
+          if [ -z "$name" ]; then continue; fi
+          mapfile -t files < <(find "coverage/$name" -name coverage.cobertura.xml -type f 2>/dev/null || true)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "Suite '$name' passed, but no coverage.cobertura.xml was produced." >&2
+            echo "Coverage directory contents:" >&2
+            find "coverage/$name" -type f -print 2>/dev/null || true
+            ls -R "coverage/$name" || true
+            exit 1
+          fi
+        done <<< "$RUNS"
 
     - name: Upload Raw Coverage Files
       if: always() && inputs.collect-coverage == 'true'
@@ -178,7 +206,7 @@ runs:
       if: always()
       shell: bash
       run: |
-        if grep -Ei 'gRPC method .+ (task )?canceled' "test-output-${{ inputs.suite }}.log"; then
+        if grep -Ei 'gRPC method .+ (task )?canceled' test-output-*.log; then
           echo "Found gRPC cancellation errors in logs. Failing the build." >&2
           exit 1
         else

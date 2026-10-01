@@ -449,7 +449,9 @@ jobs:
             fail-fast: false
             max-parallel: 8
             matrix:
-                suite: [ smoke, unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node, protocol-model ]
+                # Pull requests run the five suites that take a few seconds each back to back in one job (the `light` group)
+                # and the server unit tests as two parallel halves. Other events keep one suite per job for now.
+                suite: ${{ fromJSON(github.event_name == 'pull_request' && '["light","server-unit-a","server-unit-b","server-integration","e2e-multi-node"]' || '["smoke","unit","client-integration","server-unit","server-integration","e2e-single-node","e2e-multi-node","protocol-model"]') }}
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
