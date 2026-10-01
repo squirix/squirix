@@ -134,8 +134,8 @@ internal sealed class RemoteCache<T> : ICache<T>
     public async Task SetAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
-        var entry = _rpc.ToEntry(value, options);
-        var request = _rpc.ToSetEntryAsyncRequest(key, entry);
+        var request = _rpc.ToSetEntryAsyncRequest(key, new CacheEntry<T> { Value = value });
+        _rpc.ApplyExpiration(request.Entry, options);
         request.OperationId = RpcOperationIdentity.New();
 
         _ = await _rpc.ExecuteAsync(
@@ -181,8 +181,8 @@ internal sealed class RemoteCache<T> : ICache<T>
     public async Task<bool> TryAddAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
-        var entry = _rpc.ToEntry(value, options);
-        var request = _rpc.ToTryAddEntryAsyncRequest(key, entry);
+        var request = _rpc.ToTryAddEntryAsyncRequest(key, new CacheEntry<T> { Value = value });
+        _rpc.ApplyExpiration(request.Entry, options);
         request.OperationId = RpcOperationIdentity.New();
 
         var response = await _rpc.ExecuteAsync(
@@ -223,9 +223,8 @@ internal sealed class RemoteCache<T> : ICache<T>
     private static async Task<CacheValueResult<T>> ExecuteGetOrAddAsync(GetOrAddFlightState state, CancellationToken cancellationToken)
     {
         var created = await state.ValueFactory(state.Key, cancellationToken).ConfigureAwait(false);
-        var entry = state.Cache._rpc.ToEntry(created, state.Options);
-
-        var request = state.Cache._rpc.ToGetOrAddAsyncRequest(state.Key, entry);
+        var request = state.Cache._rpc.ToGetOrAddAsyncRequest(state.Key, new CacheEntry<T> { Value = created });
+        state.Cache._rpc.ApplyExpiration(request.Entry, state.Options);
         request.OperationId = RpcOperationIdentity.New();
         var response = await state.Cache._rpc.ExecuteAsync(
             static (client, requestState, token) =>
@@ -294,13 +293,19 @@ internal sealed class RemoteCache<T> : ICache<T>
         internal static CallOptions CallOptionsFor(CancellationToken cancellationToken) =>
             new(deadline: RpcDeadlineContext.ForwardDeadlineUtc, cancellationToken: cancellationToken);
 
-        /// <summary>Builds the entry to write, turning an absolute expiration on the client clock into the time left before it.</summary>
-        /// <param name="value">The value.</param>
+        /// <summary>
+        /// Sets the expiration of an already serialized wire entry, measured now on the client clock, so the time spent serializing the value
+        /// does not stretch the lifetime; the request is then sent unchanged on every retry.
+        /// </summary>
+        /// <param name="entry">The wire entry, value already serialized.</param>
         /// <param name="options">The entry options.</param>
-        /// <returns>The entry, with a relative expiration only, so client and server clocks never need to agree.</returns>
         /// <exception cref="ArgumentException">Both an absolute and a relative expiration are set.</exception>
         /// <exception cref="ArgumentOutOfRangeException">The absolute expiration is not in the future on the client clock.</exception>
-        internal CacheEntry<T> ToEntry(T? value, CacheEntryOptions? options) => new() { Value = value, Expiration = ResolveExpiration(options) };
+        internal void ApplyExpiration(CacheEntryWire entry, CacheEntryOptions? options)
+        {
+            if (ResolveExpiration(options) is { } expiration)
+                entry.Expiration = Duration.FromTimeSpan(expiration);
+        }
 
         /// <summary>Returns the relative expiration to send for <paramref name="options" />, measured now on the client clock.</summary>
         /// <param name="options">The entry options.</param>
