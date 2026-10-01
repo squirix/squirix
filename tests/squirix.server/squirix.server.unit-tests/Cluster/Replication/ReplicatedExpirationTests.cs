@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Core;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -98,7 +99,15 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         _ = await Assert.That(boundary).IsNotEqualTo(first, StringComparer.Ordinal);
         _ = await Assert.That(first.Length).IsEqualTo(32);
         _ = await Assert.That(first).Matches("^[0-9a-f]{32}$");
-        _ = await Assert.That(ReplicaExpirationOperationId.OperationScope).IsEqualTo("replicated-expiration");
+    }
+
+    /// <summary>No cache can be named like the tombstone scope, so a client operation never shares it.</summary>
+    [Test]
+    public async Task ExpirationScopeIsNotCacheName()
+    {
+        var ex = NodeExceptionAssert.For<ArgumentException>().Throws(static () => _ = ServerCacheName.ParsePublic(ReplicaExpirationOperationId.OperationScope));
+
+        _ = await Assert.That(ex.ParamName).IsEqualTo("cacheName");
     }
 
     /// <summary>An expired read becomes a miss only after the tombstone is durably applied.</summary>

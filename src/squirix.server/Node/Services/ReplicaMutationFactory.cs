@@ -99,7 +99,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         return Build(cacheName, in record, index);
     }
 
-    /// <summary>Prepares a replicated expiration removal.</summary>
+    /// <summary>Prepares a replicated expiration removal, a client mutation scoped to its cache like every other one.</summary>
     /// <param name="operationId">Client operation identifier.</param>
     /// <param name="cacheName">Target cache name.</param>
     /// <param name="key">Target key.</param>
@@ -115,9 +115,9 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             index,
             _term,
             operationId,
-            ReplicaExpirationOperationId.OperationScope,
-            Fingerprint(ReplicaExpirationOperationId.OperationScope, operationId, cacheName, key, ReplicaMutationKinds.RemoveExpiration, []),
-            nameof(GroupRecordKind.Expiration),
+            cacheName,
+            Fingerprint(cacheName, operationId, cacheName, key, ReplicaMutationKinds.RemoveExpiration, []),
+            nameof(GroupRecordKind.UserMutation),
             cacheName,
             Encoding.UTF8.GetBytes(key),
             ReplicaMutationKinds.RemoveExpiration,
@@ -127,7 +127,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             now.Ticks,
             0,
             0);
-        return Build(ReplicaExpirationOperationId.OperationScope, in record, index);
+        return Build(cacheName, in record, index);
     }
 
     /// <summary>Prepares a replicated unconditional write.</summary>
