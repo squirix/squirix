@@ -251,6 +251,19 @@ jobs:
                     analysis-shard: ${{ matrix.shard }}
                     upload-outputs: "false"
 
+            # The build already fails on a shard name Directory.Build.props does not declare, so an equal count means the
+            # matrix above and the declared shards are the same set and no declared shard is left without a job.
+            -   name: Verify Every Analysis Shard Has A Job
+                if: steps.changes.outputs.code == 'true' && strategy.job-index == 0
+                shell: bash
+                run: |
+                    declared="$(dotnet msbuild src/squirix/Squirix.csproj -getProperty:SquirixAnalysisShards)"
+                    IFS=';' read -r -a shards <<< "$declared"
+                    if [ "${#shards[@]}" -ne "${{ strategy.job-total }}" ]; then
+                      echo "Directory.Build.props declares ${#shards[@]} analysis shards ($declared) but this job runs ${{ strategy.job-total }}." >&2
+                      exit 1
+                    fi
+
     build-windows:
         name: Build (windows-latest / net10.0)
         runs-on: windows-latest
