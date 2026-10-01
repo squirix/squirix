@@ -8,7 +8,7 @@ namespace Squirix.ProtocolModel;
 [Immutable]
 internal sealed class ExploreProfile
 {
-    private ExploreProfile(string name, ExploreBounds bounds, ExploreFlags flags)
+    private ExploreProfile(string name, in ExploreBounds bounds, ExploreFlags flags)
     {
         Name = name;
         ReplicaCount = bounds.ReplicaCount;
@@ -64,7 +64,7 @@ internal sealed class ExploreProfile
 
         var bounds = new ExploreBounds(replicaCount, maxTerm, maxLogEntries, maxInFlight, maxPendingReads, 50_000);
         var flags = new ExploreFlags(allowCrash, replicaCount >= 3 && allowCrash, symmetryReduce);
-        return new ExploreProfile("rf-" + replicaCount.ToString(CultureInfo.InvariantCulture), bounds, flags);
+        return new ExploreProfile("rf-" + replicaCount.ToString(CultureInfo.InvariantCulture), in bounds, flags);
     }
 
     internal static ExploreProfile SmallCommit(bool symmetryReduce = true) => SmallProfile("small-commit", 0, symmetryReduce);

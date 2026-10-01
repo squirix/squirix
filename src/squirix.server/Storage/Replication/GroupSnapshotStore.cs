@@ -64,16 +64,16 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <param name="maxSnapshotBytes">Maximum accepted payload length; bounds the pooled rent against untrusted snapshots.</param>
     /// <returns>The encoded payload integrity fields.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the encoded payload length exceeds <paramref name="maxSnapshotBytes" />.</exception>
-    internal static GroupSnapshotPayloadIntegrity ComputePayloadIntegrity(GroupSnapshot snapshot, int maxSnapshotBytes = DefaultMaxSnapshotBytes)
+    internal static GroupSnapshotPayloadIntegrity ComputePayloadIntegrity(in GroupSnapshot snapshot, int maxSnapshotBytes = DefaultMaxSnapshotBytes)
     {
-        var payloadLength = GroupSnapshotCodec.ComputeSnapshotEncodedLength(snapshot);
+        var payloadLength = GroupSnapshotCodec.ComputeSnapshotEncodedLength(in snapshot);
         if (payloadLength > maxSnapshotBytes)
             throw new InvalidOperationException($"Replica group snapshot payload length {payloadLength} exceeds the maximum {maxSnapshotBytes} bytes.");
 
         var bytes = ArrayPool<byte>.Shared.Rent(payloadLength);
         try
         {
-            GroupSnapshotEncoder.EncodeSnapshot(bytes.AsSpan(0, payloadLength), snapshot);
+            GroupSnapshotEncoder.EncodeSnapshot(bytes.AsSpan(0, payloadLength), in snapshot);
             return new GroupSnapshotPayloadIntegrity(payloadLength, Crc32C.Compute(bytes.AsSpan(0, payloadLength)));
         }
         finally
@@ -111,9 +111,9 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// </remarks>
     internal async Task PublishAsync(GroupSnapshot snapshot, CancellationToken cancellationToken)
     {
-        var stableSnapshot = ValidateForPublish(snapshot);
+        var stableSnapshot = ValidateForPublish(in snapshot);
 
-        var payloadLength = GroupSnapshotCodec.ComputeSnapshotEncodedLength(stableSnapshot);
+        var payloadLength = GroupSnapshotCodec.ComputeSnapshotEncodedLength(in stableSnapshot);
         long fileLength = GroupSnapshotCodec.SnapshotHeaderByteCount;
         fileLength += payloadLength;
         fileLength += GroupSnapshotCodec.Crc32ByteCount;
@@ -128,7 +128,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         {
             const int headerLen = GroupSnapshotCodec.SnapshotHeaderByteCount;
             GroupSnapshotEncoder.WriteSnapshotFileHeader(bytes.AsSpan(0, headerLen), payloadLength);
-            GroupSnapshotEncoder.EncodeSnapshot(bytes.AsSpan(headerLen, payloadLength), stableSnapshot);
+            GroupSnapshotEncoder.EncodeSnapshot(bytes.AsSpan(headerLen, payloadLength), in stableSnapshot);
             var crc = Crc32C.Compute(bytes.AsSpan(headerLen, payloadLength));
             BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(headerLen + payloadLength), crc);
 
@@ -216,7 +216,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <returns>The validated per-record copy safe to encode twice.</returns>
     /// <exception cref="ArgumentNullException">Thrown when the snapshot committed outcomes are null.</exception>
     /// <exception cref="InvalidOperationException">Thrown when an outcome is unresolved or its log index exceeds the boundary.</exception>
-    private static GroupIdempotencyRecord[] MaterializeValidatedOutcomes(GroupSnapshot snapshot)
+    private static GroupIdempotencyRecord[] MaterializeValidatedOutcomes(in GroupSnapshot snapshot)
     {
         const string message = "Snapshot committed outcomes must not be null.";
         var outcomes = snapshot.CommittedOutcomes ?? ThrowHelper.Throw<IReadOnlyList<GroupIdempotencyRecord>>(new ArgumentNullException(nameof(snapshot), message));
@@ -242,14 +242,14 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <returns>A snapshot whose committed outcomes are a private copy safe to encode twice.</returns>
     /// <exception cref="ArgumentNullException">Thrown when the snapshot committed outcomes are null.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the snapshot violates its boundary invariants.</exception>
-    private GroupSnapshot ValidateForPublish(GroupSnapshot snapshot)
+    private GroupSnapshot ValidateForPublish(in GroupSnapshot snapshot)
     {
-        ValidatePublishBoundaryInvariants(snapshot);
+        ValidatePublishBoundaryInvariants(in snapshot);
 
         // CommittedOutcomes is an IReadOnlyList a caller may keep mutating. Materialize it once so the sizing
         // pass and the encoding pass observe identical elements; otherwise a list that changes between the two
         // passes either writes past the sized span or publishes a payload length larger than the encoded bytes.
-        return snapshot with { CommittedOutcomes = MaterializeValidatedOutcomes(snapshot) };
+        return snapshot with { CommittedOutcomes = MaterializeValidatedOutcomes(in snapshot) };
     }
 
     /// <summary>Rejects at write time every invariant the on-disk decoder and recovery refuse downstream.</summary>
@@ -258,7 +258,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// Thrown when the commit index is below the included index, the included term is zero for a non-empty snapshot,
     /// an outcome is resolved after the capture time, or the snapshot belongs to another group.
     /// </exception>
-    private void ValidatePublishBoundaryInvariants(GroupSnapshot snapshot)
+    private void ValidatePublishBoundaryInvariants(in GroupSnapshot snapshot)
     {
         // The on-disk decoder rejects a payload whose commit index falls below its included index or whose
         // outcome log index exceeds the boundary. Reject the same invariants here, at write time, so a file that
@@ -413,7 +413,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         /// <exception cref="ArgumentNullException">Thrown when the snapshot group identifier or committed outcomes are null.</exception>
         /// <exception cref="InvalidDataException">Thrown when a field exceeds its maximum encoded length.</exception>
         /// <exception cref="InvalidOperationException">Thrown when the total encoded length exceeds <c language="csharp">int.MaxValue</c>.</exception>
-        internal static int ComputeSnapshotEncodedLength(GroupSnapshot snapshot)
+        internal static int ComputeSnapshotEncodedLength(in GroupSnapshot snapshot)
         {
             ArgumentNullException.ThrowIfNull(snapshot.GroupId);
             ArgumentNullException.ThrowIfNull(snapshot.CommittedOutcomes);
@@ -665,7 +665,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         /// <param name="buffer">The destination payload buffer.</param>
         /// <param name="snapshot">The snapshot to encode.</param>
         /// <exception cref="ArgumentNullException">Thrown when the snapshot group identifier or committed outcomes are null.</exception>
-        internal static void EncodeSnapshot(Span<byte> buffer, GroupSnapshot snapshot)
+        internal static void EncodeSnapshot(Span<byte> buffer, in GroupSnapshot snapshot)
         {
             ArgumentNullException.ThrowIfNull(snapshot.GroupId);
             ArgumentNullException.ThrowIfNull(snapshot.CommittedOutcomes);

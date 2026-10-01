@@ -30,7 +30,7 @@ internal static class ReplicaCacheApplier
     /// The absolute deadline pinned in <see cref="ReplicaLogRecord.ExpiresUtcTicks" /> is authoritative for an upserted entry, so
     /// applying the same record again, at any time, writes the same deadline.
     /// </remarks>
-    internal static Task ApplyAsync(ILogicalNamespacedCache<object?> cache, ReplicaLogRecord record, CancellationToken cancellationToken)
+    internal static Task ApplyAsync(ILogicalNamespacedCache<object?> cache, in ReplicaLogRecord record, CancellationToken cancellationToken)
     {
         var effect = Resolve(in record, out var entry);
         return ExecuteAsync(cache, record, effect, entry, cancellationToken);

@@ -28,7 +28,7 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         var client = new SquirixReplicationService.SquirixReplicationServiceClient(_pool.OpenChannel(nodeId));
-        var response = await client.AppendReplicaEntriesAsync(MapRequest(header, batch), cancellationToken: cancellationToken).ResponseAsync.ConfigureAwait(false);
+        var response = await client.AppendReplicaEntriesAsync(MapRequest(in header, in batch), cancellationToken: cancellationToken).ResponseAsync.ConfigureAwait(false);
         return new FollowerLogAppendResult(response.Success, response.RefusalCode, response.Term, response.LastLogIndex);
     }
 
@@ -51,7 +51,7 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway
         PayloadChecksum = record.PayloadChecksum,
     };
 
-    private static ReplicationEnvelopeHeader MapHeader(ReplicaRpcHeader header) => new()
+    private static ReplicationEnvelopeHeader MapHeader(in ReplicaRpcHeader header) => new()
     {
         SchemaVersion = EnvelopeSchema.Version,
         GroupId = header.GroupId,
@@ -62,11 +62,11 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway
         SenderNodeId = header.SenderNodeId,
     };
 
-    private static AppendReplicaEntriesRequest MapRequest(ReplicaRpcHeader header, FollowerBatch batch)
+    private static AppendReplicaEntriesRequest MapRequest(in ReplicaRpcHeader header, in FollowerBatch batch)
     {
         var request = new AppendReplicaEntriesRequest
         {
-            Header = MapHeader(header),
+            Header = MapHeader(in header),
             PrevLogIndex = batch.PrevLogIndex,
             PrevLogTerm = batch.PrevLogTerm,
             LeaderCommitIndex = batch.LeaderCommitIndex,

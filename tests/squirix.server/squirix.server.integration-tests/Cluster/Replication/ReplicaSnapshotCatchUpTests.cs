@@ -68,8 +68,8 @@ public sealed class ReplicaSnapshotCatchUpTests : NodeIntegrationTestBase
         var entrySelection = planner.SelectRepair(tail, 3UL, transfer);
         _ = await Assert.That(snapshotSelection.Kind).IsEqualTo(ReplicaRepairSelectionKind.Snapshot);
         _ = await Assert.That(entrySelection.Kind).IsEqualTo(ReplicaRepairSelectionKind.Entries);
-        _ = await Assert.That(GroupSnapshotStore.ComputePayloadIntegrity(published).Length).IsEqualTo(transfer.PayloadLength);
-        _ = await Assert.That(GroupSnapshotStore.ComputePayloadIntegrity(published).Checksum).IsEqualTo(transfer.PayloadChecksum);
+        _ = await Assert.That(GroupSnapshotStore.ComputePayloadIntegrity(in published).Length).IsEqualTo(transfer.PayloadLength);
+        _ = await Assert.That(GroupSnapshotStore.ComputePayloadIntegrity(in published).Checksum).IsEqualTo(transfer.PayloadChecksum);
 
         await using var follower = new FollowerLog(dir2, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await follower.OpenAsync(cancellationToken);

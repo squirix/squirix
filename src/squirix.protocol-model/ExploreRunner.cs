@@ -48,7 +48,7 @@ internal static class ExploreRunner
         var results = CollectResults(profileName, broken);
         var aggregate = AggregateResults(results);
         var summary = new SummaryContent(profileName, broken, aggregate.TotalStates, aggregate.TotalTransitions, aggregate.FirstViolation, aggregate.AllFixedPoint);
-        await WriteSummaryAsync(outputDir, summary, CancellationToken.None).ConfigureAwait(false);
+        await WriteSummaryAsync(outputDir, in summary, CancellationToken.None).ConfigureAwait(false);
 
         if (aggregate.FirstViolation == null || aggregate.FirstState == null)
         {
@@ -247,7 +247,7 @@ internal static class ExploreRunner
 
     private static string TraceFingerprint(ClusterState state, int traceIndex) => $"{traceIndex.ToString(CultureInfo.InvariantCulture)}:{state.Fingerprint(false)}";
 
-    private static Task WriteSummaryAsync(string outputDir, SummaryContent content, CancellationToken cancellationToken)
+    private static Task WriteSummaryAsync(string outputDir, in SummaryContent content, CancellationToken cancellationToken)
     {
         var sb = new StringBuilder(256);
         _ = sb.Append('{').Append("\"modelVersionHash\":");
@@ -381,7 +381,7 @@ internal static class ExploreRunner
                 // Crash after durable writes: keep term/vote/log/commit; reset volatile.
                 var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
                 var runtime = NodeRuntime.Create(node.CommitIndex, 0, 0, 0, 0, false, false);
-                nodes[i] = new NodeState(node.Id, NodeRole.Follower, node.CurrentTerm, node.VotedFor, node.LogEntries, runtime);
+                nodes[i] = new NodeState(node.Id, NodeRole.Follower, node.CurrentTerm, node.VotedFor, node.LogEntries, in runtime);
                 var match = ModelTransitionUtil.CloneInts(state.MatchIndexes);
                 match[i] = 0;
                 output.Add(state.WithNodesMatch(nodes, match));
@@ -609,7 +609,7 @@ internal static class ExploreRunner
 
         private static class ModelRpcCommit
         {
-            internal static AppendOutcome ApplyAppendEntries(InFlightMessage msg, NodeState[] nodes, ExploreProfile profile)
+            internal static AppendOutcome ApplyAppendEntries(in InFlightMessage msg, NodeState[] nodes, ExploreProfile profile)
             {
                 var receiver = nodes[msg.To];
                 nodes[msg.To] = ModelTransitionUtil.Patch(receiver, new NodePatch { Role = NodeRole.Follower, VotesGranted = 0, ReadIndex = 0, ReadAcks = 0, ReadReady = false });
@@ -627,7 +627,7 @@ internal static class ExploreRunner
 
                 // The uncommitted tail is bounded by the profile; anything beyond it is rejected.
                 var beyondLogBound = msg.LastLogIndex > profile.MaxLogEntries;
-                return beyondLogBound ? new AppendOutcome(false, receiver.LastLogIndex) : AcceptUncommittedAppend(msg, nodes, receiver);
+                return beyondLogBound ? new AppendOutcome(false, receiver.LastLogIndex) : AcceptUncommittedAppend(in msg, nodes, receiver);
             }
 
             internal static ClusterState BecomeLeader(ClusterState state, int leaderId, TransitionScratch scratch, ExploreProfile profile, int votes)
@@ -691,7 +691,7 @@ internal static class ExploreRunner
                 return state.WithNodesMatch(nodes, match);
             }
 
-            internal static bool TryGrantVote(InFlightMessage msg, NodeState[] nodes, BrokenMode broken, NodeState receiver)
+            internal static bool TryGrantVote(in InFlightMessage msg, NodeState[] nodes, BrokenMode broken, NodeState receiver)
             {
                 var canVote = receiver.VotedFor == -1 || receiver.VotedFor == msg.From || broken is BrokenMode.Vote;
 
@@ -704,7 +704,7 @@ internal static class ExploreRunner
                 return true;
             }
 
-            private static AppendOutcome AcceptUncommittedAppend(InFlightMessage msg, NodeState[] nodes, NodeState receiver)
+            private static AppendOutcome AcceptUncommittedAppend(in InFlightMessage msg, NodeState[] nodes, NodeState receiver)
             {
                 // Truncate only the uncommitted suffix, then append the offered entry.
                 // Never truncate at or below CommitIndex (committed prefix is immutable).
@@ -848,12 +848,12 @@ internal static class ExploreRunner
 
                 return msg.Kind switch
                 {
-                    MsgKind.RequestVote => HandleRequestVote(state, msg, new TransitionScratch(nodes, messages, match, nextId), broken, profile),
+                    MsgKind.RequestVote => HandleRequestVote(state, in msg, new TransitionScratch(nodes, messages, match, nextId), broken, profile),
                     MsgKind.VoteResponse => HandleVoteResponse(state, msg, new TransitionScratch(nodes, messages, match, nextId), profile),
-                    MsgKind.AppendEntries => HandleAppendEntries(state, msg, new TransitionScratch(nodes, messages, match, nextId), profile),
-                    MsgKind.AppendResponse => HandleAppendResponse(state, msg, new TransitionScratch(nodes, messages, match, nextId), profile, broken),
-                    MsgKind.ReadIndexRequest => HandleReadIndexRequest(state, msg, new TransitionScratch(nodes, messages, match, nextId), profile),
-                    MsgKind.ReadIndexResponse => HandleReadIndexResponse(state, msg, new TransitionScratch(nodes, messages, match, nextId), profile, broken),
+                    MsgKind.AppendEntries => HandleAppendEntries(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile),
+                    MsgKind.AppendResponse => HandleAppendResponse(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile, broken),
+                    MsgKind.ReadIndexRequest => HandleReadIndexRequest(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile),
+                    MsgKind.ReadIndexResponse => HandleReadIndexResponse(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile, broken),
                     _ => throw new ArgumentOutOfRangeException(nameof(state), msg.Kind, "Unsupported message kind."),
                 };
             }
@@ -861,18 +861,18 @@ internal static class ExploreRunner
             private static bool ComputeReadResponseReady(NodeState leader, int acks, ExploreProfile profile, BrokenMode broken) =>
                 (VoteMask.CountGranted(acks) >= profile.Majority && leader.AppliedIndex >= leader.ReadIndex) || broken is BrokenMode.ReadIndex;
 
-            private static ClusterState HandleAppendEntries(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile)
+            private static ClusterState HandleAppendEntries(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile)
             {
                 var nodes = scratch.Nodes;
                 _ = scratch.Messages;
                 _ = scratch.Match;
                 _ = scratch.NextMessageId;
-                var receiver = RefreshAppendReceiver(nodes, msg);
-                var applied = ApplyAppendIfCurrent(msg, nodes, receiver, profile);
-                return EnqueueAppendResponse(state, msg, scratch, profile, applied);
+                var receiver = RefreshAppendReceiver(nodes, in msg);
+                var applied = ApplyAppendIfCurrent(in msg, nodes, receiver, profile);
+                return EnqueueAppendResponse(state, in msg, scratch, profile, applied);
             }
 
-            private static NodeState RefreshAppendReceiver(NodeState[] nodes, InFlightMessage msg)
+            private static NodeState RefreshAppendReceiver(NodeState[] nodes, in InFlightMessage msg)
             {
                 var receiver = nodes[msg.To];
                 if (msg.Term <= receiver.CurrentTerm)
@@ -882,16 +882,16 @@ internal static class ExploreRunner
                 return nodes[msg.To];
             }
 
-            private static AppendOutcome ApplyAppendIfCurrent(InFlightMessage msg, NodeState[] nodes, NodeState receiver, ExploreProfile profile)
+            private static AppendOutcome ApplyAppendIfCurrent(in InFlightMessage msg, NodeState[] nodes, NodeState receiver, ExploreProfile profile)
             {
                 if (msg.Term < receiver.CurrentTerm)
                     return new AppendOutcome(false, receiver.LastLogIndex);
 
-                var outcome = ModelRpcCommit.ApplyAppendEntries(msg, nodes, profile);
+                var outcome = ModelRpcCommit.ApplyAppendEntries(in msg, nodes, profile);
                 return new AppendOutcome(outcome.Success, outcome.MatchIndex);
             }
 
-            private static ClusterState EnqueueAppendResponse(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, AppendOutcome applied)
+            private static ClusterState EnqueueAppendResponse(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, AppendOutcome applied)
             {
                 var nodes = scratch.Nodes;
                 var messages = scratch.Messages;
@@ -902,11 +902,11 @@ internal static class ExploreRunner
                 if (messages.Count >= profile.MaxInFlight || !state.CanCommunicate(responseFrom, responseTo))
                     return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
                 var payload = MessagePayload.AppendResponse(responseFrom, responseTo, nodes[msg.To].CurrentTerm, msg.LastLogIndex, msg.LastLogTerm, applied.Success, applied.MatchIndex);
-                messages.Add(new InFlightMessage(nextId++, payload));
+                messages.Add(new InFlightMessage(nextId++, in payload));
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
             }
 
-            private static ClusterState HandleAppendResponse(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, BrokenMode broken)
+            private static ClusterState HandleAppendResponse(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, BrokenMode broken)
             {
                 var nodes = scratch.Nodes;
                 var messages = scratch.Messages;
@@ -932,7 +932,7 @@ internal static class ExploreRunner
                 return ModelRpcCommit.MaybeAdvanceCommit(after, msg.To, profile, broken);
             }
 
-            private static ClusterState HandleReadIndexRequest(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile)
+            private static ClusterState HandleReadIndexRequest(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile)
             {
                 var nodes = scratch.Nodes;
                 var messages = scratch.Messages;
@@ -949,17 +949,17 @@ internal static class ExploreRunner
                 if (messages.Count >= profile.MaxInFlight || !state.CanCommunicate(responseFrom, responseTo))
                     return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
                 var payload = MessagePayload.ReadResponse(responseFrom, responseTo, Math.Max(msg.Term, nodes[msg.To].CurrentTerm), ok, msg.ReadIndex);
-                messages.Add(new InFlightMessage(nextId++, payload));
+                messages.Add(new InFlightMessage(nextId++, in payload));
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
             }
 
-            private static ClusterState HandleReadIndexResponse(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, BrokenMode broken)
+            private static ClusterState HandleReadIndexResponse(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, BrokenMode broken)
             {
                 var nodes = scratch.Nodes;
                 var messages = scratch.Messages;
                 var match = scratch.Match;
                 var leader = nodes[msg.To];
-                if (IsStaleReadResponse(leader, msg))
+                if (IsStaleReadResponse(leader, in msg))
                     return state.WithNodesMessagesMatch(nodes, messages, match);
 
                 var acks = leader.ReadAcks | (1 << msg.From);
@@ -969,7 +969,7 @@ internal static class ExploreRunner
                 return state.WithNodesMessagesMatch(nodes, messages, match);
             }
 
-            private static ClusterState HandleRequestVote(ClusterState state, InFlightMessage msg, TransitionScratch scratch, BrokenMode broken, ExploreProfile profile)
+            private static ClusterState HandleRequestVote(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, BrokenMode broken, ExploreProfile profile)
             {
                 var nodes = scratch.Nodes;
                 var messages = scratch.Messages;
@@ -984,7 +984,7 @@ internal static class ExploreRunner
 
                 var grant = false;
                 if (msg.Term == receiver.CurrentTerm)
-                    grant = ModelRpcCommit.TryGrantVote(msg, nodes, broken, receiver);
+                    grant = ModelRpcCommit.TryGrantVote(in msg, nodes, broken, receiver);
 
                 // Response travels receiver → original sender (swap relative to request From/To).
                 var responseFrom = msg.To;
@@ -1025,7 +1025,7 @@ internal static class ExploreRunner
                 }
             }
 
-            private static bool IsStaleReadResponse(NodeState leader, InFlightMessage msg) => leader.Role != NodeRole.Leader || leader.ReadIndex == 0 ||
+            private static bool IsStaleReadResponse(NodeState leader, in InFlightMessage msg) => leader.Role != NodeRole.Leader || leader.ReadIndex == 0 ||
                                                                                               msg.Term != leader.CurrentTerm || !msg.Success || msg.ReadIndex != leader.ReadIndex;
 
             [Immutable]

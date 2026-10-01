@@ -33,7 +33,7 @@ internal sealed class FollowerLogJournal
 
     internal SnapshotBaseline SnapshotBaseline { get; private set; } = new(0UL, 0UL);
 
-    internal void AddEntry(FollowerLogEntry entry, long offset, ulong term)
+    internal void AddEntry(in FollowerLogEntry entry, long offset, ulong term)
     {
         // Callers hold _gate; the entry and its offset are written as one paired mutation.
         _entryOffsets[entry.LogIndex] = (offset, term);

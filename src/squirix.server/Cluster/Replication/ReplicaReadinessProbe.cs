@@ -98,7 +98,7 @@ internal static class ReplicaReadinessProbe
                 continue;
 
             slots.Add(i);
-            probes.Add(ProbeAsync(gateway, members[i], header, leader, timeout, cancellationToken));
+            probes.Add(ProbeAsync(gateway, members[i], in header, in leader, timeout, cancellationToken));
         }
 
         var probed = await Task.WhenAll(probes).ConfigureAwait(false);
@@ -223,8 +223,8 @@ internal static class ReplicaReadinessProbe
     private static Task<ReplicaProbeResult> ProbeAsync(
         IReplicaRpcGateway gateway,
         string nodeId,
-        ReplicaRpcHeader header,
-        FollowerLogStatus leader,
+        in ReplicaRpcHeader header,
+        in FollowerLogStatus leader,
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {

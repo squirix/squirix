@@ -128,7 +128,7 @@ internal sealed class ClusterState
             }
         }
 
-        private static void AppendMessage(StringBuilder sb, InFlightMessage m)
+        private static void AppendMessage(StringBuilder sb, in InFlightMessage m)
         {
             _ = sb.Append(MsgKindOrdinal(m.Kind).ToString(CultureInfo.InvariantCulture)).Append(',').Append(m.From.ToString(CultureInfo.InvariantCulture)).Append(',')
                   .Append(m.To.ToString(CultureInfo.InvariantCulture)).Append(',').Append(m.Term.ToString(CultureInfo.InvariantCulture)).Append(',')
@@ -185,7 +185,7 @@ internal sealed class ClusterState
             for (var i = 0; i < messages.Count; i++)
                 ordered.Add(messages[i]);
 
-            ordered.Sort(static (a, b) => CompareMessages(a, b));
+            ordered.Sort(static (a, b) => CompareMessages(in a, in b));
             for (var i = 0; i < ordered.Count; i++)
             {
                 AppendMessage(sb, ordered[i]);
@@ -218,7 +218,7 @@ internal sealed class ClusterState
             return Raw(RemapNodes(nodes, order, map), RemapMessages(messages, map), RemapInts(order, partitions), RemapInts(order, matchIndexes));
         }
 
-        private static int CompareMessages(InFlightMessage a, InFlightMessage b)
+        private static int CompareMessages(in InFlightMessage a, in InFlightMessage b)
         {
             var c = a.Kind.CompareTo(b.Kind);
             if (c != 0)

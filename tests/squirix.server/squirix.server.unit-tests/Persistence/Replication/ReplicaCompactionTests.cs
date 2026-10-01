@@ -46,8 +46,8 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         }
 
         var incoherent = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 3UL, 2UL, 3UL);
-        var encoded = new byte[GroupLogCodec.ComputeMetaEncodedLength(incoherent)];
-        GroupLogCodec.EncodeMeta(incoherent, encoded);
+        var encoded = new byte[GroupLogCodec.ComputeMetaEncodedLength(in incoherent)];
+        GroupLogCodec.EncodeMeta(in incoherent, encoded);
         await File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), encoded, cancellationToken);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);

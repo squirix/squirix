@@ -7,7 +7,7 @@ namespace Squirix.ProtocolModel;
 [Immutable]
 internal readonly record struct MessagePayload(MsgKind Kind, int From, int To, int Term, int LastLogIndex, int LastLogTerm, bool Success, int MatchIndex, int ReadIndex)
 {
-    internal MessagePayload(MessageRoute route, MessageExtras extras)
+    internal MessagePayload(MessageRoute route, in MessageExtras extras)
         : this(route.Kind, route.From, route.To, route.Term, extras.LastLogIndex, extras.LastLogTerm, extras.Success, extras.MatchIndex, extras.ReadIndex)
     {
     }

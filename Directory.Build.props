@@ -88,7 +88,6 @@
     <ItemGroup Label="GlobalAnalyzers">
         <PackageReference Include="AsyncFixer" PrivateAssets="all"/>
         <PackageReference Include="ErrorProne.NET.CoreAnalyzers" PrivateAssets="all"/>
-        <PackageReference Include="ErrorProne.NET.Structs" PrivateAssets="all"/>
         <PackageReference Include="Meziantou.Analyzer" PrivateAssets="all"/>
         <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" PrivateAssets="all"/>
         <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" PrivateAssets="all"/>

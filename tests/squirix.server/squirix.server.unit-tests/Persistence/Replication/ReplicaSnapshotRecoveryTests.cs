@@ -566,7 +566,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await store.PublishAsync(new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 3UL, 3UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch), cancellationToken);
 
         var candidate = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, string.Empty, 3UL, 3UL, 3UL);
-        await WriteMetadataAsync(dir, candidate, cancellationToken);
+        await WriteMetadataAsync(dir, in candidate, cancellationToken);
 
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);
@@ -903,10 +903,10 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     /// <param name="metadata">The metadata instance to encode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the file has been written.</returns>
-    private static Task WriteMetadataAsync(TempDirectory dir, GroupLogMetadata metadata, CancellationToken cancellationToken)
+    private static Task WriteMetadataAsync(TempDirectory dir, in GroupLogMetadata metadata, CancellationToken cancellationToken)
     {
-        var encoded = new byte[GroupLogCodec.ComputeMetaEncodedLength(metadata)];
-        GroupLogCodec.EncodeMeta(metadata, encoded);
+        var encoded = new byte[GroupLogCodec.ComputeMetaEncodedLength(in metadata)];
+        GroupLogCodec.EncodeMeta(in metadata, encoded);
         return File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, metadata.GroupId), encoded, cancellationToken);
     }
 }

@@ -28,7 +28,7 @@ internal sealed class ReplicaVerificationSnapshot
     /// <param name="answered">Slots whose follower answered.</param>
     /// <param name="members">Group members.</param>
     /// <param name="header">Replication envelope identity.</param>
-    internal ReplicaVerificationSnapshot(FollowerLogStatus status, ReplicaProbeResult[] probed, bool[] answered, string[] members, ReplicaRpcHeader header)
+    internal ReplicaVerificationSnapshot(in FollowerLogStatus status, ReplicaProbeResult[] probed, bool[] answered, string[] members, in ReplicaRpcHeader header)
     {
         Status = status;
         Probed = probed;
