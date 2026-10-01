@@ -59,7 +59,8 @@ internal static class RuntimeServiceRegistration
             _ = services.AddSingleton(static sp => new RpcMutationIdempotencyStore(
                 sp.GetRequiredService<IdempotencyOptions>(),
                 sp.GetRequiredService<TopologyOptions>().NodeId,
-                sp.GetRequiredService<IdempotencyMetrics>()));
+                sp.GetRequiredService<IdempotencyMetrics>(),
+                sp.GetService<TimeProvider>()));
             _ = services.AddSingleton<IIdempotencySnapshotExporter>(static sp => sp.GetRequiredService<RpcMutationIdempotencyStore>());
             _ = services.AddSingleton(static sp =>
             {

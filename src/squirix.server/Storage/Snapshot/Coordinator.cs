@@ -127,8 +127,7 @@ internal sealed class Coordinator
         var utcNow = _timeProvider.GetUtcNow().UtcDateTime;
         await _entryCapture.CaptureEntriesAsync(_captureScratch.Items, utcNow, cancellationToken).ConfigureAwait(false);
 
-        // The idempotency store stamps and ages its records with the system clock, so its export sweep must compare on that clock too.
-        _idempotency.ExportSnapshot(_captureScratch.IdempotencyRecords, DateTime.UtcNow);
+        _idempotency.ExportSnapshot(_captureScratch.IdempotencyRecords, utcNow);
         return new CapturedSnapshotBundle(_captureScratch.Items, journal.CurrentSegmentIndex, journal.NextSequence, _captureScratch.IdempotencyRecords);
     }
 

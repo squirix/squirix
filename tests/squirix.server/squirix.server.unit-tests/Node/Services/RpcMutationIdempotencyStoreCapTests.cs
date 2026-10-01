@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics.Metrics;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
@@ -96,10 +97,12 @@ public sealed class RpcMutationIdempotencyStoreCapTests : DisposableServerUnitTe
     [Test]
     public async Task SweepExpiredRemovesWithoutReadAccess()
     {
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { Retention = TimeSpan.FromMilliseconds(50) }, "local", new IdempotencyMetrics(_testMeter));
+        var clock = new FakeTimeProvider();
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { Retention = TimeSpan.FromMilliseconds(50) }, "local", new IdempotencyMetrics(_testMeter), clock);
         store.RecordSuccess("op-1", "fp-1", ResponseBytes);
 
-        store.SweepExpired(DateTime.UtcNow.AddMinutes(1));
+        clock.Advance(TimeSpan.FromMinutes(1));
+        store.SweepExpired();
 
         _ = await Assert.That(store.RecordCount).IsEqualTo(0);
     }
@@ -108,12 +111,14 @@ public sealed class RpcMutationIdempotencyStoreCapTests : DisposableServerUnitTe
     [Test]
     public async Task ExpiryDropsJoinableExecution()
     {
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { Retention = TimeSpan.FromMinutes(15) }, "local", new IdempotencyMetrics(_testMeter));
+        var clock = new FakeTimeProvider();
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { Retention = TimeSpan.FromMinutes(15) }, "local", new IdempotencyMetrics(_testMeter), clock);
         var execution = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _ = store.ReserveIntent("op-1", "fp-1", execution, out _);
         _ = store.ReserveIntent("op-1", "fp-1", null, out var joined);
 
-        store.SweepExpired(DateTime.UtcNow.AddHours(1));
+        clock.Advance(TimeSpan.FromHours(1));
+        store.SweepExpired();
         var countAfterExpiry = store.ExecutionCount;
         store.CompleteExecution("op-1", execution);
 
