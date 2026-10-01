@@ -88,8 +88,26 @@ internal static class ReplicaMutationDecisions
 
     private static ReplicaDecision Unchanged() => new([], ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty), 0);
 
-    private static ReplicaDecision Upsert(object? value, long version, FrozenDictionary<string, string>? tags, long expiresUtcTicks) =>
-        new(ReplicaCacheApplier.EncodeEntry(new NodeCacheEntry<object?>(value, version, null, null, tags)), ReplicaOutcomeCodec.Encode(true, ReadOnlyMemory<byte>.Empty), expiresUtcTicks);
+    /// <summary>Decides an upsert of the entry, refusing one the apply would refuse.</summary>
+    /// <param name="value">The value.</param>
+    /// <param name="version">The entry version.</param>
+    /// <param name="tags">The entry tags.</param>
+    /// <param name="expiresUtcTicks">The pinned deadline in UTC ticks, or zero.</param>
+    /// <returns>The decision.</returns>
+    /// <exception cref="Errors.SquirixException">The entry, with its deadline, exceeds the entry size or tag limits.</exception>
+    /// <remarks>
+    /// The apply writes the entry with its deadline through the cache journal, which refuses an oversized entry. Refused there, after the
+    /// majority, the entry would stay pending and block the group; refused here, nothing is appended and the caller gets the limit error.
+    /// </remarks>
+    private static ReplicaDecision Upsert(object? value, long version, FrozenDictionary<string, string>? tags, long expiresUtcTicks)
+    {
+        DateTime? expiresUtc = expiresUtcTicks == 0 ? null : new DateTime(expiresUtcTicks, DateTimeKind.Utc);
+        JournalEntryPayload.EnsureEncodedLengthWithinLimit(new NodeCacheEntry<object?>(value, version, expiresUtc, null, tags));
+        return new ReplicaDecision(
+            ReplicaCacheApplier.EncodeEntry(new NodeCacheEntry<object?>(value, version, null, null, tags)),
+            ReplicaOutcomeCodec.Encode(true, ReadOnlyMemory<byte>.Empty),
+            expiresUtcTicks);
+    }
 
     /// <summary>The outcome, effect payload and pinned deadline the leader decided for one mutation.</summary>
     /// <param name="Payload">The entry an upserting record writes, or empty when the effect is a delete or nothing.</param>
