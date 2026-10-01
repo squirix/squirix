@@ -125,7 +125,8 @@ internal static class ServerHostingComposition
             cluster.ReplicaCount,
             activation.Fingerprint.AsMemory(),
             cluster.ConfigurationGeneration,
-            sp.GetRequiredService<ILoggerFactory>()));
+            sp.GetRequiredService<ILoggerFactory>(),
+            ReplicaGroupLogOptions(sp)));
 
         // Factory registrations let the container own disposal: the registry closes follower-log durability workers
         // and the committer drains its coordinator on host shutdown.
@@ -155,6 +156,17 @@ internal static class ServerHostingComposition
                 HealthStatus.Unhealthy,
                 ["ready"]));
     }
+
+    /// <summary>Returns the settings of the replica group logs: the idempotency window of the replication policy and the host clock.</summary>
+    /// <param name="sp">The service provider.</param>
+    /// <returns>The follower log settings.</returns>
+    /// <remarks>The policy values are hashed into the topology fingerprint, so every member of a group keeps outcomes for the same window.</remarks>
+    private static FollowerLogOptions ReplicaGroupLogOptions(IServiceProvider sp) => new()
+    {
+        IdempotencyCapacity = PolicyOptions.RfIdempotencyMaxInFlightRecords,
+        IdempotencyRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyRetentionTicks),
+        TimeProvider = sp.GetService<TimeProvider>(),
+    };
 
     /// <summary>Creates the committer of the group this node owns.</summary>
     /// <param name="sp">The service provider.</param>

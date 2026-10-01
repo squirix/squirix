@@ -15,6 +15,9 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 {
     internal const string CommitOutcomeUnknownCode = "COMMIT_OUTCOME_UNKNOWN";
 
+    /// <summary>Message prefix of the refusal of a new operation identity while the group idempotency state is full.</summary>
+    internal const string IdempotencyCapacityCode = "replica_idempotency_capacity";
+
     private static readonly TimeSpan ObserveTimeout = TimeSpan.FromSeconds(5);
 
     private readonly ReplicaMutationGate _admission;
@@ -526,7 +529,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         var reserved = _idempotency.Reserve(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint.Span, recordKind, mutation.LogIndex, mutation.Term);
 
         if (reserved == GroupIdempotencyReserveResult.CapacityExceeded)
-            throw new InvalidOperationException("Group idempotency capacity is exhausted.");
+            throw new InvalidOperationException($"{IdempotencyCapacityCode}: group idempotency capacity is exhausted.");
         if (reserved == GroupIdempotencyReserveResult.FingerprintMismatch)
             throw new InvalidOperationException("Operation identifier was reused with a different fingerprint.");
 
