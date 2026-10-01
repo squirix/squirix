@@ -86,4 +86,10 @@ internal static partial class ServerLog
         Level = LogLevel.Error,
         Message = "Replica group {GroupId} decided an inconsistent record at prepare; the write was refused and nothing was appended")]
     internal static partial void ReplicaInconsistentDecision(ILogger logger, string groupId, Exception exception);
+
+    [LoggerMessage(
+        EventId = 4016,
+        Level = LogLevel.Information,
+        Message = "Replica group {GroupId} rebuilt {Count} idempotency outcomes of committed log entries after the restart")]
+    internal static partial void ReplicaOutcomesRestored(ILogger logger, string groupId, int count);
 }

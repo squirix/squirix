@@ -74,7 +74,17 @@ internal sealed class GroupIdempotencyState
     }
 
     /// <summary>Gets the maximum number of retained idempotency records.</summary>
-    private int Capacity { get; }
+    internal int Capacity { get; }
+
+    /// <summary>Gets a value indicating whether the store holds <see cref="Capacity" /> records, so nothing more can be restored or reserved.</summary>
+    internal bool IsFull
+    {
+        get
+        {
+            lock (_sync)
+                return _records.Count >= Capacity;
+        }
+    }
 
     /// <summary>Evicts resolved records whose retention window has elapsed; unresolved records are never evicted.</summary>
     /// <remarks>The eviction relies on the injected time source, so tests advance virtual time deterministically.</remarks>
@@ -273,16 +283,28 @@ internal sealed class GroupIdempotencyState
         }
     }
 
-    /// <summary>Restores only the committed outcomes from a snapshot, retaining no journal suffix.</summary>
-    /// <remarks>
-    /// This overload replaces the whole store: every retained record, including unresolved reservations, is
-    /// discarded because no journal suffix is retained. Call it only on an empty store, such as during startup
-    /// recovery. To preserve records carried by a retained suffix, call the overload that takes
-    /// <c language="csharp">retainedLogIndexes</c>.
-    /// </remarks>
-    /// <param name="records">The committed outcomes carried by the snapshot.</param>
-    /// <param name="capturedUtc">When the snapshot captured its outcomes, on the clock that stamped their resolution times.</param>
-    internal void RestoreFromSnapshot(IReadOnlyList<GroupIdempotencyRecord> records, DateTime capturedUtc) => RestoreFromSnapshot(records, capturedUtc, []);
+    /// <summary>Restores the resolved outcome of a committed log entry that no snapshot carries.</summary>
+    /// <param name="record">The resolved record rebuilt from the entry.</param>
+    /// <param name="age">How long ago the outcome was decided; a negative age counts as zero.</param>
+    /// <returns>
+    /// <see langword="true" /> when the outcome was restored; <see langword="false" /> when its identity is already retained, its age is
+    /// past retention, or the store is at capacity.
+    /// </returns>
+    /// <exception cref="ArgumentException">The record is not resolved.</exception>
+    /// <remarks>A record already retained, a snapshot outcome or a pinned tail entry, is kept: it is at least as authoritative.</remarks>
+    internal bool TryRestoreOutcome(in GroupIdempotencyRecord record, TimeSpan age)
+    {
+        if (record.IsUnresolved)
+            throw new ArgumentException("A restored outcome must be resolved.", nameof(record));
+
+        // No sweep here: a start restores many outcomes in a row, and the next lookup or reservation sweeps anyway.
+        lock (_sync)
+        {
+            age = age > TimeSpan.Zero ? age : TimeSpan.Zero;
+            var admitted = (_retention == TimeSpan.MaxValue || age < _retention) && _records.Count < Capacity;
+            return admitted && _records.TryAdd(GroupOperationKey.Of(in record), new StoredRecord(record, _timeProvider.GetTimestamp(), age));
+        }
+    }
 
     /// <summary>Releases one reservation only when it is still unresolved and has the expected durable coordinates.</summary>
     /// <param name="scope">Operation scope.</param>

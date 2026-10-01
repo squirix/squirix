@@ -41,6 +41,10 @@ namespace Squirix.Server.Storage.Replication;
     Justification = "Snapshot and idempotency state belong to the durable follower-log lifecycle; extracting them would split its gate-owned invariants.")]
 [SuppressMessage(
     "Maintainability",
+    "SQR0002",
+    Justification = "Each member is one gated entry point of the IFollowerLog contract; moving some to another type would take the gate with them.")]
+[SuppressMessage(
+    "Maintainability",
     "MA0051",
     Justification = "Recovery intentionally keeps the file-header, snapshot-baseline, and torn-tail reconciliation in one gated transaction.")]
 internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
@@ -260,6 +264,36 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         _faults.OnBeforeMemoryApply();
         return _journal.CollectCommittedEntries(_meta.CommitIndex, _meta.LastAppliedIndex);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Applied payloads are released from memory, but their frame offsets are kept, so the frames are read back from the file under the
+    /// gate, which keeps truncation and compaction from moving them meanwhile.
+    /// </remarks>
+    public async Task<int> ReadRecentCommittedAsync(int maxCount, Func<FollowerLogEntry, bool> visit, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
+        ArgumentNullException.ThrowIfNull(visit);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
+            throw new InvalidOperationException($"Replica group '{GroupId}' log is not ready to read its committed entries.");
+
+        // Only the newest maxCount offsets are kept while walking the retained ones in log order.
+        var newest = new Queue<(ulong LogIndex, long Offset)>(Math.Min(maxCount, _journal.EntryOffsets.Count));
+        foreach (var (logIndex, location) in _journal.EntryOffsets)
+        {
+            if (logIndex > _meta.CommitIndex || maxCount == 0)
+                break;
+
+            if (newest.Count == maxCount)
+                _ = newest.Dequeue();
+            newest.Enqueue((logIndex, location.Offset));
+        }
+
+        var frames = newest.ToArray();
+        Array.Reverse(frames);
+        return await GroupLogFrameReader.ReadAsync(_journal.Paths.LogPath, frames, visit, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -1885,7 +1919,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 // or fails, the instance is left without partially restored idempotency/baseline, so a retry of OpenAsync on
                 // the same instance cannot operate on inconsistent state. See F37.
                 await ReconcileSnapshotMetadataAsync(journal, owner, snapshot.Value, cancellationToken).ConfigureAwait(false);
-                owner.Idempotency.RestoreFromSnapshot(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc);
+                owner.Idempotency.RestoreFromSnapshot(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc, []);
 
                 // Recovery rebuilds both indexes from the durable log after this point; the baseline is
                 // restored without pruning because the walk owns the index lifecycle.

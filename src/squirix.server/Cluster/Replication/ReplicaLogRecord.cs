@@ -25,7 +25,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// The absolute UTC deadline in ticks of the entry an upserting record writes, pinned by the leader at prepare time and applied
 /// verbatim; zero when the written entry never expires and for records that write nothing.
 /// </param>
-/// <param name="DecidedUtcTicks">The leader time of the decision, in UTC ticks, for diagnostics only: no applier reads it.</param>
+/// <param name="DecidedUtcTicks">The leader time of the decision, in UTC ticks; no applier reads it, a restarting owner ages the outcomes it rebuilds from the log by it.</param>
 /// <param name="ResolvedUtcTicks">Resolution time expressed as UTC ticks.</param>
 /// <param name="PayloadChecksum">Wire payload checksum carried opaquely.</param>
 /// <remarks>
