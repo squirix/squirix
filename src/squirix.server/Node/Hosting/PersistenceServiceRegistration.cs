@@ -208,7 +208,7 @@ internal static class PersistenceServiceRegistration
         {
             ArgumentNullException.ThrowIfNull(loggerFactory);
             _options = options;
-            Retention = new RetentionCleanupReadiness(options);
+            Retention = new RetentionCleanupReadiness(options, timeProvider);
             Ledger = new Ledger(options, loggerFactory.CreateLogger<Ledger>(), Retention, failureMetrics);
             Gate = new AsyncManualResetEvent();
             JournalCoordinator = new JournalCoordinatorHost(loggerFactory, timeProvider);

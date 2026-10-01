@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -59,9 +60,11 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
 
     public bool IsInFlight => Volatile.Read(ref _inFlight) != 0;
 
-    public DateTime LastRunUtc { get; private set; } = DateTime.MinValue;
+    public DateTime LastRunUtc => LastRun?.Utc ?? DateTime.MinValue;
 
     public RunState State { get; private set; } = RunState.Idle;
+
+    private CompletedRun? LastRun { get; set; }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -117,7 +120,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         var reserved = false;
         try
         {
-            if (DateTime.UtcNow - LastRunUtc < _opt.MinGap)
+            if (LastRun is { } lastRun && _timeProvider.GetElapsedTime(lastRun.Timestamp) < _opt.MinGap)
                 return AttemptResult.Skipped;
 
             // A snapshot in flight completes its own publish first and then wakes this loop again.
@@ -195,9 +198,10 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             _ = activity?.SetTag("compaction.duration_ms", ActivityTagValues.Double(elapsed.TotalMilliseconds));
         }
 
-        LastRunUtc = DateTime.UtcNow;
+        var completed = new CompletedRun(_timeProvider.GetTimestamp(), _timeProvider.GetUtcNow().UtcDateTime);
+        LastRun = completed;
         _consecutiveFailures = 0;
-        ServerLog.CompactionDone(_log, LastRunUtc);
+        ServerLog.CompactionDone(_log, completed.Utc);
         ChangeState(RunState.Waiting);
         return AttemptResult.Succeeded;
     }
@@ -288,4 +292,10 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             _wake.Write(null);
         }
     }
+
+    /// <summary>A finished compaction run: the monotonic timestamp gates <see cref="JournalCompactionOptions.MinGap" />, the wall time is only reported.</summary>
+    /// <param name="Timestamp">The server clock timestamp taken when the run finished.</param>
+    /// <param name="Utc">The server clock wall time of the run, for health output and logs.</param>
+    [Immutable]
+    private sealed record CompletedRun(long Timestamp, DateTime Utc);
 }
