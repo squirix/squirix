@@ -29,7 +29,7 @@ internal static class StoreFactory
     {
         private const int InitialRecordScratchSize = 4096;
 
-        public ValueTask<LoadResult<T>> LoadStrictAsync<T>(string path, bool skipExpired = true, CancellationToken cancellationToken = default)
+        public ValueTask<LoadResult<T>> LoadStrictAsync<T>(string path, DateTime? expiredAsOf, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var entries = new List<(CacheKey Key, NodeCacheEntry<T> Entry)>(1024);
@@ -37,18 +37,18 @@ internal static class StoreFactory
             using (var enumerator = new SnapshotRecordEnumerator(path, true, cancellationToken))
             {
                 while (enumerator.MoveNext())
-                    AppendRecord(enumerator.Current, skipExpired, entries, idempotencyRecords);
+                    AppendRecord(enumerator.Current, expiredAsOf, entries, idempotencyRecords);
             }
 
             return new ValueTask<LoadResult<T>>(new LoadResult<T>(entries, idempotencyRecords));
         }
 
-        private static void AppendRecord<T>(object record, bool skipExpired, List<(CacheKey Key, NodeCacheEntry<T> Entry)> entries, List<PersistedIdempotencyRecord> records)
+        private static void AppendRecord<T>(object record, DateTime? expiredAsOf, List<(CacheKey Key, NodeCacheEntry<T> Entry)> entries, List<PersistedIdempotencyRecord> records)
         {
             switch (record)
             {
                 case EntryRecord entry:
-                    if (skipExpired && IsExpired(entry.Entry))
+                    if (expiredAsOf is { } utcNow && IsExpired(entry.Entry, utcNow))
                         return;
 
                     if (!CacheEntryCodec.TryMapEntry<T>(entry.Entry, out var mapped) || mapped == null)
@@ -65,7 +65,7 @@ internal static class StoreFactory
             }
         }
 
-        private static bool IsExpired(NodeCacheEntry<object?> entry) => entry.ExpiresUtc is { } expiresUtc && expiresUtc.ToUniversalTime() <= DateTime.UtcNow;
+        private static bool IsExpired(NodeCacheEntry<object?> entry, DateTime utcNow) => entry.ExpiresUtc is { } expiresUtc && expiresUtc.ToUniversalTime() <= utcNow;
 
         [Immutable]
         private sealed record EntryRecord(CacheKey Key, NodeCacheEntry<object?> Entry);

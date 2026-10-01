@@ -185,7 +185,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         try
         {
             await _journalMaintenance.ExecuteMaintenanceExclusiveAsync(
-                ct => new ValueTask(JournalCompactor.CompactAsync(_persistence, _manifest, _snapshotReader, ct)),
+                ct => new ValueTask(JournalCompactor.CompactAsync(_persistence, _manifest, _snapshotReader, _timeProvider.GetUtcNow().UtcDateTime, ct)),
                 cancellationToken).ConfigureAwait(false);
             resultLabel = "success";
         }

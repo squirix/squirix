@@ -46,15 +46,24 @@ internal static class JournalEntryExpirationMaterializer
         return new DateTime(Math.Min(Math.Max(rounded, TimeSpan.TicksPerMillisecond), largest), DateTimeKind.Utc);
     }
 
-    internal static (DateTime? ExpiresUtc, TimeSpan? Expiration) ForJournalWrite(DateTime? expiresUtc, TimeSpan? expiration)
-    {
-        if (expiration is not { } relative)
-            return (expiresUtc, null);
+    /// <summary>Returns the deadline a journal frame stores; a relative expiration must already be resolved against the server clock.</summary>
+    /// <param name="expiresUtc">The absolute deadline, or <see langword="null" /> for none.</param>
+    /// <param name="expiration">The relative expiration, which must be <see langword="null" />.</param>
+    /// <returns>The absolute deadline the frame stores.</returns>
+    /// <exception cref="InvalidOperationException"><paramref name="expiration" /> is set: resolve it with <see cref="ForDurableWrite{T}" /> first.</exception>
+    internal static DateTime? ForJournalWrite(DateTime? expiresUtc, TimeSpan? expiration) =>
+        expiration == null
+            ? expiresUtc
+            : throw new InvalidOperationException("A relative expiration must be resolved to an absolute deadline on the server clock before it is journaled.");
 
-        var relativeDeadline = DateTime.UtcNow.SaturatedAdd(relative);
-        var effective = expiresUtc is { } absolute && absolute < relativeDeadline ? absolute : relativeDeadline;
-        return (effective, null);
-    }
+    /// <summary>Returns a deadline of the same encoded length as the one the journal frame of this entry will store.</summary>
+    /// <param name="expiresUtc">The absolute deadline, or <see langword="null" /> for none.</param>
+    /// <param name="expiration">The relative expiration, or <see langword="null" /> for none.</param>
+    /// <returns>
+    /// <paramref name="expiresUtc" />, or a placeholder when only a relative expiration is set: the durable write resolves it to one absolute
+    /// deadline, whose encoded length does not depend on its value.
+    /// </returns>
+    internal static DateTime? ForJournalSizing(DateTime? expiresUtc, TimeSpan? expiration) => expiresUtc ?? (expiration == null ? null : DateTime.MaxValue);
 
     internal static NodeCacheEntry<T> ForRecoveryInsert<T>(NodeCacheEntry<T> entry, long writtenUnixMs)
     {
@@ -67,9 +76,15 @@ internal static class JournalEntryExpirationMaterializer
         return new NodeCacheEntry<T>(entry.Value, entry.Version, effective, tags: entry.Tags);
     }
 
-    internal static bool IsExpiredForRecovery(DateTime? expiresUtc, TimeSpan? expiration, long writtenUnixMs)
+    /// <summary>Decides whether a journaled entry is expired at <paramref name="utcNow" />, the server clock of the node replaying it.</summary>
+    /// <param name="expiresUtc">The absolute deadline, or <see langword="null" /> for none.</param>
+    /// <param name="expiration">The relative expiration, or <see langword="null" /> for none.</param>
+    /// <param name="writtenUnixMs">The frame write time a relative expiration is measured from, or zero when unknown.</param>
+    /// <param name="utcNow">The server clock time of the replay.</param>
+    /// <returns><see langword="true" /> when the entry is expired.</returns>
+    internal static bool IsExpiredForRecovery(DateTime? expiresUtc, TimeSpan? expiration, long writtenUnixMs, DateTime utcNow)
     {
-        if (expiresUtc is { } utc && utc <= DateTime.UtcNow)
+        if (expiresUtc is { } utc && utc <= utcNow)
             return true;
 
         if (expiration is not { } relative)
@@ -82,7 +97,7 @@ internal static class JournalEntryExpirationMaterializer
             return false;
 
         var writtenAt = DateTimeOffset.FromUnixTimeMilliseconds(writtenUnixMs).UtcDateTime;
-        return writtenAt.SaturatedAdd(relative) <= DateTime.UtcNow;
+        return writtenAt.SaturatedAdd(relative) <= utcNow;
     }
 
     private static NodeCacheEntry<T> PinAbsoluteOnly<T>(NodeCacheEntry<T> entry)

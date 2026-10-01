@@ -78,7 +78,8 @@ internal static class PersistenceServiceRegistration
                 sp.GetRequiredService<ILocalCacheRecovery<object?>>(),
                 sp.GetRequiredService<AsyncManualResetEvent>(),
                 sp.GetRequiredService<RpcMutationIdempotencyStore>(),
-                sp.GetRequiredService<ISnapshotReader>()),
+                sp.GetRequiredService<ISnapshotReader>(),
+                ResolveClock(sp)),
             sp.GetService<IHostApplicationLifetime>()));
 
         _ = services.AddSingleton<SnapshotTriggerService<object?>>();

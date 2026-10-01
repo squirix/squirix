@@ -29,13 +29,19 @@ namespace Squirix.Server.UnitTests.Support;
 /// Writes cache mutations through a local-owner journal decorator on a controllable clock, then recovers the journal, so replay tests
 /// share one harness: the persistence options, the millisecond-aligned write clock and the recovery wiring.
 /// </summary>
-/// <remarks>Recovery reads the wall clock, so write clocks start in the past and deadlines are measured in hours.</remarks>
+/// <remarks>
+/// Write clocks start at a fixed instant unrelated to real time: recovery, snapshot load and compaction judge expiry on the clock they
+/// are given, so a test that passed only because the host clock agreed would fail here.
+/// </remarks>
 [Immutable]
 internal sealed class JournalReplayKit
 {
     internal const string CacheName = "cache";
     internal const string Key = "k";
     internal const string Self = "node-a";
+
+    /// <summary>The instant every write clock starts from, far from real time.</summary>
+    internal static readonly DateTimeOffset WriteEpoch = new(2000, 1, 1, 12, 0, 0, TimeSpan.Zero);
 
     private readonly Meter _meter;
 
@@ -59,15 +65,19 @@ internal sealed class JournalReplayKit
     /// <summary>Gets the persistence options every write and recovery uses.</summary>
     internal PersistenceOptions Persistence { get; }
 
-    /// <summary>Creates a write clock relative to real time, aligned to the whole millisecond the journal stores deadlines at.</summary>
-    /// <param name="startOffset">The offset from real time; negative puts the start in the past.</param>
+    /// <summary>Creates a write clock relative to <see cref="WriteEpoch" />, aligned to the whole millisecond the journal stores deadlines at.</summary>
+    /// <param name="startOffset">The offset from <see cref="WriteEpoch" />.</param>
     /// <param name="extraTicks">Ticks added after the alignment, to start off the millisecond boundary.</param>
     /// <returns>The clock.</returns>
     internal static FakeTimeProvider CreateWriteClock(TimeSpan startOffset, long extraTicks = 0)
     {
-        var now = DateTimeOffset.UtcNow.Add(startOffset);
+        var now = WriteEpoch.Add(startOffset);
         return new FakeTimeProvider(now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMillisecond) + extraTicks));
     }
+
+    /// <summary>Creates a restart clock at <see cref="WriteEpoch" />: a write clock started at a negative offset restarts that much later.</summary>
+    /// <returns>The clock.</returns>
+    internal static FakeTimeProvider CreateRestartClock() => new(WriteEpoch);
 
     /// <summary>Counts the records in the journal.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -135,7 +145,7 @@ internal sealed class JournalReplayKit
     {
         using var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance);
         if (compact)
-            await JournalCompactor.CompactAsync(Persistence, manifestStore, StoreFactory.CreateReader(), cancellationToken);
+            await JournalCompactor.CompactAsync(Persistence, manifestStore, StoreFactory.CreateReader(), clock.GetUtcNow().UtcDateTime, cancellationToken);
 
         var cache = new PhysicalCache<string>(clock);
         var dependencies = new RecoveryDependencies<string>(
@@ -144,7 +154,8 @@ internal sealed class JournalReplayKit
             cache,
             new AsyncManualResetEvent(true),
             new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_meter)),
-            StoreFactory.CreateReader());
+            StoreFactory.CreateReader(),
+            clock);
         await new RecoveryService<string>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<string>>.Instance, dependencies).StartAsync(cancellationToken);
         return cache;
     }
@@ -152,7 +163,7 @@ internal sealed class JournalReplayKit
     /// <summary>Runs the mutation, which does not need the clock, against a local-owner decorator whose clock starts at <paramref name="startOffset" /> from real time.</summary>
     /// <param name="mutate">The mutation to journal.</param>
     /// <param name="readAfter">How far the clock advances before memory is read.</param>
-    /// <param name="startOffset">The offset of the write clock start from real time.</param>
+    /// <param name="startOffset">The offset of the write clock start from <see cref="WriteEpoch" />.</param>
     /// <param name="extraTicks">Ticks added to the millisecond-aligned start.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The write clock start and the entry memory holds afterwards.</returns>
@@ -166,7 +177,7 @@ internal sealed class JournalReplayKit
     /// <summary>Runs the mutation against a local-owner decorator whose clock starts at <paramref name="startOffset" /> from real time.</summary>
     /// <param name="mutate">The mutation to journal.</param>
     /// <param name="readAfter">How far the clock advances before memory is read.</param>
-    /// <param name="startOffset">The offset of the write clock start from real time.</param>
+    /// <param name="startOffset">The offset of the write clock start from <see cref="WriteEpoch" />.</param>
     /// <param name="extraTicks">Ticks added to the millisecond-aligned start.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The write clock start and the entry memory holds afterwards.</returns>
@@ -186,7 +197,7 @@ internal sealed class JournalReplayKit
     }
 
     /// <summary>Writes an entry with a one-hour deadline, cuts a snapshot that holds it, then runs the tail mutation after the cut.</summary>
-    /// <param name="startOffset">The offset of the write clock start from real time.</param>
+    /// <param name="startOffset">The offset of the write clock start from <see cref="WriteEpoch" />.</param>
     /// <param name="ttl">The relative expiration of the entry the snapshot holds.</param>
     /// <param name="tail">The mutation journaled after the snapshot cut.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -205,7 +216,7 @@ internal sealed class JournalReplayKit
         var snapshotted = await session.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(snapshotted).IsNotNull();
 
-        var cut = (session.ManifestStore, writer: StoreFactory.CreateWriter(Persistence), entry: snapshotted!, coordinator);
+        var cut = (session.ManifestStore, writer: StoreFactory.CreateWriter(Persistence), entry: snapshotted!, coordinator, writeStart);
         _ = await coordinator.ExecuteSnapshotCutAsync(
             cut,
             static (state, _, _) => new ValueTask<(int ReplayFromSegment, ulong NextSequence)>((state.coordinator.CurrentSegmentIndex, state.coordinator.NextSequence)),
@@ -224,7 +235,7 @@ internal sealed class JournalReplayKit
                     {
                         Index = nextIndex,
                         Path = path,
-                        CreatedUtc = DateTime.UtcNow,
+                        CreatedUtc = state.writeStart,
                         LastAppliedSequence = seqAtFlush,
                         ReplayFromJournalSegment = boundary.ReplayFromSegment,
                     },

@@ -55,7 +55,7 @@ public sealed class WriterEncodeBufferTests : IsolatedStorageTestBase
     private static async Task<Dictionary<string, object?>> LoadEntriesAsync(string path)
     {
         var reader = StoreFactory.CreateReader();
-        var loaded = await reader.LoadStrictAsync<object?>(path, cancellationToken: CancellationToken.None);
+        var loaded = await reader.LoadStrictAsync<object?>(path, null, CancellationToken.None);
         var entries = new Dictionary<string, object?>(loaded.Entries.Count, StringComparer.Ordinal);
         foreach (var (key, entry) in loaded.Entries)
             entries[key.Key] = entry.Value;

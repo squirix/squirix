@@ -63,7 +63,7 @@ public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBas
 
         var snapshotPath = await CutDuringPostFlushIdempotencyAsync(journal, manifestStore, writer, idempotency, cancellationToken);
 
-        var loaded = await StoreFactory.CreateReader().LoadStrictAsync<object?>(snapshotPath, cancellationToken: cancellationToken);
+        var loaded = await StoreFactory.CreateReader().LoadStrictAsync<object?>(snapshotPath, null, cancellationToken);
         var record = await Assert.That(loaded.IdempotencyRecords).HasSingleItem();
         _ = await Assert.That(record.OperationId).IsEqualTo(AtFlushOperationId);
     }

@@ -50,7 +50,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
             reader,
             path,
             cancellationToken,
-            static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: token).AsTask());
+            static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, null, token).AsTask());
     }
 
     /// <summary>A record declaring a near-uint.MaxValue body length surfaces InvalidDataException instead of an OverflowException or a multi-GB scratch allocation.</summary>
@@ -76,7 +76,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
             reader,
             path,
             cancellationToken,
-            static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: token).AsTask());
+            static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, null, token).AsTask());
     }
 
     /// <summary>An oversized snapshot record body length is rejected during load instead of allocating multiple GB for the scratch buffer.</summary>
@@ -105,7 +105,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
             reader,
             path,
             cancellationToken,
-            static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: token).AsTask());
+            static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, null, token).AsTask());
     }
 
     /// <summary>A record declaring a body that extends past the file footer is rejected instead of reading out of bounds.</summary>
@@ -134,7 +134,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
             reader,
             path,
             cancellationToken,
-            static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: token).AsTask());
+            static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, null, token).AsTask());
     }
 
     /// <summary>A snapshot rejected for an invalid header leaves no open handle behind, so the file can be taken exclusively right away.</summary>
@@ -160,10 +160,33 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
             reader,
             path,
             cancellationToken,
-            static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: token).AsTask());
+            static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, null, token).AsTask());
 
         using var exclusive = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
         _ = await Assert.That(exclusive.IsInvalid).IsFalse();
+    }
+
+    /// <summary>A load skips the entries expired as of the given server clock time and keeps every entry without one.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LoadSkipsEntriesExpiredAsOfServerClock(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-binary-snapshot-expiry");
+        var asOf = new DateTime(2000, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        List<(CacheKey Key, NodeCacheEntry<object?> Entry)> items =
+        [
+            (new CacheKey("ns", "due"), new NodeCacheEntry<object?>("due", expiresUtc: asOf)),
+            (new CacheKey("ns", "live"), new NodeCacheEntry<object?>("live", expiresUtc: asOf.AddMinutes(1))),
+        ];
+        var path = await StoreFactory.CreateWriter(new PersistenceOptions { DataDir = dir }).WriteAsync(1, items, [], cancellationToken);
+        var reader = StoreFactory.CreateReader();
+
+        var filtered = await reader.LoadStrictAsync<object?>(path, asOf, cancellationToken);
+        var unfiltered = await reader.LoadStrictAsync<object?>(path, null, cancellationToken);
+
+        _ = await Assert.That(filtered.Entries.Count).IsEqualTo(1);
+        _ = await Assert.That(filtered.Entries[0].Key.Key).IsEqualTo("live");
+        _ = await Assert.That(unfiltered.Entries.Count).IsEqualTo(2);
     }
 
     /// <summary>Writes mixed entries and idempotency records, then loads them back.</summary>
@@ -183,7 +206,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
         _ = await Assert.That(path).EndsWith(".bsqx", StringComparison.Ordinal);
         _ = await Assert.That(File.Exists(path)).IsTrue();
 
-        var loaded = await reader.LoadStrictAsync<object?>(path, cancellationToken: cancellationToken);
+        var loaded = await reader.LoadStrictAsync<object?>(path, null, cancellationToken);
         _ = await Assert.That(loaded.Entries.Count).IsEqualTo(items.Count);
         _ = await Assert.That(loaded.IdempotencyRecords.Count).IsEqualTo(idempotency.Length);
 

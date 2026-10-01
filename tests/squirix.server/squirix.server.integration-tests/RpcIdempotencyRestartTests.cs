@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -53,7 +54,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
 
         var persistence = new PersistenceOptions { DataDir = node.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
         using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
-        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(), cancellationToken);
+        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(), DateTime.UtcNow, cancellationToken);
 
         await using var restartCluster = await StartClusterAsync(
             "node-c",

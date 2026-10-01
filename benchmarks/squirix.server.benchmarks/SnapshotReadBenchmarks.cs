@@ -45,6 +45,6 @@ public class SnapshotReadBenchmarks
     public async Task LoadStrictAsync()
     {
         var host = ThrowHelper.Required(_host, "Benchmark host was not initialized.");
-        _ = await host.Reader.LoadStrictAsync<object?>(_snapshotPath!, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+        _ = await host.Reader.LoadStrictAsync<object?>(_snapshotPath!, null, CancellationToken.None).ConfigureAwait(false);
     }
 }

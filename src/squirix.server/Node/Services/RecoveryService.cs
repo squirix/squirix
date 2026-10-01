@@ -36,6 +36,7 @@ internal sealed class RecoveryService<T> : IHostedService
     private readonly PersistenceOptions _opt;
     private readonly RecoveryOptions _options;
     private readonly ISnapshotReader _snapshotReader;
+    private readonly TimeProvider _timeProvider;
     private Task? _replayTask;
 
     internal RecoveryService(RecoveryOptions options, ILogger<RecoveryService<T>> log, RecoveryDependencies<T> deps, IHostApplicationLifetime? applicationLifetime = null)
@@ -51,6 +52,7 @@ internal sealed class RecoveryService<T> : IHostedService
         _asyncManualResetEvent = deps.AsyncManualResetEvent;
         _idempotency = deps.Idempotency;
         _snapshotReader = deps.SnapshotReader;
+        _timeProvider = deps.TimeProvider;
         _applicationLifetime = applicationLifetime;
     }
 
@@ -109,6 +111,9 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private static int NormalizeSegmentIndex(int segmentIndex) => segmentIndex > 0 ? segmentIndex : 1;
 
+    /// <summary>Resolves the creation time of a replayed idempotency record.</summary>
+    /// <param name="record">The journal record.</param>
+    /// <returns>The frame write time; the system clock when the frame has none, since the idempotency store stamps and ages its records on it.</returns>
     private static DateTime ResolveIdempotencyCreatedUtc(JournalRecord record) =>
         record.UnixMs <= 0 ? DateTime.UtcNow : DateTimeOffset.FromUnixTimeMilliseconds(record.UnixMs).UtcDateTime;
 
@@ -123,7 +128,7 @@ internal sealed class RecoveryService<T> : IHostedService
                 if (!JournalEntryPayload.TryDecode<T>(putEntryBytes.Span, out var entry))
                     throw CreateJournalDecodeFailure();
 
-                if (JournalEntryExpirationMaterializer.IsExpiredForRecovery(entry!.ExpiresUtc, entry.Expiration, record.UnixMs))
+                if (JournalEntryExpirationMaterializer.IsExpiredForRecovery(entry!.ExpiresUtc, entry.Expiration, record.UnixMs, _timeProvider.GetUtcNow().UtcDateTime))
                 {
                     // The expired put supersedes the earlier value of the key, as journal compaction folds it.
                     _ = await _localCache.RemoveRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
@@ -293,7 +298,7 @@ internal sealed class RecoveryService<T> : IHostedService
             LoadResult<T>? snapshot = null;
             try
             {
-                snapshot = await _snapshotReader.LoadStrictAsync<T>(snapshotReference.Path, cancellationToken: cancellationToken).ConfigureAwait(false);
+                snapshot = await _snapshotReader.LoadStrictAsync<T>(snapshotReference.Path, _timeProvider.GetUtcNow().UtcDateTime, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException)
             {
