@@ -47,6 +47,19 @@
         <EnableTUnitSourceGeneration>false</EnableTUnitSourceGeneration>
     </PropertyGroup>
 
+    <!-- SonarCloud analysis. The scanner adds its own analyzers to the build, and SonarCloud keeps only their
+         issues: everything else is already enforced by the analysis shards. CI passes
+         -p:SquirixSonarAnalysis=true to restore and build, so the scanner build runs the Sonar analyzers alone.
+         The TUnit analyzers stay because their suppressors silence nullable warnings in the tests. -->
+    <PropertyGroup Label="SonarAnalysis" Condition="'$(SquirixSonarAnalysis)' == 'true'">
+        <EnableNETAnalyzers>false</EnableNETAnalyzers>
+        <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+        <EnableAotAnalyzer>false</EnableAotAnalyzer>
+        <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+        <EnableSingleFileAnalyzer>false</EnableSingleFileAnalyzer>
+        <EnableTUnitSourceGeneration>false</EnableTUnitSourceGeneration>
+    </PropertyGroup>
+
     <!-- Classify projects once; reuse in conditions below. -->
     <PropertyGroup Label="ProjectKind">
         <_NormalizedProjectDir>$([System.String]::Copy('$(MSBuildProjectDirectory)').Replace('\', '/'))</_NormalizedProjectDir>
@@ -80,12 +93,12 @@
     </PropertyGroup>
 
     <!-- Squirix Roslyn analyzers (consumed from NuGet; see Directory.Packages.props). -->
-    <ItemGroup Label="SquirixAnalyzers">
+    <ItemGroup Label="SquirixAnalyzers" Condition="'$(SquirixSonarAnalysis)' != 'true'">
         <PackageReference Include="squirix.analyzers" PrivateAssets="all"/>
     </ItemGroup>
 
     <!-- Solution-wide third-party Roslyn analyzers. -->
-    <ItemGroup Label="GlobalAnalyzers">
+    <ItemGroup Label="GlobalAnalyzers" Condition="'$(SquirixSonarAnalysis)' != 'true'">
         <PackageReference Include="AsyncFixer" PrivateAssets="all"/>
         <PackageReference Include="ErrorProne.NET.CoreAnalyzers" PrivateAssets="all"/>
         <PackageReference Include="Meziantou.Analyzer" PrivateAssets="all"/>
@@ -101,7 +114,7 @@
     <!-- Namespace dependency rules for production packages under src/**, analyzers, protocol-model,
          all client-bucket tests/benchmarks, e2e harnesses, protocol-model tests, samples, and server
          tests under tests/squirix.server/**. -->
-    <ItemGroup Label="NsDepCop" Condition="('$(IsSquirixProductionProject)' == 'true' And !$(_NormalizedProjectDir.Contains('/src/squirix.attributes'))) Or '$(IsSquirixProtocolModelProject)' == 'true' Or $(_NormalizedProjectDir.Contains('/tests/squirix/')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.e2e.tests')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.protocol-model')) Or $(_NormalizedProjectDir.Contains('/benchmarks/')) Or $(_NormalizedProjectDir.Contains('/samples/')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.server/'))">
+    <ItemGroup Label="NsDepCop" Condition="'$(SquirixSonarAnalysis)' != 'true' And (('$(IsSquirixProductionProject)' == 'true' And !$(_NormalizedProjectDir.Contains('/src/squirix.attributes'))) Or '$(IsSquirixProtocolModelProject)' == 'true' Or $(_NormalizedProjectDir.Contains('/tests/squirix/')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.e2e.tests')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.protocol-model')) Or $(_NormalizedProjectDir.Contains('/benchmarks/')) Or $(_NormalizedProjectDir.Contains('/samples/')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.server/')))">
         <PackageReference Include="NsDepCop" PrivateAssets="all"/>
     </ItemGroup>
 
