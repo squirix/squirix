@@ -9,6 +9,7 @@ COPY global.json ./
 COPY stylecop.json ./
 COPY BannedSymbols.txt ./
 COPY BannedSymbols.Reflection.txt ./
+COPY BannedSymbols.Time.txt ./
 COPY .globalconfig ./
 COPY .editorconfig ./
 COPY src/squirix/Squirix.csproj src/squirix/
