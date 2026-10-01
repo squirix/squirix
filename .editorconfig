@@ -131,6 +131,8 @@ dotnet_diagnostic.SQR0013.severity = error # prefer == over is for constant comp
 dotnet_diagnostic.SQR0014.severity = error # prefer != over is-not for constant comparisons
 dotnet_diagnostic.SQR0017.severity = error # forbid TestContext.Current.CancellationToken; use DefaultCancellationToken from base test classes
 dotnet_diagnostic.SQR0018.severity = error # multiline embedded if/else-if/else bodies (except nested ifs) must use braces
+dotnet_diagnostic.SQR0028.severity = error # pass readonly structs larger than 16 bytes by 'in'
+dotnet_diagnostic.SQR0029.severity = error # no non-readonly struct member calls through readonly variables (hidden copy)
 dotnet_diagnostic.SQR0009.severity = warning # drop named args passed in declaration order (prefer positional)
 dotnet_diagnostic.SQR0011.severity = warning # omit args equal to the parameter default
 dotnet_diagnostic.SQR0021.severity = warning # prefer ArgumentException throw helpers over manual guards
@@ -456,7 +458,7 @@ dotnet_diagnostic.RS0030.severity = error # symbol has been banned
 dotnet_diagnostic.RS0031.severity = error # symbol has been banned for use in declarations
 
 # ===========================================================================
-# ErrorProne.NET (EPC / ERP / EPS)
+# ErrorProne.NET (EPC / ERP)
 # ===========================================================================
 # Only non-default severities: Info→warning, or enable rules that ship disabled.
 # Do not use category-Performance bulk config (collides with CA18xx/CA186x and ZeroAlloc).
@@ -475,13 +477,6 @@ dotnet_diagnostic.EPC38.severity = warning # do not re-enumerate IEnumerable<Tas
 dotnet_diagnostic.EPC39.severity = warning # do not iterate the same enumerable inside a loop (quadratic cost)
 dotnet_diagnostic.EPC40.severity = warning # private method must not enumerate an IEnumerable parameter twice (deferred re-execution)
 dotnet_diagnostic.ERP041.severity = warning # EventSource class should be sealed
-dotnet_diagnostic.EPS02.severity = warning # struct not readonly-friendly passed via in-parameter (defensive copy risk)
-dotnet_diagnostic.EPS03.severity = warning # struct not readonly-friendly returned by ref readonly (defensive copy risk)
-dotnet_diagnostic.EPS04.severity = warning # struct not readonly-friendly stored in ref readonly local (defensive copy risk)
-dotnet_diagnostic.EPS05.severity = warning # struct could be passed using in-modifier for performance
-dotnet_diagnostic.EPS07.severity = warning # hidden defensive copy of a readonly field (>=16-byte struct)
-dotnet_diagnostic.EPS08.severity = warning # hidden defensive copy of an 'in' parameter (>=16-byte struct)
-dotnet_diagnostic.EPS09.severity = warning # hidden copy of a ref readonly local
 
 # ===========================================================================
 # Microsoft.VisualStudio.Threading (VSTHRD) — promote hidden rule to warning
