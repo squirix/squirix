@@ -14,14 +14,15 @@ public sealed class CacheEntry<T>
     }
 
     /// <summary>
-    /// Gets the relative expiration, measured from the entry write time. The entry expires at the earliest of this
-    /// deadline and <see cref="ExpiresUtc" />, so the two combine instead of overriding each other.
+    /// Gets the relative expiration, measured from the entry write time. An entry read from the cache does not fill it: its deadline is
+    /// reported through <see cref="ExpiresUtc" /> only.
     /// </summary>
     public TimeSpan? Expiration { get; init; }
 
     /// <summary>
     /// Gets the absolute UTC expiration time. The entry expires at the earliest of this time and the
-    /// <see cref="Expiration" /> deadline.
+    /// <see cref="Expiration" /> deadline. On an entry read from the cache it is on the client clock: the time the server reports
+    /// the entry has left, added to the client time of the read.
     /// </summary>
     public DateTime? ExpiresUtc { get; init; }
 

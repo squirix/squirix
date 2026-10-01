@@ -20,23 +20,24 @@ public sealed class ExpirationAddSetTests : ClockTestBase
     {
         var cache = await Client.GetCacheAsync<string>("try-add-options-expires-at-public-extra", cancellationToken);
 
-        // Absolute deadline is anchored to the controllable fake clock (not real time), so the
-        // server-side expiry check stays deterministic regardless of when the test runs.
-        var expiresAt = Clock.GetUtcNow().AddMinutes(2);
+        // An absolute expiration is on the client clock: the client sends the two minutes left, which the server then counts
+        // on its own fake clock, so the expiry check stays deterministic whatever the two clocks read.
+        var lifetime = TimeSpan.FromMinutes(2);
+        var expiresAt = DateTimeOffset.UtcNow + lifetime;
         var added = await cache.TryAddAsync("k", "v", Expiry.At(expiresAt), cancellationToken);
         _ = await Assert.That(added).IsTrue();
         var expiration = await cache.GetExpirationAsync("k", cancellationToken);
         _ = await Assert.That(expiration.Found).IsTrue();
         _ = await Assert.That(expiration.HasExpiration).IsTrue();
         _ = await Assert.That(expiration.Expiration > TimeSpan.Zero).IsTrue();
-        _ = await Assert.That(expiration.Expiration <= expiresAt - Clock.GetUtcNow() + TimeSpan.FromSeconds(5)).IsTrue();
+        _ = await Assert.That(expiration.Expiration <= lifetime).IsTrue();
 
         // Prove relative expiry is honored without sleeping for the long ExpiresAt window used above,
         // then cross k's absolute deadline to prove absolute expiry is honored too.
         await cache.SetAsync("k-short", "v", Expiry.In(TimeSpan.FromMilliseconds(500)), cancellationToken);
         Clock.Advance(TimeSpan.FromMilliseconds(2000));
         _ = await Assert.That((await cache.GetValueAsync("k-short", cancellationToken)).Found).IsFalse();
-        Clock.Advance(expiresAt - Clock.GetUtcNow() + TimeSpan.FromSeconds(1));
+        Clock.Advance(lifetime);
         _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
     }
 

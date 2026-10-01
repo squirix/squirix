@@ -26,7 +26,6 @@ internal sealed class EndpointFailover
     private readonly Lock _activeIndexGate = new();
     private readonly IReadOnlyList<string> _bootstrapNodeIds;
     private readonly TimeSpan _operationDeadline;
-    private readonly TimeProvider _timeProvider;
     private int _activeIndex;
 
     /// <summary>Initializes a new instance of the <see cref="EndpointFailover" /> class.</summary>
@@ -48,9 +47,12 @@ internal sealed class EndpointFailover
 
         _bootstrapNodeIds = bootstrapNodeIds;
         _operationDeadline = operationDeadline;
-        _timeProvider = timeProvider;
+        Clock = timeProvider;
         _activeIndex = ResolveActiveIndex(bootstrapNodeIds, primaryNodeId);
     }
+
+    /// <summary>Gets the client clock: absolute expirations are given on it and operation deadlines count down on it.</summary>
+    internal TimeProvider Clock { get; }
 
     /// <summary>
     /// Executes the action with at most one stale-term reroute under the single absolute operation deadline shared
@@ -66,7 +68,7 @@ internal sealed class EndpointFailover
     {
         ArgumentNullException.ThrowIfNull(action);
 
-        var clock = _timeProvider;
+        var clock = Clock;
         var deadlineUtc = clock.GetUtcNow() + _operationDeadline;
         using var deadlineScope = RpcDeadlineContext.Push(deadlineUtc.UtcDateTime, clock);
         var startIndex = ActiveIndexSnapshot();

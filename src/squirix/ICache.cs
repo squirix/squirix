@@ -90,9 +90,12 @@ public interface ICache<T>
     /// <returns><see langword="true" /> when a live entry was updated; otherwise <see langword="false" />.</returns>
     Task<bool> TouchAsync(string key, TimeSpan expiration, CancellationToken cancellationToken = default);
 
-    /// <summary>Updates the expiration of a live entry using an absolute expiration time.</summary>
+    /// <summary>Updates the expiration of a live entry using an absolute expiration time on the client clock.</summary>
     /// <param name="key">Cache key.</param>
-    /// <param name="absoluteExpiration">Absolute point in time at which the entry expires.</param>
+    /// <param name="absoluteExpiration">
+    /// Absolute point in time at which the entry expires, on the client clock; the client sends the time left before it, so the server clock
+    /// does not need to agree. It must be in the future.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><see langword="true" /> when a live entry was updated; otherwise <see langword="false" />.</returns>
     Task<bool> TouchAsync(string key, DateTimeOffset absoluteExpiration, CancellationToken cancellationToken = default);

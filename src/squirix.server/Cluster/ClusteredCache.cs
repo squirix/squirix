@@ -21,7 +21,7 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
     private readonly OwnerPeerCacheClient _remote;
     private readonly string _selfId;
 
-    internal ClusteredCache(string selfId, ILogicalNamespacedCache<T> local, INodeLocator locator, IServerClientPool clients)
+    internal ClusteredCache(string selfId, ILogicalNamespacedCache<T> local, INodeLocator locator, IServerClientPool clients, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(selfId);
         ArgumentNullException.ThrowIfNull(local);
@@ -30,7 +30,7 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
         _selfId = selfId;
         _local = local;
         _locator = locator;
-        _remote = new OwnerPeerCacheClient(clients);
+        _remote = new OwnerPeerCacheClient(clients, timeProvider);
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
@@ -95,11 +95,14 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
     private sealed class OwnerPeerCacheClient
     {
         private readonly IServerClientPool _clients;
+        private readonly TimeProvider _timeProvider;
 
-        internal OwnerPeerCacheClient(IServerClientPool clients)
+        internal OwnerPeerCacheClient(IServerClientPool clients, TimeProvider timeProvider)
         {
             ArgumentNullException.ThrowIfNull(clients);
+            ArgumentNullException.ThrowIfNull(timeProvider);
             _clients = clients;
+            _timeProvider = timeProvider;
         }
 
         internal async ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
@@ -111,7 +114,15 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
                     client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = s.CacheName, Key = s.Key }, cancellationToken: ct).ResponseAsync),
                 cancellationToken).ConfigureAwait(false);
 
-            return response.Found ? await response.Entry.MapFromProtoAsync<T>().ConfigureAwait(false) : null;
+            if (!response.Found)
+                return null;
+
+            var entry = await response.Entry.MapFromProtoAsync<T>().ConfigureAwait(false);
+
+            // The owner's deadline is on its clock: rebase the time it reports left on this node's clock, so node skew does not leak.
+            return response.Remaining is { } remaining
+                ? new NodeCacheEntry<T>(entry.Value, entry.Version, _timeProvider.GetUtcNow().UtcDateTime.SaturatedAdd(remaining.ToTimeSpan()), entry.Expiration, entry.Tags)
+                : entry;
         }
 
         internal async ValueTask<NodeCacheValueResult<T>> GetValueAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
