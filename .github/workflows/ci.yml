@@ -210,11 +210,19 @@ jobs:
 
     # Pull request only: the analyzed (TreatWarningsAsErrors) build that build-ubuntu skips for speed. It uploads nothing.
     # Like build-ubuntu it starts with the workflow and classifies the change set itself.
+    # Analyzers run inside each project's compilation and the projects depend on each other in a chain, so one runner
+    # cannot spread the work. Each shard therefore gets a runner of its own, compiles the whole solution and analyzes only
+    # its own projects; together the shards analyze every project exactly once.
     analyze-ubuntu:
-        name: Analyze (ubuntu-latest / net10.0)
+        name: Analyze (ubuntu-latest / net10.0 / ${{ matrix.shard }})
         runs-on: ubuntu-latest
         timeout-minutes: 45
         if: github.event_name == 'pull_request'
+        strategy:
+            fail-fast: false
+            matrix:
+                # One entry per shard in SquirixAnalysisShards (Directory.Build.props); a shard missing here is never analyzed.
+                shard: [ default, server-unit-tests, server-tests ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -240,6 +248,7 @@ jobs:
                 with:
                     artifact-os: ubuntu-latest
                     framework: net10.0
+                    analysis-shard: ${{ matrix.shard }}
                     upload-outputs: "false"
 
     build-windows:

@@ -26,6 +26,23 @@
         <MeziantouAnalysisMode>all-errors</MeziantouAnalysisMode>
     </PropertyGroup>
 
+    <!-- Analysis shards. CI can spread the analyzed build over several runners by passing
+         -p:SquirixAnalysisShard=<name>: every shard still compiles the whole solution, but only the
+         projects of that shard run analyzers and code-style enforcement. A project belongs to the
+         `default` shard unless it is claimed below, so a new project is analyzed without being listed
+         anywhere. Without the property (local builds, the IDE, packaging) every project is analyzed.
+         The shard names are listed in SquirixAnalysisShards and in the CI job that runs one build per shard. -->
+    <PropertyGroup Label="AnalysisShards">
+        <SquirixAnalysisShards>default;server-unit-tests;server-tests</SquirixAnalysisShards>
+        <SquirixProjectAnalysisShard>default</SquirixProjectAnalysisShard>
+        <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server.UnitTests'">server-unit-tests</SquirixProjectAnalysisShard>
+        <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server.TestKit' Or '$(MSBuildProjectName)' == 'Squirix.Server.IntegrationTests' Or '$(MSBuildProjectName)' == 'Squirix.Server.SmokeTests' Or '$(MSBuildProjectName)' == 'Squirix.E2ETests'">server-tests</SquirixProjectAnalysisShard>
+    </PropertyGroup>
+    <PropertyGroup Label="AnalysisShardSelection" Condition="'$(SquirixAnalysisShard)' != '' And '$(SquirixAnalysisShard)' != '$(SquirixProjectAnalysisShard)'">
+        <RunAnalyzers>false</RunAnalyzers>
+        <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    </PropertyGroup>
+
     <!-- Classify projects once; reuse in conditions below. -->
     <PropertyGroup Label="ProjectKind">
         <_NormalizedProjectDir>$([System.String]::Copy('$(MSBuildProjectDirectory)').Replace('\', '/'))</_NormalizedProjectDir>
@@ -115,4 +132,9 @@
         <!-- Solution-root suppress baseline; VS/plugin discovery needs a project item. -->
         <None Include="$(MSBuildThisFileDirectory)pvs-studio.suppress.json" Link="pvs-studio.suppress.json"/>
     </ItemGroup>
+
+    <!-- A shard name that no project belongs to would make that build analyze nothing, so it fails instead. -->
+    <Target Name="SquirixValidateAnalysisShard" BeforeTargets="CoreCompile" Condition="'$(SquirixAnalysisShard)' != '' And !$([System.String]::Copy(';$(SquirixAnalysisShards);').Contains(';$(SquirixAnalysisShard);'))">
+        <Error Text="Unknown analysis shard '$(SquirixAnalysisShard)'. Known shards: $(SquirixAnalysisShards)."/>
+    </Target>
 </Project>

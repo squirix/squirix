@@ -17,6 +17,10 @@ inputs:
     description: When false, build with Roslyn analyzers and code-style enforcement off. Used for the test artifact on pull requests; a separate job runs the analyzed build.
     required: false
     default: "true"
+  analysis-shard:
+    description: When set, an analyzed build runs analyzers only for the projects of this shard (SquirixAnalysisShard in Directory.Build.props) and compiles the rest without them. Empty analyzes every project.
+    required: false
+    default: ""
   upload-outputs:
     description: When false, skip the build output artifact upload (analyzer-only build).
     required: false
@@ -67,11 +71,14 @@ runs:
         # makes that startup faster and does not change the build result.
         DOTNET_TieredPGO: "0"
       run: |
-        if [ "${{ inputs.analyzers }}" = "true" ]; then
-          dotnet build squirix.slnx --configuration Release --no-restore
-        else
+        if [ "${{ inputs.analyzers }}" != "true" ]; then
           # Analyzers only report diagnostics (source generators still run), so the binaries are the same and compile much faster.
           dotnet build squirix.slnx --configuration Release --no-restore -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
+        elif [ -n "${{ inputs.analysis-shard }}" ]; then
+          # One shard of the analyzed build: the whole solution compiles, the projects outside the shard without analyzers.
+          dotnet build squirix.slnx --configuration Release --no-restore "-p:SquirixAnalysisShard=${{ inputs.analysis-shard }}"
+        else
+          dotnet build squirix.slnx --configuration Release --no-restore
         fi
 
     # Only the package smoke needs the certificate here; every test job creates its own.
