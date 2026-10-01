@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Services;
@@ -38,24 +39,22 @@ public sealed class ConditionalRetryTests : NodeIntegrationTestBase
         _ = await Assert.That(other).IsFalse();
     }
 
-    /// <summary>A retried add that was refused replays <see langword="false" /> after its key is removed, instead of adding it.</summary>
+    /// <summary>An add refused because its key exists appends nothing to the group log: refusals in a loop cost no replication.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RetriedRefusedAddStaysRefused(CancellationToken cancellationToken)
+    public async Task RefusedAddAppendsNothing(CancellationToken cancellationToken)
     {
         await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", Options("conditional-retry-refused"), cancellationToken);
         var (cache, key) = await OwnedCacheAsync(cluster, cancellationToken);
-        var operationId = Guid.NewGuid().ToString("N");
         _ = await cache.TryAddEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, Entry("winner"), cancellationToken);
+        _ = cluster["node-a"].GetRequiredService<ReplicaGroupRegistry>().TryGetLog("node-a", out var log);
+        var before = (await log!.GetStatusAsync(cancellationToken)).LastLogIndex;
 
-        var refused = await cache.TryAddEntryAsync(operationId, CacheName, key, Entry("loser"), cancellationToken);
-        _ = await cache.RemoveAsync(Guid.NewGuid().ToString("N"), CacheName, key, cancellationToken);
-        var retried = await cache.TryAddEntryAsync(operationId, CacheName, key, Entry("loser"), cancellationToken);
-        var present = (await cache.GetValueAsync(CacheName, key, cancellationToken)).Found;
+        var refused = await cache.TryAddEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, Entry("loser"), cancellationToken);
+        var after = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
 
         _ = await Assert.That(refused).IsFalse();
-        _ = await Assert.That(retried).IsFalse();
-        _ = await Assert.That(present).IsFalse();
+        _ = await Assert.That(after).IsEqualTo(before);
     }
 
     /// <summary>A retried set of an absent key is accepted as the same operation: the first attempt was recorded as a set too.</summary>

@@ -26,7 +26,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     private readonly IMemoryPressureGate _gate;
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly AsyncLock[] _keyGates = CreateKeyGates();
-    private readonly bool _innerRecordsOutcomes;
+    private readonly Func<string, string, bool>? _hasRecordedOutcome;
     private readonly INodeLocator _ring;
     private readonly string _self;
 
@@ -37,10 +37,11 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     /// <param name="accounting">The memory usage accounting.</param>
     /// <param name="ring">The ownership ring.</param>
     /// <param name="self">This node identifier.</param>
-    /// <param name="innerRecordsOutcomes">
-    /// Whether <paramref name="inner" /> records the outcome of every conditional write by operation id, as the replicated committer
-    /// does. A conditional write that admission could answer without writing is then still handed to it: a retry of a committed write
-    /// replays its outcome there, and a refused write is recorded so its retry gets the same answer.
+    /// <param name="hasRecordedOutcome">
+    /// Tells, by cache name and operation id, whether <paramref name="inner" /> holds a recorded outcome for the operation, as the
+    /// replicated committer does; <see langword="null" /> when it records none. A conditional write that admission would refuse from the
+    /// current state is handed to <paramref name="inner" /> when its outcome is recorded, so a retry of a committed write replays it.
+    /// Any other such write is refused here, without a log record: its first attempt changed nothing, so nothing needs replaying.
     /// </param>
     internal MemoryAdmissionCacheDecorator(
         ILogicalNamespacedCache<T> inner,
@@ -49,7 +50,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         IMemoryUsageAccounting accounting,
         INodeLocator ring,
         string self,
-        bool innerRecordsOutcomes = false)
+        Func<string, string, bool>? hasRecordedOutcome = null)
     {
         ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(gate);
@@ -63,7 +64,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         _accounting = accounting;
         _self = self;
         _ring = ring;
-        _innerRecordsOutcomes = innerRecordsOutcomes;
+        _hasRecordedOutcome = hasRecordedOutcome;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
@@ -120,7 +121,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         AdmitReplaceOrInsert(keyValue, existing, entry, AdmissionOperations.Set);
 
         // A pipeline that records outcomes decides the upsert itself; an add here would record a retry of this set under another kind.
-        if (existing == null && !_innerRecordsOutcomes)
+        if (existing == null && _hasRecordedOutcome == null)
         {
             if (await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false))
             {
@@ -167,10 +168,10 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing != null)
         {
-            if (!_innerRecordsOutcomes)
+            if (!IsRecorded(cacheName, operationId))
                 return false;
 
-            // An entry that expires before the inner pipeline decides lets the add insert: admit that replacement up front.
+            // A recorded outcome is replayed; should it age out first, an entry that expires meanwhile lets the add insert: admit that.
             if (existing.ExpiresUtc != null)
                 AdmitReplaceOrInsert(keyValue, existing, entry, AdmissionOperations.TryAdd);
 
@@ -194,7 +195,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing == null)
-            return _innerRecordsOutcomes && await AccountAnsweredAsync(keyValue, _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken)).ConfigureAwait(false);
+            return IsRecorded(cacheName, operationId) && await AccountAnsweredAsync(keyValue, _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken)).ConfigureAwait(false);
 
         var replacement = new NodeCacheEntry<T>
         {
@@ -270,9 +271,9 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     /// <param name="write">The conditional write handed to the inner pipeline.</param>
     /// <returns>The outcome of the write.</returns>
     /// <remarks>
-    /// A replayed outcome writes nothing; a fresh decision may write only when an entry with a deadline expired meanwhile, which the
-    /// caller admitted. A <see langword="true" /> answer re-reads the key, uncancelled since the write already happened, so the accounted
-    /// size stays the size of what the inner cache holds.
+    /// A replayed outcome writes nothing; a fresh decision, should the recorded outcome age out first, may write only when an entry with
+    /// a deadline expired meanwhile, which the caller admitted. A <see langword="true" /> answer re-reads the key, uncancelled since the
+    /// write already happened, so the accounted size stays the size of what the inner cache holds.
     /// </remarks>
     private async ValueTask<bool> AccountAnsweredAsync(CacheKey key, ValueTask<bool> write)
     {
@@ -300,6 +301,8 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     /// </remarks>
     private ValueTask<AsyncLockHolder> LockKeyAsync(CacheKey key, CancellationToken cancellationToken) =>
         _keyGates[(key.GetHashCode() & int.MaxValue) % _keyGates.Length].LockAsync(cancellationToken);
+
+    private bool IsRecorded(string cacheName, string operationId) => _hasRecordedOutcome?.Invoke(cacheName, operationId) == true;
 
     private bool IsLocal(string cacheName, string key) => string.Equals(_ring.GetOwner(ServerCacheName.NormalizeUnvalidated(cacheName), key), _self, StringComparison.Ordinal);
 }
