@@ -113,9 +113,9 @@ internal sealed class RecoveryService<T> : IHostedService
 
     /// <summary>Resolves the creation time of a replayed idempotency record.</summary>
     /// <param name="record">The journal record.</param>
-    /// <returns>The frame write time; the system clock when the frame has none, since the idempotency store stamps and ages its records on it.</returns>
-    private static DateTime ResolveIdempotencyCreatedUtc(JournalRecord record) =>
-        record.UnixMs <= 0 ? DateTime.UtcNow : DateTimeOffset.FromUnixTimeMilliseconds(record.UnixMs).UtcDateTime;
+    /// <returns>The frame write time; the server clock when the frame has none.</returns>
+    private DateTime ResolveIdempotencyCreatedUtc(JournalRecord record) =>
+        record.UnixMs <= 0 ? _timeProvider.GetUtcNow().UtcDateTime : DateTimeOffset.FromUnixTimeMilliseconds(record.UnixMs).UtcDateTime;
 
     private async Task ApplyJournalRecordAsync(JournalRecord record, CancellationToken cancellationToken)
     {

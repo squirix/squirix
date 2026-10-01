@@ -14,8 +14,9 @@ internal sealed class IdempotencyStoreSweepService : BackgroundService
     private readonly ILogger<IdempotencyStoreSweepService> _log;
     private readonly IdempotencyOptions _options;
     private readonly RpcMutationIdempotencyStore _store;
+    private readonly TimeProvider _timeProvider;
 
-    public IdempotencyStoreSweepService(RpcMutationIdempotencyStore store, IOptions<IdempotencyOptions> options, ILogger<IdempotencyStoreSweepService> log)
+    public IdempotencyStoreSweepService(RpcMutationIdempotencyStore store, IOptions<IdempotencyOptions> options, ILogger<IdempotencyStoreSweepService> log, TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         _store = store;
@@ -23,16 +24,17 @@ internal sealed class IdempotencyStoreSweepService : BackgroundService
         ArgumentNullException.ThrowIfNull(log);
         _log = log;
         _options = options.Value;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(_options.BackgroundSweepInterval);
+        using var timer = new PeriodicTimer(_options.BackgroundSweepInterval, _timeProvider);
         try
         {
             while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
-                _store.SweepExpired(DateTime.UtcNow);
+                _store.SweepExpired();
         }
         catch (OperationCanceledException ex)
         {

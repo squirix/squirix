@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
@@ -76,14 +77,14 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     }
 
     /// <summary>Ensures expired idempotency records are swept and no longer replay.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ExpiredRecordsAreNotReplayed(CancellationToken cancellationToken)
+    public async Task ExpiredRecordsAreNotReplayed()
     {
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { Retention = TimeSpan.FromMilliseconds(50) }, "local", new IdempotencyMetrics(_testMeter));
+        var clock = new FakeTimeProvider();
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { Retention = TimeSpan.FromMilliseconds(50) }, "local", new IdempotencyMetrics(_testMeter), clock);
         store.RecordSuccess("op-1", "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
 
-        await Task.Delay(100, cancellationToken);
+        clock.Advance(TimeSpan.FromMilliseconds(100));
 
         var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
 
