@@ -86,33 +86,20 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             ThrowIfDraining();
             cancellationToken.ThrowIfCancellationRequested();
 
-            var budgetRemaining = ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
+            var budgetRemaining = ServerRpcDeadlineContext.GetRemainingBudget();
             if (budgetRemaining == null)
                 return await _executor.RunQueuedExecutionAsync(state, action, false, cancellationToken, cancellationToken).ConfigureAwait(false);
 
-            if (cancellationToken.CanBeCanceled)
-            {
-                using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                await ConfigureBudgetDeadlineAsync(budgetCts, budgetRemaining.Value).ConfigureAwait(false);
-                return await _executor.RunQueuedExecutionAsync(state, action, true, budgetCts.Token, cancellationToken).ConfigureAwait(false);
-            }
-
-            using var standaloneBudgetCts = new CancellationTokenSource();
-            await ConfigureBudgetDeadlineAsync(standaloneBudgetCts, budgetRemaining.Value).ConfigureAwait(false);
-            return await _executor.RunQueuedExecutionAsync(state, action, true, standaloneBudgetCts.Token, cancellationToken).ConfigureAwait(false);
+            // The budget counts down on the clock its deadline was pushed with; a spent budget cancels at once.
+            var budgetDelay = budgetRemaining.Value > TimeSpan.Zero ? budgetRemaining.Value : TimeSpan.Zero;
+            using var budgetTimer = new CancellationTokenSource(budgetDelay, ServerRpcDeadlineContext.CurrentClock ?? TimeProvider.System);
+            using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budgetTimer.Token);
+            return await _executor.RunQueuedExecutionAsync(state, action, true, budgetCts.Token, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             ReleaseActiveOperation();
         }
-    }
-
-    private static async ValueTask ConfigureBudgetDeadlineAsync(CancellationTokenSource budgetCts, TimeSpan budgetRemaining)
-    {
-        if (budgetRemaining <= TimeSpan.Zero)
-            await budgetCts.CancelAsync().ConfigureAwait(false);
-        else
-            budgetCts.CancelAfter(budgetRemaining);
     }
 
     private void DisposeSemaphoreUnderLockIfIdle()
@@ -412,25 +399,15 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             CancellationToken effectiveToken,
             CancellationToken cancellationToken)
         {
-            var budgetRemaining = ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
+            var budgetRemaining = ServerRpcDeadlineContext.GetRemainingBudget();
             var perAttempt = GetAttemptTimeoutForRemaining(budgetRemaining);
             if (ShouldUseEffectiveTokenDirectly(budgetRemaining, perAttempt))
                 return await ExecuteAttemptCoreAsync(state, action, attempt, effectiveToken, cancellationToken, effectiveToken).ConfigureAwait(false);
 
-            if (effectiveToken.CanBeCanceled)
-            {
-                using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken);
-                if (budgetRemaining == null || perAttempt < budgetRemaining.Value)
-                    attemptCts.CancelAfter(perAttempt);
-
-                return await ExecuteAttemptCoreAsync(state, action, attempt, effectiveToken, cancellationToken, attemptCts.Token).ConfigureAwait(false);
-            }
-
-            using var standaloneAttemptCts = new CancellationTokenSource();
-            if (budgetRemaining == null || perAttempt < budgetRemaining.Value)
-                standaloneAttemptCts.CancelAfter(perAttempt);
-
-            return await ExecuteAttemptCoreAsync(state, action, attempt, effectiveToken, cancellationToken, standaloneAttemptCts.Token).ConfigureAwait(false);
+            // The attempt timeout runs on the server clock, so a test clock must be advanced for it to fire; the budget bounds it through the effective token.
+            using var attemptTimer = new CancellationTokenSource(perAttempt, _timeProvider);
+            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken, attemptTimer.Token);
+            return await ExecuteAttemptCoreAsync(state, action, attempt, effectiveToken, cancellationToken, attemptCts.Token).ConfigureAwait(false);
         }
 
         [Immutable]

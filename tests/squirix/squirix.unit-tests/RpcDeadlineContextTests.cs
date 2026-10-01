@@ -17,8 +17,8 @@ public sealed class RpcDeadlineContextTests : UnitTestBase
     public async Task EqualDeadlineDisposeKeepsInnerScope()
     {
         var deadline = new DateTime(2026, 3, 10, 12, 0, 0, DateTimeKind.Utc);
-        using var outer = RpcDeadlineContext.Push(deadline);
-        using var inner = RpcDeadlineContext.Push(deadline);
+        using var outer = RpcDeadlineContext.Push(deadline, TimeProvider.System);
+        using var inner = RpcDeadlineContext.Push(deadline, TimeProvider.System);
 
         // ReSharper disable once DisposeOnUsingVariable — intentional out-of-order dispose: the outer scope ends while the inner one is current.
         outer.Dispose();
@@ -31,8 +31,8 @@ public sealed class RpcDeadlineContextTests : UnitTestBase
     public async Task InnerDisposeSkipsEndedOuterScope()
     {
         var outerDeadline = new DateTime(2026, 3, 10, 12, 0, 0, DateTimeKind.Utc);
-        var outer = RpcDeadlineContext.Push(outerDeadline);
-        var inner = RpcDeadlineContext.Push(outerDeadline.AddSeconds(-10));
+        var outer = RpcDeadlineContext.Push(outerDeadline, TimeProvider.System);
+        var inner = RpcDeadlineContext.Push(outerDeadline.AddSeconds(-10), TimeProvider.System);
         outer.Dispose();
 
         inner.Dispose();
@@ -46,8 +46,8 @@ public sealed class RpcDeadlineContextTests : UnitTestBase
     {
         var outerDeadline = new DateTime(2026, 3, 10, 12, 0, 0, DateTimeKind.Utc);
         var innerDeadline = outerDeadline.AddSeconds(-10);
-        using var outer = RpcDeadlineContext.Push(outerDeadline);
-        using var inner = RpcDeadlineContext.Push(innerDeadline);
+        using var outer = RpcDeadlineContext.Push(outerDeadline, TimeProvider.System);
+        using var inner = RpcDeadlineContext.Push(innerDeadline, TimeProvider.System);
 
         // ReSharper disable once DisposeOnUsingVariable — intentional out-of-order dispose: the outer scope ends while the inner one is current.
         outer.Dispose();
@@ -60,9 +60,9 @@ public sealed class RpcDeadlineContextTests : UnitTestBase
     public async Task PushConvertsLocalDeadlineToUtc()
     {
         var local = new DateTime(2026, 3, 10, 12, 0, 0, DateTimeKind.Local);
-        using (RpcDeadlineContext.Push(local))
+        using (RpcDeadlineContext.Push(local, new FrozenClock(local.ToUniversalTime() - TimeSpan.FromSeconds(5))))
         {
-            var remaining = RpcDeadlineContext.GetRemainingBudget(local.ToUniversalTime() - TimeSpan.FromSeconds(5));
+            var remaining = RpcDeadlineContext.GetRemainingBudget();
             _ = await Assert.That(remaining).IsEqualTo(TimeSpan.FromSeconds(5));
         }
     }
@@ -71,30 +71,30 @@ public sealed class RpcDeadlineContextTests : UnitTestBase
     [Test]
     public async Task PushExposesBudgetAndRestoresPrevious()
     {
-        _ = await Assert.That(RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow)).IsNull();
+        _ = await Assert.That(RpcDeadlineContext.GetRemainingBudget()).IsNull();
 
         var deadline = DateTime.UtcNow.AddSeconds(30);
-        using (RpcDeadlineContext.Push(deadline))
+        using (RpcDeadlineContext.Push(deadline, TimeProvider.System))
         {
-            var remaining = RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
+            var remaining = RpcDeadlineContext.GetRemainingBudget();
             _ = await Assert.That(remaining is { } budget && budget > TimeSpan.Zero && budget <= TimeSpan.FromSeconds(30)).IsTrue();
         }
 
-        _ = await Assert.That(RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow)).IsNull();
+        _ = await Assert.That(RpcDeadlineContext.GetRemainingBudget()).IsNull();
     }
 
     /// <summary>Sentinel deadlines normalize to no ambient budget.</summary>
     [Test]
     public async Task PushNormalizesSpecialDeadlines()
     {
-        using (RpcDeadlineContext.Push(null))
-            _ = await Assert.That(RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow)).IsNull();
+        using (RpcDeadlineContext.Push(null, TimeProvider.System))
+            _ = await Assert.That(RpcDeadlineContext.GetRemainingBudget()).IsNull();
 
-        using (RpcDeadlineContext.Push(DateTime.MaxValue))
-            _ = await Assert.That(RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow)).IsNull();
+        using (RpcDeadlineContext.Push(DateTime.MaxValue, TimeProvider.System))
+            _ = await Assert.That(RpcDeadlineContext.GetRemainingBudget()).IsNull();
 
-        using (RpcDeadlineContext.Push(DateTime.MinValue))
-            _ = await Assert.That(RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow)).IsNull();
+        using (RpcDeadlineContext.Push(DateTime.MinValue, TimeProvider.System))
+            _ = await Assert.That(RpcDeadlineContext.GetRemainingBudget()).IsNull();
     }
 
     /// <summary>Disposing a scope a second time after a later push leaves the newer deadline in place.</summary>
@@ -103,12 +103,28 @@ public sealed class RpcDeadlineContextTests : UnitTestBase
     {
         var firstDeadline = new DateTime(2026, 3, 10, 12, 0, 0, DateTimeKind.Utc);
         var secondDeadline = firstDeadline.AddSeconds(30);
-        var first = RpcDeadlineContext.Push(firstDeadline);
+        var first = RpcDeadlineContext.Push(firstDeadline, TimeProvider.System);
         first.Dispose();
-        using var second = RpcDeadlineContext.Push(secondDeadline);
+        using var second = RpcDeadlineContext.Push(secondDeadline, TimeProvider.System);
 
         first.Dispose();
 
         _ = await Assert.That(RpcDeadlineContext.CurrentDeadlineUtc).IsEqualTo(secondDeadline);
+    }
+
+    /// <summary>A clock frozen at one instant, so a pushed budget reads back exactly.</summary>
+    [Immutable]
+    private sealed class FrozenClock : TimeProvider
+    {
+        private readonly DateTimeOffset _utcNow;
+
+        internal FrozenClock(DateTime utcNow)
+        {
+            _utcNow = new DateTimeOffset(utcNow, TimeSpan.Zero);
+        }
+
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+
+        public override long GetTimestamp() => 0;
     }
 }

@@ -4,7 +4,9 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
+using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.TestKit;
 using TUnit.Assertions;
@@ -17,6 +19,8 @@ namespace Squirix.UnitTests.Cluster;
 [Immutable]
 public sealed class CallPolicyTests
 {
+    private static readonly TimeSpan Bound = TimeSpan.FromSeconds(10);
+
     /// <summary>Rejects new calls after BeginDrain.</summary>
     [Test]
     public async Task BeginDrainRejectsNewCallsAsync()
@@ -67,6 +71,56 @@ public sealed class CallPolicyTests
 
             _ = await Assert.That(faults.TryPeek(out var fault)).IsFalse().Because($"SemaphoreSlim disposed fault escaped to a caller: {fault}");
         }
+    }
+
+    /// <summary>The operation budget expires on the clock its deadline was pushed with, with no real delay.</summary>
+    [Test]
+    public async Task BudgetExpiresOnPushClock()
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        await using var policy = new CallPolicy(TimeSpan.FromHours(2), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-budget-clock", timeProvider: clock);
+        using var scope = RpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var call = policy.ExecuteAsync(static (signal, ct) => BlockUntilCanceledAsync(signal, ct), entered, CancellationToken.None).AsTask();
+        await entered.Task.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
+        var pending = !call.IsCompleted;
+        clock.Advance(TimeSpan.FromHours(1));
+        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+
+        _ = await Assert.That(pending).IsTrue();
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+    }
+
+    /// <summary>The deadline handed to gRPC is the remaining budget from the current system time, whatever clock the deadline was pushed with.</summary>
+    [Test]
+    public async Task ForwardDeadlineFollowsBudget()
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        using var scope = RpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
+        clock.Advance(TimeSpan.FromMinutes(10));
+
+        var expected = DateTime.UtcNow + TimeSpan.FromMinutes(50);
+        var forwarded = RpcDeadlineContext.ForwardDeadlineUtc;
+
+        _ = await Assert.That(forwarded is { } value && (value - expected).Duration() < TimeSpan.FromSeconds(1)).IsTrue();
+    }
+
+    /// <summary>The per-attempt timeout runs on the policy clock, with no real delay.</summary>
+    [Test]
+    public async Task AttemptTimeoutRunsOnPolicyClock()
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        await using var policy = new CallPolicy(TimeSpan.FromHours(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-attempt-clock", timeProvider: clock);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var call = policy.ExecuteAsync(static (signal, ct) => BlockUntilCanceledAsync(signal, ct), entered, CancellationToken.None).AsTask();
+        await entered.Task.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
+        var pending = !call.IsCompleted;
+        clock.Advance(TimeSpan.FromHours(1));
+        _ = await AsyncAssert.ThrowsAnyAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+
+        _ = await Assert.That(pending).IsTrue();
     }
 
     /// <summary>Stops on non-retryable Rpc status.</summary>
@@ -240,6 +294,13 @@ public sealed class CallPolicyTests
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default).Unwrap();
         }
+    }
+
+    private static async ValueTask<int> BlockUntilCanceledAsync(TaskCompletionSource entered, CancellationToken cancellationToken)
+    {
+        _ = entered.TrySetResult();
+        await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, cancellationToken).ConfigureAwait(false);
+        return 0;
     }
 
     [Immutable]

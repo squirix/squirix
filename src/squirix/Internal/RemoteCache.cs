@@ -279,7 +279,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         /// <param name="cancellationToken">The per-attempt cancellation token.</param>
         /// <returns>Call options with the ambient operation deadline in UTC, or no deadline when none is set.</returns>
         internal static CallOptions CallOptionsFor(CancellationToken cancellationToken) =>
-            new(deadline: RpcDeadlineContext.CurrentDeadlineUtc, cancellationToken: cancellationToken);
+            new(deadline: RpcDeadlineContext.ForwardDeadlineUtc, cancellationToken: cancellationToken);
 
         internal static CacheEntry<T> ToEntry(T? value, CacheEntryOptions? options)
         {

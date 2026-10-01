@@ -28,7 +28,7 @@ public sealed class RoutingDeadlineFlowTests : NodeIntegrationTestBase
         await using var policy = new ServerCallPolicy(instrumentation, 3, 64, "routing-flow", TimeProvider.System, new CallPolicyTimeouts());
 
         var attempts = new InvocationCounter();
-        using var expired = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddSeconds(-1));
+        using var expired = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddSeconds(-1), TimeProvider.System);
         var budget = new RerouteBudget(DateTimeOffset.UtcNow.AddSeconds(-1), TimeProvider.System);
         _ = await Assert.That(budget.HasExpired()).IsTrue();
 

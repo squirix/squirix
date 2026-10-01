@@ -31,7 +31,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     {
         var timeouts = new CallPolicyTimeouts(TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(5));
         await using var policy = CreatePolicy(timeouts, 5, peer: "peer-a", timeProvider: TimeProvider.System);
-        using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(50));
+        using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(50), TimeProvider.System);
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
             policy.ExecuteAsync(
@@ -178,7 +178,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     [Test]
     public async Task DeadlineContextComputesCallDeadline()
     {
-        using var scope = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddSeconds(2));
+        using var scope = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddSeconds(2), TimeProvider.System);
 
         var effective = ServerRpcDeadlineContext.EffectiveDeadline(DateTime.UtcNow.AddSeconds(5));
 
@@ -423,8 +423,8 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
             peer: "peer-b",
             timeProvider: TimeProvider.System,
             meter: meter);
-        using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(35));
-        _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow)).IsNotNull();
+        using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(35), TimeProvider.System);
+        _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsNotNull();
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
             policy.ExecuteAsync(

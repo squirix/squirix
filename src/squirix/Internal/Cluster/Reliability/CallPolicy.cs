@@ -82,20 +82,15 @@ internal sealed class CallPolicy : ICallPolicy
             ThrowIfDraining();
             cancellationToken.ThrowIfCancellationRequested(); // Ensure we never continue with a canceled token
 
-            var budgetRemaining = RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
+            var budgetRemaining = RpcDeadlineContext.GetRemainingBudget();
             if (budgetRemaining == null)
                 return await _executor.RunQueuedExecutionAsync(action, state, false, cancellationToken, cancellationToken).ConfigureAwait(false);
 
-            if (cancellationToken.CanBeCanceled)
-            {
-                using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                await ConfigureBudgetDeadlineAsync(budgetCts, budgetRemaining.Value).ConfigureAwait(false);
-                return await _executor.RunQueuedExecutionAsync(action, state, true, budgetCts.Token, cancellationToken).ConfigureAwait(false);
-            }
-
-            using var standaloneBudgetCts = new CancellationTokenSource();
-            await ConfigureBudgetDeadlineAsync(standaloneBudgetCts, budgetRemaining.Value).ConfigureAwait(false);
-            return await _executor.RunQueuedExecutionAsync(action, state, true, standaloneBudgetCts.Token, cancellationToken).ConfigureAwait(false);
+            // The budget counts down on the clock its deadline was pushed with; a spent budget cancels at once.
+            var budgetDelay = budgetRemaining.Value > TimeSpan.Zero ? budgetRemaining.Value : TimeSpan.Zero;
+            using var budgetTimer = new CancellationTokenSource(budgetDelay, RpcDeadlineContext.CurrentClock ?? TimeProvider.System);
+            using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budgetTimer.Token);
+            return await _executor.RunQueuedExecutionAsync(action, state, true, budgetCts.Token, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -105,14 +100,6 @@ internal sealed class CallPolicy : ICallPolicy
 
     internal ValueTask<T> ExecuteAsync<T>(Func<CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken) =>
         ExecuteAsync(static (callback, token) => callback(token), action, cancellationToken);
-
-    private static async ValueTask ConfigureBudgetDeadlineAsync(CancellationTokenSource budgetCts, TimeSpan budgetRemaining)
-    {
-        if (budgetRemaining <= TimeSpan.Zero)
-            await budgetCts.CancelAsync().ConfigureAwait(false);
-        else
-            budgetCts.CancelAfter(budgetRemaining);
-    }
 
     private void DisposeSemaphoreUnderLockIfIdle()
     {
@@ -325,7 +312,7 @@ internal sealed class CallPolicy : ICallPolicy
             // The gRPC deadline timer and the budget timer expire at the same instant: when gRPC reports the
             // expiry first, it is the exhausted operation budget, not a per-attempt timeout to retry.
             if (rx.StatusCode is StatusCode.Cancelled or StatusCode.DeadlineExceeded && !cancellationToken.IsCancellationRequested &&
-                RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow) is { } remainingBudget && remainingBudget <= TimeSpan.Zero)
+                RpcDeadlineContext.GetRemainingBudget() is { } remainingBudget && remainingBudget <= TimeSpan.Zero)
             {
                 RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
                 throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
@@ -408,25 +395,15 @@ internal sealed class CallPolicy : ICallPolicy
             CancellationToken effectiveToken,
             CancellationToken cancellationToken)
         {
-            var budget = RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
+            var budget = RpcDeadlineContext.GetRemainingBudget();
             var remaining = GetAttemptTimeoutForRemaining(budget);
             if (ShouldUseEffectiveTokenDirectly(budget, remaining))
                 return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, effectiveToken).ConfigureAwait(false);
 
-            if (effectiveToken.CanBeCanceled)
-            {
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken);
-                if (budget == null || remaining < budget.Value)
-                    cts.CancelAfter(remaining);
-
-                return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, cts.Token).ConfigureAwait(false);
-            }
-
-            using var source = new CancellationTokenSource();
-            if (budget == null || remaining < budget.Value)
-                source.CancelAfter(remaining);
-
-            return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, source.Token).ConfigureAwait(false);
+            // The attempt timeout runs on the policy clock, so a test clock must be advanced for it to fire; the budget bounds it through the effective token.
+            using var attemptTimer = new CancellationTokenSource(remaining, _timeProvider);
+            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken, attemptTimer.Token);
+            return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, attemptCts.Token).ConfigureAwait(false);
         }
 
         [Immutable]

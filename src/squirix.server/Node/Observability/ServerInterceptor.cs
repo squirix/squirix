@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -26,7 +27,9 @@ internal sealed class ServerInterceptor : Interceptor
 
         using var activity = StartServerActivity(traceParent, traceState, context.Method);
         using var scope = _log.BeginScope(Correlation.CreateScopeState(_nodeId, context.Method));
-        using var deadlineScope = ServerRpcDeadlineContext.Push(context.Deadline);
+
+        // gRPC turns the caller's timeout into an absolute deadline on the system clock, so that clock converts it back into a budget.
+        using var deadlineScope = ServerRpcDeadlineContext.Push(context.Deadline, TimeProvider.System);
         return await base.UnaryServerHandler(request, context, continuation).ConfigureAwait(false);
     }
 
