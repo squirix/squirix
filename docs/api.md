@@ -37,6 +37,11 @@ When `options` is omitted or null, or neither `CacheEntryOptions.Expiration` nor
 the entry is stored **without expiration** and **does not expire by TTL**. Pass an explicit relative or absolute expiration
 when you need TTL eviction.
 
+An absolute expiration (`CacheEntryOptions.ExpiresAt`, `TouchAsync(key, DateTimeOffset)`) is on the **client clock**. The client
+sends the time left before it, so the entry lives that long even when the client and server clocks disagree. A value that is not
+in the future on the client clock is rejected with `ArgumentOutOfRangeException`. `GetEntryAsync` reports `ExpiresUtc` on the
+client clock too: the server returns the time the entry has left, and the client adds it to its own time.
+
 `SetAsync` overwrites the whole entry, including its expiration: a `SetAsync` without expiration on a key that already has
 a TTL **clears that TTL**, and the key no longer expires. To change only the value and keep the current expiration, use
 `UpdateAsync`.
@@ -57,7 +62,7 @@ gRPC contract: `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto` (sh
 | `SetEntry`                        | `SetAsync`                  | Upsert via `CacheEntryWire` (`SetEntryAsync` on generated client)                                                     |
 | `TryAddEntry`                     | `TryAddAsync` / `AddAsync`  | Insert-if-absent via `CacheEntryWire` (`TryAddEntryAsync` on generated client); `AddAsync` throws when the key exists |
 | `GetValue`                        | `GetValueAsync`             | Value-only read; returns `found` + value                                                                              |
-| `GetEntry`                        | `GetEntryAsync`             | Full entry read; returns `found` + entry (missing key → `found=false`, not an error)                                  |
+| `GetEntry`                        | `GetEntryAsync`             | Full entry read; returns `found` + entry (missing key → `found=false`, not an error) and the time left (`remaining`)  |
 | `GetExpiration`                   | `GetExpirationAsync`        | Expiration metadata only; handler reads via runtime `GetEntry`                                                        |
 | `GetOrAdd`                        | `GetOrAddAsync`             | Single RPC with `CacheEntryWire`; client runs factory locally, server get-or-insert atomically                        |
 | `Update`                          | `UpdateAsync`               | Update value if key exists via `CacheEntryWire` (value field only)                                                    |

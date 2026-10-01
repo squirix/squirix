@@ -43,6 +43,8 @@ message GetEntryAsyncRequest {
 message GetEntryAsyncResponse {
     bool found = 1;
     CacheEntryWire entry = 2;
+    // Time left before the entry expires on the server clock, set when it has a deadline; a client rebases it on its own clock.
+    google.protobuf.Duration remaining = 3;
 }
 
 message GetValueAsyncRequest {

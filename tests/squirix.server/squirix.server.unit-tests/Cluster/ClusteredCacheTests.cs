@@ -39,7 +39,7 @@ public sealed class ClusteredCacheTests : ServerUnitTestBase
 
         var peers = new ServerPeer[] { new() { NodeId = "node-b", Uri = new Uri("https://localhost:6500") } };
         await using var pool = new ServerClientPool(peers, new ServerClientPoolArgs { PolicyFactory = _ => policy }, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
-        var cache = new ClusteredCache<string>(Self, new ILogicalNamespacedCacheCreateExpectations<string>().Instance(), RocksDoubles.CreateOwnerLocator("node-b"), pool);
+        var cache = new ClusteredCache<string>(Self, new ILogicalNamespacedCacheCreateExpectations<string>().Instance(), RocksDoubles.CreateOwnerLocator("node-b"), pool, TimeProvider.System);
 
         var exception = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<string>?>(cache.GetEntryAsync(CacheName, Key, cancellationToken));
 
@@ -81,7 +81,7 @@ public sealed class ClusteredCacheTests : ServerUnitTestBase
     }
 
     private static ClusteredCache<string> CreateCache(string owner, ILogicalNamespacedCache<string> local, IServerClientPool clients) =>
-        new(Self, local, RocksDoubles.CreateOwnerLocator(owner), clients);
+        new(Self, local, RocksDoubles.CreateOwnerLocator(owner), clients, TimeProvider.System);
 
     /// <summary>Mocks the local cache: entry writes complete and are counted.</summary>
     /// <param name="setEntryCalls">Counts the entry writes.</param>

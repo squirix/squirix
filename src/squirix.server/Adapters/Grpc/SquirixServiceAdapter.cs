@@ -48,11 +48,14 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
     {
         SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
         var entry = await ApiForRequest(request.CacheName).GetEntryAsync(request.Key, context.CancellationToken).ConfigureAwait(false);
-        return entry switch
-        {
-            null => new GetEntryAsyncResponse { Found = false },
-            _ => new GetEntryAsyncResponse { Found = true, Entry = entry.MapToProto() },
-        };
+        if (entry == null)
+            return new GetEntryAsyncResponse { Found = false };
+
+        var response = new GetEntryAsyncResponse { Found = true, Entry = entry.MapToProto() };
+        if (entry.ExpiresUtc is { } expiresUtc)
+            response.Remaining = Duration.FromTimeSpan(RemainingUntil(expiresUtc));
+
+        return response;
     }
 
     public override async Task<GetExpirationAsyncResponse> GetExpiration(GetExpirationAsyncRequest request, ServerCallContext context)
@@ -67,8 +70,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             return response;
 
         response.HasExpiration = true;
-        var remaining = expiresUtc - _timeProvider.GetUtcNow().UtcDateTime;
-        response.Remaining = Duration.FromTimeSpan(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
+        response.Remaining = Duration.FromTimeSpan(RemainingUntil(expiresUtc));
         return response;
     }
 
@@ -133,6 +135,15 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         context.CancellationToken);
 
     private ICacheApi<T> ApiForRequest(string cacheName) => _cacheOperations.ForCache(SquirixServiceAdapterValidation.RequireCacheName(cacheName));
+
+    /// <summary>Returns the time left before <paramref name="expiresUtc" /> on the server clock, never negative.</summary>
+    /// <param name="expiresUtc">The entry deadline.</param>
+    /// <returns>The remaining time.</returns>
+    private TimeSpan RemainingUntil(DateTime expiresUtc)
+    {
+        var remaining = expiresUtc - _timeProvider.GetUtcNow().UtcDateTime;
+        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+    }
 
     /// <summary>Builds deterministic fingerprints for mutating cache RPC requests.</summary>
     private static class RpcMutationFingerprints

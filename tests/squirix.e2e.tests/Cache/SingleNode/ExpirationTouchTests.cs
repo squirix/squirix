@@ -72,8 +72,8 @@ public sealed class ExpirationTouchTests : ClockTestBase
 
     /// <summary>
     /// Verifies TouchAsync refreshes the expiration of an entry inserted with an absolute ExpiresAt through the public API.
-    /// The absolute deadline is anchored to the injected fake clock so the SetAsync, Advance, and Touch operations
-    /// share one time source and the key is still live when the touch runs.
+    /// The absolute deadline is on the client clock; the client sends the time left before it, which the server counts on its fake
+    /// clock, so the key is still live when the touch runs.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -82,7 +82,7 @@ public sealed class ExpirationTouchTests : ClockTestBase
         var cache = await Client.GetCacheAsync<string>("expiration-touch-public-extra", cancellationToken);
 
         // Absolute deadline well beyond the SetAsync round-trip so the key cannot expire before the touch.
-        var cacheEntryOptions = new CacheEntryOptions { ExpiresAt = Clock.GetUtcNow().AddSeconds(30) };
+        var cacheEntryOptions = new CacheEntryOptions { ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(30) };
         await cache.SetAsync("k", "v", cacheEntryOptions, cancellationToken);
         Clock.Advance(TimeSpan.FromMilliseconds(50));
         _ = await Assert.That(await cache.TouchAsync("k", TimeSpan.FromSeconds(2), cancellationToken)).IsTrue();

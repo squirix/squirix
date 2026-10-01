@@ -79,7 +79,8 @@ internal static class CachePipelineRegistration
             sp.GetRequiredService<TopologyOptions>().NodeId,
             ResolveLocalCache(sp),
             sp.GetRequiredService<INodeLocator>(),
-            sp.GetRequiredService<IServerClientPool>()));
+            sp.GetRequiredService<IServerClientPool>(),
+            sp.GetService<TimeProvider>() ?? TimeProvider.System));
     }
 
     private static void AddLogicalNamespacedCache(IServiceCollection services, ExtensionOptions? extensions)

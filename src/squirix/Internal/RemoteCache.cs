@@ -75,6 +75,8 @@ internal sealed class RemoteCache<T> : ICache<T>
         KeyInputValidator.Validate(key, nameof(key));
         ArgumentNullException.ThrowIfNull(valueFactory);
 
+        // Options that can never be written are refused before the factory runs; the lifetime is still measured from the send.
+        _ = _rpc.ResolveExpiration(options);
         return _getOrAddFlights.RunAsync(key, new GetOrAddFlightState(this, key, valueFactory, options), static (state, ct) => ExecuteGetOrAddAsync(state, ct), cancellationToken);
     }
 
@@ -132,7 +134,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     public async Task SetAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
-        var entry = RemoteCacheRpc.ToEntry(value, options);
+        var entry = _rpc.ToEntry(value, options);
         var request = _rpc.ToSetEntryAsyncRequest(key, entry);
         request.OperationId = RpcOperationIdentity.New();
 
@@ -171,7 +173,7 @@ internal sealed class RemoteCache<T> : ICache<T>
 
     public Task<bool> TouchAsync(string key, DateTimeOffset absoluteExpiration, CancellationToken cancellationToken = default)
     {
-        var expiration = absoluteExpiration.UtcDateTime - DateTime.UtcNow;
+        var expiration = absoluteExpiration - _rpc.Clock.GetUtcNow();
         expiration.ThrowIfNegativeOrZero(nameof(absoluteExpiration), "expiration must be greater than zero.");
         return TouchAsync(key, expiration, cancellationToken);
     }
@@ -179,7 +181,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     public async Task<bool> TryAddAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
-        var entry = RemoteCacheRpc.ToEntry(value, options);
+        var entry = _rpc.ToEntry(value, options);
         var request = _rpc.ToTryAddEntryAsyncRequest(key, entry);
         request.OperationId = RpcOperationIdentity.New();
 
@@ -221,7 +223,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     private static async Task<CacheValueResult<T>> ExecuteGetOrAddAsync(GetOrAddFlightState state, CancellationToken cancellationToken)
     {
         var created = await state.ValueFactory(state.Key, cancellationToken).ConfigureAwait(false);
-        var entry = RemoteCacheRpc.ToEntry(created, state.Options);
+        var entry = state.Cache._rpc.ToEntry(created, state.Options);
 
         var request = state.Cache._rpc.ToGetOrAddAsyncRequest(state.Key, entry);
         request.OperationId = RpcOperationIdentity.New();
@@ -250,7 +252,15 @@ internal sealed class RemoteCache<T> : ICache<T>
             (CacheName: _cacheName, Key: key),
             cancellationToken).ConfigureAwait(false);
 
-        return response.Found ? await ProtoEx.MapProtoEntryToCacheEntryAsync<T>(response.Entry, _serializer).ConfigureAwait(false) : null;
+        if (!response.Found)
+            return null;
+
+        var entry = await ProtoEx.MapProtoEntryToCacheEntryAsync<T>(response.Entry, _serializer).ConfigureAwait(false);
+
+        // The server reports how long the entry has left; rebase it on the client clock so the deadline reads against it.
+        return response.Remaining is { } remaining
+            ? new CacheEntry<T> { Value = entry.Value, Expiration = entry.Expiration, ExpiresUtc = _rpc.RebaseDeadline(remaining.ToTimeSpan()) }
+            : entry;
     }
 
     [Immutable]
@@ -275,22 +285,49 @@ internal sealed class RemoteCache<T> : ICache<T>
             _serializer = serializer;
         }
 
+        /// <summary>Gets the client clock absolute expirations are given on.</summary>
+        internal TimeProvider Clock => _failover.Clock;
+
         /// <summary>Builds the call options carrying the current operation deadline as the gRPC deadline.</summary>
         /// <param name="cancellationToken">The per-attempt cancellation token.</param>
         /// <returns>Call options with the ambient operation deadline in UTC, or no deadline when none is set.</returns>
         internal static CallOptions CallOptionsFor(CancellationToken cancellationToken) =>
             new(deadline: RpcDeadlineContext.ForwardDeadlineUtc, cancellationToken: cancellationToken);
 
-        internal static CacheEntry<T> ToEntry(T? value, CacheEntryOptions? options)
+        /// <summary>Builds the entry to write, turning an absolute expiration on the client clock into the time left before it.</summary>
+        /// <param name="value">The value.</param>
+        /// <param name="options">The entry options.</param>
+        /// <returns>The entry, with a relative expiration only, so client and server clocks never need to agree.</returns>
+        /// <exception cref="ArgumentException">Both an absolute and a relative expiration are set.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">The absolute expiration is not in the future on the client clock.</exception>
+        internal CacheEntry<T> ToEntry(T? value, CacheEntryOptions? options) => new() { Value = value, Expiration = ResolveExpiration(options) };
+
+        /// <summary>Returns the relative expiration to send for <paramref name="options" />, measured now on the client clock.</summary>
+        /// <param name="options">The entry options.</param>
+        /// <returns>The relative expiration, or <see langword="null" /> for none.</returns>
+        /// <exception cref="ArgumentException">Both an absolute and a relative expiration are set.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">The absolute expiration is not in the future on the client clock.</exception>
+        internal TimeSpan? ResolveExpiration(CacheEntryOptions? options)
         {
             const string message = "Cache entry options cannot specify both Expiration and ExpiresAt; set at most one expiration mechanism.";
-            var entry = new CacheEntry<T>
-            {
-                Value = value,
-                Expiration = options?.Expiration,
-                ExpiresUtc = options?.ExpiresAt?.UtcDateTime,
-            };
-            return options is { Expiration: not null, ExpiresAt: not null } ? throw new ArgumentException(message, nameof(options)) : entry;
+            if (options is { Expiration: not null, ExpiresAt: not null })
+                throw new ArgumentException(message, nameof(options));
+
+            if (options?.ExpiresAt is not { } expiresAt)
+                return options?.Expiration;
+
+            var remaining = expiresAt - Clock.GetUtcNow();
+            remaining.ThrowIfNegativeOrZero(nameof(options), "ExpiresAt must be in the future on the client clock.");
+            return remaining;
+        }
+
+        /// <summary>Turns the time an entry has left into a deadline on the client clock, saturating at the largest date.</summary>
+        /// <param name="remaining">The time left reported by the server.</param>
+        /// <returns>The deadline on the client clock.</returns>
+        internal DateTime RebaseDeadline(TimeSpan remaining)
+        {
+            var now = Clock.GetUtcNow();
+            return remaining >= DateTimeOffset.MaxValue - now ? DateTime.MaxValue : (now + remaining).UtcDateTime;
         }
 
         internal ValueTask<TResult> ExecuteAsync<TState, TResult>(
