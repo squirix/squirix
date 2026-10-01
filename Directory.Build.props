@@ -42,6 +42,10 @@
         <RunAnalyzers>false</RunAnalyzers>
         <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
     </PropertyGroup>
+    <!-- A shard build only analyzes and its binaries are discarded, so TUnit need not generate the test registration code. -->
+    <PropertyGroup Label="AnalysisShardGenerators" Condition="'$(SquirixAnalysisShard)' != ''">
+        <EnableTUnitSourceGeneration>false</EnableTUnitSourceGeneration>
+    </PropertyGroup>
 
     <!-- Classify projects once; reuse in conditions below. -->
     <PropertyGroup Label="ProjectKind">
