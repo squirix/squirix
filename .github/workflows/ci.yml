@@ -262,6 +262,7 @@ jobs:
                     # Pull requests build the test artifact without analyzers; analyze-ubuntu runs the analyzed build in parallel.
                     analyzers: ${{ github.event_name != 'pull_request' }}
                     test-only-artifact: ${{ github.event_name == 'pull_request' }}
+                    host-runtimes-only: ${{ github.event_name == 'pull_request' }}
 
     # Pull request only: the analyzed (TreatWarningsAsErrors) build that build-ubuntu skips for speed. It uploads nothing.
     analyze-ubuntu:

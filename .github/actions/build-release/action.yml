@@ -25,6 +25,10 @@ inputs:
     description: When true, leave the benchmark outputs, the testkit library outputs and the obj intermediates out of the artifact, because the consuming jobs run the test hosts straight from bin.
     required: false
     default: "false"
+  host-runtimes-only:
+    description: When true, leave the runtime-specific assets of other operating systems and CPU architectures (runtimes/<rid>/) out of the artifact. The artifact is only ever consumed on the runner kind that built it.
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -79,6 +83,33 @@ runs:
       shell: bash
       run: dotnet run --file ./tools/internal/sqr-package-smoke.cs --
 
+    # Packages such as the code coverage extension copy native libraries for every platform into each test output
+    # (about 40 MB per test project). Only the runner's own platform can load them, so the rest is dead weight in the artifact.
+    # The list names foreign platforms instead of the host's own, so an unknown folder is kept rather than dropped.
+    - name: Select Foreign Runtime Assets
+      id: foreign-runtimes
+      if: inputs.upload-outputs == 'true' && inputs.host-runtimes-only == 'true'
+      shell: bash
+      run: |
+        case "${{ runner.os }}-${{ runner.arch }}" in
+          Linux-X64) foreign=("win*" "osx*" "linux-musl*" "linux-arm*") ;;
+          Linux-ARM64) foreign=("win*" "osx*" "linux-musl*" "linux-x64") ;;
+          Windows-X64) foreign=("linux*" "osx*" "unix*" "win-arm*" "win-x86") ;;
+          macOS-ARM64) foreign=("win*" "linux*" "osx-x64") ;;
+          macOS-X64) foreign=("win*" "linux*" "osx-arm64") ;;
+          *)
+            echo "No foreign runtime list for ${{ runner.os }}-${{ runner.arch }}." >&2
+            exit 1
+            ;;
+        esac
+        {
+          echo "excludes<<EXCLUDES"
+          for rid in "${foreign[@]}"; do
+            echo "!**/runtimes/${rid}/**"
+          done
+          echo "EXCLUDES"
+        } >> "$GITHUB_OUTPUT"
+
     - name: Upload Build Outputs For Tests
       if: inputs.upload-outputs == 'true'
       uses: actions/upload-artifact@v7
@@ -100,6 +131,7 @@ runs:
           ${{ inputs.test-only-artifact == 'true' && '!tests/squirix/squirix.testkit/**' || '' }}
           ${{ inputs.test-only-artifact == 'true' && '!tests/squirix.server/squirix.server.testkit/**' || '' }}
           ${{ inputs.test-only-artifact == 'true' && '!**/obj/**' || '' }}
+          ${{ steps.foreign-runtimes.outputs.excludes }}
           !**/*.xml
           !**/ref/**
           !**/*.cache
