@@ -424,6 +424,12 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             ServerLog.ReplicaCommitOutcomeUnknown(Log, error);
             throw ServerOpContract.CommitOutcomeUnknown();
         }
+        catch (InvalidOperationException error) when (error.Message.StartsWith(ReplicaCommitCoordinator.IdempotencyCapacityCode, StringComparison.Ordinal))
+        {
+            // Refused when the identity was reserved, before anything was appended: the pipeline positions stand, so the started state
+            // is kept, and the caller gets a retryable refusal while older outcomes age out.
+            throw ServerOpContract.TooManyRequests(ReplicaCommitCoordinator.IdempotencyCapacityCode);
+        }
         catch
         {
             // The local appending was refused before anything was marked appended: an interrupted

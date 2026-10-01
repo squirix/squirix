@@ -251,7 +251,8 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
                 throw new InvalidOperationException("The stalled group log is not open.");
 
             hooks.StallNextFrameWrite();
-            var append = stalled.AppendAsync(FirstAppend(), cancellationToken);
+            var first = new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a"))));
+            var append = stalled.AppendAsync(first, cancellationToken);
             await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(IsReleased(idleLogPath)).IsFalse();
 
@@ -352,6 +353,30 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         await SequenceAssert.EqualAsync(["k1", "k4"], local.Applied.ToArray(), StringComparer.Ordinal);
     }
 
+    /// <summary>
+    /// A new operation refused because the group idempotency state is full gets a retryable refusal before anything is appended, and the
+    /// committer keeps running: a retry of a recorded operation still replays its outcome.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FullIdempotencyRefusesRetryably(CancellationToken cancellationToken)
+    {
+        var local = new ScriptedApplyCache(ApplyMode.Fail);
+        local.Recover();
+        await using var registry = await OpenRegistryAsync([OwnedGroup], new FollowerLogOptions { IdempotencyCapacity = 1 }, NullLoggerFactory.Instance, cancellationToken);
+        await using var committer = CreateCommitter(registry, local);
+        var recorded = NewOperationId();
+        await committer.CommitSetAsync(recorded, "cache", "k1", Entry(), cancellationToken);
+
+        var refused = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken));
+        var logIndex = await LastLogIndexAsync(registry, cancellationToken);
+        await committer.CommitSetAsync(recorded, "cache", "k1", Entry(), cancellationToken);
+
+        _ = await Assert.That(refused.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
+        _ = await Assert.That(logIndex).IsEqualTo(1UL);
+        _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(1UL);
+    }
+
     /// <summary>Commits a write whose apply fails after its majority, then demotes the follower so the next write drops the started state.</summary>
     /// <param name="committer">The committer under test.</param>
     /// <param name="registry">The registry owning the group log and eligibility.</param>
@@ -388,14 +413,6 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         };
 
     private static NodeCacheEntry<object?> Entry() => new() { Value = "v", Version = 1 };
-
-    private static FollowerLogAppendRequest FirstAppend() => new(
-        "leader-1",
-        1UL,
-        0UL,
-        0UL,
-        0UL,
-        ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a"))));
 
     /// <summary>Tells whether the log file can be opened exclusively, which holds only once its follower log closed its handle.</summary>
     /// <param name="path">The follower log file path.</param>
