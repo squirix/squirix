@@ -60,7 +60,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         _ = await Assert.That(status.LastLogIndex).IsEqualTo(3UL);
 
         // Published snapshot covers only index 2 while the applied watermark sits at 3.
-        var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>());
+        var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
         await new GroupSnapshotStore(dir, GroupId).PublishAsync(snapshot, cancellationToken);
 
         var result = await log.CompactAsync(cancellationToken);
@@ -93,7 +93,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         // Publish a snapshot whose included term diverges from the local boundary entry's term. Compaction refuses the
         // snapshot and preserves the divergent suffix as a replicable tail.
         var store = new GroupSnapshotStore(dir, GroupId);
-        var divergent = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 99UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>());
+        var divergent = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 99UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
         await store.PublishAsync(divergent, cancellationToken);
 
         var result = await log.CompactAsync(cancellationToken);
@@ -138,7 +138,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
 
             // Published snapshot covers both committed entries but exports three distinct resolved outcomes,
             // more than the configured capacity of two. Compaction must refuse before the destructive rewrite.
-            var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 2UL, 2UL, outcomes);
+            var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 2UL, 2UL, outcomes, now);
             await new GroupSnapshotStore(dir, GroupId).PublishAsync(snapshot, cancellationToken);
 
             bytesBeforeCompaction = await ReadLogBytesAsync(logPath, cancellationToken);

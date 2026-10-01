@@ -86,11 +86,17 @@ group persistence directory. The format is:
 SQRS | version:u8 | payloadLength:u32 | payload | CRC32C(payload):u32
 ```
 
-All integer fields are little-endian. The payload begins with a length-prefixed UTF-8 `groupId` encoded from
-`snapshot.GroupId` by `GroupSnapshotStore`, followed by the topology fingerprint, configuration generation,
-`lastIncludedTerm`, `lastIncludedIndex`, `commitIndex`, and resolved idempotency outcomes whose journal index is
+All integer fields are little-endian. The payload begins with five fixed 64-bit fields (configuration generation,
+`lastIncludedTerm`, `lastIncludedIndex`, `commitIndex`, and `capturedUtc` in Unix milliseconds), followed by a
+length-prefixed UTF-8 `groupId`, the topology fingerprint, and the resolved idempotency outcomes whose journal index is
 covered by the snapshot. The default maximum accepted file size is 64 MiB, configurable through
 `FollowerLogOptions.MaxSnapshotBytes`.
+
+`capturedUtc` is the time the outcomes were captured, on the clock that stamped their resolution times. A node that
+restores the snapshot takes the age of each outcome as `capturedUtc` minus its resolution time and keeps counting it on
+its own monotonic clock, so the retention window never depends on how far apart two node clocks are. Time the snapshot
+spends at rest or in transit does not count: a restored outcome may stay replayable longer than its window, never
+shorter. A snapshot carrying an outcome resolved after `capturedUtc` is refused as corrupt.
 
 Publication writes `group.snapshot.tmp`, flushes it, and atomically replaces `group.snapshot`. Recovery validates the
 magic, version, declared length, size bound, and CRC before restoring the committed baseline. Journal compaction keeps

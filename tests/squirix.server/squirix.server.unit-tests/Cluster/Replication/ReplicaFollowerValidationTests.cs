@@ -62,7 +62,7 @@ public sealed class ReplicaFollowerValidationTests : ServerUnitTestBase
     {
         await using var registry = CreateClosedRegistry();
         var follower = new ReplicaFollower(registry);
-        var snapshot = new GroupSnapshot("unknown-group", ReadOnlyMemory<byte>.Empty, 1, 0, 0, 0, []);
+        var snapshot = new GroupSnapshot("unknown-group", ReadOnlyMemory<byte>.Empty, 1, 0, 0, 0, [], DateTime.UnixEpoch);
 
         var result = await follower.InstallSnapshotAsync("unknown-group", ReadOnlyMemory<byte>.Empty, 1, snapshot, 7, cancellationToken);
 

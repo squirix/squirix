@@ -153,7 +153,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         var expired = new GroupIdempotencyRecord("client", "expired", new byte[] { 3 }, new byte[] { 30 }, GroupRecordKind.UserMutation, time, time, 3UL, 1UL);
 
         // Two live outcomes fit capacity 2; the third is past retention and must be dropped rather than refused.
-        state.RestoreFromSnapshot(new[] { fresh1, fresh2, expired }, []);
+        state.RestoreFromSnapshot(new[] { fresh1, fresh2, expired }, now, []);
 
         _ = await Assert.That(state.Lookup("client", "fresh1", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(state.Lookup("client", "fresh2", [2], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
@@ -171,7 +171,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         var record2 = new GroupIdempotencyRecord("client", "op2", new byte[] { 2 }, new byte[] { 20 }, GroupRecordKind.UserMutation, now, now, 2UL, 1UL);
         var record3 = new GroupIdempotencyRecord("client", "op3", new byte[] { 3 }, new byte[] { 30 }, GroupRecordKind.UserMutation, now, now, 3UL, 1UL);
 
-        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(state, new[] { record1, record2, record3 }, static (s, records) => { s.RestoreFromSnapshot(records, []); });
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(state, new[] { record1, record2, record3 }, static (s, records) => { s.RestoreFromSnapshot(records, DateTime.UnixEpoch, []); });
     }
 
     /// <summary>RestoreFromSnapshot rejects unresolved records that violate the snapshot contract.</summary>
@@ -182,7 +182,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         var memory = ReadOnlyMemory<byte>.Empty;
         var unresolved = new GroupIdempotencyRecord("client", "unresolved", new byte[] { 1 }, memory, GroupRecordKind.UserMutation, DateTime.UnixEpoch, null, 1UL, 1UL);
 
-        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(state, unresolved, static (s, record) => { s.RestoreFromSnapshot(new[] { record }); });
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(state, unresolved, static (s, record) => { s.RestoreFromSnapshot(new[] { record }, DateTime.UnixEpoch); });
     }
 
     /// <summary>RestoreFromSnapshot preserves a retained record when its key duplicates a snapshot outcome.</summary>
@@ -194,14 +194,14 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
         _ = state.TryResolve("client", "operation", [9], 2UL, 1UL);
 
-        // A current, non-expired outcome so FilterExpiredSnapshot keeps the snapshot duplicate, and the test
+        // A current, non-expired outcome so the restore keeps the snapshot duplicate, and the test
         // genuinely exercises retained-record precedence rather than relying on the snapshot record expiring.
         var time = clock.GetUtcNow().UtcDateTime;
         var record = new GroupIdempotencyRecord("client", "operation", new byte[] { 1 }, new byte[] { 3 }, GroupRecordKind.UserMutation, time, time, 1UL, 1UL);
 
         var snapshotRecords = new[] { record };
         var retainedIndexes = new[] { 2UL };
-        state.RestoreFromSnapshot(snapshotRecords, retainedIndexes);
+        state.RestoreFromSnapshot(snapshotRecords, time, retainedIndexes);
 
         _ = await Assert.That(state.Lookup("client", "operation", [1], out var restored)).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(restored.OutcomePayload.Span is [9]).IsTrue();
