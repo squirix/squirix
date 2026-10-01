@@ -182,7 +182,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         var memory = ReadOnlyMemory<byte>.Empty;
         var unresolved = new GroupIdempotencyRecord("client", "unresolved", new byte[] { 1 }, memory, GroupRecordKind.UserMutation, DateTime.UnixEpoch, null, 1UL, 1UL);
 
-        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(state, unresolved, static (s, record) => { s.RestoreFromSnapshot(new[] { record }, DateTime.UnixEpoch); });
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(state, unresolved, static (s, record) => { s.RestoreFromSnapshot(new[] { record }, DateTime.UnixEpoch, []); });
     }
 
     /// <summary>RestoreFromSnapshot preserves a retained record when its key duplicates a snapshot outcome.</summary>
@@ -206,6 +206,38 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         _ = await Assert.That(state.Lookup("client", "operation", [1], out var restored)).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(restored.OutcomePayload.Span is [9]).IsTrue();
         _ = await Assert.That(restored.LogIndex).IsEqualTo(2UL);
+    }
+
+    /// <summary>An outcome rebuilt from the log never replaces a retained identity, such as a pinned tail entry.</summary>
+    [Test]
+    public async Task RestoredOutcomeKeepsRetainedIdentity()
+    {
+        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1));
+        _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
+
+        var restored = state.TryRestoreOutcome(Outcome("operation", 1UL), TimeSpan.Zero);
+
+        _ = await Assert.That(restored).IsFalse();
+        _ = await Assert.That(state.IsUnresolved("client", "operation")).IsTrue();
+    }
+
+    /// <summary>An outcome rebuilt from the log is skipped once it is past retention or the store is full, and kept for the rest of its window otherwise.</summary>
+    [Test]
+    public async Task RestoredOutcomeRespectsWindow()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), clock);
+
+        var expired = state.TryRestoreOutcome(Outcome("expired", 1UL), TimeSpan.FromHours(1));
+        var kept = state.TryRestoreOutcome(Outcome("kept", 2UL), TimeSpan.FromMinutes(50));
+        var full = state.TryRestoreOutcome(Outcome("full", 3UL), TimeSpan.Zero);
+        clock.Advance(TimeSpan.FromMinutes(10));
+        var aged = state.Lookup("client", "kept", [1], out _);
+
+        _ = await Assert.That(expired).IsFalse();
+        _ = await Assert.That(kept).IsTrue();
+        _ = await Assert.That(full).IsFalse();
+        _ = await Assert.That(aged).IsEqualTo(GroupIdempotencyLookup.Miss);
     }
 
     /// <summary>Matching operation identity returns the outcome, and a changed fingerprint is rejected.</summary>
@@ -254,4 +286,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
      */
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) =>
         new("leader", term, index - 1UL, index == 1UL ? 0UL : 1UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))));
+
+    private static GroupIdempotencyRecord Outcome(string operationId, ulong logIndex) =>
+        new("client", operationId, new byte[] { 1 }, new byte[] { 200 }, GroupRecordKind.UserMutation, DateTime.UnixEpoch, DateTime.UnixEpoch, logIndex, 1UL);
 }

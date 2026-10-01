@@ -67,6 +67,15 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <returns>The committed entries not yet applied.</returns>
     ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedEntriesAsync(CancellationToken cancellationToken);
 
+    /// <summary>Reads back from disk the newest committed entries the log retains, applied or not, one at a time.</summary>
+    /// <param name="maxCount">The largest number of entries to read.</param>
+    /// <param name="visit">Called with each entry, newest first; the entry is dropped once it returns.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of entries read.</returns>
+    /// <exception cref="InvalidOperationException">The log is disposed or not ready.</exception>
+    /// <exception cref="System.IO.InvalidDataException">A retained committed frame is torn or corrupt.</exception>
+    Task<int> ReadRecentCommittedAsync(int maxCount, Action<FollowerLogEntry> visit, CancellationToken cancellationToken);
+
     /// <summary>Reads how much of the log is retained on disk and in memory.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The retained log bytes, entries, payloads, and the snapshot index.</returns>

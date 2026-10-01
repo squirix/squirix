@@ -43,6 +43,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private ReplicaMutationFactory? _factory;
     private ReplicaGroupCommitPipeline? _pipeline;
 
+    /// <summary>Whether the outcomes of the committed log entries were rebuilt; set once, after a start that rebuilt them completes it.</summary>
+    private bool _outcomesRestored;
+
     private bool _started;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitter" /> class.</summary>
@@ -490,17 +493,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (!_registry.TryGetLog(GroupId, out var log))
             throw new InvalidOperationException($"This node does not serve its owned replica group '{GroupId}'.");
 
-        if (_coordinator != null)
-        {
-            // The old coordinator's retained entries are not recovered by the new one (it starts from the durable log status, with
-            // an empty apply queue), so disposing it with entries still unapplied would lose them from memory. Apply the committed
-            // ones first; while any stays pending (the apply keeps failing, or no majority covers it yet) refuse the resync and
-            // keep the old coordinator, whose late-majority path and the next attempt can still apply them.
-            if (!await TryApplyPendingAsync().ConfigureAwait(false))
-                throw ServerOpContract.TooManyRequests(PendingApplyRefusalReason);
-
-            await _coordinator.DisposeAsync().ConfigureAwait(false);
-        }
+        await RetireCoordinatorAsync().ConfigureAwait(false);
 
         // One read pairs the status with its tail: a commit left running by the disposed coordinator may still advance the log.
         var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
@@ -537,11 +530,60 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             ShutdownLeakReporter = budget => ServerLog.ReplicaCoordinatorLeakedOnShutdown(Log, budget),
         };
 
+        // Before a restart the outcomes of the committed entries above the snapshot lived only in memory; their records carry them, so
+        // a retry of an operation committed before the restart replays its outcome. The recovered tail is pinned first and keeps its pins.
+        if (!_outcomesRestored)
+            await RestoreOutcomesAsync(log, cancellationToken).ConfigureAwait(false);
+
         // Verified slots are admitted at the leader's last index before they count, so they cover the recovered tail.
         ReplicaReadinessProbe.ApplyAll(eligibility, results, in status, _topologyFingerprint, _generation, _coordinator);
         _factory = factory;
         _pipeline = pipeline;
         _started = true;
+    }
+
+    /// <summary>Rebuilds the outcomes of the committed log entries once, after the coordinator of the first start pinned the recovered tail.</summary>
+    /// <param name="log">The owned group log.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <remarks>
+    /// A failure drops the new coordinator before it serves anything: it would keep the recovered tail with no follower progress recorded,
+    /// refusing the next writes. Its tail is durable, so the next start pins it again and retries the rebuild.
+    /// </remarks>
+    private async Task RestoreOutcomesAsync(IFollowerLog log, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var restored = await ReplicaOutcomeRecovery.RestoreAsync(log, Clock, cancellationToken).ConfigureAwait(false);
+            _outcomesRestored = true;
+            ServerLog.ReplicaOutcomesRestored(Log, GroupId, restored);
+        }
+        catch
+        {
+            var coordinator = _coordinator;
+            _coordinator = null;
+            if (coordinator != null)
+                await coordinator.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    /// <summary>Disposes the coordinator of the previous start, if any, once its committed entries are applied.</summary>
+    /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="Errors.SquirixException">A committed entry of the previous coordinator stays unapplied; the resync is refused.</exception>
+    private async Task RetireCoordinatorAsync()
+    {
+        if (_coordinator == null)
+            return;
+
+        // The old coordinator's retained entries are not recovered by the new one (it starts from the durable log status, with
+        // an empty apply queue), so disposing it with entries still unapplied would lose them from memory. Apply the committed
+        // ones first; while any stays pending (the apply keeps failing, or no majority covers it yet) refuse the resync and
+        // keep the old coordinator, whose late-majority path and the next attempt can still apply them.
+        if (!await TryApplyPendingAsync().ConfigureAwait(false))
+            throw ServerOpContract.TooManyRequests(PendingApplyRefusalReason);
+
+        await _coordinator.DisposeAsync().ConfigureAwait(false);
     }
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);

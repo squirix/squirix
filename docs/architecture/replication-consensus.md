@@ -185,6 +185,13 @@ entries above the durable applied index with the same result, and a recovered un
 record carries. The client outcome, the durable record outcome and the group idempotency outcome are always the same
 bytes. The operation fingerprint is computed from the request, not from the decision, so a retry keeps its identity.
 
+A retry replays its outcome across a restart of the owner too. The group snapshot carries the outcomes of the entries it
+covers; for the committed entries above it, applied or not, the restarted owner reads the records back from the group
+log and rebuilds each outcome they carry before it serves writes. The snapshot outcomes and the pinned uncommitted tail
+take their places in the idempotency store first, and the newest log outcomes fill what is left. A rebuilt outcome
+counts its retention from the leader time of its decision, which precedes the commit by at most the commit budget, so an
+outcome already past its window is not rebuilt.
+
 A record whose effect contradicts its outcome is never applied. The entry stays pending: the client of its own commit
 gets `COMMIT_OUTCOME_UNKNOWN`, its idempotency outcome stays unresolved, later writes are refused with
 `replica_apply_pending`, and a restart refuses to start the committer. Each refusal is logged at error level and counted

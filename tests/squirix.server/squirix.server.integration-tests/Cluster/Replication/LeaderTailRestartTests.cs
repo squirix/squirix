@@ -6,6 +6,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -15,7 +16,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
-/// <summary>An RF=3 group owner killed between the local append of a write and its commit recovers the tail after the restart.</summary>
+/// <summary>An RF=3 group owner recovers its uncommitted tail and the outcomes of its committed entries after a restart.</summary>
 public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
 {
     private const string CacheName = "leader-tail";
@@ -65,6 +66,40 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
         _ = await Assert.That(added).IsTrue();
         var status = await OwnerStatusAsync(owner, cancellationToken);
         _ = await Assert.That((status.LastLogIndex, status.CommitIndex)).IsEqualTo((2UL, 2UL));
+    }
+
+    /// <summary>
+    /// A retry of a conditional add committed before the owner restarted replays its outcome: the restarted owner rebuilds the outcomes
+    /// of its committed entries from the group log instead of running the add again and reporting the key it added as already present.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CommittedOutcomeReplaysAfterRestart(CancellationToken cancellationToken)
+    {
+        const string scope = "leader-outcome-retry";
+        var operationId = Guid.NewGuid().ToString("N");
+        await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", Options(scope, true), cancellationToken);
+        var owner = cluster["node-a"];
+        var key = owner.FindKeyOwnedBy(TailCacheName, "node-a");
+        await VerifyAsync(owner, cancellationToken);
+        var added = await owner.GetRequiredService<ReplicaGroupCommitter>().CommitTryAddAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
+        await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, "node-a", [("node-b", cluster["node-b"]), ("node-c", cluster["node-c"])], cancellationToken);
+
+        // As the maintenance pass does: the durable applied index reaches the commit, so the log releases the payload of the add.
+        await owner.GetRequiredService<ReplicaGroupCommitter>().FlushAppliedAsync(owner.GetRequiredService<IJournalCoordinator>(), cancellationToken);
+        var flushed = await OwnerStatusAsync(owner, cancellationToken);
+        _ = await Assert.That(flushed.LastAppliedIndex).IsEqualTo(flushed.CommitIndex);
+
+        await cluster.StopNodeAsync("node-a");
+        var restarted = await cluster.StartNodeAsync("node-a", Options(scope, false), cancellationToken);
+        await VerifyAsync(restarted, cancellationToken);
+        var before = await OwnerStatusAsync(restarted, cancellationToken);
+        var retried = await restarted.GetRequiredService<ReplicaGroupCommitter>().CommitTryAddAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
+        var after = await OwnerStatusAsync(restarted, cancellationToken);
+
+        _ = await Assert.That(added).IsTrue();
+        _ = await Assert.That(retried).IsTrue();
+        _ = await Assert.That(after.LastLogIndex).IsEqualTo(before.LastLogIndex);
     }
 
     private static IntegrationStartOptions Options(string scope, bool clean) =>

@@ -41,7 +41,7 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
 
         var follower = new FakeTimeProvider(Epoch + AgeAtCapture + TimeSpan.FromHours(skewHours));
         var target = new GroupIdempotencyState(4, Retention, follower);
-        target.RestoreFromSnapshot(outcomes, capturedUtc);
+        target.RestoreFromSnapshot(outcomes, capturedUtc, []);
         var restored = IsRetained(target);
         follower.Advance(Retention - AgeAtCapture - TimeSpan.FromSeconds(1));
         var lastSecond = IsRetained(target);
@@ -139,7 +139,7 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
 
         var follower = new SteppedWallClock();
         var target = new GroupIdempotencyState(4, Retention, follower);
-        target.RestoreFromSnapshot(outcomes, capturedUtc);
+        target.RestoreFromSnapshot(outcomes, capturedUtc, []);
 
         // A backward wall step must not stretch the window.
         follower.StepWallClock(-TimeSpan.FromHours(5));

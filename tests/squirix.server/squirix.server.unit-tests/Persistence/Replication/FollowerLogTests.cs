@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -92,6 +93,32 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await Assert.That(beyond.Success).IsFalse();
         _ = await Assert.That(beyond.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastAppliedIndex).IsEqualTo(1UL);
+    }
+
+    /// <summary>The newest committed entries read back from disk, applied or not and newest first, up to the requested count.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadsRecentCommittedFromDisk(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-log-recent-committed");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await log.OpenAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
+        _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);
+        _ = await log.AppendAsync(Append(4UL, 1UL, "uncommitted"), cancellationToken);
+        _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
+        _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
+
+        var recent = new List<FollowerLogEntry>();
+        var read = await log.ReadRecentCommittedAsync(2, recent.Add, cancellationToken);
+
+        _ = await Assert.That(read).IsEqualTo(2);
+        _ = await Assert.That(recent.Count).IsEqualTo(2);
+        _ = await Assert.That((recent[0].LogIndex, Encoding.UTF8.GetString(recent[0].Payload.Span))).IsEqualTo((3UL, "c"));
+        _ = await Assert.That((recent[1].LogIndex, Encoding.UTF8.GetString(recent[1].Payload.Span))).IsEqualTo((2UL, "b"));
     }
 
     /// <summary>Advancing the applied index releases applied entry payloads from memory.</summary>
