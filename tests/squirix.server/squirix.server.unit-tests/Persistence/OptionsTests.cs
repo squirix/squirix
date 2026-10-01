@@ -104,6 +104,22 @@ public sealed class OptionsTests
         _ = await Assert.That(ex.Message).Contains(propertyName, StringComparison.Ordinal);
     }
 
+    /// <summary>The journal segment and total sizes accept the smallest size that holds the largest frame and refuse one megabyte less.</summary>
+    [Test]
+    public async Task JournalSizesHoldLargestFrame()
+    {
+        var smallest = new PersistenceOptions { JournalMaxSegmentMb = JournalSegmentLimits.MinSegmentMb, JournalMaxTotalBytesMb = JournalSegmentLimits.MinSegmentMb };
+        smallest.Validate();
+
+        var segment = NodeExceptionAssert.For<InvalidOperationException>()
+                                         .Throws(smallest with { JournalMaxSegmentMb = JournalSegmentLimits.MinSegmentMb - 1 }, static value => value.Validate());
+        var total = NodeExceptionAssert.For<InvalidOperationException>()
+                                       .Throws(smallest with { JournalMaxTotalBytesMb = JournalSegmentLimits.MinSegmentMb - 1 }, static value => value.Validate());
+
+        _ = await Assert.That(segment.Message).Contains(nameof(PersistenceOptions.JournalMaxSegmentMb), StringComparison.Ordinal);
+        _ = await Assert.That(total.Message).Contains(nameof(PersistenceOptions.JournalMaxTotalBytesMb), StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Checks that using a <c language="csharp">with</c>-expression overrides only the specified properties
     /// while leaving all other properties unchanged from the source instance.

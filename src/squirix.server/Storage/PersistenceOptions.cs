@@ -113,14 +113,27 @@ internal sealed record PersistenceOptions
             throw new InvalidOperationException("Persistence JournalGroupCommitMaxWait cannot be negative.");
 
         RequirePositive(JournalMaxSegmentCount, nameof(JournalMaxSegmentCount));
-        RequirePositive(JournalMaxSegmentMb, nameof(JournalMaxSegmentMb));
-        RequirePositive(JournalMaxTotalBytesMb, nameof(JournalMaxTotalBytesMb));
+        RequireHoldsLargestFrame(JournalMaxSegmentMb, nameof(JournalMaxSegmentMb));
+        RequireHoldsLargestFrame(JournalMaxTotalBytesMb, nameof(JournalMaxTotalBytesMb));
         RequirePositive(JournalStallDegradedThreshold, nameof(JournalStallDegradedThreshold));
         RequirePositive(JournalWriteBatch, nameof(JournalWriteBatch));
         RequirePositive(ManifestRetentionCount, nameof(ManifestRetentionCount));
         RequirePositive(ReplicaLogCompactionEntries, nameof(ReplicaLogCompactionEntries));
         RequirePositive(ReplicaLogCompactionMb, nameof(ReplicaLogCompactionMb));
         RequirePositive(SnapshotRetentionCount, nameof(SnapshotRetentionCount));
+    }
+
+    /// <summary>Refuses a journal size that cannot hold the largest frame, under which valid writes would be refused forever.</summary>
+    /// <param name="valueMb">The configured size in megabytes.</param>
+    /// <param name="name">The option name.</param>
+    /// <exception cref="InvalidOperationException">Thrown when the size is below <see cref="JournalSegmentLimits.MinSegmentMb" />.</exception>
+    private static void RequireHoldsLargestFrame(int valueMb, string name)
+    {
+        if (valueMb < JournalSegmentLimits.MinSegmentMb)
+        {
+            throw new InvalidOperationException(
+                $"Persistence {name} must be at least {JournalSegmentLimits.MinSegmentMb}: a journal segment must hold the largest journal frame.");
+        }
     }
 
     private static void RequirePositive(int value, string name)

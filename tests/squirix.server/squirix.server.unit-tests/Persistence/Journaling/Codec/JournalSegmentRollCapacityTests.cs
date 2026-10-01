@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -126,6 +127,21 @@ public sealed class JournalSegmentRollCapacityTests
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxTotalBytesMb = 1 });
         var error = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(policy, static value => value.EnsureAppendCapacityOrThrow(OneMegabyte, 1));
         _ = await Assert.That(error.Message).Contains("total bytes", StringComparison.Ordinal);
+    }
+
+    /// <summary>The smallest segment the options accept holds the largest frame: a recorded reply at the gRPC limit plus the frame overhead.</summary>
+    [Test]
+    public async Task SmallestSegmentHoldsLargestFrame()
+    {
+        var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentMb = JournalSegmentLimits.MinSegmentMb });
+
+        // A put of the largest entry and a reply at the gRPC limit, each with the most overhead a frame carries.
+        policy.EnsureFitsEmptySegmentOrThrow(EntryLimits.MaxEntrySizeBytes + JournalSegmentLimits.MaxFrameOverheadBytes);
+        policy.EnsureFitsEmptySegmentOrThrow(EntryLimits.GrpcMaxSendMessageSizeBytes + JournalSegmentLimits.MaxFrameOverheadBytes);
+        var whole = NodeExceptionAssert.For<JournalCapacityExceededException>()
+                                       .Throws(policy, static value => value.EnsureFitsEmptySegmentOrThrow(JournalSegmentLimits.MinSegmentMb * OneMegabyte));
+
+        _ = await Assert.That(whole.Message).Contains("segment size", StringComparison.Ordinal);
     }
 
     /// <summary>
