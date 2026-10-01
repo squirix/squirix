@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -78,14 +79,25 @@ public sealed class JournalEntryExpirationMaterializerTests
         _ = await Assert.That(JournalEntryExpirationMaterializer.ForDurableWrite(absoluteOnly, write)).IsSameReferenceAs(absoluteOnly);
     }
 
-    /// <summary>Verifies replay skips relative TTL entries using the journal record timestamp.</summary>
+    /// <summary>Verifies replay skips relative TTL entries using the journal record timestamp and the replaying server clock.</summary>
     [Test]
     public async Task IsExpiredUsesRelativeRecoveryTimestamp()
     {
-        var writtenUnixMs = DateTimeOffset.UtcNow.AddSeconds(-1).ToUnixTimeMilliseconds();
+        var writtenUnixMs = new DateTimeOffset(Boundary).ToUnixTimeMilliseconds();
+        var replayAt = Boundary.AddSeconds(1);
 
-        _ = await Assert.That(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.FromMilliseconds(100), writtenUnixMs)).IsTrue();
-        _ = await Assert.That(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.FromMinutes(5), writtenUnixMs)).IsFalse();
+        _ = await Assert.That(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.FromMilliseconds(100), writtenUnixMs, replayAt)).IsTrue();
+        _ = await Assert.That(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.FromMinutes(5), writtenUnixMs, replayAt)).IsFalse();
+    }
+
+    /// <summary>Replay judges an absolute deadline on the replaying server clock, not on the wall clock of the host.</summary>
+    [Test]
+    public async Task IsExpiredUsesReplayClock()
+    {
+        var deadline = new DateTime(2000, 1, 1, 0, 10, 0, DateTimeKind.Utc);
+
+        _ = await Assert.That(JournalEntryExpirationMaterializer.IsExpiredForRecovery(deadline, null, 0, deadline.AddMinutes(-9))).IsFalse();
+        _ = await Assert.That(JournalEntryExpirationMaterializer.IsExpiredForRecovery(deadline, null, 0, deadline)).IsTrue();
     }
 
     /// <summary>Recovery insert saturates a relative deadline exceeding the DateTime range instead of throwing.</summary>
@@ -137,46 +149,37 @@ public sealed class JournalEntryExpirationMaterializerTests
     [Test]
     public async Task RecoveryNotExpiredForSaturatedDeadline()
     {
-        var writtenUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var writtenUnixMs = new DateTimeOffset(Boundary).ToUnixTimeMilliseconds();
 
-        _ = await Assert.That(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.MaxValue, writtenUnixMs)).IsFalse();
+        _ = await Assert.That(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.MaxValue, writtenUnixMs, Boundary)).IsFalse();
     }
 
-    /// <summary>ForJournalWrite keeps the earliest of the relative and absolute deadlines.</summary>
+    /// <summary>A journal frame takes an absolute deadline as is.</summary>
     [Test]
-    public async Task WriteMaterializesEarliestDeadline()
+    public async Task JournalWriteKeepsAbsoluteDeadline()
     {
-        var start = DateTime.UtcNow;
-
-        var (relativeDeadline, relativeExpiration) = JournalEntryExpirationMaterializer.ForJournalWrite(start.AddHours(1), TimeSpan.FromMilliseconds(100));
-        _ = await Assert.That(relativeExpiration).IsNull();
-        _ = await Assert.That(relativeDeadline).IsNotNull();
-        _ = await Assert.That(relativeDeadline.Value).IsBetween(start.AddMilliseconds(100), start.AddSeconds(1));
-
-        var (absoluteDeadline, _) = JournalEntryExpirationMaterializer.ForJournalWrite(start.AddMilliseconds(-1000), TimeSpan.FromMinutes(5));
-        _ = await Assert.That(absoluteDeadline).IsEqualTo(start.AddMilliseconds(-1000));
+        _ = await Assert.That(JournalEntryExpirationMaterializer.ForJournalWrite(Boundary, null)).IsEqualTo(Boundary);
+        _ = await Assert.That(JournalEntryExpirationMaterializer.ForJournalWrite(null, null)).IsNull();
     }
 
-    /// <summary>Verifies relative TTL is converted to absolute expiry before journal write.</summary>
+    /// <summary>A relative expiration reaching the journal write is refused: it must be resolved on the server clock first.</summary>
     [Test]
-    public async Task WriteMaterializesExpiresUtcExpiry()
+    public async Task JournalWriteRejectsRelativeExpiration()
     {
-        var before = DateTime.UtcNow;
-        var (expiresUtc, expiration) = JournalEntryExpirationMaterializer.ForJournalWrite(null, TimeSpan.FromMilliseconds(100));
-        var after = DateTime.UtcNow.Add(TimeSpan.FromMilliseconds(100));
+        var thrown = NodeExceptionAssert.For<InvalidOperationException>().Throws(TimeSpan.FromSeconds(1), static relative => _ = JournalEntryExpirationMaterializer.ForJournalWrite(null, relative));
 
-        _ = await Assert.That(expiration).IsNull();
-        _ = await Assert.That(expiresUtc).IsNotNull();
-        _ = await Assert.That(expiresUtc.Value).IsBetween(before, after);
+        _ = await Assert.That(thrown.Message).Contains("server clock", StringComparison.Ordinal);
     }
 
-    /// <summary>ForJournalWrite saturates a relative deadline exceeding the DateTime range instead of throwing.</summary>
+    /// <summary>An entry with only a relative expiration measures the same encoded length as its frame once the deadline is resolved.</summary>
     [Test]
-    public async Task WriteMaterializesSaturatedDeadline()
+    public async Task SizingMatchesResolvedFrame()
     {
-        var (expiresUtc, expiration) = JournalEntryExpirationMaterializer.ForJournalWrite(null, TimeSpan.MaxValue);
+        var entry = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromSeconds(30) };
 
-        _ = await Assert.That(expiration).IsNull();
-        _ = await Assert.That(expiresUtc).IsEqualTo(DateTime.MaxValue);
+        var measured = JournalEntryPayload.MeasureSerializedBytes(entry);
+        var written = JournalEntryPayload.PrepareEncode(JournalEntryExpirationMaterializer.ForDurableWrite(entry, Boundary)).EncodedLength;
+
+        _ = await Assert.That(measured).IsEqualTo(written);
     }
 }

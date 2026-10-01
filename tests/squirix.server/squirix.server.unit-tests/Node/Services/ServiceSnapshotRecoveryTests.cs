@@ -118,7 +118,7 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var reader = StoreFactory.CreateReader();
-        var dependencies = new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, gate, store, reader);
+        var dependencies = new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, gate, store, reader, TimeProvider.System);
         var options = new RecoveryOptions { BlockOnStart = true };
         var logger = NullLogger<RecoveryService<object?>>.Instance;
         var recovery = new RecoveryService<object?>(options, logger, dependencies);

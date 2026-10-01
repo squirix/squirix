@@ -30,6 +30,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
 
     private static readonly TimeSpan Downtime = TimeSpan.FromMinutes(8);
     private static readonly TimeSpan PastTtl = TimeSpan.FromMinutes(11);
+    private static readonly DateTimeOffset Restart = JournalReplayKit.WriteEpoch.AddHours(1);
     private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(10);
 
     private readonly Meter _testMeter = new("test");
@@ -52,10 +53,14 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
         await AssertReplayedDeadlineAsync(written, cancellationToken);
     }
 
-    /// <summary>An expired put record removes the earlier value of the key instead of leaving it live.</summary>
+    /// <summary>An expired put record removes the earlier value of the key instead of leaving it live, with or without compaction.</summary>
+    /// <param name="compact">Whether the journal is compacted, on the restart clock, before the restart.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when the test has run.</returns>
     [Test]
-    public async Task ExpiredPutRemovesEarlierValue(CancellationToken cancellationToken)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task ExpiredPutRemovesEarlierValue(bool compact, CancellationToken cancellationToken)
     {
         var persistence = Kit.Persistence;
         using (var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance))
@@ -69,13 +74,13 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
                 TimeProvider.System,
                 out _);
             var live = new NodeCacheEntry<object?>("earlier");
-            var expired = new NodeCacheEntry<object?>("later", expiresUtc: DateTime.UtcNow.AddMinutes(-1));
+            var expired = new NodeCacheEntry<object?>("later", expiresUtc: Restart.UtcDateTime.AddMinutes(-1));
             await journal.AppendPutUnderGateAsync(new CacheKey(CacheName, Key), JournalEntryPayloadKit.Encode(live), cancellationToken);
             await journal.AppendPutUnderGateAsync(new CacheKey(CacheName, Key), JournalEntryPayloadKit.Encode(expired), cancellationToken);
             await journal.AwaitDurabilityCommitAsync(cancellationToken);
         }
 
-        var recovered = await Kit.RecoverAsync(new FakeTimeProvider(DateTimeOffset.UtcNow), false, cancellationToken);
+        var recovered = await Kit.RecoverAsync(new FakeTimeProvider(Restart), compact, cancellationToken);
 
         _ = await Assert.That(await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
     }
@@ -96,14 +101,51 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
                 NullLoggerFactory.Instance,
                 TimeProvider.System,
                 out _);
-            var expired = new NodeCacheEntry<object?>("v", expiresUtc: DateTime.UtcNow.AddMinutes(-1));
+            var expired = new NodeCacheEntry<object?>("v", expiresUtc: Restart.UtcDateTime.AddMinutes(-1));
             await journal.AppendPutUnderGateAsync(new CacheKey(CacheName, Key), JournalEntryPayloadKit.Encode(expired), cancellationToken);
             await journal.AwaitDurabilityCommitAsync(cancellationToken);
         }
 
-        var recovered = await Kit.RecoverAsync(new FakeTimeProvider(DateTimeOffset.UtcNow), false, cancellationToken);
+        var recovered = await Kit.RecoverAsync(new FakeTimeProvider(Restart), false, cancellationToken);
 
         _ = await Assert.That(await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
+    }
+
+    /// <summary>Replay judges a journaled deadline on the server clock: live before it on that clock, skipped after it.</summary>
+    /// <param name="compact">Whether the journal is compacted, on the same clock, before the restart.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when the test has run.</returns>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task ReplayJudgesExpiryOnServerClock(bool compact, CancellationToken cancellationToken)
+    {
+        var written = await WriteAsync(
+            static (cache, ct) => cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: Ttl), ct),
+            TimeSpan.Zero,
+            cancellationToken);
+
+        var live = await Kit.RecoverAsync(new FakeTimeProvider(new DateTimeOffset(written.WriteStart.AddMinutes(1), TimeSpan.Zero)), compact, cancellationToken);
+        var liveEntry = await live.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var expired = await Kit.RecoverAsync(new FakeTimeProvider(new DateTimeOffset(written.WriteStart.Add(PastTtl), TimeSpan.Zero)), compact, cancellationToken);
+
+        _ = await Assert.That(liveEntry?.ExpiresUtc).IsEqualTo(written.WriteStart.Add(Ttl));
+        _ = await Assert.That(await expired.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
+    }
+
+    /// <summary>A snapshot load judges a captured deadline on the server clock of the restart, not on the wall clock of the host.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SnapshotLoadJudgesExpiryOnServerClock(CancellationToken cancellationToken)
+    {
+        var writeStart = await Kit.WriteSnapshotThenTailAsync(TimeSpan.Zero, Ttl, static (_, _) => ValueTask.CompletedTask, cancellationToken);
+
+        var live = await Kit.RecoverAsync(new FakeTimeProvider(new DateTimeOffset(writeStart.AddMinutes(1), TimeSpan.Zero)), false, cancellationToken);
+        var liveEntry = await live.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var expired = await Kit.RecoverAsync(new FakeTimeProvider(new DateTimeOffset(writeStart.Add(PastTtl), TimeSpan.Zero)), false, cancellationToken);
+
+        _ = await Assert.That(liveEntry?.ExpiresUtc).IsEqualTo(writeStart.Add(Ttl));
+        _ = await Assert.That(await expired.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
     }
 
     /// <summary>A relative-TTL set replays with its write-time deadline, not one re-anchored to the restart clock.</summary>

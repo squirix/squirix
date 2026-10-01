@@ -17,7 +17,8 @@ internal sealed class RecoveryDependencies<T>
         ILocalCacheRecovery<T> localCache,
         AsyncManualResetEvent asyncManualResetEvent,
         RpcMutationIdempotencyStore idempotency,
-        ISnapshotReader snapshotReader)
+        ISnapshotReader snapshotReader,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(persistence);
         ArgumentNullException.ThrowIfNull(manifestStore);
@@ -25,12 +26,14 @@ internal sealed class RecoveryDependencies<T>
         ArgumentNullException.ThrowIfNull(asyncManualResetEvent);
         ArgumentNullException.ThrowIfNull(idempotency);
         ArgumentNullException.ThrowIfNull(snapshotReader);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         Persistence = persistence;
         Ledger = manifestStore;
         LocalCache = localCache;
         AsyncManualResetEvent = asyncManualResetEvent;
         Idempotency = idempotency;
         SnapshotReader = snapshotReader;
+        TimeProvider = timeProvider;
     }
 
     internal AsyncManualResetEvent AsyncManualResetEvent { get; }
@@ -44,4 +47,7 @@ internal sealed class RecoveryDependencies<T>
     internal PersistenceOptions Persistence { get; }
 
     internal ISnapshotReader SnapshotReader { get; }
+
+    /// <summary>Gets the server clock replay decides expiry with, the same clock the cache judges liveness with.</summary>
+    internal TimeProvider TimeProvider { get; }
 }

@@ -83,7 +83,7 @@ public sealed class JournalDeadlinePinningReplayTests : IsolatedStorageTestBase
         // The clock starts one tick past a millisecond boundary, so the deadline is one tick past one too and rounds up to the next millisecond.
         var expected = written.WriteStart.AddTicks(-1).Add(Ttl).AddMilliseconds(1);
         var journaled = Kit.ReadLastJournaledPut(cancellationToken);
-        var recovered = await Kit.RecoverAsync(TimeProvider.System, false, cancellationToken);
+        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), false, cancellationToken);
         var replayed = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
 
         _ = await Assert.That(written.Memory!.ExpiresUtc).IsEqualTo(expected);

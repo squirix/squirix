@@ -123,7 +123,7 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
 
         var expected = start.AddTicks(-1).Add(Ttl).AddMilliseconds(1);
         var journaled = kit.ReadLastJournaledPut(cancellationToken);
-        var recovered = await kit.RecoverAsync(TimeProvider.System, false, cancellationToken);
+        var recovered = await kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), false, cancellationToken);
         var replayed = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
 
         _ = await Assert.That(memory!.ExpiresUtc).IsEqualTo(expected);

@@ -134,7 +134,8 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
                 scenario.Cache,
                 new AsyncManualResetEvent(true),
                 idempotencyStore,
-                StoreFactory.CreateReader()));
+                StoreFactory.CreateReader(),
+                TimeProvider.System));
         return recovery.StartAsync(cancellationToken);
     }
 

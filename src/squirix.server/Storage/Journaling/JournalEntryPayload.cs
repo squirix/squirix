@@ -77,5 +77,5 @@ internal static class JournalEntryPayload
     private static InvalidOperationException CreateRelativeExpirationException() =>
         new("A journal entry assembled around a prepared value must carry an absolute deadline, not a relative expiration.");
 
-    private static int ComputeEncodedLength<T>(NodeCacheEntry<T> entry) => PrepareEncode(entry).EncodedLength;
+    private static int ComputeEncodedLength<T>(NodeCacheEntry<T> entry) => PreparedJournalEntry.MeasureEncodedLength(entry);
 }

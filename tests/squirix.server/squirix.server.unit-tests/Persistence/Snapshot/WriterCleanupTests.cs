@@ -92,7 +92,7 @@ public sealed class WriterCleanupTests : IsolatedStorageTestBase
     private static async Task<List<string>> ReadSnapshotKeysAsync(string path)
     {
         var reader = StoreFactory.CreateReader();
-        var loaded = await reader.LoadStrictAsync<object?>(path, cancellationToken: CancellationToken.None);
+        var loaded = await reader.LoadStrictAsync<object?>(path, null, CancellationToken.None);
         var keys = new List<string>(loaded.Entries.Count);
         foreach (var (key, _) in loaded.Entries)
             keys.Add(key.Key);
