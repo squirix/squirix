@@ -192,7 +192,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync((ReplicaExpirationOperationId.OperationScope, operationId), cancellationToken).ConfigureAwait(false);
+        var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await factory.PrepareRemoveExpirationAsync(operationId, cacheName, key, index, cancellationToken).ConfigureAwait(false);
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);

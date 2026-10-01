@@ -8,6 +8,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -92,6 +93,21 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         var present = await factory.PrepareRemoveExpirationAsync("op-4", "cache", "timed", 4UL, cancellationToken);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(present), cancellationToken);
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(present.OutcomePayload)).IsTrue();
+    }
+
+    /// <summary>Expiration removal is a client mutation: it is scoped to its cache and recorded as a user mutation, not as a tombstone.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RemoveExpirationIsUserMutation(CancellationToken cancellationToken)
+    {
+        var factory = new ReplicaMutationFactory(new MemoryCache(), "g1", 1UL, TimeProvider.System, NullLogger.Instance);
+
+        var prepared = await factory.PrepareRemoveExpirationAsync("op-1", "cache", "k", 1UL, cancellationToken);
+        var record = await DecodeRecordAsync(prepared);
+
+        _ = await Assert.That(prepared.OperationScope).IsEqualTo("cache");
+        _ = await Assert.That(record.OperationScope).IsEqualTo("cache");
+        _ = await Assert.That(record.RecordKind).IsEqualTo(nameof(GroupRecordKind.UserMutation));
     }
 
     /// <summary>Remove returns the observed previous value, then reports missing.</summary>

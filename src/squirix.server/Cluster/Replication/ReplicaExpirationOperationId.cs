@@ -8,7 +8,12 @@ namespace Squirix.Server.Cluster.Replication;
 /// <summary>Derives deterministic domain-separated identities for replicated expiration tombstones.</summary>
 internal static class ReplicaExpirationOperationId
 {
-    internal const string OperationScope = "replicated-expiration";
+    /// <summary>The operation scope reserved for leader expiration tombstones.</summary>
+    /// <remarks>
+    /// Client mutations use their cache name as the scope. A cache name cannot contain a colon, so no client operation can occupy this
+    /// scope or collide with a tombstone identity.
+    /// </remarks>
+    internal const string OperationScope = "squirix:replicated-expiration";
 
     private const string Domain = "squirix:replicated-expiration:v1";
     private const string HexAlphabet = "0123456789abcdef";
