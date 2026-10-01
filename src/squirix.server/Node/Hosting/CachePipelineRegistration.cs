@@ -50,7 +50,8 @@ internal static class CachePipelineRegistration
             sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
             sp.GetRequiredService<IMemoryUsageAccounting>(),
             sp.GetRequiredService<INodeLocator>(),
-            sp.GetRequiredService<TopologyOptions>().NodeId));
+            sp.GetRequiredService<TopologyOptions>().NodeId,
+            sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled));
         _ = services.AddSingleton(static sp => new MetricsCacheDecorator<object?>(
             sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>(),
             sp.GetRequiredService<CacheMetrics>()));

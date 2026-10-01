@@ -60,8 +60,8 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
 
         await VerifyAsync(owner, cancellationToken);
 
-        // The owner's committer is driven directly: the conditional add's memory-admission layer answers an existing key before it.
-        var added = await owner.GetRequiredService<ReplicaGroupCommitter>().CommitTryAddAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
+        // Through the whole pipeline: admission sees the key present and hands the add to the committer, which replays the outcome.
+        var added = await owner.GetCache<object?>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
 
         _ = await Assert.That(added).IsTrue();
         var status = await OwnerStatusAsync(owner, cancellationToken);
@@ -82,7 +82,7 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
         var owner = cluster["node-a"];
         var key = owner.FindKeyOwnedBy(TailCacheName, "node-a");
         await VerifyAsync(owner, cancellationToken);
-        var added = await owner.GetRequiredService<ReplicaGroupCommitter>().CommitTryAddAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
+        var added = await owner.GetCache<object?>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
         await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, "node-a", [("node-b", cluster["node-b"]), ("node-c", cluster["node-c"])], cancellationToken);
 
         // As the maintenance pass does: the durable applied index reaches the commit, so the log releases the payload of the add.
@@ -94,7 +94,7 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
         var restarted = await cluster.StartNodeAsync("node-a", Options(scope, false), cancellationToken);
         await VerifyAsync(restarted, cancellationToken);
         var before = await OwnerStatusAsync(restarted, cancellationToken);
-        var retried = await restarted.GetRequiredService<ReplicaGroupCommitter>().CommitTryAddAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
+        var retried = await restarted.GetCache<object?>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
         var after = await OwnerStatusAsync(restarted, cancellationToken);
 
         _ = await Assert.That(added).IsTrue();
