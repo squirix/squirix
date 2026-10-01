@@ -103,6 +103,7 @@
     <ItemGroup Label="AnalyzerConfig">
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt" Visible="false"/>
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.Reflection.txt" Visible="false"/>
+        <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.Time.txt" Visible="false" Condition="'$(IsSquirixProductionProject)' == 'true'"/>
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)stylecop.json" Visible="false"/>
     </ItemGroup>
 

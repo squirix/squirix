@@ -75,7 +75,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         StallProbe = new JournalStallProbe(log, clock);
         var probedWriter = new ProbedJournalSegmentWriter(segmentWriter, StallProbe);
         _stopper = new JournalStopper(this, probedWriter, log);
-        _appendPipeline = new JournalCoordinatorAppendPipeline(this, _producerGate);
+        _appendPipeline = new JournalCoordinatorAppendPipeline(this, _producerGate, clock);
         DurabilityPipeline = new JournalDurabilityCoordinator(this, this, loggerFactory.CreateLogger<JournalDurabilityCoordinator>(), _producerGate);
         var bridge = new JournalEventLoopBridge(this, DurabilityPipeline);
         var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(Options.DataDir);
@@ -473,11 +473,13 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     {
         private readonly IJournalCoordinatorAppendState _owner;
         private readonly JournalProducerGate _producerGate;
+        private readonly TimeProvider _timeProvider;
 
-        internal JournalCoordinatorAppendPipeline(IJournalCoordinatorAppendState owner, JournalProducerGate producerGate)
+        internal JournalCoordinatorAppendPipeline(IJournalCoordinatorAppendState owner, JournalProducerGate producerGate, TimeProvider timeProvider)
         {
             _owner = owner;
             _producerGate = producerGate;
+            _timeProvider = timeProvider;
         }
 
         internal JournalRecord AllocateIdempotencyRecord(in AsyncLockOwnership ownership, string operationId, string fingerprint, byte[] responseBytes)
@@ -486,7 +488,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             var sequence = _owner.AllocateSequence(in ownership);
             var record = JournalRecord.RentForAppend();
             record.Sequence = sequence;
-            record.UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            record.UnixMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
             record.Operation = JournalOperationKind.IdempotencyOutcome;
             record.Key = new CacheKey(string.Empty, string.Empty);
             record.IdempotencyOperationId = operationId;
@@ -501,7 +503,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             var sequence = _owner.AllocateSequence(in ownership);
             var record = JournalRecord.RentForAppend();
             record.Sequence = sequence;
-            record.UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            record.UnixMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
             record.Operation = operation;
             record.Key = key;
             record.PutEntryBytes = putEntryBytes;
