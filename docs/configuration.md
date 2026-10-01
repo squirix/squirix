@@ -288,7 +288,7 @@ There is **no** `Squirix:Persistence` JSON merge in v0.1 public hosting — putt
 | Field                         | Type   | Default in node host                                       | Validation                                                                                                                                 |
 | ----------------------------- | ------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `DataDir`                     | string | `%LocalAppData%/squirix/<cluster>/<node>` or temp fallback | Required, non-empty when persistence is enabled                                                                                            |
-| `JournalMaxSegmentMb`         | int    | `64`                                                       | `> 0`                                                                                                                                      |
+| `JournalMaxSegmentMb`         | int    | `64`                                                       | `>= 9`: a segment must hold the largest journal frame (an entry or a recorded reply of up to 8 MiB, plus framing)                          |
 | `FlushIntervalMs`             | int    | `10`                                                       | `> 0`                                                                                                                                      |
 | `ManifestRetentionCount`      | int    | `3`                                                        | `> 0`                                                                                                                                      |
 | `SnapshotRetentionCount`      | int    | `3`                                                        | `> 0`                                                                                                                                      |
@@ -573,7 +573,7 @@ by merging JSON sections that v0.1 public hosting ignores:
 - `Backpressure NodeRateLimitBurst must be greater than zero when configured.`
 - `Persistence DataDir is required.`
 - `ReplicaCount greater than 1 requires the replication opt-in. Enable Squirix:Cluster:ReplicationEnabled (or pass --enable-replication).`
-- `Persistence JournalMaxSegmentMb must be greater than zero.`
+- `Persistence JournalMaxSegmentMb must be at least 9: a journal segment must hold the largest journal frame.`
 - `MemoryPressure HighPressureThresholdPercent must be less than CriticalPressureThresholdPercent.`
 - `MemoryPressure MaxEstimatedCacheBytes must be positive when set.`
 - `MemoryPressure MaxEstimatedCacheBytes ({configured}) exceeds the 80% RAM cap ({cap}).`

@@ -1,3 +1,5 @@
+using Squirix.Server.Core;
+
 namespace Squirix.Server.Storage;
 
 /// <summary>Hard and default segment capacity limits.</summary>
@@ -32,4 +34,24 @@ internal static class JournalSegmentLimits
 
     /// <summary>Default maximum number of journal segments retained before compaction prunes older segments.</summary>
     internal const int DefaultMaxSegmentCount = 32;
+
+    /// <summary>Upper bound on the bytes a journal frame carries besides its largest variable part.</summary>
+    /// <remarks>
+    /// The fixed record prefix, the frame header and checksum, and the four length-prefixed strings a frame may carry (cache name, key,
+    /// operation id and fingerprint, each at most 65 535 bytes) stay below this bound.
+    /// </remarks>
+    internal const int MaxFrameOverheadBytes = 512 * 1024;
+
+    /// <summary>The smallest segment, in megabytes, that holds the largest journal frame the server writes.</summary>
+    /// <remarks>
+    /// A frame never spans segments. The largest variable part of a frame is an entry (at most <see cref="EntryLimits.MaxEntrySizeBytes" />)
+    /// or a recorded reply, which is at most <see cref="EntryLimits.GrpcMaxSendMessageSizeBytes" /> since a larger one cannot reach the
+    /// client; a segment also starts with a 5-byte file header.
+    /// </remarks>
+    internal const int MinSegmentMb = (SegmentFileHeaderBytes + EntryLimits.GrpcMaxSendMessageSizeBytes + MaxFrameOverheadBytes + BytesPerMb - 1) / BytesPerMb;
+
+    private const int BytesPerMb = 1024 * 1024;
+
+    /// <summary>The magic and version that open every segment file.</summary>
+    private const int SegmentFileHeaderBytes = 5;
 }

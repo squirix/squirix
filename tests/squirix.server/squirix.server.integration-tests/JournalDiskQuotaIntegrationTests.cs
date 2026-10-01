@@ -18,8 +18,11 @@ namespace Squirix.Server.IntegrationTests;
 /// <summary>Integration coverage for on-disk journal quota hard-limit rejection.</summary>
 public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
 {
+    /// <summary>Size of each filling append: the smallest cap fills in a few appends, and a rejected one leaves less room than another.</summary>
+    private const int FillBytes = 1024 * 1024;
+
     /// <summary>
-    /// Fills a 1 MiB journal cap until durable appends are rejected without crashing the node,
+    /// Fills the smallest accepted journal cap until durable appends are rejected without crashing the node,
     /// and verifies readiness plus <c language="csharp">journalDisk</c> pressure details remain available.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -32,8 +35,9 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
             {
                 PersistenceOptions = new PersistenceOptions
                 {
-                    JournalMaxTotalBytesMb = 1,
-                    JournalMaxSegmentMb = 1,
+                    // The smallest cap the options accept: one segment that still holds the largest frame.
+                    JournalMaxTotalBytesMb = JournalSegmentLimits.MinSegmentMb,
+                    JournalMaxSegmentMb = JournalSegmentLimits.MinSegmentMb,
                 },
             },
             cancellationToken);
@@ -41,7 +45,7 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
         var uri = node.Uri;
 
         var journal = node.GetRequiredService<IJournalCoordinator>();
-        _ = await Assert.That(journal.MaxBytes).IsEqualTo(1024L * 1024L);
+        _ = await Assert.That(journal.MaxBytes).IsEqualTo(JournalSegmentLimits.MinSegmentMb * 1024L * 1024L);
 
         var rejection = await FillUntilJournalQuotaAsync(journal, cancellationToken);
         _ = await Assert.That(rejection is JournalCapacityExceededException).IsTrue();
@@ -54,13 +58,13 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
         // Node remains usable for another capacity-miss after the first rejection (pipeline not failed).
         var cacheKey = new CacheKey(ServerCacheNames.DefaultNamespace, "quota:again");
         var second = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(
-            journal.AppendPutDurablyUnderGateAsync(cacheKey, new byte[200 * 1024], cancellationToken));
+            journal.AppendPutDurablyUnderGateAsync(cacheKey, new byte[FillBytes], cancellationToken));
         _ = await Assert.That(second).IsNotNull();
     }
 
     private static async Task<Exception> FillUntilJournalQuotaAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
-        var bytes = new byte[200 * 1024];
+        var bytes = new byte[FillBytes];
         for (var i = 0; i < 32; i++)
         {
             try
