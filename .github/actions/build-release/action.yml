@@ -38,13 +38,15 @@ runs:
       with:
         global-json-file: global.json
 
+    # The build keeps its own package cache. The key other jobs share is also written by jobs that restore tools and scanners and
+    # it falls back to older caches, so it grows to more than twice what a build restores. Every package version is pinned in
+    # Directory.Packages.props, so that file and the SDK pin alone decide what a restore downloads. There is no fallback key on
+    # purpose: a version bump restores from the feed once and saves a cache that holds only the current versions.
     - name: Cache NuGet Packages
       uses: actions/cache@v6
       with:
         path: ~/.nuget/packages
-        key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-dotnet10-nuget-
+        key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
 
     - name: Ensure Local Package Feed Exists
       shell: bash
