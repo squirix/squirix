@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -36,5 +37,6 @@ public sealed class RetentionCleanupReadinessCheckTests
             RetentionCleanupDegradedWrites = consecutiveWrites,
             RetentionCleanupDegradedWindowMinutes = 15,
             RetentionCleanupDegradedWindowFailures = windowFailures,
-        });
+        },
+        TimeProvider.System);
 }

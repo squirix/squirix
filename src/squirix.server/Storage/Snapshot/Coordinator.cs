@@ -45,7 +45,6 @@ internal sealed class Coordinator
 
     internal Coordinator(TriggerOptions opt, IJournalMetrics journal, CoordinatorDependencies deps, TimeProvider? timeProvider = null)
     {
-        _triggerState = new TriggerState(opt, journal);
         ArgumentNullException.ThrowIfNull(deps);
         _entryCapture = deps.EntryCapture;
         _snapWriter = deps.SnapWriter;
@@ -55,6 +54,7 @@ internal sealed class Coordinator
         _backgroundSnapshotMemoryThrottle = deps.BackgroundSnapshotMemoryThrottle;
         _telemetry = deps.Telemetry;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _triggerState = new TriggerState(opt, journal, _timeProvider);
     }
 
     public event EventHandler<CompletedEventArgs>? SnapshotCompleted;
@@ -74,7 +74,7 @@ internal sealed class Coordinator
 
     internal async ValueTask SnapshotAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
-        if (!_triggerState.ShouldTrigger(_timeProvider.GetUtcNow().UtcDateTime, IsInFlight))
+        if (!_triggerState.ShouldTrigger(IsInFlight))
             return;
         if (ShouldSuppressBackgroundSnapshot())
             return;
@@ -178,7 +178,7 @@ internal sealed class Coordinator
         };
         await _manifestStore.WriteAsync(updated, cancellationToken).ConfigureAwait(false);
 
-        _triggerState.RecordSuccess(now);
+        _triggerState.RecordSuccess();
         return updated.LastSnapshot;
     }
 
@@ -217,74 +217,80 @@ internal sealed class Coordinator
         private readonly Lock _gate = new();
         private readonly IJournalMetrics _journal;
         private readonly TriggerOptions _opt;
+        private readonly TimeProvider _timeProvider;
         private long _bytesAtLast;
-        private DateTime _lastSnapshotUtc = DateTime.MinValue;
-        private DateTime _latencyThrottledUntilUtc = DateTime.MinValue;
+        private long? _lastSnapshotTimestamp;
+        private long? _latencyThrottleTimestamp;
         private long _opsAtLast;
 
-        internal TriggerState(TriggerOptions opt, IJournalMetrics journal)
+        internal TriggerState(TriggerOptions opt, IJournalMetrics journal, TimeProvider timeProvider)
         {
             _opt = opt;
             _journal = journal;
+            _timeProvider = timeProvider;
         }
 
         /// <summary>Resets the latency throttle so the next evaluation may proceed normally.</summary>
         internal void ClearLatencyThrottle()
         {
             lock (_gate)
-                _latencyThrottledUntilUtc = DateTime.MinValue;
+                _latencyThrottleTimestamp = null;
         }
 
-        /// <summary>Records the journal baseline after a successful snapshot.</summary>
-        /// <param name="now">UTC time of the completed snapshot.</param>
-        internal void RecordSuccess(DateTime now)
+        /// <summary>Records the journal baseline and the monotonic time of a successful snapshot.</summary>
+        internal void RecordSuccess()
         {
             lock (_gate)
             {
-                _lastSnapshotUtc = now;
+                _lastSnapshotTimestamp = _timeProvider.GetTimestamp();
                 _opsAtLast = _journal.AppendedOps;
                 _bytesAtLast = _journal.AppendedBytes;
             }
         }
 
         /// <summary>Returns <see langword="true" /> when conditions are met to start a new snapshot.</summary>
-        /// <param name="utcNow">Current UTC time used for all-time comparisons.</param>
         /// <param name="isInFlight">Whether a snapshot is already running on the coordinator.</param>
         /// <returns><see langword="true" /> if a snapshot should be triggered; otherwise <see langword="false" />.</returns>
-        internal bool ShouldTrigger(DateTime utcNow, bool isInFlight)
+        /// <remarks>Every interval is measured on monotonic time, so a wall-clock step neither blocks nor hastens a snapshot.</remarks>
+        internal bool ShouldTrigger(bool isInFlight)
         {
             lock (_gate)
             {
                 var opsDelta = _journal.AppendedOps - _opsAtLast;
                 var bytesDelta = _journal.AppendedBytes - _bytesAtLast;
-                var blocked = IsBlockedFromTriggering(utcNow, isInFlight);
+                TimeSpan? sinceLast = _lastSnapshotTimestamp is { } last ? _timeProvider.GetElapsedTime(last) : null;
+                var blocked = IsBlockedFromTriggering(sinceLast, isInFlight);
                 var throttled = _opt.JournalGrowthThrottleBytes > 0 && bytesDelta < _opt.JournalGrowthThrottleBytes;
-                return !blocked && !throttled && MeetsAnyTriggerThreshold(utcNow, opsDelta, bytesDelta);
+                return !blocked && !throttled && MeetsAnyTriggerThreshold(sinceLast, opsDelta, bytesDelta);
             }
         }
 
-        private bool IsBlockedFromTriggering(DateTime utcNow, bool isInFlight)
+        private bool IsBlockedFromTriggering(TimeSpan? sinceLast, bool isInFlight)
         {
-            var isWithinMinGap = _lastSnapshotUtc != DateTime.MinValue && utcNow - _lastSnapshotUtc < _opt.MinGapBetweenSnapshots;
+            var isWithinMinGap = sinceLast < _opt.MinGapBetweenSnapshots;
             return true switch
             {
-                _ when _latencyThrottledUntilUtc > utcNow => true,
-                _ when ShouldEnterLatencyThrottle(utcNow) => true,
+                _ when IsLatencyThrottled() => true,
+                _ when ShouldEnterLatencyThrottle() => true,
                 _ when isWithinMinGap => true,
                 _ => isInFlight,
             };
         }
 
-        private bool MeetsAnyTriggerThreshold(DateTime utcNow, long opsDelta, long bytesDelta)
+        private bool IsLatencyThrottled() => _latencyThrottleTimestamp is { } since && _timeProvider.GetElapsedTime(since) < LatencyThrottleBackoff();
+
+        private TimeSpan LatencyThrottleBackoff() => _opt.LatencyThrottleDuration <= TimeSpan.Zero ? TimeSpan.FromSeconds(10) : _opt.LatencyThrottleDuration;
+
+        private bool MeetsAnyTriggerThreshold(TimeSpan? sinceLast, long opsDelta, long bytesDelta)
         {
             var anyActivity = opsDelta > 0 || bytesDelta > 0;
-            var timeOk = _opt.SnapshotInterval > TimeSpan.Zero && (_lastSnapshotUtc == DateTime.MinValue || utcNow - _lastSnapshotUtc >= _opt.SnapshotInterval) && anyActivity;
+            var timeOk = _opt.SnapshotInterval > TimeSpan.Zero && (sinceLast == null || sinceLast >= _opt.SnapshotInterval) && anyActivity;
             var opsOk = _opt.SnapshotEveryNOps > 0 && opsDelta >= _opt.SnapshotEveryNOps;
             var bytesOk = _opt.SnapshotEveryNBytes > 0 && bytesDelta >= _opt.SnapshotEveryNBytes;
             return timeOk || opsOk || bytesOk;
         }
 
-        private bool ShouldEnterLatencyThrottle(DateTime utcNow)
+        private bool ShouldEnterLatencyThrottle()
         {
             if (_opt.LatencySloMilliseconds <= 0)
                 return false;
@@ -292,8 +298,7 @@ internal sealed class Coordinator
             if (_journal.RecentAppendLatencyMs <= _opt.LatencySloMilliseconds)
                 return false;
 
-            var backoff = _opt.LatencyThrottleDuration <= TimeSpan.Zero ? TimeSpan.FromSeconds(10) : _opt.LatencyThrottleDuration;
-            _latencyThrottledUntilUtc = utcNow + backoff;
+            _latencyThrottleTimestamp = _timeProvider.GetTimestamp();
             return true;
         }
     }

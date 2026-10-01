@@ -124,7 +124,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
             RetentionCleanupDegradedWrites = 2,
             RetentionCleanupDegradedWindowFailures = 10,
         };
-        var readiness = new RetentionCleanupReadiness(options);
+        var readiness = new RetentionCleanupReadiness(options, TimeProvider.System);
         var staleManifest = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
         await File.WriteAllBytesAsync(staleManifest, StaleManifestBytes, cancellationToken);
         using var store = new Ledger(options, logger, readiness, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleManifest));
