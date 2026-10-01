@@ -1479,19 +1479,15 @@ jobs:
             - sonarcloud
             - pvs-studio
             - ndepend
-        if: |
-            always() && (
-              needs.changes.outputs.docs == 'true' ||
-              needs.changes.outputs.code == 'true' ||
-              needs.changes.outputs.docker == 'true' ||
-             needs.changes.outputs.ndepend == 'true' ||
-              github.event_name == 'schedule' ||
-              github.event_name == 'workflow_dispatch'
-            )
+        # This is the only required status check, and GitHub counts a skipped required check as passed. The job therefore runs
+        # on every event and every change set: it must never be skipped, or a failed Detect Changes job (all outputs empty) and
+        # a change set outside every filter would both make a pull request mergeable with nothing verified.
+        if: always()
         steps:
             -   name: Verify Required Checks For This Change Set
                 shell: bash
                 env:
+                    RESULT_CHANGES: ${{ needs.changes.result }}
                     DOCS_CHANGED: ${{ needs.changes.outputs.docs }}
                     CODE_CHANGED: ${{ needs.changes.outputs.code }}
                     EVENT_NAME: ${{ github.event_name }}
@@ -1586,6 +1582,10 @@ jobs:
                       echo "FAIL $name result=$result" >&2
                       failed=1
                     }
+
+                    # Every requirement above is derived from the change detection outputs, so a detection that did not
+                    # succeed leaves nothing to trust: fail instead of treating every check as not required.
+                    assert_success "changes" "true" "$RESULT_CHANGES"
 
                     assert_success "markdownlint" "$require_docs" "$RESULT_MARKDOWNLINT"
                     # PR fast path: skipped on pull_request, required otherwise.
