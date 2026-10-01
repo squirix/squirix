@@ -169,6 +169,14 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         return false;
     }
 
+    /// <summary>Determines whether a served group retains an outcome, resolved or still in flight, for a client operation.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="cacheName">The cache name, the scope of client operations.</param>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <returns><see langword="true" /> when a commit of the operation would replay or wait for a recorded outcome instead of deciding.</returns>
+    internal bool HasRecordedOutcome(string groupId, string cacheName, string operationId) =>
+        TryGetLog(groupId, out var log) && log.Idempotency.Lookup(cacheName, operationId, [], out _) != GroupIdempotencyLookup.Miss;
+
     private static void ValidateGroupIds(IReadOnlyList<string> groupIds)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);

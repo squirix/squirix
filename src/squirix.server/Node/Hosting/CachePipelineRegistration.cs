@@ -50,7 +50,8 @@ internal static class CachePipelineRegistration
             sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
             sp.GetRequiredService<IMemoryUsageAccounting>(),
             sp.GetRequiredService<INodeLocator>(),
-            sp.GetRequiredService<TopologyOptions>().NodeId));
+            sp.GetRequiredService<TopologyOptions>().NodeId,
+            HasRecordedOutcome(sp)));
         _ = services.AddSingleton(static sp => new MetricsCacheDecorator<object?>(
             sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>(),
             sp.GetRequiredService<CacheMetrics>()));
@@ -127,6 +128,19 @@ internal static class CachePipelineRegistration
             sp.GetRequiredService<TopologyOptions>().NodeId,
             sp.GetRequiredService<INodeLocator>(),
             sp.GetRequiredService<OwnerPutPayloadGuardDecorator<object?>>()));
+    }
+
+    /// <summary>Returns how memory admission asks whether the owned replica group recorded an operation's outcome; none on single-copy hosts.</summary>
+    /// <param name="sp">The service provider.</param>
+    /// <returns>The lookup, or <see langword="null" /> when mutations do not commit through a replica group.</returns>
+    private static Func<string, string, bool>? HasRecordedOutcome(IServiceProvider sp)
+    {
+        if (!sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled)
+            return null;
+
+        var registry = sp.GetRequiredService<ReplicaGroupRegistry>();
+        var groupId = sp.GetRequiredService<TopologyOptions>().NodeId;
+        return (cacheName, operationId) => registry.HasRecordedOutcome(groupId, cacheName, operationId);
     }
 
     /// <summary>Resolves the owner-local cache: replicated commits on activated hosts, direct pipeline otherwise.</summary>
