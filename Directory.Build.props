@@ -31,20 +31,14 @@
          projects of that shard run analyzers and code-style enforcement. A project belongs to the
          `default` shard unless it is claimed below, so a new project is analyzed without being listed
          anywhere. Without the property (local builds, the IDE, packaging) every project is analyzed.
-         The shard names are listed in SquirixAnalysisShards and in the CI job that runs one build per shard.
-         The first analyzed compilation of a build loads and JIT-compiles every analyzer, which takes about
-         20 s on a CI runner whatever the size of the project. A shard whose projects sit at the end of the
-         dependency chain would pay that only after its dependencies compiled, so every shard also analyzes
-         the warm-up project: it is small and has no dependencies, compiles first and warms the analyzers up
-         while the dependencies build. -->
+         The shard names are listed in SquirixAnalysisShards and in the CI job that runs one build per shard. -->
     <PropertyGroup Label="AnalysisShards">
         <SquirixAnalysisShards>default;server-unit-tests;server-tests</SquirixAnalysisShards>
-        <SquirixAnalysisWarmUpProject>Squirix.TestKit</SquirixAnalysisWarmUpProject>
         <SquirixProjectAnalysisShard>default</SquirixProjectAnalysisShard>
         <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server.UnitTests'">server-unit-tests</SquirixProjectAnalysisShard>
         <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server.TestKit' Or '$(MSBuildProjectName)' == 'Squirix.Server.IntegrationTests' Or '$(MSBuildProjectName)' == 'Squirix.Server.SmokeTests' Or '$(MSBuildProjectName)' == 'Squirix.E2ETests'">server-tests</SquirixProjectAnalysisShard>
     </PropertyGroup>
-    <PropertyGroup Label="AnalysisShardSelection" Condition="'$(SquirixAnalysisShard)' != '' And '$(SquirixAnalysisShard)' != '$(SquirixProjectAnalysisShard)' And '$(MSBuildProjectName)' != '$(SquirixAnalysisWarmUpProject)'">
+    <PropertyGroup Label="AnalysisShardSelection" Condition="'$(SquirixAnalysisShard)' != '' And '$(SquirixAnalysisShard)' != '$(SquirixProjectAnalysisShard)'">
         <RunAnalyzers>false</RunAnalyzers>
         <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
     </PropertyGroup>

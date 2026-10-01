@@ -214,7 +214,7 @@ jobs:
     # Like build-ubuntu it starts with the workflow and classifies the change set itself.
     # Analyzers run inside each project's compilation and the projects depend on each other in a chain, so one runner
     # cannot spread the work. Each shard therefore gets a runner of its own, compiles the whole solution and analyzes only
-    # its own projects (plus one small warm-up project); together the shards analyze every project.
+    # its own projects; together the shards analyze every project exactly once.
     analyze-ubuntu:
         name: Analyze (ubuntu-latest / net10.0 / ${{ matrix.shard }})
         runs-on: ubuntu-latest
