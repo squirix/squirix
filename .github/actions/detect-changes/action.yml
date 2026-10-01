@@ -1,0 +1,88 @@
+name: Detect Changes
+description: Classify the files changed by the event into the change sets that gate CI jobs. Needs the repository checked out.
+
+outputs:
+  code:
+    description: "'true' when files that affect the build, the tests or the CI definition changed."
+    value: ${{ steps.filter.outputs.code }}
+  docs:
+    description: "'true' when documentation changed."
+    value: ${{ steps.filter.outputs.docs }}
+  docker:
+    description: "'true' when files that affect the server image changed."
+    value: ${{ steps.filter.outputs.docker }}
+  ndepend:
+    description: "'true' when the NDepend gate configuration changed."
+    value: ${{ steps.filter.outputs.ndepend }}
+
+runs:
+  using: composite
+  steps:
+    - name: Paths Filter
+      # Pin includes some-with-excludes so negated !**/*.ndproj|ndrules actually exclude.
+      uses: dorny/paths-filter@4711b7a31b4aa89103d8c6ffab2e3b8e7b6381c7 # master (some-with-excludes)
+      id: filter
+      with:
+        predicate-quantifier: 'some-with-excludes'
+        filters: |
+          code:
+            - 'src/**'
+            - 'tests/**'
+            - 'tools/**'
+            - 'build/**'
+            - 'examples/**'
+            - 'benchmarks/**'
+            - 'samples/**'
+            - '.github/workflows/**'
+            - '.github/actions/**'
+            - 'Directory.Build.props'
+            - 'Directory.Packages.props'
+            - 'global.json'
+            - 'stylecop.json'
+            - 'BannedSymbols.txt'
+            - 'BannedSymbols.Reflection.txt'
+            - 'BannedSymbols.Time.txt'
+            - '.globalconfig'
+            - '.editorconfig'
+            - '.pvsconfig'
+            - 'squirix.slnx'
+            - 'squirix.slnx.DotSettings'
+            - 'clean-bin-obj.bat'
+            - 'clean-bin-obj.sh'
+            # NDepend project/rules edits must not trigger the code CI matrix.
+            - '!**/*.ndproj'
+            - '!**/*.ndrules'
+            # PVS-Studio suppress baselines must not trigger the code CI matrix.
+            - '!**/*.suppress'
+            - '!**/*.suppress.json'
+          docs:
+            - '**/*.md'
+            - 'docs/**'
+            - 'contributing.md'
+            - '.markdownlint.json'
+            - '.markdownlint-cli2.jsonc'
+          docker:
+            - 'docker/Dockerfile'
+            - 'docker/Dockerfile.release'
+            - 'docker/**'
+            - '.dockerignore'
+            - 'src/squirix/**'
+            - 'src/shared/**'
+            - 'src/squirix.server/**'
+            - 'src/squirix.server.host/**'
+            - 'Directory.Build.props'
+            - 'Directory.Packages.props'
+            - 'global.json'
+            - 'stylecop.json'
+            - 'BannedSymbols.txt'
+            - 'BannedSymbols.Reflection.txt'
+            - 'BannedSymbols.Time.txt'
+            - '.globalconfig'
+            - '.editorconfig'
+            - 'squirix.slnx'
+          ndepend:
+            # NDepend gate config edits (rules/project/sync scripts) run the NDepend
+            # job without triggering the full code matrix (excluded from `code` above).
+            - 'build/ndepend/**'
+            - '**/*.ndproj'
+            - '**/*.ndrules'

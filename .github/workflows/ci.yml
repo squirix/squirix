@@ -40,74 +40,9 @@ jobs:
                 with:
                     persist-credentials: false
 
-            -   name: Paths Filter
-                # Pin includes some-with-excludes so negated !**/*.ndproj|ndrules actually exclude.
-                uses: dorny/paths-filter@4711b7a31b4aa89103d8c6ffab2e3b8e7b6381c7 # master (some-with-excludes)
+            -   name: Detect Changes
                 id: filter
-                with:
-                    predicate-quantifier: 'some-with-excludes'
-                    filters: |
-                        code:
-                          - 'src/**'
-                          - 'tests/**'
-                          - 'tools/**'
-                          - 'build/**'
-                          - 'examples/**'
-                          - 'benchmarks/**'
-                          - 'samples/**'
-                          - '.github/workflows/**'
-                          - '.github/actions/**'
-                          - 'Directory.Build.props'
-                          - 'Directory.Packages.props'
-                          - 'global.json'
-                          - 'stylecop.json'
-                          - 'BannedSymbols.txt'
-                          - 'BannedSymbols.Reflection.txt'
-                          - 'BannedSymbols.Time.txt'
-                          - '.globalconfig'
-                          - '.editorconfig'
-                          - '.pvsconfig'
-                          - 'squirix.slnx'
-                          - 'squirix.slnx.DotSettings'
-                          - 'clean-bin-obj.bat'
-                          - 'clean-bin-obj.sh'
-                          # NDepend project/rules edits must not trigger the code CI matrix.
-                          - '!**/*.ndproj'
-                          - '!**/*.ndrules'
-                          # PVS-Studio suppress baselines must not trigger the code CI matrix.
-                          - '!**/*.suppress'
-                          - '!**/*.suppress.json'
-                        docs:
-                          - '**/*.md'
-                          - 'docs/**'
-                          - 'contributing.md'
-                          - '.markdownlint.json'
-                          - '.markdownlint-cli2.jsonc'
-                        docker:
-                          - 'docker/Dockerfile'
-                          - 'docker/Dockerfile.release'
-                          - 'docker/**'
-                          - '.dockerignore'
-                          - 'src/squirix/**'
-                          - 'src/shared/**'
-                          - 'src/squirix.server/**'
-                          - 'src/squirix.server.host/**'
-                          - 'Directory.Build.props'
-                          - 'Directory.Packages.props'
-                          - 'global.json'
-                          - 'stylecop.json'
-                          - 'BannedSymbols.txt'
-                          - 'BannedSymbols.Reflection.txt'
-                          - 'BannedSymbols.Time.txt'
-                          - '.globalconfig'
-                          - '.editorconfig'
-                          - 'squirix.slnx'
-                        ndepend:
-                          # NDepend gate config edits (rules/project/sync scripts) run the NDepend
-                          # job without triggering the full code matrix (excluded from `code` above).
-                          - 'build/ndepend/**'
-                          - '**/*.ndproj'
-                          - '**/*.ndrules'
+                uses: ./.github/actions/detect-changes
 
     markdownlint:
         name: Documentation Lint (Markdownlint)
@@ -229,15 +164,15 @@ jobs:
 
     # Per-OS builds so ubuntu consumers are not blocked on Windows/macOS restore+build.
     # Keep display names identical to the former matrix jobs for branch-protection continuity.
+    # The ubuntu build heads the longest job chain, so it does not wait for the Detect Changes job: it starts with the
+    # workflow, classifies the change set itself with the same action and skips the build when no code changed. A build
+    # that had nothing to do still ends as a success, so the jobs that consume its artifact check the `built` output.
     build-ubuntu:
         name: Build (ubuntu-latest / net10.0)
         runs-on: ubuntu-latest
         timeout-minutes: 45
-        needs: changes
-        if: |
-            needs.changes.outputs.code == 'true' ||
-            github.event_name == 'schedule' ||
-            github.event_name == 'workflow_dispatch'
+        outputs:
+            built: ${{ steps.gate.outputs.build }}
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -253,7 +188,16 @@ jobs:
                 with:
                     persist-credentials: false
 
+            -   name: Detect Changes
+                id: changes
+                uses: ./.github/actions/detect-changes
+
+            -   name: Decide Whether To Build
+                id: gate
+                run: echo "build=${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
+
             -   name: Build Release Outputs
+                if: steps.gate.outputs.build == 'true'
                 uses: ./.github/actions/build-release
                 with:
                     artifact-os: ubuntu-latest
@@ -265,12 +209,12 @@ jobs:
                     host-runtimes-only: ${{ github.event_name == 'pull_request' }}
 
     # Pull request only: the analyzed (TreatWarningsAsErrors) build that build-ubuntu skips for speed. It uploads nothing.
+    # Like build-ubuntu it starts with the workflow and classifies the change set itself.
     analyze-ubuntu:
         name: Analyze (ubuntu-latest / net10.0)
         runs-on: ubuntu-latest
         timeout-minutes: 45
-        needs: changes
-        if: github.event_name == 'pull_request' && needs.changes.outputs.code == 'true'
+        if: github.event_name == 'pull_request'
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -286,7 +230,12 @@ jobs:
                 with:
                     persist-credentials: false
 
+            -   name: Detect Changes
+                id: changes
+                uses: ./.github/actions/detect-changes
+
             -   name: Analyzed Release Build
+                if: steps.changes.outputs.code == 'true'
                 uses: ./.github/actions/build-release
                 with:
                     artifact-os: ubuntu-latest
@@ -495,6 +444,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 20
         needs: [ build-ubuntu ]
+        if: needs.build-ubuntu.outputs.built == 'true'
         strategy:
             fail-fast: false
             max-parallel: 8
@@ -649,7 +599,7 @@ jobs:
         timeout-minutes: 10
         needs: [ build-ubuntu ]
         # PR fast path: explorer runs on push/schedule/dispatch only.
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && needs.build-ubuntu.outputs.built == 'true'
         steps:
             -   name: Set Git Options
                 run: |
@@ -748,7 +698,7 @@ jobs:
         timeout-minutes: 15
         needs: [ build-ubuntu ]
         # PR fast path: discovery check runs on push/schedule/dispatch only.
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && needs.build-ubuntu.outputs.built == 'true'
         steps:
             -   name: Set Git Options
                 run: |
