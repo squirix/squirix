@@ -145,7 +145,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
         var service = new ReplicaFollower(registry);
 
-        var result = await service.InstallSnapshotUploadAsync(GroupId, Fingerprint, 1UL, Upload(fileBytes, snapshot), 1UL, cancellationToken);
+        var result = await service.InstallSnapshotUploadAsync(GroupId, Fingerprint, 1UL, Upload(fileBytes, in snapshot), 1UL, cancellationToken);
 
         _ = await Assert.That(result.Success).IsTrue();
         var installed = await service.GetStatusAsync(GroupId, cancellationToken);
@@ -167,7 +167,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
         var service = new ReplicaFollower(registry);
 
-        var result = await service.InstallSnapshotUploadAsync(GroupId, Fingerprint, 1UL, Upload(fileBytes, snapshot), 1UL, cancellationToken);
+        var result = await service.InstallSnapshotUploadAsync(GroupId, Fingerprint, 1UL, Upload(fileBytes, in snapshot), 1UL, cancellationToken);
 
         _ = await Assert.That(result.Success).IsFalse();
         var rejected = await service.GetStatusAsync(GroupId, cancellationToken);
@@ -239,7 +239,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         0,
         0);
 
-    private static ReplicaSnapshotUpload Upload(byte[] fileBytes, GroupSnapshot snapshot) => new(
+    private static ReplicaSnapshotUpload Upload(byte[] fileBytes, in GroupSnapshot snapshot) => new(
         fileBytes,
         BinaryPrimitives.ReadUInt32LittleEndian(fileBytes.AsSpan(fileBytes.Length - 4)),
         snapshot.LastIncludedIndex,

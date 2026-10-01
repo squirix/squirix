@@ -42,11 +42,11 @@ M:Squirix.CacheExpirationResult::Equals(System.Object)
 M:Squirix.CacheExpirationResult::GetHashCode()
 M:Squirix.CacheExpirationResult::ToString()
 M:Squirix.CacheExpirationResult::op_Equality(Squirix.CacheExpirationResult,Squirix.CacheExpirationResult)
-M:Squirix.CacheExpirationResult::op_GreaterThan(Squirix.CacheExpirationResult,System.TimeSpan)
-M:Squirix.CacheExpirationResult::op_GreaterThanOrEqual(Squirix.CacheExpirationResult,System.TimeSpan)
+M:Squirix.CacheExpirationResult::op_GreaterThan(Squirix.CacheExpirationResult&,System.TimeSpan)
+M:Squirix.CacheExpirationResult::op_GreaterThanOrEqual(Squirix.CacheExpirationResult&,System.TimeSpan)
 M:Squirix.CacheExpirationResult::op_Inequality(Squirix.CacheExpirationResult,Squirix.CacheExpirationResult)
-M:Squirix.CacheExpirationResult::op_LessThan(Squirix.CacheExpirationResult,System.TimeSpan)
-M:Squirix.CacheExpirationResult::op_LessThanOrEqual(Squirix.CacheExpirationResult,System.TimeSpan)
+M:Squirix.CacheExpirationResult::op_LessThan(Squirix.CacheExpirationResult&,System.TimeSpan)
+M:Squirix.CacheExpirationResult::op_LessThanOrEqual(Squirix.CacheExpirationResult&,System.TimeSpan)
 P:Squirix.CacheExpirationResult::Found:System.Boolean.get
 P:Squirix.CacheExpirationResult::Found:System.Boolean.set
 P:Squirix.CacheExpirationResult::HasExpiration:System.Boolean.get

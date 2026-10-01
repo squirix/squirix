@@ -78,7 +78,7 @@ internal static class GroupLogCodec
     /// <summary>Computes the encoded length of a metadata payload.</summary>
     /// <param name="meta">The metadata to encode.</param>
     /// <returns>The encoded metadata length in bytes.</returns>
-    internal static int ComputeMetaEncodedLength(GroupLogMetadata meta)
+    internal static int ComputeMetaEncodedLength(in GroupLogMetadata meta)
     {
         ArgumentNullException.ThrowIfNull(meta.GroupId);
         var groupBytes = Encoding.UTF8.GetByteCount(meta.GroupId);
@@ -90,7 +90,7 @@ internal static class GroupLogCodec
     /// <param name="buffer">The destination buffer of at least <see cref="ComputeFrameEncodedLength" /> bytes.</param>
     /// <param name="entry">The entry to encode.</param>
     /// <exception cref="InvalidDataException">Thrown when the entry payload exceeds the maximum allowed frame body length.</exception>
-    internal static void EncodeFrame(Span<byte> buffer, FollowerLogEntry entry)
+    internal static void EncodeFrame(Span<byte> buffer, in FollowerLogEntry entry)
     {
         var payload = entry.PayloadSpan;
         if (payload.Length > MaxFrameBodyLength - FrameFixedByteCount)
@@ -119,7 +119,7 @@ internal static class GroupLogCodec
     /// <summary>Encodes metadata into a caller-provided buffer of at least <see cref="ComputeMetaEncodedLength" /> bytes.</summary>
     /// <param name="meta">The metadata to encode.</param>
     /// <param name="buffer">The destination buffer.</param>
-    internal static void EncodeMeta(GroupLogMetadata meta, Span<byte> buffer)
+    internal static void EncodeMeta(in GroupLogMetadata meta, Span<byte> buffer)
     {
         ArgumentNullException.ThrowIfNull(meta.GroupId);
         ArgumentNullException.ThrowIfNull(meta.VotedFor);

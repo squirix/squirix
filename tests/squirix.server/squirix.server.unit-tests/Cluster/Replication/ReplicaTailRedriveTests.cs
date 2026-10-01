@@ -153,7 +153,7 @@ public sealed class ReplicaTailRedriveTests : ServerUnitTestBase
         return redriven[1];
     }
 
-    private static FollowerLogAppendRequest Request(ulong prevIndex, ulong prevTerm, FollowerLogEntry entry) =>
+    private static FollowerLogAppendRequest Request(ulong prevIndex, ulong prevTerm, in FollowerLogEntry entry) =>
         new("n1", entry.Term, prevIndex, prevTerm, 0, new ReadOnlyMemory<FollowerLogEntry>([entry]));
 
     /// <summary>Follower transport double appending leader batches to a real follower log, as the follower RPC handler does.</summary>

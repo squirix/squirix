@@ -43,7 +43,7 @@ internal sealed record ReplicaSnapshotTransfer(
             CommittedOutcomes = CopyOutcomes(snapshot.CommittedOutcomes),
             TopologyFingerprint = snapshot.TopologyFingerprint.ToArray(),
         };
-        var integrity = GroupSnapshotStore.ComputePayloadIntegrity(stable, maxSnapshotBytes);
+        var integrity = GroupSnapshotStore.ComputePayloadIntegrity(in stable, maxSnapshotBytes);
         return new ReplicaSnapshotTransfer(
             stable.GroupId,
             stable.TopologyFingerprint,

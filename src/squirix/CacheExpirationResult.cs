@@ -16,7 +16,7 @@ public readonly record struct CacheExpirationResult(bool Found, bool HasExpirati
     /// <summary>Compares the remaining expiration to a time span.</summary>
     /// <param name="result">Expiration result.</param>
     /// <param name="value">Time span to compare.</param>
-    public static bool operator >(CacheExpirationResult result, TimeSpan value)
+    public static bool operator >(in CacheExpirationResult result, TimeSpan value)
     {
         return result.CompareExpirationTo(value) > 0;
     }
@@ -24,7 +24,7 @@ public readonly record struct CacheExpirationResult(bool Found, bool HasExpirati
     /// <summary>Compares the remaining expiration to a time span.</summary>
     /// <param name="result">Expiration result.</param>
     /// <param name="value">Time span to compare.</param>
-    public static bool operator >=(CacheExpirationResult result, TimeSpan value)
+    public static bool operator >=(in CacheExpirationResult result, TimeSpan value)
     {
         return result.CompareExpirationTo(value) >= 0;
     }
@@ -32,7 +32,7 @@ public readonly record struct CacheExpirationResult(bool Found, bool HasExpirati
     /// <summary>Compares the remaining expiration to a time span.</summary>
     /// <param name="result">Expiration result.</param>
     /// <param name="value">Time span to compare.</param>
-    public static bool operator <(CacheExpirationResult result, TimeSpan value)
+    public static bool operator <(in CacheExpirationResult result, TimeSpan value)
     {
         return result.CompareExpirationTo(value) < 0;
     }
@@ -40,7 +40,7 @@ public readonly record struct CacheExpirationResult(bool Found, bool HasExpirati
     /// <summary>Compares the remaining expiration to a time span.</summary>
     /// <param name="result">Expiration result.</param>
     /// <param name="value">Time span to compare.</param>
-    public static bool operator <=(CacheExpirationResult result, TimeSpan value)
+    public static bool operator <=(in CacheExpirationResult result, TimeSpan value)
     {
         return result.CompareExpirationTo(value) <= 0;
     }

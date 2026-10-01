@@ -229,7 +229,7 @@ internal static class ReplicaOwnerTestKit
                 FollowerMode.Down => Task.FromException<FollowerLogAppendResult>(new IOException("follower is down")),
                 FollowerMode.Longer => Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last + 5)),
                 FollowerMode.Refused => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.StaleTerm, batch.LeaderTerm + 1, last)),
-                FollowerMode.Behind => Task.FromResult(AppendBehind(nodeId, batch, last)),
+                FollowerMode.Behind => Task.FromResult(AppendBehind(nodeId, in batch, last)),
                 FollowerMode.BehindLonger => Task.FromResult(
                     batch.Records.Count == 0 ? new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, batch.LeaderTerm, 0)
                         : new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last + 5)),
@@ -243,7 +243,7 @@ internal static class ReplicaOwnerTestKit
             _held[nodeId] = held;
         }
 
-        private FollowerLogAppendResult AppendBehind(string nodeId, FollowerBatch batch, ulong last)
+        private FollowerLogAppendResult AppendBehind(string nodeId, in FollowerBatch batch, ulong last)
         {
             var held = _held.TryGetValue(nodeId, out var scripted) ? scripted : 0;
             if (batch.PrevLogIndex > held)

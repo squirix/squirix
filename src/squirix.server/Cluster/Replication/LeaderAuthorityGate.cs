@@ -20,7 +20,7 @@ internal static class LeaderAuthorityGate
     /// <param name="observedTerm">The highest term observed from a peer.</param>
     /// <param name="read">The read-specific quorum and index inputs.</param>
     /// <returns>The authority decision for the read.</returns>
-    internal static LeaderAuthorityDecision CheckRead(int replicaCount, bool hasMajorityContact, bool isLeader, ulong currentTerm, ulong observedTerm, LeaderReadState read)
+    internal static LeaderAuthorityDecision CheckRead(int replicaCount, bool hasMajorityContact, bool isLeader, ulong currentTerm, ulong observedTerm, in LeaderReadState read)
     {
         var write = CheckWrite(replicaCount, hasMajorityContact, isLeader, currentTerm, observedTerm);
 

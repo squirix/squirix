@@ -143,7 +143,7 @@ public sealed class ReplicaEffectResolutionTests : ServerUnitTestBase
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
             (cache, record, cancellationToken),
-            static state => _ = ReplicaCacheApplier.ApplyAsync(state.cache, state.record, state.cancellationToken));
+            static state => _ = ReplicaCacheApplier.ApplyAsync(state.cache, in state.record, state.cancellationToken));
 
         _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();
     }

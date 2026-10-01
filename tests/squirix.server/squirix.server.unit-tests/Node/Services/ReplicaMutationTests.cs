@@ -145,7 +145,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         var mutation = factory.PrepareSet("op-1", "cache", "k", entry, 1UL);
         var record = await DecodeRecordAsync(mutation);
 
-        await ReplicaCacheApplier.ApplyAsync(cache, record, cancellationToken);
+        await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
         var read = await cache.GetValueAsync("cache", "k", cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
         var firstValue = await Assert.That(read.Value).IsTypeOf<string>();

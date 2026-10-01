@@ -45,7 +45,7 @@ internal static class ReplicaOutcomeRecovery
                 idempotency.Capacity,
                 entry =>
                 {
-                    var record = Rebuild(entry, out var decidedUtc);
+                    var record = Rebuild(in entry, out var decidedUtc);
                     if (idempotency.TryRestoreOutcome(in record, now - decidedUtc))
                         restored++;
 
@@ -58,7 +58,7 @@ internal static class ReplicaOutcomeRecovery
         return restored;
     }
 
-    private static GroupIdempotencyRecord Rebuild(FollowerLogEntry entry, out DateTime decidedUtc)
+    private static GroupIdempotencyRecord Rebuild(in FollowerLogEntry entry, out DateTime decidedUtc)
     {
         if (ReplicaLogCodec.Decode(entry.Payload) is not { } decoded || decoded.LogIndex != entry.LogIndex || decoded.Term != entry.Term ||
             decoded.DecidedUtcTicks < 0 || decoded.DecidedUtcTicks > DateTime.MaxValue.Ticks)

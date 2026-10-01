@@ -7,7 +7,7 @@ namespace Squirix.ProtocolModel;
 [Immutable]
 internal sealed class NodeState
 {
-    internal NodeState(int id, NodeRole role, int currentTerm, int votedFor, IReadOnlyList<LogEntry> logEntries, NodeRuntime runtime)
+    internal NodeState(int id, NodeRole role, int currentTerm, int votedFor, IReadOnlyList<LogEntry> logEntries, in NodeRuntime runtime)
     {
         Id = id;
         Role = role;
@@ -51,10 +51,10 @@ internal sealed class NodeState
 
     internal int VotesGranted { get; }
 
-    internal static NodeState CreateInitial(int id) => new(id, NodeRole.Follower, 0, -1, Array.Empty<LogEntry>(), NodeRuntime.Initial);
+    internal static NodeState CreateInitial(int id) => new(id, NodeRole.Follower, 0, -1, Array.Empty<LogEntry>(), in NodeRuntime.Initial);
 
-    internal NodeState With(NodeRole role, int currentTerm, int votedFor, IReadOnlyList<LogEntry> logEntries, NodeRuntime runtime) =>
-        new(Id, role, currentTerm, votedFor, logEntries, runtime);
+    internal NodeState With(NodeRole role, int currentTerm, int votedFor, IReadOnlyList<LogEntry> logEntries, in NodeRuntime runtime) =>
+        new(Id, role, currentTerm, votedFor, logEntries, in runtime);
 
     private static LogEntry[] CopyLog(IReadOnlyList<LogEntry> logEntries)
     {

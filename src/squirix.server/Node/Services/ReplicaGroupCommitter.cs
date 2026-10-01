@@ -62,7 +62,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         IReplicaRpcGateway gateway,
         ILogicalNamespacedCache<object?> local,
         string selfId,
-        ReplicaTopologyStamp topology,
+        in ReplicaTopologyStamp topology,
         ILogger<ReplicaGroupCommitter> log)
     {
         ArgumentNullException.ThrowIfNull(registry);
@@ -517,7 +517,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             : [];
 
         // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
-        var pipeline = new ReplicaGroupCommitPipeline(Applier, log, _gateway, members, GroupId, status, header);
+        var pipeline = new ReplicaGroupCommitPipeline(Applier, log, _gateway, members, GroupId, in status, in header);
         var factory = new ReplicaMutationFactory(_local, GroupId, term, Clock, Log);
         _coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(_locator.ReplicaCount, status.LastLogIndex, status.CommitIndex, MaxInFlight),
@@ -658,8 +658,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             IReplicaRpcGateway rpc,
             string[] members,
             string selfId,
-            FollowerLogStatus status,
-            ReplicaRpcHeader header)
+            in FollowerLogStatus status,
+            in ReplicaRpcHeader header)
         {
             ArgumentNullException.ThrowIfNull(applier);
             ArgumentNullException.ThrowIfNull(log);

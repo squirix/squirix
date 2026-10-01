@@ -14,7 +14,7 @@ internal static class SecurityServiceRegistration
     internal static bool AddSquirixSecurityServices(this IServiceCollection services, SecurityOptions? securityOptionsOverride = null)
     {
         var configuration = ResolveSecurityConfiguration(securityOptionsOverride);
-        ValidateSecurityConfiguration(configuration);
+        ValidateSecurityConfiguration(in configuration);
 
         if (!configuration.JwtEnabled)
             return false;
@@ -23,7 +23,7 @@ internal static class SecurityServiceRegistration
         return true;
     }
 
-    private static TokenValidationParameters CreateTokenValidationParameters(ResolvedSecurityConfiguration configuration)
+    private static TokenValidationParameters CreateTokenValidationParameters(in ResolvedSecurityConfiguration configuration)
     {
         var parameters = new TokenValidationParameters
         {
@@ -81,7 +81,7 @@ internal static class SecurityServiceRegistration
                 if (!string.IsNullOrWhiteSpace(configuration.JwtAudience))
                     o.Audience = configuration.JwtAudience;
 
-                o.TokenValidationParameters = CreateTokenValidationParameters(configuration);
+                o.TokenValidationParameters = CreateTokenValidationParameters(in configuration);
             });
 
         _ = services.AddAuthorizationBuilder().AddPolicy(
@@ -121,7 +121,7 @@ internal static class SecurityServiceRegistration
         return new ResolvedSecurityConfiguration(jwtAuthority, jwtAudience, jwtIssuer, securityOptionsOverride.JwtAllowHttpMetadata, signingKeyBytes, jwtEnabled);
     }
 
-    private static void ValidateSecurityConfiguration(ResolvedSecurityConfiguration configuration)
+    private static void ValidateSecurityConfiguration(in ResolvedSecurityConfiguration configuration)
     {
         if (!string.IsNullOrWhiteSpace(configuration.JwtIssuer) && configuration.SigningKeyBytes == null && string.IsNullOrWhiteSpace(configuration.JwtAuthority))
             throw new InvalidOperationException("SQUIRIX_JWT_ISSUER requires SQUIRIX_JWT_SIGNING_KEY when no authority is configured.");

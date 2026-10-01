@@ -329,8 +329,8 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
     private static Task WriteGroupMetadataAsync(string dir, string groupId, ReadOnlyMemory<byte> fingerprint, ulong generation, CancellationToken cancellationToken)
     {
         var meta = new GroupLogMetadata(groupId, fingerprint, generation, 9, string.Empty, 12, 10, 7);
-        var buffer = new byte[GroupLogCodec.ComputeMetaEncodedLength(meta)];
-        GroupLogCodec.EncodeMeta(meta, buffer);
+        var buffer = new byte[GroupLogCodec.ComputeMetaEncodedLength(in meta)];
+        GroupLogCodec.EncodeMeta(in meta, buffer);
         _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, groupId));
         return File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, groupId), buffer, cancellationToken);
     }

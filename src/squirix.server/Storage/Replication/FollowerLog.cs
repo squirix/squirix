@@ -207,7 +207,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         if (termError != null)
             return termError.Value;
 
-        var consistencyError = FollowerLogAppend.VerifyPreviousLogConsistency(_journal, this, request);
+        var consistencyError = FollowerLogAppend.VerifyPreviousLogConsistency(_journal, this, in request);
         return consistencyError ?? await FollowerLogAppend.AppendVerifiedBatchAsync(_journal, this, request, cancellationToken).ConfigureAwait(false);
     }
 
@@ -378,7 +378,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             (true, _) => new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm),
             (false, true) => new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm),
-            (false, false) => FollowerLogElection.CheckPreVote(_journal, this, request),
+            (false, false) => FollowerLogElection.CheckPreVote(_journal, this, in request),
         };
     }
 
@@ -680,7 +680,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (entries.Length == 0)
                 return await CompleteAppendAsync(journal, owner, request.LeaderCommitIndex, lastVerifiedIndex, false, cancellationToken).ConfigureAwait(false);
 
-            var error = PrepareAppendBatch(journal, owner, request, out var toAppend, out var truncateAtIndex);
+            var error = PrepareAppendBatch(journal, owner, in request, out var toAppend, out var truncateAtIndex);
             if (error != null)
                 return error.Value;
 
@@ -710,7 +710,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             try
             {
-                await FollowerLogDurable.PersistMetaAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
+                await FollowerLogDurable.PersistMetaAsync(journal, owner, in candidate, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
             {
@@ -737,7 +737,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             };
         }
 
-        internal static FollowerLogAppendResult? VerifyPreviousLogConsistency(FollowerLogJournal journal, IFollowerLogContext owner, FollowerLogAppendRequest request)
+        internal static FollowerLogAppendResult? VerifyPreviousLogConsistency(FollowerLogJournal journal, IFollowerLogContext owner, in FollowerLogAppendRequest request)
         {
             // Previous-log consistency; the term at an applied index was released from memory, so the check
             // covers only the retained region above the applied watermark. The term of an applied entry is read
@@ -855,7 +855,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         private static FollowerLogAppendResult? PrepareAppendBatch(
             FollowerLogJournal journal,
             IFollowerLogContext owner,
-            FollowerLogAppendRequest request,
+            in FollowerLogAppendRequest request,
             out List<FollowerLogEntry>? toAppend,
             out ulong? truncateAtIndex)
         {
@@ -937,7 +937,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 var entry = toAppend[i];
                 var encodedLength = GroupLogCodec.ComputeFrameEncodedLength(entry.Payload.Length);
                 var frameOffset = startOffset + position;
-                GroupLogCodec.EncodeFrame(buffer.AsSpan(position, encodedLength), entry);
+                GroupLogCodec.EncodeFrame(buffer.AsSpan(position, encodedLength), in entry);
                 offsets.Add(new KeyValuePair<ulong, long>(entry.LogIndex, frameOffset));
                 position += encodedLength;
             }
@@ -958,12 +958,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             owner.Meta = owner.Meta with { LastLogIndex = owner.LastLogIndex };
         }
 
-        internal static Task PersistMetaAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupLogMetadata meta, CancellationToken cancellationToken)
+        internal static Task PersistMetaAsync(FollowerLogJournal journal, IFollowerLogContext owner, in GroupLogMetadata meta, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var encodedLength = GroupLogCodec.ComputeMetaEncodedLength(meta);
+            var encodedLength = GroupLogCodec.ComputeMetaEncodedLength(in meta);
             var buffer = ArrayPool<byte>.Shared.Rent(encodedLength);
-            GroupLogCodec.EncodeMeta(meta, buffer.AsSpan(0, encodedLength));
+            GroupLogCodec.EncodeMeta(in meta, buffer.AsSpan(0, encodedLength));
             var work = new MetaDurableWork(owner.Acks, journal.Paths.MetadataTempPath, journal.Paths.MetadataPath, buffer, encodedLength, owner.Faults);
 
             // The buffer is returned only inside MetaDurableWork.Execute; a non-cancelable scheduling token
@@ -1261,7 +1261,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                         var frameBuffer = ArrayPool<byte>.Shared.Rent(frameLength);
                         try
                         {
-                            GroupLogCodec.EncodeFrame(frameBuffer.AsSpan(0, frameLength), entry);
+                            GroupLogCodec.EncodeFrame(frameBuffer.AsSpan(0, frameLength), in entry);
                             RandomAccess.Write(handle, frameBuffer.AsSpan(0, frameLength), position);
                         }
                         finally
@@ -1319,7 +1319,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// </remarks>
     private static class FollowerLogElection
     {
-        internal static FollowerLogVoteResult CheckPreVote(FollowerLogJournal journal, IFollowerLogContext owner, ElectionVoteRequest request)
+        internal static FollowerLogVoteResult CheckPreVote(FollowerLogJournal journal, IFollowerLogContext owner, in ElectionVoteRequest request)
         {
             // A pre-vote probe never steps the term: an isolated follower soliciting probes must not inflate
             // its durable term, and the reported term always stays the locally persisted one.
@@ -1827,7 +1827,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (DivergentBoundary(journal, entry.LogIndex, entry.Term) is { } divergentBoundary)
                 return divergentBoundary;
 
-            journal.AddEntry(entry, lastValidEnd, entry.Term);
+            journal.AddEntry(in entry, lastValidEnd, entry.Term);
             owner.LastLogIndex = entry.LogIndex;
             return null;
         }
@@ -2212,10 +2212,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             GroupSnapshot snapshot,
             CancellationToken cancellationToken)
         {
-            if (ValidateInstallEligibility(owner, snapshot) is { } refusal)
+            if (ValidateInstallEligibility(owner, in snapshot) is { } refusal)
                 return GroupSnapshotInstallResult.Refused(refusal);
 
-            var tail = CollectInstallTail(journal, snapshot);
+            var tail = CollectInstallTail(journal, in snapshot);
             var retainedLogIndexes = CollectRetainedLogIndexes(tail);
 
             // The capacity refusal must happen before any durable writing: publishing the snapshot and persisting the
@@ -2230,7 +2230,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             var fingerprint = owner.Meta.TopologyFingerprint.IsEmpty ? snapshot.TopologyFingerprint : owner.Meta.TopologyFingerprint;
             var installedLastIndex = tail.Count == 0 ? snapshot.LastIncludedIndex : tail[^1].LogIndex;
-            var candidate = BuildInstallCandidateMeta(owner, snapshot, fingerprint, installedLastIndex);
+            var candidate = BuildInstallCandidateMeta(owner, in snapshot, fingerprint, installedLastIndex);
 
             // Publish the snapshot before advancing metadata. If publication fails, the old metadata and log remain
             // authoritative. If metadata or log rewriting fails afterward, recovery can use the new snapshot while
@@ -2288,7 +2288,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// <param name="owner">They log the snapshot targets.</param>
         /// <param name="snapshot">The snapshot to validate.</param>
         /// <returns>The <see cref="FollowerLogRefusal.TopologyMismatch" /> marker, or <see langword="null" />.</returns>
-        internal static string? SnapshotTopologyMismatch(IFollowerLogContext owner, GroupSnapshot snapshot)
+        internal static string? SnapshotTopologyMismatch(IFollowerLogContext owner, in GroupSnapshot snapshot)
         {
             var memory = owner.Meta.TopologyFingerprint;
             return (!memory.IsEmpty && !memory.Span.SequenceEqual(snapshot.TopologyFingerprint.Span)) || snapshot.ConfigurationGeneration < owner.Meta.ConfigurationGeneration
@@ -2349,7 +2349,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// <param name="fingerprint">The topology fingerprint to record.</param>
         /// <param name="installedLastIndex">The last index the rewritten durable log will support: the retained tail's last entry, or the snapshot boundary when no tail is retained.</param>
         /// <returns>The next metadata value.</returns>
-        private static GroupLogMetadata BuildInstallCandidateMeta(IFollowerLogContext owner, GroupSnapshot snapshot, ReadOnlyMemory<byte> fingerprint, ulong installedLastIndex)
+        private static GroupLogMetadata BuildInstallCandidateMeta(IFollowerLogContext owner, in GroupSnapshot snapshot, ReadOnlyMemory<byte> fingerprint, ulong installedLastIndex)
         {
             return owner.Meta with
             {
@@ -2400,7 +2400,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// <param name="journal">The paired in-memory journal state.</param>
         /// <param name="snapshot">The snapshot being installed.</param>
         /// <returns>The retained tail entries, or an empty list when the boundary does not match.</returns>
-        private static List<FollowerLogEntry> CollectInstallTail(FollowerLogJournal journal, GroupSnapshot snapshot)
+        private static List<FollowerLogEntry> CollectInstallTail(FollowerLogJournal journal, in GroupSnapshot snapshot)
         {
             var tail = new List<FollowerLogEntry>();
             var boundaryMatches = journal.EntryOffsets.TryGetValue(snapshot.LastIncludedIndex, out var boundary) ? boundary.Term == snapshot.LastIncludedTerm
@@ -2494,10 +2494,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// <param name="owner">They log the snapshot targets.</param>
         /// <param name="snapshot">The snapshot to validate.</param>
         /// <returns>The refusal marker, or <see langword="null" /> when the snapshot is eligible.</returns>
-        private static string? ValidateInstallEligibility(IFollowerLogContext owner, GroupSnapshot snapshot)
+        private static string? ValidateInstallEligibility(IFollowerLogContext owner, in GroupSnapshot snapshot)
         {
             var groupMatches = string.Equals(snapshot.GroupId, owner.GroupId, StringComparison.Ordinal);
-            var topologyMismatch = SnapshotTopologyMismatch(owner, snapshot);
+            var topologyMismatch = SnapshotTopologyMismatch(owner, in snapshot);
 
             // Terms start at 1, and a zero baseline collides with the "unverifiable term" sentinel used by
             // TermAtApplied and would make DivergentBoundary discard the whole durable suffix on the next recovery.

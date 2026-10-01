@@ -110,7 +110,7 @@ internal sealed class ReplicaVerificationProbe
 
         return !anyAnswered && !eligibility.AllCanCountInWriteQuorum()
             ? new ReplicaVerificationSnapshot(ReplicaVerification.Pending)
-            : new ReplicaVerificationSnapshot(status, probed, answered, members, header);
+            : new ReplicaVerificationSnapshot(in status, probed, answered, members, in header);
     }
 
     private bool ReportBlockedTail(BlockedTail? blocked)

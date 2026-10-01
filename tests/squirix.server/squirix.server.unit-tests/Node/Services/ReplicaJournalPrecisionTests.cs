@@ -57,7 +57,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
         var direct = new PhysicalCache<object?>(clock);
         var directCache = new ClientCache<object?>(direct, direct);
         foreach (var record in records)
-            await ReplicaCacheApplier.ApplyAsync(directCache, record, cancellationToken);
+            await ReplicaCacheApplier.ApplyAsync(directCache, in record, cancellationToken);
 
         var expected = await direct.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken);
         var actual = await recovered.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken);
@@ -93,7 +93,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
     private static async Task LeaderAppliesAsync(ClientCache<object?> cache, List<ReplicaLogRecord> records, PreparedReplicaMutation prepared, CancellationToken cancellationToken)
     {
         var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
-        await ReplicaCacheApplier.ApplyAsync(cache, record, cancellationToken);
+        await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
         records.Add(record);
     }
 
@@ -117,7 +117,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
             new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance),
             clock);
         foreach (var record in records)
-            await ReplicaCacheApplier.ApplyAsync(cache, record, cancellationToken);
+            await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
     }
 
     private async Task<PhysicalCache<object?>> RecoverAsync(PersistenceOptions persistence, TimeProvider clock, CancellationToken cancellationToken)

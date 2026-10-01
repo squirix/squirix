@@ -61,10 +61,10 @@ internal static class FailoverActivationGate
         bool isLeader,
         ulong currentTerm,
         ulong observedTerm,
-        LeaderReadState read)
+        in LeaderReadState read)
     {
         const LeaderAuthorityDenial denial = LeaderAuthorityDenial.QuorumNotConfirmed;
-        return quorumReadsEnabled ? LeaderAuthorityGate.CheckRead(replicaCount, hasMajorityContact, isLeader, currentTerm, observedTerm, read)
+        return quorumReadsEnabled ? LeaderAuthorityGate.CheckRead(replicaCount, hasMajorityContact, isLeader, currentTerm, observedTerm, in read)
             : new LeaderAuthorityDecision(false, denial);
     }
 }
