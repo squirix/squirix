@@ -17,12 +17,12 @@ internal static class GroupLogFrameReader
     /// <summary>Reads the frames that start at <paramref name="frames" />, in the given order, handing each entry to <paramref name="visit" />.</summary>
     /// <param name="logPath">The group log file.</param>
     /// <param name="frames">The index and file offset of each frame to read.</param>
-    /// <param name="visit">Called with each entry; one entry is held at a time.</param>
+    /// <param name="visit">Called with each entry; one entry is held at a time, and returning <see langword="false" /> stops the read.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of entries read.</returns>
     /// <exception cref="InvalidDataException">A frame is torn, fails its checksum, or carries another index: committed frames never do.</exception>
     /// <remarks>The file is opened for reading next to the writer, which shares reads; callers hold the log gate so no frame moves meanwhile.</remarks>
-    internal static async Task<int> ReadAsync(string logPath, IReadOnlyList<(ulong LogIndex, long Offset)> frames, Action<FollowerLogEntry> visit, CancellationToken cancellationToken)
+    internal static async Task<int> ReadAsync(string logPath, IReadOnlyList<(ulong LogIndex, long Offset)> frames, Func<FollowerLogEntry, bool> visit, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(frames);
         ArgumentNullException.ThrowIfNull(visit);
@@ -31,6 +31,7 @@ internal static class GroupLogFrameReader
 
         using var handle = File.OpenHandle(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.Asynchronous);
         var header = ArrayPool<byte>.Shared.Rent(FrameHeaderByteCount);
+        var read = 0;
         try
         {
             for (var i = 0; i < frames.Count; i++)
@@ -40,7 +41,9 @@ internal static class GroupLogFrameReader
                 if (headerEnd == null || !GroupLogCodec.TryReadFrameHeaderLength(header.AsSpan(0, FrameHeaderByteCount), out var frameLength))
                     throw new InvalidDataException($"Committed group log frame {logIndex} at offset {offset} is torn.");
 
-                visit(await ReadFrameAsync(handle, header, frameLength, logIndex, offset, cancellationToken).ConfigureAwait(false));
+                read++;
+                if (!visit(await ReadFrameAsync(handle, header, frameLength, logIndex, offset, cancellationToken).ConfigureAwait(false)))
+                    break;
             }
         }
         finally
@@ -48,7 +51,7 @@ internal static class GroupLogFrameReader
             ArrayPool<byte>.Shared.ReturnCleared(header);
         }
 
-        return frames.Count;
+        return read;
     }
 
     private static async Task<FollowerLogEntry> ReadFrameAsync(

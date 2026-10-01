@@ -113,12 +113,38 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
 
         var recent = new List<FollowerLogEntry>();
-        var read = await log.ReadRecentCommittedAsync(2, recent.Add, cancellationToken);
+        var read = await log.ReadRecentCommittedAsync(
+            2,
+            entry =>
+            {
+                recent.Add(entry);
+                return true;
+            },
+            cancellationToken);
 
         _ = await Assert.That(read).IsEqualTo(2);
         _ = await Assert.That(recent.Count).IsEqualTo(2);
         _ = await Assert.That((recent[0].LogIndex, Encoding.UTF8.GetString(recent[0].Payload.Span))).IsEqualTo((3UL, "c"));
         _ = await Assert.That((recent[1].LogIndex, Encoding.UTF8.GetString(recent[1].Payload.Span))).IsEqualTo((2UL, "b"));
+    }
+
+    /// <summary>The read of the newest committed entries stops as soon as the visitor declines the next one.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RecentCommittedReadStopsEarly(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-log-recent-stop");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await log.OpenAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
+        _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+
+        var read = await log.ReadRecentCommittedAsync(2, static _ => false, cancellationToken);
+
+        _ = await Assert.That(read).IsEqualTo(1);
     }
 
     /// <summary>Advancing the applied index releases applied entry payloads from memory.</summary>

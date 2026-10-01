@@ -76,6 +76,16 @@ internal sealed class GroupIdempotencyState
     /// <summary>Gets the maximum number of retained idempotency records.</summary>
     internal int Capacity { get; }
 
+    /// <summary>Gets a value indicating whether the store holds <see cref="Capacity" /> records, so nothing more can be restored or reserved.</summary>
+    internal bool IsFull
+    {
+        get
+        {
+            lock (_sync)
+                return _records.Count >= Capacity;
+        }
+    }
+
     /// <summary>Evicts resolved records whose retention window has elapsed; unresolved records are never evicted.</summary>
     /// <remarks>The eviction relies on the injected time source, so tests advance virtual time deterministically.</remarks>
     internal void Expire()

@@ -48,6 +48,9 @@ internal static class ReplicaOutcomeRecovery
                     var record = Rebuild(entry, out var decidedUtc);
                     if (idempotency.TryRestoreOutcome(in record, now - decidedUtc))
                         restored++;
+
+                    // Snapshot outcomes and tail pins may already fill the store: the older frames would only be read to be refused.
+                    return !idempotency.IsFull;
                 },
                 cancellationToken)
             .ConfigureAwait(false);
