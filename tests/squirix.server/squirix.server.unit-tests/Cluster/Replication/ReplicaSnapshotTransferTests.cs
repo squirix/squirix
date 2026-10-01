@@ -74,5 +74,6 @@ public sealed class ReplicaSnapshotTransferTests : ServerUnitTestBase
                 new DateTime(2026, 1, 1, 0, 0, 1, DateTimeKind.Utc),
                 1UL,
                 1UL),
-        ]);
+        ],
+        new DateTime(2026, 1, 1, 0, 0, 1, DateTimeKind.Utc));
 }

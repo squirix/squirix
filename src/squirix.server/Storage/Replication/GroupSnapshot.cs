@@ -12,6 +12,10 @@ namespace Squirix.Server.Storage.Replication;
 /// <param name="LastIncludedIndex">The highest committed journal index covered by this snapshot.</param>
 /// <param name="CommitIndex">The durable commit index carried by the snapshot.</param>
 /// <param name="CommittedOutcomes">The committed idempotency outcomes carried by the snapshot.</param>
+/// <param name="CapturedUtc">
+/// When <paramref name="CommittedOutcomes" /> were captured, on the clock that stamped their resolution times; the age of an outcome
+/// is this time minus its resolution time, so a restoring node never compares its own clock with the capturing node's.
+/// </param>
 [Immutable]
 internal readonly record struct GroupSnapshot(
     string GroupId,
@@ -20,4 +24,5 @@ internal readonly record struct GroupSnapshot(
     ulong LastIncludedTerm,
     ulong LastIncludedIndex,
     ulong CommitIndex,
-    IReadOnlyList<GroupIdempotencyRecord> CommittedOutcomes);
+    IReadOnlyList<GroupIdempotencyRecord> CommittedOutcomes,
+    DateTime CapturedUtc);

@@ -81,7 +81,7 @@ public class ReplicaSnapshotBenchmarks
     public void RestoreIdempotencyRecords()
     {
         var target = ThrowHelper.Required(_target, "Benchmark target log was not initialized.");
-        target.Idempotency.RestoreFromSnapshot(_snapshot.CommittedOutcomes);
+        target.Idempotency.RestoreFromSnapshot(_snapshot.CommittedOutcomes, _snapshot.CapturedUtc);
     }
 
     /// <summary>Creates the source and target logs with a committed prefix.</summary>

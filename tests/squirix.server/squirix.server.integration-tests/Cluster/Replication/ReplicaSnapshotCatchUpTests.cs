@@ -200,7 +200,7 @@ public sealed class ReplicaSnapshotCatchUpTests : NodeIntegrationTestBase
         _ = await Assert.That((await follower.AppendAsync(Append(2UL, 1UL, "two"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await follower.AdvanceCommitAsync(2UL, cancellationToken)).Success).IsTrue();
 
-        var stale = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>());
+        var stale = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
         var transfer = ReplicaSnapshotTransfer.Create(in stale);
         var eligibility = new ReplicaEligibility(3);
         var session = new ReplicaSnapshotCatchUpSession(new ReplicaRepairPlanner(2), follower, eligibility, 1);
@@ -231,7 +231,7 @@ public sealed class ReplicaSnapshotCatchUpTests : NodeIntegrationTestBase
 
     private static ReplicaProgress Expected(uint checksum) => new(5UL, 4UL, 4UL, 4UL, 2UL, Fingerprint, 1UL, checksum);
 
-    private static GroupSnapshot Snapshot() => new(GroupId, Fingerprint, 1UL, 1UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>());
+    private static GroupSnapshot Snapshot() => new(GroupId, Fingerprint, 1UL, 1UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
 
-    private static GroupSnapshot SnapshotWith(byte[] fingerprint) => new(GroupId, fingerprint, 1UL, 1UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>());
+    private static GroupSnapshot SnapshotWith(byte[] fingerprint) => new(GroupId, fingerprint, 1UL, 1UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
 }

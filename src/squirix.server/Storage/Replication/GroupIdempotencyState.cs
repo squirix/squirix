@@ -16,9 +16,16 @@ namespace Squirix.Server.Storage.Replication;
 ///     in-flight operation whose outcome is not yet durable.
 ///     </para>
 ///     <para>
-///     Retention is counted from the resolution timestamp through the injected <see cref="TimeProvider" />. A resolved
-///     outcome stays retrievable until its retention elapses; eviction and capacity accounting consider only resolved
-///     records past retention, so at capacity a new reservation is rejected instead of evicting a live outcome.
+///     Retention is counted from resolution on the monotonic clock of the injected <see cref="TimeProvider" />, so a wall-clock
+///     step never ages a record. A resolved outcome stays retrievable until its retention elapses; eviction and capacity
+///     accounting consider only resolved records past retention, so at capacity a new reservation is rejected instead of
+///     evicting a live outcome.
+///     </para>
+///     <para>
+///     A snapshot carries the time its outcomes were captured on the same clock that stamped their resolution times, so a
+///     restoring node takes the age of each outcome from that one clock and keeps counting it on its own monotonic clock. Node
+///     clocks never meet in a subtraction. The time a snapshot spends at rest or in transit does not count toward retention:
+///     an outcome may live longer than its window after a restore, never shorter.
 ///     </para>
 /// </remarks>
 [ThreadSafe]
@@ -27,7 +34,7 @@ internal sealed class GroupIdempotencyState
     /// <summary>The default retention window for resolved outcomes.</summary>
     internal static readonly TimeSpan DefaultRetention = TimeSpan.FromHours(1);
 
-    private readonly Dictionary<GroupOperationKey, GroupIdempotencyRecord> _records;
+    private readonly Dictionary<GroupOperationKey, StoredRecord> _records;
     private readonly TimeSpan _retention;
     private readonly Lock _sync = new();
     private readonly TimeProvider _timeProvider;
@@ -78,17 +85,26 @@ internal sealed class GroupIdempotencyState
     }
 
     /// <summary>Exports only resolved records for inclusion in a group snapshot.</summary>
-    /// <returns>The resolved records currently retained.</returns>
-    internal IReadOnlyList<GroupIdempotencyRecord> ExportResolved()
+    /// <param name="capturedUtc">The capture time on the clock the exported resolution times are stamped on.</param>
+    /// <returns>
+    /// The resolved records currently retained. Each resolution time is restated as <paramref name="capturedUtc" /> minus the age
+    /// of the record on the monotonic clock, so the age a snapshot carries is unaffected by a wall-clock step on this node.
+    /// </returns>
+    internal IReadOnlyList<GroupIdempotencyRecord> ExportResolved(out DateTime capturedUtc)
     {
         lock (_sync)
         {
             ExpireCore();
+
+            // Snapshots encode times in whole milliseconds: capture on one, and each export rounds the age up to one, so the age a
+            // snapshot carries is never shorter than the true age.
+            var now = _timeProvider.GetUtcNow().UtcDateTime;
+            capturedUtc = now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMillisecond));
             var result = new List<GroupIdempotencyRecord>();
-            foreach (var pair in _records)
+            foreach (var stored in _records.Values)
             {
-                if (pair.Value.IsResolved)
-                    result.Add(pair.Value);
+                if (stored.Record.IsResolved)
+                    result.Add(stored.Export(_timeProvider, capturedUtc));
             }
 
             return result;
@@ -106,9 +122,9 @@ internal sealed class GroupIdempotencyState
     {
         lock (_sync)
         {
-            foreach (var record in _records.Values)
+            foreach (var stored in _records.Values)
             {
-                if (record.IsUnresolved && record.LogIndex <= index)
+                if (stored.Record.IsUnresolved && stored.Record.LogIndex <= index)
                     return true;
             }
 
@@ -123,7 +139,7 @@ internal sealed class GroupIdempotencyState
     internal bool IsUnresolved(string scope, string operationId)
     {
         lock (_sync)
-            return _records.TryGetValue(new GroupOperationKey(scope, operationId), out var record) && record.IsUnresolved;
+            return _records.TryGetValue(new GroupOperationKey(scope, operationId), out var stored) && stored.Record.IsUnresolved;
     }
 
     /// <summary>
@@ -140,9 +156,11 @@ internal sealed class GroupIdempotencyState
         lock (_sync)
         {
             ExpireCore();
-            if (!_records.TryGetValue(new GroupOperationKey(scope, operationId), out record))
+            record = default;
+            if (!_records.TryGetValue(new GroupOperationKey(scope, operationId), out var stored))
                 return GroupIdempotencyLookup.Miss;
 
+            record = stored.Record;
             if (record.OperationFingerprint.Span.SequenceEqual(operationFingerprint))
                 return record.IsResolved ? GroupIdempotencyLookup.Found : GroupIdempotencyLookup.Unresolved;
             record = default;
@@ -167,7 +185,7 @@ internal sealed class GroupIdempotencyState
             var released = new List<GroupOperationKey>();
             foreach (var pair in _records)
             {
-                if (pair.Value.LogIndex >= fromIndex)
+                if (pair.Value.Record.LogIndex >= fromIndex)
                     released.Add(pair.Key);
             }
 
@@ -196,8 +214,9 @@ internal sealed class GroupIdempotencyState
         {
             ExpireCore();
             var key = new GroupOperationKey(scope, operationId);
-            if (_records.TryGetValue(key, out var existing))
+            if (_records.TryGetValue(key, out var stored))
             {
+                var existing = stored.Record;
                 if (!existing.OperationFingerprint.Span.SequenceEqual(operationFingerprint))
                     return GroupIdempotencyReserveResult.FingerprintMismatch;
 
@@ -207,7 +226,7 @@ internal sealed class GroupIdempotencyState
                 // would pin capacity for the whole retention window. A resolved record already carries its durable
                 // outcome, so its original coordinates are kept intact.
                 if (existing.IsUnresolved && (existing.LogIndex != logIndex || existing.Term != term))
-                    _records[key] = existing with { LogIndex = logIndex, Term = term };
+                    _records[key] = stored with { Record = existing with { LogIndex = logIndex, Term = term } };
 
                 return GroupIdempotencyReserveResult.Success;
             }
@@ -216,7 +235,8 @@ internal sealed class GroupIdempotencyState
                 return GroupIdempotencyReserveResult.CapacityExceeded;
 
             var memory = BufferEx.CopyToOwned(operationFingerprint);
-            _records[key] = new GroupIdempotencyRecord(scope, operationId, memory, ReadOnlyMemory<byte>.Empty, kind, _timeProvider.GetUtcNow().UtcDateTime, null, logIndex, term);
+            var record = new GroupIdempotencyRecord(scope, operationId, memory, ReadOnlyMemory<byte>.Empty, kind, _timeProvider.GetUtcNow().UtcDateTime, null, logIndex, term);
+            _records[key] = new StoredRecord(record, 0L, TimeSpan.Zero);
             return GroupIdempotencyReserveResult.Success;
         }
     }
@@ -231,10 +251,11 @@ internal sealed class GroupIdempotencyState
     ///     </para>
     /// </remarks>
     /// <param name="records">The committed outcomes carried by the snapshot.</param>
+    /// <param name="capturedUtc">When the snapshot captured its outcomes, on the clock that stamped their resolution times.</param>
     /// <param name="retainedLogIndexes">Journal indexes retained after the snapshot boundary.</param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="records" /> or <paramref name="retainedLogIndexes" /> is null.</exception>
     /// <exception cref="InvalidDataException">Thrown when a snapshot outcome is not resolved or the combined set exceeds capacity.</exception>
-    internal void RestoreFromSnapshot(IReadOnlyList<GroupIdempotencyRecord> records, IReadOnlyList<ulong> retainedLogIndexes)
+    internal void RestoreFromSnapshot(IReadOnlyList<GroupIdempotencyRecord> records, DateTime capturedUtc, IReadOnlyList<ulong> retainedLogIndexes)
     {
         ArgumentNullException.ThrowIfNull(records);
         ArgumentNullException.ThrowIfNull(retainedLogIndexes);
@@ -242,8 +263,7 @@ internal sealed class GroupIdempotencyState
         {
             ExpireCore();
             ThrowIfOutcomeUnresolved(records);
-            var now = _timeProvider.GetUtcNow().UtcDateTime;
-            var surviving = FilterExpiredSnapshot(records, now);
+            var surviving = AnchorSurviving(records, capturedUtc);
             var retained = CollectRetainedRecords([.. retainedLogIndexes]);
             var distinct = DistinctKeyCount(surviving, retained);
             if (distinct > Capacity)
@@ -261,7 +281,8 @@ internal sealed class GroupIdempotencyState
     /// <c language="csharp">retainedLogIndexes</c>.
     /// </remarks>
     /// <param name="records">The committed outcomes carried by the snapshot.</param>
-    internal void RestoreFromSnapshot(IReadOnlyList<GroupIdempotencyRecord> records) => RestoreFromSnapshot(records, []);
+    /// <param name="capturedUtc">When the snapshot captured its outcomes, on the clock that stamped their resolution times.</param>
+    internal void RestoreFromSnapshot(IReadOnlyList<GroupIdempotencyRecord> records, DateTime capturedUtc) => RestoreFromSnapshot(records, capturedUtc, []);
 
     /// <summary>Releases one reservation only when it is still unresolved and has the expected durable coordinates.</summary>
     /// <param name="scope">Operation scope.</param>
@@ -274,7 +295,8 @@ internal sealed class GroupIdempotencyState
         lock (_sync)
         {
             var key = new GroupOperationKey(scope, operationId);
-            var known = _records.TryGetValue(key, out var record);
+            var known = _records.TryGetValue(key, out var stored);
+            var record = stored.Record;
             var releasable = known && !record.IsResolved && record.LogIndex == logIndex && record.Term == term;
             return releasable && _records.Remove(key);
         }
@@ -293,9 +315,10 @@ internal sealed class GroupIdempotencyState
         {
             ExpireCore();
             var key = new GroupOperationKey(scope, operationId);
-            if (!_records.TryGetValue(key, out var record))
+            if (!_records.TryGetValue(key, out var stored))
                 return false;
 
+            var record = stored.Record;
             if (record.LogIndex != logIndex || record.Term != term)
                 return false;
 
@@ -303,7 +326,8 @@ internal sealed class GroupIdempotencyState
             if (record.IsResolved)
                 return false;
 
-            _records[key] = record.Resolve(BufferEx.CopyToOwned(outcomePayload), _timeProvider.GetUtcNow().UtcDateTime);
+            var resolved = record.Resolve(BufferEx.CopyToOwned(outcomePayload), _timeProvider.GetUtcNow().UtcDateTime);
+            _records[key] = new StoredRecord(resolved, _timeProvider.GetTimestamp(), TimeSpan.Zero);
             return true;
         }
     }
@@ -311,17 +335,18 @@ internal sealed class GroupIdempotencyState
     /// <summary>Restores snapshot outcomes and retained records only when the combined set fits the capacity.</summary>
     /// <remarks>
     ///     <para>
-    ///     Behaves exactly like <see cref="RestoreFromSnapshot(IReadOnlyList{GroupIdempotencyRecord}, IReadOnlyList{ulong})" />
+    ///     Behaves exactly like <see cref="RestoreFromSnapshot(IReadOnlyList{GroupIdempotencyRecord}, DateTime, IReadOnlyList{ulong})" />
     ///     except that an over-capacity combined set returns <see langword="false" /> instead of throwing, so callers can
     ///     refuse atomically: no concurrent reservation can slip between the capacity check and the merge.
     ///     </para>
     /// </remarks>
     /// <param name="records">The committed outcomes carried by the snapshot.</param>
+    /// <param name="capturedUtc">When the snapshot captured its outcomes, on the clock that stamped their resolution times.</param>
     /// <param name="retainedLogIndexes">Journal indexes retained after the snapshot boundary.</param>
     /// <returns><see langword="true" /> when the restore was applied; <see langword="false" /> when the combined set exceeds capacity.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="records" /> or <paramref name="retainedLogIndexes" /> is null.</exception>
     /// <exception cref="InvalidDataException">Thrown when a snapshot outcome is not resolved.</exception>
-    internal bool TryRestoreFromSnapshot(IReadOnlyList<GroupIdempotencyRecord> records, IReadOnlyList<ulong> retainedLogIndexes)
+    internal bool TryRestoreFromSnapshot(IReadOnlyList<GroupIdempotencyRecord> records, DateTime capturedUtc, IReadOnlyList<ulong> retainedLogIndexes)
     {
         ArgumentNullException.ThrowIfNull(records);
         ArgumentNullException.ThrowIfNull(retainedLogIndexes);
@@ -329,8 +354,7 @@ internal sealed class GroupIdempotencyState
         {
             ExpireCore();
             ThrowIfOutcomeUnresolved(records);
-            var now = _timeProvider.GetUtcNow().UtcDateTime;
-            var surviving = FilterExpiredSnapshot(records, now);
+            var surviving = AnchorSurviving(records, capturedUtc);
             var retained = CollectRetainedRecords([.. retainedLogIndexes]);
             if (DistinctKeyCount(surviving, retained) > Capacity)
                 return false;
@@ -348,21 +372,21 @@ internal sealed class GroupIdempotencyState
     /// the restore itself.
     /// </remarks>
     /// <param name="records">The committed outcomes carried by the snapshot.</param>
+    /// <param name="capturedUtc">When the snapshot captured its outcomes, on the clock that stamped their resolution times.</param>
     /// <param name="retainedLogIndexes">Journal indexes that would remain authoritative after the restore.</param>
     /// <returns><see langword="true" /> when the combined set fits the configured capacity.</returns>
-    internal bool WouldRestoreFit(IReadOnlyList<GroupIdempotencyRecord> records, IReadOnlyList<ulong> retainedLogIndexes)
+    internal bool WouldRestoreFit(IReadOnlyList<GroupIdempotencyRecord> records, DateTime capturedUtc, IReadOnlyList<ulong> retainedLogIndexes)
     {
         lock (_sync)
         {
             ThrowIfOutcomeUnresolved(records);
-            var now = _timeProvider.GetUtcNow().UtcDateTime;
-            var surviving = FilterExpiredSnapshot(records, now);
-            var expiredKeys = new HashSet<GroupOperationKey>(CollectExpiredKeys(now));
+            var surviving = AnchorSurviving(records, capturedUtc);
+            var expiredKeys = new HashSet<GroupOperationKey>(CollectExpiredKeys());
             var retainedSet = new HashSet<ulong>(retainedLogIndexes);
-            var retained = new List<GroupIdempotencyRecord>();
+            var retained = new List<StoredRecord>();
             foreach (var pair in _records)
             {
-                if (retainedSet.Contains(pair.Value.LogIndex) && !expiredKeys.Contains(pair.Key))
+                if (retainedSet.Contains(pair.Value.Record.LogIndex) && !expiredKeys.Contains(pair.Key))
                     retained.Add(pair.Value);
             }
 
@@ -374,14 +398,14 @@ internal sealed class GroupIdempotencyState
     /// <param name="records">The committed outcomes carried by the snapshot.</param>
     /// <param name="retained">The in-memory records still authoritative after installation.</param>
     /// <returns>The number of distinct keys.</returns>
-    private static int DistinctKeyCount(List<GroupIdempotencyRecord> records, List<GroupIdempotencyRecord> retained)
+    private static int DistinctKeyCount(List<StoredRecord> records, List<StoredRecord> retained)
     {
         var combined = new HashSet<GroupOperationKey>();
         for (var i = 0; i < records.Count; i++)
-            _ = combined.Add(new GroupOperationKey(records[i].OperationScope, records[i].OperationId));
+            _ = combined.Add(GroupOperationKey.Of(records[i].Record));
 
         for (var i = 0; i < retained.Count; i++)
-            _ = combined.Add(new GroupOperationKey(retained[i].OperationScope, retained[i].OperationId));
+            _ = combined.Add(GroupOperationKey.Of(retained[i].Record));
 
         return combined.Count;
     }
@@ -398,12 +422,15 @@ internal sealed class GroupIdempotencyState
         }
     }
 
-    private List<GroupOperationKey> CollectExpiredKeys(DateTime now)
+    private List<GroupOperationKey> CollectExpiredKeys()
     {
         var expired = new List<GroupOperationKey>();
-        foreach (var (key, record) in _records)
+        if (_retention == TimeSpan.MaxValue)
+            return expired;
+
+        foreach (var (key, stored) in _records)
         {
-            if (!record.IsUnresolved && now - record.ResolvedUtc!.Value >= _retention)
+            if (stored.Record.IsResolved && stored.Age(_timeProvider) >= _retention)
                 expired.Add(key);
         }
 
@@ -413,13 +440,13 @@ internal sealed class GroupIdempotencyState
     /// <summary>Collects the in-memory records whose journal index survives the snapshot boundary.</summary>
     /// <param name="retainedSet">The retained journal indexes after the snapshot boundary.</param>
     /// <returns>The in-memory records still authoritative after installation.</returns>
-    private List<GroupIdempotencyRecord> CollectRetainedRecords(HashSet<ulong> retainedSet)
+    private List<StoredRecord> CollectRetainedRecords(HashSet<ulong> retainedSet)
     {
-        var retained = new List<GroupIdempotencyRecord>();
-        foreach (var pair in _records)
+        var retained = new List<StoredRecord>();
+        foreach (var stored in _records.Values)
         {
-            if (retainedSet.Contains(pair.Value.LogIndex))
-                retained.Add(pair.Value);
+            if (retainedSet.Contains(stored.Record.LogIndex))
+                retained.Add(stored);
         }
 
         return retained;
@@ -433,24 +460,31 @@ internal sealed class GroupIdempotencyState
         if (_records.Count == 0)
             return;
 
-        var expired = CollectExpiredKeys(_timeProvider.GetUtcNow().UtcDateTime);
+        var expired = CollectExpiredKeys();
 
         for (var i = 0; i < expired.Count; i++)
             _ = _records.Remove(expired[i]);
     }
 
-    /// <summary>Keeps only the snapshot outcomes still inside their retention window, using the injected time source.</summary>
-    /// <param name="records">The committed outcomes carried by the snapshot (concrete list for devirtualized iteration).</param>
-    /// <param name="now">The current UTC time from the injected <see cref="TimeProvider" />.</param>
-    /// <returns>The surviving outcomes; unexpired resolved outcomes are retained, expired ones dropped.</returns>
-    private List<GroupIdempotencyRecord> FilterExpiredSnapshot(IReadOnlyList<GroupIdempotencyRecord> records, DateTime now)
+    /// <summary>Keeps the snapshot outcomes still inside their retention window and anchors their age on this node's monotonic clock.</summary>
+    /// <param name="records">The committed outcomes carried by the snapshot.</param>
+    /// <param name="capturedUtc">When the snapshot captured its outcomes, on the clock that stamped their resolution times.</param>
+    /// <returns>The surviving outcomes, each carrying the age it had at capture.</returns>
+    /// <remarks>
+    /// The age is the capture time minus the resolution time, both read from the one clock that wrote the snapshot, so this node's
+    /// wall clock is never compared with another node's. A resolution time after the capture time counts as age zero.
+    /// </remarks>
+    private List<StoredRecord> AnchorSurviving(IReadOnlyList<GroupIdempotencyRecord> records, DateTime capturedUtc)
     {
-        var surviving = new List<GroupIdempotencyRecord>(records.Count);
+        var anchor = _timeProvider.GetTimestamp();
+        var surviving = new List<StoredRecord>(records.Count);
         for (var i = 0; i < records.Count; i++)
         {
             var record = records[i];
-            if (_retention == TimeSpan.MaxValue || now - record.ResolvedUtc!.Value < _retention)
-                surviving.Add(record);
+            var age = capturedUtc - record.ResolvedUtc!.Value;
+            age = age > TimeSpan.Zero ? age : TimeSpan.Zero;
+            if (_retention == TimeSpan.MaxValue || age < _retention)
+                surviving.Add(new StoredRecord(record, anchor, age));
         }
 
         return surviving;
@@ -459,26 +493,51 @@ internal sealed class GroupIdempotencyState
     /// <summary>Merges the surviving snapshot outcomes and retained records into the in-memory store.</summary>
     /// <param name="surviving">The snapshot outcomes still inside their retention window.</param>
     /// <param name="retained">The in-memory records still authoritative after installation.</param>
-    private void MergeRestored(List<GroupIdempotencyRecord> surviving, List<GroupIdempotencyRecord> retained)
+    private void MergeRestored(List<StoredRecord> surviving, List<StoredRecord> retained)
     {
         _records.Clear();
         for (var i = 0; i < surviving.Count; i++)
-        {
-            var record = surviving[i];
-            _records[new GroupOperationKey(record.OperationScope, record.OperationId)] = record;
-        }
+            _records[GroupOperationKey.Of(surviving[i].Record)] = surviving[i];
 
         for (var i = 0; i < retained.Count; i++)
-        {
-            var record = retained[i];
-            var key = new GroupOperationKey(record.OperationScope, record.OperationId);
-            _records[key] = record;
-        }
+            _records[GroupOperationKey.Of(retained[i].Record)] = retained[i];
     }
 
     /// <summary>Identity of a retained idempotency record.</summary>
     /// <param name="Scope">The operation scope.</param>
     /// <param name="OperationId">The operation identifier.</param>
     [Immutable]
-    private readonly record struct GroupOperationKey(string Scope, string OperationId);
+    private readonly record struct GroupOperationKey(string Scope, string OperationId)
+    {
+        /// <summary>Returns the identity of a record.</summary>
+        /// <param name="record">The record.</param>
+        /// <returns>Its <c language="csharp">(scope, operation id)</c> key.</returns>
+        internal static GroupOperationKey Of(in GroupIdempotencyRecord record) => new(record.OperationScope, record.OperationId);
+    }
+
+    /// <summary>A retained record with the monotonic anchor its retention is counted from.</summary>
+    /// <param name="Record">The record.</param>
+    /// <param name="AnchorTimestamp">The monotonic timestamp the age is counted from; unused while the record is unresolved.</param>
+    /// <param name="AgeAtAnchor">The age the record already had at <paramref name="AnchorTimestamp" />, carried over from a snapshot.</param>
+    [Immutable]
+    private readonly record struct StoredRecord(GroupIdempotencyRecord Record, long AnchorTimestamp, TimeSpan AgeAtAnchor)
+    {
+        /// <summary>Returns how long ago the record was resolved, on the monotonic clock.</summary>
+        /// <param name="clock">The clock the anchor was read from.</param>
+        /// <returns>The age the record was restored with plus the time since it was anchored.</returns>
+        internal TimeSpan Age(TimeProvider clock) => AgeAtAnchor + clock.GetElapsedTime(AnchorTimestamp);
+
+        /// <summary>Returns the record to export, its resolution time restated as the capture time minus its age.</summary>
+        /// <param name="clock">The clock the anchor was read from.</param>
+        /// <param name="capturedUtc">The capture time, on the clock the snapshot stamps.</param>
+        /// <returns>The record whose resolution time is at its age, rounded up to a whole millisecond, before the capture; it saturates at the earliest date.</returns>
+        internal GroupIdempotencyRecord Export(TimeProvider clock, DateTime capturedUtc)
+        {
+            var age = Age(clock);
+            var partial = age.Ticks % TimeSpan.TicksPerMillisecond;
+            age = partial == 0 || age > TimeSpan.MaxValue - TimeSpan.FromMilliseconds(1) ? age : age.Add(TimeSpan.FromTicks(TimeSpan.TicksPerMillisecond - partial));
+            var resolvedUtc = age < capturedUtc - DateTime.MinValue ? capturedUtc - age : DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
+            return Record with { ResolvedUtc = resolvedUtc };
+        }
+    }
 }

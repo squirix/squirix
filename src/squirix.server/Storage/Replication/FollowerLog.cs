@@ -1885,7 +1885,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 // or fails, the instance is left without partially restored idempotency/baseline, so a retry of OpenAsync on
                 // the same instance cannot operate on inconsistent state. See F37.
                 await ReconcileSnapshotMetadataAsync(journal, owner, snapshot.Value, cancellationToken).ConfigureAwait(false);
-                owner.Idempotency.RestoreFromSnapshot(snapshot.Value.CommittedOutcomes);
+                owner.Idempotency.RestoreFromSnapshot(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc);
 
                 // Recovery rebuilds both indexes from the durable log after this point; the baseline is
                 // restored without pruning because the walk owns the index lifecycle.
@@ -2016,16 +2016,21 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         internal static GroupSnapshot BuildSnapshot(FollowerLogJournal journal, IFollowerLogContext owner, ulong lastIncludedIndex)
         {
+            if (!journal.EntryOffsets.TryGetValue(lastIncludedIndex, out var location))
+                return BuildSnapshotFromBaseline(journal, owner, lastIncludedIndex);
+
             // The two adjacent ulong arguments are LastIncludedIndex and CommitIndex, in declaration order; both
             // equal the snapshot boundary for a freshly created snapshot.
-            return journal.EntryOffsets.TryGetValue(lastIncludedIndex, out var location) ? new GroupSnapshot(
+            var outcomes = ExportCoveredOutcomes(owner, lastIncludedIndex, out var capturedUtc);
+            return new GroupSnapshot(
                 owner.GroupId,
                 owner.Meta.TopologyFingerprint,
                 owner.Meta.ConfigurationGeneration,
                 location.Term,
                 lastIncludedIndex,
                 lastIncludedIndex,
-                ExportCoveredOutcomes(owner, lastIncludedIndex)) : BuildSnapshotFromBaseline(journal, owner, lastIncludedIndex);
+                outcomes,
+                capturedUtc);
         }
 
         internal static async Task<GroupCompactionResult> CompactAsync(FollowerLogJournal journal, IFollowerLogContext owner, CancellationToken cancellationToken)
@@ -2069,7 +2074,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // The capacity refusal must happen before the durable rewrite: once ReplaceLogAsync discards the covered
             // prefix, a refused restore would leave the journal without its committed frames. Fail readiness like
             // the post-rewrite refusal path below does.
-            if (!owner.Idempotency.WouldRestoreFit(snapshot.Value.CommittedOutcomes, retainedLogIndexes))
+            if (!owner.Idempotency.WouldRestoreFit(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc, retainedLogIndexes))
             {
                 owner.Readiness = FollowerLogReadiness.Failed;
                 return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
@@ -2104,7 +2109,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // carried by the retained tail stay authoritative.
             try
             {
-                if (!owner.Idempotency.TryRestoreFromSnapshot(snapshot.Value.CommittedOutcomes, retainedLogIndexes))
+                if (!owner.Idempotency.TryRestoreFromSnapshot(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc, retainedLogIndexes))
                 {
                     // A refused restore leaves the map holding records whose journal frames were already
                     // discarded by the rewrite; the refusal path must fail readiness like the catch below.
@@ -2150,7 +2155,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // Checked before the snapshot is published: the compaction core would refuse the same restore only after the baseline moved,
             // failing readiness, while a refusal here changes nothing.
             var retainedLogIndexes = CollectRetainedLogIndexes(CollectRetainedTail(journal, index));
-            if (!owner.Idempotency.WouldRestoreFit(snapshot.CommittedOutcomes, retainedLogIndexes))
+            if (!owner.Idempotency.WouldRestoreFit(snapshot.CommittedOutcomes, snapshot.CapturedUtc, retainedLogIndexes))
                 return GroupCompactionOutcome.NotReady;
 
             try
@@ -2183,7 +2188,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // installation candidate ahead of a refused restore would leave a published snapshot and advanced watermarks
             // the old journal cannot support, failing recovery on every restart. Fail readiness like compaction's
             // pre-rewrite refusal path does.
-            if (!owner.Idempotency.WouldRestoreFit(snapshot.CommittedOutcomes, retainedLogIndexes))
+            if (!owner.Idempotency.WouldRestoreFit(snapshot.CommittedOutcomes, snapshot.CapturedUtc, retainedLogIndexes))
             {
                 owner.Readiness = FollowerLogReadiness.Failed;
                 return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
@@ -2208,7 +2213,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             owner.RestoreBaseline(new SnapshotBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm));
             try
             {
-                if (!owner.Idempotency.TryRestoreFromSnapshot(snapshot.CommittedOutcomes, retainedLogIndexes))
+                if (!owner.Idempotency.TryRestoreFromSnapshot(snapshot.CommittedOutcomes, snapshot.CapturedUtc, retainedLogIndexes))
                 {
                     // The snapshot and metadata are already durable, and the log rewrite is skipped, so the
                     // journal no longer matches the persisted metadata. Never surface this state as Ready.
@@ -2342,15 +2347,19 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         private static GroupSnapshot BuildSnapshotFromBaseline(FollowerLogJournal journal, IFollowerLogContext owner, ulong lastIncludedIndex)
         {
             // The covered index may be the snapshot base itself, whose frame was already compacted away.
-            return journal.SnapshotBaseline.LastIncludedIndex != 0UL && lastIncludedIndex == journal.SnapshotBaseline.LastIncludedIndex ? new GroupSnapshot(
-                    owner.GroupId,
-                    owner.Meta.TopologyFingerprint,
-                    owner.Meta.ConfigurationGeneration,
-                    journal.SnapshotBaseline.LastIncludedTerm,
-                    lastIncludedIndex,
-                    lastIncludedIndex,
-                    ExportCoveredOutcomes(owner, lastIncludedIndex))
-                : throw new InvalidOperationException($"Replica group '{owner.GroupId}' cannot snapshot from a missing index '{lastIncludedIndex}'.");
+            if (journal.SnapshotBaseline.LastIncludedIndex == 0UL || lastIncludedIndex != journal.SnapshotBaseline.LastIncludedIndex)
+                throw new InvalidOperationException($"Replica group '{owner.GroupId}' cannot snapshot from a missing index '{lastIncludedIndex}'.");
+
+            var outcomes = ExportCoveredOutcomes(owner, lastIncludedIndex, out var capturedUtc);
+            return new GroupSnapshot(
+                owner.GroupId,
+                owner.Meta.TopologyFingerprint,
+                owner.Meta.ConfigurationGeneration,
+                journal.SnapshotBaseline.LastIncludedTerm,
+                lastIncludedIndex,
+                lastIncludedIndex,
+                outcomes,
+                capturedUtc);
         }
 
         /// <summary>Collects the durable log entries whose index is above the snapshot boundary when the boundary matches.</summary>
@@ -2399,10 +2408,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             return tail;
         }
 
-        private static List<GroupIdempotencyRecord> ExportCoveredOutcomes(IFollowerLogContext owner, ulong lastIncludedIndex)
+        private static List<GroupIdempotencyRecord> ExportCoveredOutcomes(IFollowerLogContext owner, ulong lastIncludedIndex, out DateTime capturedUtc)
         {
             var outcomes = new List<GroupIdempotencyRecord>();
-            foreach (var record in owner.Idempotency.ExportResolved())
+            foreach (var record in owner.Idempotency.ExportResolved(out capturedUtc))
             {
                 if (record.LogIndex <= lastIncludedIndex)
                     outcomes.Add(record);

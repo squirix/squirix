@@ -256,7 +256,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <param name="snapshot">The snapshot about to be published.</param>
     /// <exception cref="InvalidOperationException">
     /// Thrown when the commit index is below the included index, the included term is zero for a non-empty snapshot,
-    /// or the snapshot belongs to another group.
+    /// an outcome is resolved after the capture time, or the snapshot belongs to another group.
     /// </exception>
     private void ValidatePublishBoundaryInvariants(GroupSnapshot snapshot)
     {
@@ -270,6 +270,10 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         // from an unset sentinel and would render the group unrecoverable. Mirror that refusal at write time.
         if (snapshot.LastIncludedIndex != 0 && snapshot.LastIncludedTerm == 0)
             throw new InvalidOperationException($"Replica group snapshot at included index {snapshot.LastIncludedIndex} has a zero included term.");
+
+        // The decoder refuses an outcome resolved after the capture time: its age would be negative, which only a wiring mistake produces.
+        if (GroupSnapshotCodec.HasOutcomeAfterCapture(snapshot.CommittedOutcomes, snapshot.CapturedUtc))
+            throw new InvalidOperationException("Replica group snapshot carries an outcome resolved after its capture time.");
 
         // ReadPublishedAsync refuses a snapshot whose group id differs from this store's group. Reject the
         // mismatch before the atomic replacement destroys the previously published, readable snapshot.
@@ -364,8 +368,8 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         /// <summary>Byte count of the outcome term field.</summary>
         internal const int OutcomeTermByteCount = 8;
 
-        /// <summary>Fixed payload fields: generation(8) + lastIncludedTerm(8) + lastIncludedIndex(8) + commitIndex(8).</summary>
-        internal const int SnapshotFixedByteCount = SnapshotFixedFieldByteCount * 4;
+        /// <summary>Fixed payload fields: generation(8) + lastIncludedTerm(8) + lastIncludedIndex(8) + commitIndex(8) + capturedUtc(8).</summary>
+        internal const int SnapshotFixedByteCount = SnapshotFixedFieldByteCount * 5;
 
         /// <summary>Byte count of a fixed 64-bit snapshot payload field.</summary>
         internal const int SnapshotFixedFieldByteCount = 8;
@@ -386,7 +390,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         internal const int SnapshotPayloadPrefixByteCount = GroupIdLengthPrefixByteCount + FingerprintLengthPrefixByteCount + OutcomeCountLengthPrefixByteCount;
 
         /// <summary>Snapshot format version.</summary>
-        internal const byte SnapshotVersion = 2;
+        internal const byte SnapshotVersion = 3;
 
         /// <summary>Length-prefix byte count for a 16-bit-prefixed UTF-8 string field.</summary>
         internal const int String16LengthPrefixByteCount = 2;
@@ -428,6 +432,23 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
 
             return length > int.MaxValue ? throw new InvalidOperationException($"Replica group snapshot encoded length {length} exceeds the maximum.")
                 : int.CreateTruncating(length);
+        }
+
+        /// <summary>Determines whether an outcome is resolved after the capture time, so its age would be negative.</summary>
+        /// <param name="outcomes">The outcomes.</param>
+        /// <param name="capturedUtc">The capture time.</param>
+        /// <returns><see langword="true" /> when some resolved outcome is later than <paramref name="capturedUtc" />.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="outcomes" /> is null.</exception>
+        internal static bool HasOutcomeAfterCapture(IReadOnlyList<GroupIdempotencyRecord> outcomes, DateTime capturedUtc)
+        {
+            ArgumentNullException.ThrowIfNull(outcomes);
+            for (var i = 0; i < outcomes.Count; i++)
+            {
+                if (outcomes[i].ResolvedUtc is { } resolvedUtc && resolvedUtc.Ticks > capturedUtc.Ticks)
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>Validates a complete snapshot file: header, declared length, checksum, and bounded size.</summary>
@@ -519,13 +540,13 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
 
             var outcomeCount = BinaryPrimitives.ReadInt32LittleEndian(buffer[offset..]);
             offset += GroupSnapshotCodec.OutcomeCountLengthPrefixByteCount;
-            if (!TryReadOutcomes(buffer, ref offset, outcomeCount, header.LastIncludedIndex, out var outcomes))
+            if (!TryReadOutcomes(buffer, ref offset, outcomeCount, header.LastIncludedIndex, out var outcomes) || GroupSnapshotCodec.HasOutcomeAfterCapture(outcomes, header.CapturedUtc))
                 return false;
 
             if (offset != buffer.Length)
                 return false;
 
-            snapshot = new GroupSnapshot(groupId, fingerprint, header.Generation, header.LastIncludedTerm, header.LastIncludedIndex, header.CommitIndex, outcomes);
+            snapshot = new GroupSnapshot(groupId, fingerprint, header.Generation, header.LastIncludedTerm, header.LastIncludedIndex, header.CommitIndex, outcomes, header.CapturedUtc);
             return true;
         }
 
@@ -657,6 +678,8 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], snapshot.LastIncludedIndex);
             offset += GroupSnapshotCodec.SnapshotFixedFieldByteCount;
             BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], snapshot.CommitIndex);
+            offset += GroupSnapshotCodec.SnapshotFixedFieldByteCount;
+            BinaryPrimitives.WriteInt64LittleEndian(buffer[offset..], UnixMs(snapshot.CapturedUtc));
             offset += GroupSnapshotCodec.SnapshotFixedFieldByteCount;
 
             WriteString(buffer, snapshot.GroupId, ref offset);
@@ -807,7 +830,10 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             var lastIncludedTerm = BinaryPrimitives.ReadUInt64LittleEndian(buffer[fixedField..]);
             var lastIncludedIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[(fixedField * 2)..]);
             var commitIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[(fixedField * 3)..]);
-            header = new SnapshotHeader(generation, lastIncludedTerm, lastIncludedIndex, commitIndex, GroupSnapshotCodec.SnapshotFixedByteCount);
+            if (!TryCreateUtc(BinaryPrimitives.ReadInt64LittleEndian(buffer[(fixedField * 4)..]), out var capturedUtc))
+                return false;
+
+            header = new SnapshotHeader(generation, lastIncludedTerm, lastIncludedIndex, commitIndex, capturedUtc, GroupSnapshotCodec.SnapshotFixedByteCount);
             return true;
         }
 

@@ -47,7 +47,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
             new("client", "operation-2", new byte[] { 2 }, new byte[] { 8 }, GroupRecordKind.UserMutation, now, now, 2UL, 1UL),
             new("client", "operation-3", new byte[] { 3 }, new byte[] { 8 }, GroupRecordKind.UserMutation, now, now, 3UL, 1UL),
         };
-        var oversized = new GroupSnapshot(GroupId, status.TopologyFingerprint, status.ConfigurationGeneration, 1UL, 3UL, 3UL, outcomes);
+        var oversized = new GroupSnapshot(GroupId, status.TopologyFingerprint, status.ConfigurationGeneration, 1UL, 3UL, 3UL, outcomes, now);
 
         var result = await log.InstallSnapshotAsync(oversized, 1UL, cancellationToken);
 
@@ -119,7 +119,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
             await log.OpenAsync(cancellationToken);
-            var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>());
+            var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
 
             var result = await log.InstallSnapshotAsync(snapshot, 5UL, cancellationToken);
 
@@ -147,7 +147,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
 
-        var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 5UL, 2UL, Array.Empty<GroupIdempotencyRecord>());
+        var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 5UL, 2UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
 
         var result = await log.InstallSnapshotAsync(malformed, 1UL, cancellationToken);
 
@@ -173,7 +173,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
         var now = DateTime.UtcNow;
         var outcome = new GroupIdempotencyRecord("client", "operation-1", new byte[] { 1, 2, 3 }, new byte[] { 8 }, GroupRecordKind.UserMutation, now, now, 4UL, 1UL);
-        var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 3UL, 3UL, new[] { outcome });
+        var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 3UL, 3UL, new[] { outcome }, now);
 
         var result = await log.InstallSnapshotAsync(malformed, 1UL, cancellationToken);
 
@@ -204,7 +204,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await log.AppendAsync(second, cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
 
-        var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 2UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>());
+        var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 2UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
 
         var result = await log.InstallSnapshotAsync(snapshot, 1UL, cancellationToken);
 
@@ -240,7 +240,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
             1UL,
             1UL);
 
-        var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 2UL, 2UL, new[] { unresolved });
+        var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 2UL, 2UL, new[] { unresolved }, DateTime.UnixEpoch);
 
         var result = await log.InstallSnapshotAsync(malformed, 1UL, cancellationToken);
 
@@ -266,7 +266,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
 
-        var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, 5UL, 5UL, Array.Empty<GroupIdempotencyRecord>());
+        var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, 5UL, 5UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
 
         var result = await log.InstallSnapshotAsync(malformed, 1UL, cancellationToken);
 
@@ -302,7 +302,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
             var status = await log.GetStatusAsync(cancellationToken);
             const GroupRecordKind kind = GroupRecordKind.UserMutation;
             var outcome = new GroupIdempotencyRecord("client", "op-B", new byte[] { 2 }, new byte[] { 8 }, kind, DateTime.UtcNow, DateTime.UtcNow, 1UL, 1UL);
-            var snapshot = new GroupSnapshot(GroupId, status.TopologyFingerprint, status.ConfigurationGeneration, 1UL, 1UL, 1UL, new List<GroupIdempotencyRecord> { outcome });
+            var snapshot = new GroupSnapshot(GroupId, status.TopologyFingerprint, status.ConfigurationGeneration, 1UL, 1UL, 1UL, new List<GroupIdempotencyRecord> { outcome }, outcome.ResolvedUtc!.Value);
 
             faults.Arm();
             _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidOperationException>(log.InstallSnapshotAsync(snapshot, 1UL, cancellationToken));

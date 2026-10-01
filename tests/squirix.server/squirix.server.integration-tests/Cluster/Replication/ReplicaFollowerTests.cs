@@ -119,7 +119,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         using var dir = new TempDirectory("squirix-follower-topology");
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
         var service = new ReplicaFollower(registry);
-        var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>());
+        var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
         _ = await Assert.That((await service.InstallSnapshotAsync(GroupId, Fingerprint, 1UL, snapshot, 1UL, cancellationToken)).Success).IsTrue();
 
         var fingerprint = await service.AppendAsync(GroupId, new byte[] { 4 }, 1UL, Batch("leader", 1UL, 1UL, 1UL, 1UL, Record(2UL, 1UL)), cancellationToken);
@@ -140,7 +140,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-follower-upload");
         using var dir2 = new TempDirectory("squirix-follower-upload-source");
-        var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>());
+        var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
         var fileBytes = await PublishAsync(dir2, snapshot, cancellationToken);
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
         var service = new ReplicaFollower(registry);
@@ -161,7 +161,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-follower-upload-corrupt");
         using var dir2 = new TempDirectory("squirix-follower-upload-corrupt-source");
-        var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>());
+        var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
         var fileBytes = await PublishAsync(dir2, snapshot, cancellationToken);
         fileBytes[^1] ^= 0xFF;
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);

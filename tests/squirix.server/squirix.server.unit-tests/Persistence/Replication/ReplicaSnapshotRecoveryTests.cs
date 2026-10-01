@@ -37,7 +37,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
             await seed.OpenAsync(cancellationToken);
         await new GroupSnapshotStore(dir, GroupId).PublishAsync(
-            new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 5UL, 7UL, Array.Empty<GroupIdempotencyRecord>()),
+            new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 5UL, 7UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch),
             cancellationToken);
 
         var snapshotPath = GroupStoragePaths.GetSnapshotPath(dir, GroupId);
@@ -327,7 +327,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await using (var seed = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance))
             await seed.OpenAsync(cancellationToken);
 
-        var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 5UL, 2UL, Array.Empty<GroupIdempotencyRecord>());
+        var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 5UL, 2UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
         var store = new GroupSnapshotStore(dir, GroupId);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(store.PublishAsync(malformed, cancellationToken));
@@ -510,7 +510,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         // must never replace a previously published, readable snapshot.
         var store = new GroupSnapshotStore(dir, GroupId);
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
-            store.PublishAsync(new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>()), cancellationToken));
+            store.PublishAsync(new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch), cancellationToken));
 
         await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
@@ -563,7 +563,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await seed.AdvanceCommitAsync(1UL, cancellationToken);
         }
 
-        await store.PublishAsync(new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 3UL, 3UL, Array.Empty<GroupIdempotencyRecord>()), cancellationToken);
+        await store.PublishAsync(new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 3UL, 3UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch), cancellationToken);
 
         var candidate = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, string.Empty, 3UL, 3UL, 3UL);
         await WriteMetadataAsync(dir, candidate, cancellationToken);
@@ -617,7 +617,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             null,
             1UL,
             1UL);
-        var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 1UL, 1UL, 1UL, 1UL, [unresolvedRecord]);
+        var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 1UL, 1UL, 1UL, 1UL, [unresolvedRecord], DateTime.UnixEpoch);
 
         _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidOperationException>(store.PublishAsync(snapshot, cancellationToken));
         _ = await Assert.That(store.SnapshotExists).IsFalse();
@@ -664,7 +664,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             await seed.OpenAsync(cancellationToken);
 
         var storeA = new GroupSnapshotStore(dir, "grp-a");
-        await storeA.PublishAsync(new GroupSnapshot("grp-a", ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>()), cancellationToken);
+        await storeA.PublishAsync(new GroupSnapshot("grp-a", ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch), cancellationToken);
 
         var sourcePath = GroupStoragePaths.GetSnapshotPath(dir, "grp-a");
         var targetPath = GroupStoragePaths.GetSnapshotPath(dir, "grp-b");
@@ -842,13 +842,14 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await using (var seed = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance))
             await seed.OpenAsync(cancellationToken);
 
-        await new GroupSnapshotStore(dir, GroupId).PublishAsync(new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, outcomes), cancellationToken);
+        await new GroupSnapshotStore(dir, GroupId).PublishAsync(new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, outcomes, timestamp), cancellationToken);
 
         var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId).ReadPublishedAsync(cancellationToken)).IsNotNull();
         var restored = await Assert.That(published.CommittedOutcomes).HasSingleItem();
         var expected = new DateTime(2024, 5, 1, 12, 0, 0, DateTimeKind.Utc);
         _ = await Assert.That(restored.CreatedUtc).IsEqualTo(expected);
         _ = await Assert.That(restored.ResolvedUtc).IsEqualTo(expected);
+        _ = await Assert.That(published.CapturedUtc).IsEqualTo(expected);
     }
 
     /// <summary>A snapshot belonging to a different group fails readiness on recovery.</summary>
