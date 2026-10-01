@@ -65,7 +65,7 @@ internal sealed class JournalDurabilityGroupCommit
 
                 if (_acks.Count == 0)
                 {
-                    _batchDeadline.Arm(_timeProvider.GetUtcNow().Add(_opt.JournalGroupCommitMaxWait).Ticks);
+                    _batchDeadline.Arm(_timeProvider.GetTimestamp());
                     signalJournal = true;
                 }
 
@@ -124,8 +124,11 @@ internal sealed class JournalDurabilityGroupCommit
             if (_acks.Count == 0 || !_batchDeadline.IsArmed)
                 return Timeout.Infinite;
 
-            var remaining = TimeSpan.FromTicks(_batchDeadline.Ticks - _timeProvider.GetUtcNow().Ticks);
-            return remaining <= TimeSpan.Zero ? 0 : Convert.ToInt32(Math.Min(remaining.TotalMilliseconds, int.MaxValue));
+            // Clamped to the batch window as a defensive bound: the wait never outlasts one MaxWait whatever the clock reports.
+            var maxWait = _opt.JournalGroupCommitMaxWait;
+            var remaining = maxWait - _timeProvider.GetElapsedTime(_batchDeadline.ArmedTimestamp);
+            var wait = remaining < maxWait ? remaining : maxWait;
+            return wait <= TimeSpan.Zero ? 0 : Convert.ToInt32(Math.Min(wait.TotalMilliseconds, int.MaxValue));
         }
     }
 
@@ -191,8 +194,7 @@ internal sealed class JournalDurabilityGroupCommit
                 return false;
             }
 
-            var now = _timeProvider.GetUtcNow().Ticks;
-            var due = _acks.Count >= _opt.JournalGroupCommitMaxBatch || now >= _batchDeadline.Ticks;
+            var due = _acks.Count >= _opt.JournalGroupCommitMaxBatch || _timeProvider.GetElapsedTime(_batchDeadline.ArmedTimestamp) >= _opt.JournalGroupCommitMaxWait;
             if (!due)
             {
                 batch = _acks;
@@ -208,15 +210,26 @@ internal sealed class JournalDurabilityGroupCommit
         }
     }
 
-    /// <summary>Mutable group-commit batch deadline; keeps assignments off <see cref="JournalDurabilityGroupCommit" /> for ND1906.</summary>
+    /// <summary>
+    /// Mutable group-commit batch deadline, kept as the monotonic timestamp the first waiter armed it at so a wall-clock step
+    /// cannot move it; keeps assignments off <see cref="JournalDurabilityGroupCommit" /> for ND1906.
+    /// </summary>
     private sealed class BatchDeadline
     {
-        internal bool IsArmed => Ticks != 0;
+        internal long ArmedTimestamp { get; private set; }
 
-        internal long Ticks { get; private set; }
+        internal bool IsArmed { get; private set; }
 
-        internal void Arm(long ticks) => Ticks = ticks;
+        internal void Arm(long timestamp)
+        {
+            ArmedTimestamp = timestamp;
+            IsArmed = true;
+        }
 
-        internal void Clear() => Ticks = 0;
+        internal void Clear()
+        {
+            ArmedTimestamp = 0;
+            IsArmed = false;
+        }
     }
 }
