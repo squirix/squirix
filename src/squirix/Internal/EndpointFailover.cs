@@ -68,7 +68,7 @@ internal sealed class EndpointFailover
 
         var clock = _timeProvider;
         var deadlineUtc = clock.GetUtcNow() + _operationDeadline;
-        using var deadlineScope = RpcDeadlineContext.Push(deadlineUtc.UtcDateTime);
+        using var deadlineScope = RpcDeadlineContext.Push(deadlineUtc.UtcDateTime, clock);
         var startIndex = ActiveIndexSnapshot();
         Exception? lastFailure = null;
         var rerouted = false;

@@ -88,7 +88,7 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         using (var none = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", default), capture.OnContinueAsync))
             _ = await Assert.That(capture.Deadline).IsNull();
 
-        using (ServerRpcDeadlineContext.Push(contextDeadline))
+        using (ServerRpcDeadlineContext.Push(contextDeadline, TimeProvider.System))
         {
             using var absent = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", default), capture.OnContinueAsync);
             _ = await Assert.That(capture.Deadline).IsEqualTo(contextDeadline);

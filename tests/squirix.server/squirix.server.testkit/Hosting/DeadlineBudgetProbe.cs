@@ -49,7 +49,7 @@ public sealed class DeadlineBudgetProbe
         public override Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
         {
             if (context.Method.Contains(CacheServiceSegment, StringComparison.Ordinal))
-                _probe.Record(ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow));
+                _probe.Record(ServerRpcDeadlineContext.GetRemainingBudget());
 
             return continuation(request, context);
         }

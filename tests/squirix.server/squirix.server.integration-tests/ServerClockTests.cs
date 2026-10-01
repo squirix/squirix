@@ -227,7 +227,10 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
         }
     }
 
-    /// <summary>A fake clock that counts the timers created by the call flow inside <see cref="RecordCaller" />.</summary>
+    /// <summary>
+    /// A fake clock that counts the backoff timers created by the call flow inside <see cref="RecordCaller" />: those due within a second, which
+    /// leaves out the much longer per-attempt timeout armed on the same clock.
+    /// </summary>
     [ThreadSafe]
     private sealed class CallerTimerClock : FakeTimeProvider
     {
@@ -243,7 +246,7 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
 
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
-            if (_recording.Value)
+            if (_recording.Value && dueTime < TimeSpan.FromSeconds(1))
                 _ = Interlocked.Increment(ref _count);
 
             return base.CreateTimer(callback, state, dueTime, period);

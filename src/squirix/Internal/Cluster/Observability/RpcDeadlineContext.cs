@@ -10,15 +10,25 @@ internal static class RpcDeadlineContext
     /// <summary>Gets the ambient absolute operation deadline in UTC, or <see langword="null" /> when none is set.</summary>
     internal static DateTime? CurrentDeadlineUtc => Current.Value?.Deadline;
 
-    internal static TimeSpan? GetRemainingBudget(DateTime nowUtc)
-    {
-        var deadline = CurrentDeadlineUtc;
-        return deadline == null ? null : deadline.Value - nowUtc;
-    }
+    /// <summary>Gets the clock the current deadline counts down on, or <see langword="null" /> when no deadline is set.</summary>
+    internal static TimeProvider? CurrentClock => Current.Value?.Budget?.Clock;
 
-    internal static IDisposable Push(DateTime? deadlineUtc)
+    /// <summary>Returns the budget left before the current deadline, measured on monotonic time since it was pushed.</summary>
+    /// <returns>The remaining budget, negative once the deadline passed; <see langword="null" /> when no deadline is set.</returns>
+    internal static TimeSpan? GetRemainingBudget() => Current.Value?.Budget?.Remaining;
+
+    /// <summary>Pushes an absolute deadline and converts it once into a budget that counts down on monotonic time.</summary>
+    /// <param name="deadlineUtc">The absolute deadline, or <see langword="null" /> for none.</param>
+    /// <param name="clock">
+    /// The clock the deadline is expressed in: its wall time converts the deadline into a budget, and its monotonic timestamp counts the
+    /// budget down, so a wall-clock step after the push leaves the budget unchanged.
+    /// </param>
+    /// <returns>The scope that restores the previous deadline when disposed.</returns>
+    internal static IDisposable Push(DateTime? deadlineUtc, TimeProvider clock)
     {
-        var scope = new Scope(Normalize(deadlineUtc), Current.Value);
+        ArgumentNullException.ThrowIfNull(clock);
+        var deadline = Normalize(deadlineUtc);
+        var scope = new Scope(deadline, deadline is { } value ? DeadlineBudget.Start(value, clock) : null, Current.Value);
         Current.Value = scope;
         return scope;
     }
@@ -36,11 +46,14 @@ internal static class RpcDeadlineContext
         private readonly Scope? _parent;
         private int _disposed;
 
-        internal Scope(DateTime? deadline, Scope? parent)
+        internal Scope(DateTime? deadline, DeadlineBudget? budget, Scope? parent)
         {
             Deadline = deadline;
+            Budget = budget;
             _parent = parent;
         }
+
+        internal DeadlineBudget? Budget { get; }
 
         internal DateTime? Deadline { get; }
 
