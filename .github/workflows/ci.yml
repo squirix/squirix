@@ -160,7 +160,9 @@ jobs:
                     push: false
                     tags: squirix-server:ci
                     cache-from: type=gha
-                    cache-to: type=gha,mode=max
+                    # A cache written by a pull request run is visible only to that pull request, and exporting it costs
+                    # 7-45 s per run. Pull requests read the layers that develop and main write and export nothing.
+                    cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max' || '' }}
 
     # Per-OS builds so ubuntu consumers are not blocked on Windows/macOS restore+build.
     # Keep display names identical to the former matrix jobs for branch-protection continuity.
