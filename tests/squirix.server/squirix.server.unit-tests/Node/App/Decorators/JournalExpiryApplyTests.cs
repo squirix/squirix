@@ -36,7 +36,6 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
 {
     private const string CacheName = "cache";
     private const string Key = "k";
-    private const string Self = "node-a";
 
     private static readonly TimeSpan ApplyDelay = TimeSpan.FromMinutes(5);
     private static readonly DateTimeOffset Start = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
@@ -90,8 +89,6 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         await using (var harness = await Harness.CreateAsync(Dir, clock, cancellationToken))
         {
             var prepare = new JournalPayloadPrepareCacheDecorator<string>(
-                Self,
-                RocksDoubles.CreateOwnerLocator(Self),
                 harness.CreateDecorator(CreateDelayingInner(harness.Real, clock)));
             _ = await Assert.That(await prepare.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, CreateRelativeEntry(), cancellationToken)).IsTrue();
             await AssertMemoryDeadlineAsync(harness.Physical, cancellationToken);
@@ -109,8 +106,6 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         await using (var harness = await Harness.CreateAsync(Dir, clock, cancellationToken))
         {
             var prepare = new JournalPayloadPrepareCacheDecorator<string>(
-                Self,
-                RocksDoubles.CreateOwnerLocator(Self),
                 harness.CreateDecorator(CreateDelayingInner(harness.Real, clock)));
             await prepare.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, CreateRelativeEntry(), cancellationToken);
             await AssertMemoryDeadlineAsync(harness.Physical, cancellationToken);
@@ -340,6 +335,6 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         }
 
         internal JournalLoggingCacheDecorator<string> CreateDecorator(ILogicalNamespacedCache<string> inner, bool useRawReader = false) =>
-            new(Self, RocksDoubles.CreateOwnerLocator(Self), inner, Journal, new DurableMutationExecutor(Journal, NullLogger<DurableMutationExecutor>.Instance), _clock, useRawReader ? Physical.RawReader : null);
+            new(inner, Journal, new DurableMutationExecutor(Journal, NullLogger<DurableMutationExecutor>.Instance), _clock, useRawReader ? Physical.RawReader : null);
     }
 }

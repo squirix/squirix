@@ -3,6 +3,9 @@ namespace Squirix.Server.Node.App.Decorators;
 /// <summary>Stable, low-cardinality logical cache operation names shared across operational sinks (metrics, tracing, and similar).</summary>
 internal static class CacheOperationNames
 {
+    /// <summary>The admission transport label of cache operations.</summary>
+    internal const string CacheTransport = "cache";
+
     internal const string Get = "get";
     internal const string GetEntry = "get_entry";
     internal const string Remove = "remove";

@@ -175,7 +175,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         var accounting = new MemoryUsageAccounting();
         var estimator = new CacheEntrySizeEstimator<string>();
         var gate = CreatePermissiveGate(accounting, Self, _testMeter);
-        var cache = new MemoryAdmissionCacheDecorator<string>(inner.Instance(), gate, estimator, accounting, RocksDoubles.CreateOwnerLocator(Self), Self);
+        var cache = new MemoryAdmissionCacheDecorator<string>(inner.Instance(), gate, estimator, accounting);
 
         _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, small, cancellationToken)).IsTrue();
 
@@ -212,7 +212,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         var accounting = new MemoryUsageAccounting();
         var estimator = new CacheEntrySizeEstimator<string>();
         var gate = CreatePermissiveGate(accounting, Self, _testMeter);
-        var cache = new MemoryAdmissionCacheDecorator<string>(inner.Instance(), gate, estimator, accounting, RocksDoubles.CreateOwnerLocator(Self), Self);
+        var cache = new MemoryAdmissionCacheDecorator<string>(inner.Instance(), gate, estimator, accounting);
         var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
 
         await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, cancellationToken);
@@ -322,7 +322,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         var accounting = new MemoryUsageAccounting();
         var estimator = new CacheEntrySizeEstimator<string>();
         var gate = CreatePermissiveGate(accounting, self, meter);
-        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting, RocksDoubles.CreateOwnerLocator(self), self);
+        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting);
         return (cache, inner, accounting, estimator);
     }
 

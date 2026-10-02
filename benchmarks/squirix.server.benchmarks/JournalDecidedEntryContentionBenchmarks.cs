@@ -3,7 +3,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Microsoft.Extensions.Logging.Abstractions;
-using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
@@ -24,7 +23,6 @@ public class JournalDecidedEntryContentionBenchmarks
     private const int LargeValueBytes = 1024 * 1024;
     private const string LargeCache = "large";
     private const int OperationsPerInvoke = 500;
-    private const string Self = "node-a";
     private const string SmallCache = "small";
     private static readonly TimeSpan ContenderPause = TimeSpan.FromMilliseconds(10);
     private JournalLoggingCacheDecorator<string>? _decorator;
@@ -60,8 +58,6 @@ public class JournalDecidedEntryContentionBenchmarks
         _host = await JournalBenchmarkHost.CreateAsync("journal-decided-contention-bench", options, CancellationToken.None).ConfigureAwait(false);
         _largeValue = new string('x', LargeValueBytes);
         _decorator = new JournalLoggingCacheDecorator<string>(
-            Self,
-            new SelfLocator(),
             new StubCache(_largeValue),
             _host.Coordinator,
             new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance));
@@ -117,12 +113,6 @@ public class JournalDecidedEntryContentionBenchmarks
             await stop.CancelAsync().ConfigureAwait(false);
             await contention.ConfigureAwait(false);
         }
-    }
-
-    /// <summary>Owner locator that assigns every key to the local node.</summary>
-    private sealed class SelfLocator : INodeLocator
-    {
-        public string GetOwner(string cacheName, string key) => Self;
     }
 
     /// <summary>Cache stub that holds one 1 MiB entry with a deadline in the large cache and accepts every write.</summary>

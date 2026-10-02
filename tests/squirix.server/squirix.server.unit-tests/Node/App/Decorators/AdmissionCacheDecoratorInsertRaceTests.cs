@@ -49,9 +49,7 @@ public sealed class AdmissionCacheDecoratorInsertRaceTests : DisposableServerUni
             inner,
             CreatePermissiveGate(accounting),
             estimator,
-            accounting,
-            RocksDoubles.CreateOwnerLocator(Self),
-            Self);
+            accounting);
         var small = new NodeCacheEntry<string> { Value = "v", Version = 1 };
         var large = new NodeCacheEntry<string> { Value = "a much longer value than the winner stores", Version = 1 };
 

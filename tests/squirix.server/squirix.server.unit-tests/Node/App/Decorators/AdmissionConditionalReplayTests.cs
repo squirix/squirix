@@ -107,6 +107,6 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     {
         var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
         var gate = new PressureGate(new StateEvaluator(options), accounting, Self, _testMeter);
-        return new MemoryAdmissionCacheDecorator<string>(inner, gate, new CacheEntrySizeEstimator<string>(), accounting, RocksDoubles.CreateOwnerLocator(Self), Self, hasRecordedOutcome);
+        return new MemoryAdmissionCacheDecorator<string>(inner, gate, new CacheEntrySizeEstimator<string>(), accounting, hasRecordedOutcome);
     }
 }

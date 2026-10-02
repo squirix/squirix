@@ -20,7 +20,6 @@ internal static class ServerArchitectureFixtures
         "ILogicalNamespacedCache",
         "ICacheApi<",
         "LocalCache<",
-        "ClusteredCache<",
         "JournalCoordinator",
         "Coordinator",
         "Squirix.Storage.Journaling",

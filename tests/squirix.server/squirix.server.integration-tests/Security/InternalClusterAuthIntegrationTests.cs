@@ -179,6 +179,43 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         _ = await Assert.That(ex.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
     }
 
+    /// <summary>Verifies trusted internode reads with internal owner-routing metadata are rejected when the key is not owned locally.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the peer internode URL is missing.</exception>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OwnerRpcReadWrongNodeReturnsStaleOwner(CancellationToken cancellationToken)
+    {
+        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
+        var peers = cluster.Peers;
+
+        var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "stale-owner-read");
+        var nodeBUrl = FindPeer(peers, "node-b").Uri;
+        var interNodeUrlA = ThrowHelper.Required(FindPeer(peers, "node-a").InterNodeUri, "Expected internode URL for node-a.");
+
+        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", nodeBUrl, "node-a", peers, cancellationToken);
+        using var channel = GrpcChannel.ForAddress(
+            interNodeUrlA,
+            new GrpcChannelOptions
+            {
+                HttpHandler = handler,
+                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
+            });
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var options = new CallOptions(new Metadata { { "squirix-internal-owner-rpc", "true" } }, cancellationToken: cancellationToken);
+
+        var value = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, options).ResponseAsync);
+        var entry = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, options).ResponseAsync);
+        var expiration = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = "default", Key = key }, options).ResponseAsync);
+
+        _ = await Assert.That(value.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
+        _ = await Assert.That(value.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(entry.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
+        _ = await Assert.That(entry.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(expiration.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
+        _ = await Assert.That(expiration.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
+    }
+
     /// <summary>Verifies internal owner-routing metadata is rejected on the external listener even with JWT auth.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

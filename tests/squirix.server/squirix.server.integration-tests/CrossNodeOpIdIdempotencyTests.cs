@@ -1,11 +1,17 @@
 using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Google.Protobuf;
 using Grpc.Core;
+using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
@@ -22,6 +28,31 @@ namespace Squirix.Server.IntegrationTests;
 /// </summary>
 public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
 {
+    /// <summary>The single-key mutations that clients send to any node.</summary>
+    public enum ForwardedMutation
+    {
+        /// <summary>Gets the value, adding the entry when absent.</summary>
+        GetOrAdd = 0,
+
+        /// <summary>Removes the entry.</summary>
+        Remove = 1,
+
+        /// <summary>Removes the expiration of the entry.</summary>
+        RemoveExpiration = 2,
+
+        /// <summary>Sets the entry.</summary>
+        SetEntry = 3,
+
+        /// <summary>Sets a new expiration on the entry.</summary>
+        Touch = 4,
+
+        /// <summary>Adds the entry when absent.</summary>
+        TryAddEntry = 5,
+
+        /// <summary>Replaces the value of the entry.</summary>
+        Update = 6,
+    }
+
     /// <summary>Gets the shared two-node fixture injected once per test class.</summary>
     [ClassDataSource<IntegrationTwoNodeFixture>(Shared = SharedType.PerClass)]
     public required IntegrationTwoNodeFixture Fixture { get; init; }
@@ -119,5 +150,129 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         _ = await Assert.That(ex.Status.Detail).IsEqualTo(ServerOpIdMismatchException.StableDetail);
+    }
+
+    /// <summary>Every mutation sent to the key owner first and replayed through the other node answers identically and takes effect once.</summary>
+    /// <param name="mutation">The mutation under test.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(ForwardedMutation.GetOrAdd)]
+    [Arguments(ForwardedMutation.Remove)]
+    [Arguments(ForwardedMutation.RemoveExpiration)]
+    [Arguments(ForwardedMutation.SetEntry)]
+    [Arguments(ForwardedMutation.Touch)]
+    [Arguments(ForwardedMutation.TryAddEntry)]
+    [Arguments(ForwardedMutation.Update)]
+    public Task OwnerThenNonOwnerReplaysOnce(ForwardedMutation mutation, CancellationToken cancellationToken) => AssertReplayOnceAsync(mutation, false, cancellationToken);
+
+    /// <summary>Every mutation sent to a non-owner first (and forwarded) and replayed on the key owner answers identically and takes effect once.</summary>
+    /// <param name="mutation">The mutation under test.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(ForwardedMutation.GetOrAdd)]
+    [Arguments(ForwardedMutation.Remove)]
+    [Arguments(ForwardedMutation.RemoveExpiration)]
+    [Arguments(ForwardedMutation.SetEntry)]
+    [Arguments(ForwardedMutation.Touch)]
+    [Arguments(ForwardedMutation.TryAddEntry)]
+    [Arguments(ForwardedMutation.Update)]
+    public Task NonOwnerThenOwnerReplaysOnce(ForwardedMutation mutation, CancellationToken cancellationToken) => AssertReplayOnceAsync(mutation, true, cancellationToken);
+
+    /// <summary>Reads sent to a non-owner are forwarded to the key owner and return what the owner holds.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ForwardedReadsReturnOwnerState(CancellationToken cancellationToken)
+    {
+        var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "forwarded-reads");
+        using var channelA = CreateGrpcChannel(UriA);
+        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
+        using var channelB = CreateGrpcChannel(UriB);
+        var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
+        _ = await clientB.SetEntryAsync(CreateSet(key, "owner-value", TimeSpan.FromHours(1)), cancellationToken: cancellationToken);
+
+        var value = await clientA.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
+        var entry = await clientA.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
+        var expiration = await clientA.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
+
+        _ = await Assert.That(value.Found).IsTrue();
+        _ = await Assert.That(value.Value.StringValue).IsEqualTo("owner-value");
+        _ = await Assert.That(entry.Found).IsTrue();
+        _ = await Assert.That(expiration.HasExpiration).IsTrue();
+    }
+
+    private static SetEntryAsyncRequest CreateSet(string key, string value, TimeSpan? expiration = null) => new()
+    {
+        OperationId = RpcOperationIdentity.New(),
+        CacheName = "default",
+        Key = key,
+        Entry = new NodeCacheEntry<object?> { Value = value, Version = 1, Expiration = expiration }.MapToProto(),
+    };
+
+    private static bool HasRecord(ITestNodeHost node, string operationId)
+    {
+        var records = new List<PersistedIdempotencyRecord>();
+        node.Services.GetRequiredService<IIdempotencySnapshotExporter>().ExportSnapshot(records, DateTime.UtcNow);
+        foreach (var record in CollectionsMarshal.AsSpan(records))
+        {
+            if (string.Equals(record.OperationId, operationId, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static async Task<ByteString> SendAsync(ForwardedMutation mutation, SquirixCacheService.SquirixCacheServiceClient client, string key, string operationId, CancellationToken cancellationToken)
+    {
+        var entry = new NodeCacheEntry<object?> { Value = "mutated", Version = 1 }.MapToProto();
+        return mutation switch
+        {
+            ForwardedMutation.GetOrAdd => (await client.GetOrAddAsync(new GetOrAddAsyncRequest { OperationId = operationId, CacheName = "default", Key = key, Entry = entry }, cancellationToken: cancellationToken))
+               .ToByteString(),
+            ForwardedMutation.Remove => (await client.RemoveAsync(new RemoveAsyncRequest { OperationId = operationId, CacheName = "default", Key = key }, cancellationToken: cancellationToken)).ToByteString(),
+            ForwardedMutation.RemoveExpiration => (await client.RemoveExpirationAsync(
+                new RemoveExpirationAsyncRequest { OperationId = operationId, CacheName = "default", Key = key },
+                cancellationToken: cancellationToken)).ToByteString(),
+            ForwardedMutation.SetEntry => (await client.SetEntryAsync(new SetEntryAsyncRequest { OperationId = operationId, CacheName = "default", Key = key, Entry = entry }, cancellationToken: cancellationToken))
+               .ToByteString(),
+            ForwardedMutation.Touch => (await client.TouchAsync(
+                new TouchAsyncRequest { OperationId = operationId, CacheName = "default", Key = key, Expiration = Google.Protobuf.WellKnownTypes.Duration.FromTimeSpan(TimeSpan.FromHours(2)) },
+                cancellationToken: cancellationToken)).ToByteString(),
+            ForwardedMutation.TryAddEntry => (await client.TryAddEntryAsync(
+                new TryAddEntryAsyncRequest { OperationId = operationId, CacheName = "default", Key = key, Entry = entry },
+                cancellationToken: cancellationToken)).ToByteString(),
+            ForwardedMutation.Update => (await client.UpdateAsync(new UpdateAsyncRequest { OperationId = operationId, CacheName = "default", Key = key, Entry = entry }, cancellationToken: cancellationToken))
+               .ToByteString(),
+            _ => throw new ArgumentOutOfRangeException(nameof(mutation), mutation, "Unsupported mutation."),
+        };
+    }
+
+    private async Task AssertReplayOnceAsync(ForwardedMutation mutation, bool nonOwnerFirst, CancellationToken cancellationToken)
+    {
+        var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", $"replay-once-{mutation}-{nonOwnerFirst}");
+        using var channelA = CreateGrpcChannel(UriA);
+        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
+        using var channelB = CreateGrpcChannel(UriB);
+        var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
+        var first = nonOwnerFirst ? clientA : clientB;
+        var second = nonOwnerFirst ? clientB : clientA;
+        var addsTheKey = mutation is ForwardedMutation.GetOrAdd or ForwardedMutation.TryAddEntry;
+        if (!addsTheKey)
+            _ = await clientB.SetEntryAsync(CreateSet(key, "initial", TimeSpan.FromHours(1)), cancellationToken: cancellationToken);
+
+        var operationId = RpcOperationIdentity.New();
+        var firstResponse = await SendAsync(mutation, first, key, operationId, cancellationToken);
+
+        // A change made after the first attempt: a re-executed mutation would undo it or answer differently.
+        _ = await clientB.SetEntryAsync(CreateSet(key, "intervening"), cancellationToken: cancellationToken);
+        var secondResponse = await SendAsync(mutation, second, key, operationId, cancellationToken);
+
+        _ = await Assert.That(secondResponse).IsEqualTo(firstResponse);
+        var value = await clientB.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
+        var expiration = await clientB.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
+        _ = await Assert.That(value.Found).IsTrue();
+        _ = await Assert.That(value.Value.StringValue).IsEqualTo("intervening");
+        _ = await Assert.That(expiration.HasExpiration).IsFalse();
+        _ = await Assert.That(HasRecord(Fixture.NodeB, operationId)).IsTrue();
+        _ = await Assert.That(HasRecord(Fixture.NodeA, operationId)).IsFalse();
     }
 }

@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.MemoryPressure;
@@ -27,16 +26,12 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly AsyncLock[] _keyGates = CreateKeyGates();
     private readonly Func<string, string, bool>? _hasRecordedOutcome;
-    private readonly INodeLocator _ring;
-    private readonly string _self;
 
     /// <summary>Initializes a new instance of the <see cref="MemoryAdmissionCacheDecorator{T}" /> class.</summary>
     /// <param name="inner">The cache pipeline below admission.</param>
     /// <param name="gate">The memory pressure gate.</param>
     /// <param name="estimator">The entry size estimator.</param>
     /// <param name="accounting">The memory usage accounting.</param>
-    /// <param name="ring">The ownership ring.</param>
-    /// <param name="self">This node identifier.</param>
     /// <param name="hasRecordedOutcome">
     /// Tells, by cache name and operation id, whether <paramref name="inner" /> holds a recorded outcome for the operation, as the
     /// replicated committer does; <see langword="null" /> when it records none. A conditional write that admission would refuse from the
@@ -48,22 +43,16 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         IMemoryPressureGate gate,
         ICacheEntrySizeEstimator<T> estimator,
         IMemoryUsageAccounting accounting,
-        INodeLocator ring,
-        string self,
         Func<string, string, bool>? hasRecordedOutcome = null)
     {
         ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(gate);
         ArgumentNullException.ThrowIfNull(estimator);
         ArgumentNullException.ThrowIfNull(accounting);
-        ArgumentNullException.ThrowIfNull(self);
-        ArgumentNullException.ThrowIfNull(ring);
         _inner = inner;
         _gate = gate;
         _estimator = estimator;
         _accounting = accounting;
-        _self = self;
-        _ring = ring;
         _hasRecordedOutcome = hasRecordedOutcome;
     }
 
@@ -75,9 +64,6 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
     public async ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
-        if (!IsLocal(cacheName, key))
-            return await _inner.RemoveAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
-
         var keyValue = new CacheKey(cacheName, key);
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
         var result = await _inner.RemoveAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
@@ -89,9 +75,6 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
     public async ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
-        if (!IsLocal(cacheName, key))
-            return await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
-
         var keyValue = new CacheKey(cacheName, key);
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
@@ -109,12 +92,6 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
     public async ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
-        if (!IsLocal(cacheName, key))
-        {
-            await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
         var keyValue = new CacheKey(cacheName, key);
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
@@ -140,9 +117,6 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
     public async ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
     {
-        if (!IsLocal(cacheName, key))
-            return await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
-
         var keyValue = new CacheKey(cacheName, key);
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
@@ -160,9 +134,6 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
     public async ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
-        if (!IsLocal(cacheName, key))
-            return await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-
         var keyValue = new CacheKey(cacheName, key);
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
@@ -188,9 +159,6 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
     public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
-        if (!IsLocal(cacheName, key))
-            return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
-
         var keyValue = new CacheKey(cacheName, key);
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
@@ -303,6 +271,4 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         _keyGates[(key.GetHashCode() & int.MaxValue) % _keyGates.Length].LockAsync(cancellationToken);
 
     private bool IsRecorded(string cacheName, string operationId) => _hasRecordedOutcome?.Invoke(cacheName, operationId) == true;
-
-    private bool IsLocal(string cacheName, string key) => string.Equals(_ring.GetOwner(ServerCacheName.NormalizeUnvalidated(cacheName), key), _self, StringComparison.Ordinal);
 }
