@@ -384,13 +384,12 @@ jobs:
                 id: gate
                 run: echo "build=${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
 
-            # The system drive of the runner is slow: installing the SDK there takes about 40 s, and unpacking the package cache 35 s.
-            -   name: Install .NET And Packages On The Work Drive
+            # The system drive of the runner is slow: unpacking the package cache there takes 35 s. The SDK already lives on the
+            # work drive (see .github/actions/setup-sdk).
+            -   name: Keep Packages On The Work Drive
                 if: steps.gate.outputs.build == 'true'
                 shell: bash
-                run: |
-                    echo "DOTNET_INSTALL_DIR=${RUNNER_TEMP}\\dotnet" >> "$GITHUB_ENV"
-                    echo "NUGET_PACKAGES=${RUNNER_TEMP}\\nuget-packages" >> "$GITHUB_ENV"
+                run: echo "NUGET_PACKAGES=${RUNNER_TEMP}\\nuget-packages" >> "$GITHUB_ENV"
 
             -   name: Build Release Outputs
                 if: steps.gate.outputs.build == 'true'
