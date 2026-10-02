@@ -188,17 +188,10 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
             SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
             var api = _cacheOperations.ForCache(cacheName);
-            var existing = await api.GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
-            if (existing.Found)
-            {
-                return new GetOrAddAsyncResponse
-                {
-                    Added = false,
-                    Found = true,
-                    Value = ServerProtoEx.CacheValueToGrpcValue(existing.Value),
-                };
-            }
 
+            // The add runs first, with the operation id: a retry whose RPC record is gone replays the recorded outcome of the add instead
+            // of reading the value its first attempt added and answering that nothing was added. An add over a present key without a
+            // recorded outcome is refused before it reaches the journal or the replica group.
             var entry = await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false);
             if (await api.TryAddEntryAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, entry, cancellationToken).ConfigureAwait(false))
             {
@@ -210,13 +203,13 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
                 };
             }
 
-            var afterRace = await api.GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
-            return afterRace.Found
+            var existing = await api.GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
+            return existing.Found
                 ? new GetOrAddAsyncResponse
                 {
                     Added = false,
                     Found = true,
-                    Value = ServerProtoEx.CacheValueToGrpcValue(afterRace.Value),
+                    Value = ServerProtoEx.CacheValueToGrpcValue(existing.Value),
                 }
                 : new GetOrAddAsyncResponse
                 {
