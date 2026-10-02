@@ -48,7 +48,7 @@ SUITES = {
     ),
     "e2e-multi-node": (
         "tests/squirix.e2e.tests/Squirix.E2ETests.csproj",
-        "/*/*/(CrossNodeCrudTests)|(CrossNodeExpirationTests)|(CrossNodeTypedValueTests)|(InterNodeMtlsTests)|(ReplicaSetsReleaseE2ETests)|(FailoverE2ETests)|(ClusterPackageVersionE2ETests)|(TopologyActivationE2ETests)/*",
+        "/*/*/(CrossNodeCrudTests)|(CrossNodeExpirationTests)|(CrossNodeTypedValueTests)|(InterNodeMtlsTests)|(ReplicaSetsReleaseE2ETests)|(FailoverE2ETests)|(ClusterPackageVersionE2ETests)|(TopologyActivationE2ETests)|(LostForwardResponseE2ETests)/*",
         True,
     ),
     "protocol-model": ("tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj", "", False),
