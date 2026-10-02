@@ -52,15 +52,35 @@ runs:
       shell: bash
       run: mkdir -p artifacts/packages
 
-    # The reduced solution is derived from squirix.slnx, so a new project under src/ or tests/ is built without being listed anywhere.
-    # Every project entry is a single line, so dropping the lines of benchmarks/ and samples/ leaves valid XML.
+    # Reduced solutions are derived at run time, so a new project is built without being listed anywhere.
+    #  - test outputs: every project entry of squirix.slnx is a single line, so dropping those of benchmarks/ and samples/
+    #    leaves valid XML;
+    #  - a shard other than `default`: its projects, as SquirixPrintAnalysisShard (Directory.Build.props) reports them; the
+    #    projects they reference build with them, and the `default` shard, which owns every unclaimed project, builds everything.
     - name: Select Solution
       id: solution
       shell: bash
       run: |
+        shard="${{ inputs.analysis-shard }}"
         if [ "${{ inputs.test-outputs-only }}" = "true" ]; then
           grep -vE '<Project Path="(benchmarks|samples)/' squirix.slnx > squirix.test-outputs.slnx
           echo "path=squirix.test-outputs.slnx" >> "$GITHUB_OUTPUT"
+        elif [ -n "$shard" ] && [ "$shard" != "default" ]; then
+          mapfile -t members < <(dotnet msbuild squirix.slnx -t:SquirixPrintAnalysisShard -nologo -v:m \
+            | sed -n "s/^ *squirix-analysis-shard|${shard}|//p" | sort)
+          if [ ${#members[@]} -eq 0 ]; then
+            echo "No project belongs to analysis shard '$shard'." >&2
+            exit 1
+          fi
+          {
+            echo '<Solution>'
+            for project in "${members[@]}"; do
+              echo "    <Project Path=\"$(realpath --relative-to=. "$project")\"/>"
+            done
+            echo '</Solution>'
+          } > squirix.analysis-shard.slnx
+          cat squirix.analysis-shard.slnx
+          echo "path=squirix.analysis-shard.slnx" >> "$GITHUB_OUTPUT"
         else
           echo "path=squirix.slnx" >> "$GITHUB_OUTPUT"
         fi
@@ -82,7 +102,7 @@ runs:
           # Analyzers only report diagnostics (source generators still run), so the binaries are the same and compile much faster.
           dotnet build "$solution" --configuration Release -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
         elif [ -n "${{ inputs.analysis-shard }}" ]; then
-          # One shard of the analyzed build: the whole solution compiles, the projects outside the shard without analyzers.
+          # One shard of the analyzed build: the projects outside the shard compile without analyzers.
           dotnet build "$solution" --configuration Release "-p:SquirixAnalysisShard=${{ inputs.analysis-shard }}"
         else
           dotnet build "$solution" --configuration Release

@@ -27,8 +27,8 @@
     </PropertyGroup>
 
     <!-- Analysis shards. CI can spread the analyzed build over several runners by passing
-         -p:SquirixAnalysisShard=<name>: every shard still compiles the whole solution, but only the
-         projects of that shard run analyzers and code-style enforcement. A project belongs to the
+         -p:SquirixAnalysisShard=<name>: only the projects of that shard run analyzers and code-style
+         enforcement, the projects they reference compile without them. A project belongs to the
          `default` shard unless it is claimed below, so a new project is analyzed without being listed
          anywhere. Without the property (local builds, the IDE, packaging) every project is analyzed.
          The shard names are listed in SquirixAnalysisShards and in the CI job that runs one build per shard. -->
@@ -160,5 +160,12 @@
     <!-- A shard name that no project belongs to would make that build analyze nothing, so it fails instead. -->
     <Target Name="SquirixValidateAnalysisShard" BeforeTargets="CoreCompile" Condition="'$(SquirixAnalysisShard)' != '' And !$([System.String]::Copy(';$(SquirixAnalysisShards);').Contains(';$(SquirixAnalysisShard);'))">
         <Error Text="Unknown analysis shard '$(SquirixAnalysisShard)'. Known shards: $(SquirixAnalysisShards)."/>
+    </Target>
+
+    <!-- Prints the analysis shard of this project. CI runs it on the solution so that the job of a shard other than `default`
+         builds only that shard's projects (their references build with them): the list comes from the same property that
+         turns the analyzers on, so moving a project into a shard above needs no CI change. -->
+    <Target Name="SquirixPrintAnalysisShard">
+        <Message Importance="high" Text="squirix-analysis-shard|$(SquirixProjectAnalysisShard)|$(MSBuildProjectFullPath)"/>
     </Target>
 </Project>
