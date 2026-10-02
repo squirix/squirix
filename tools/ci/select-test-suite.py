@@ -74,11 +74,13 @@ SUITES["server-unit-b"] = (
 
 # Group id -> suites one job runs back to back. `light` holds the suites that finish in a
 # few seconds each, where a runner per suite would mostly pay for its own start-up.
-# `light-arm` and `light-desktop` are the parts of `light` that the ARM jobs and the Windows and macOS jobs run.
+# `light-desktop` is the part of `light` that the Windows and macOS jobs run. The ARM jobs run every suite they cover in
+# two groups: `arm-client` holds the client, model and end-to-end suites, `arm-server` the two server suites.
 GROUPS = {
     "light": ("unit", "client-integration", "protocol-model", "smoke", "e2e-single-node"),
-    "light-arm": ("unit", "client-integration", "protocol-model", "e2e-single-node"),
     "light-desktop": ("unit", "client-integration", "e2e-single-node"),
+    "arm-client": ("unit", "client-integration", "protocol-model", "e2e-single-node", "e2e-multi-node"),
+    "arm-server": ("server-unit", "server-integration"),
 }
 
 

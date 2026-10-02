@@ -566,10 +566,11 @@ jobs:
             )
         strategy:
             fail-fast: ${{ github.event_name == 'pull_request' }}
-            max-parallel: 7
+            max-parallel: 2
             matrix:
-                # The light suites share a job (the `light-arm` group); see test-ubuntu.
-                suite: [ light-arm, server-unit, server-integration, e2e-multi-node ]
+                # ARM repeats the ubuntu suites on a second architecture and nothing waits for it, so its suites run back to
+                # back in two jobs (the `arm-client` and `arm-server` groups) and leave the job slots to the other runners.
+                suite: [ arm-client, arm-server ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
