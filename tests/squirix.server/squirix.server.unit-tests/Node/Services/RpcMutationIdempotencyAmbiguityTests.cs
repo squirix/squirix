@@ -38,7 +38,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     public async Task CompletedReservationReplaysOutcome(CancellationToken cancellationToken)
     {
         var store = CreateStore();
-        store.RecordSuccess(ValidOperationId, "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
+        store.RecordSuccess(ValidOperationId, "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }), null);
         var coordinator = new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var flag = new ExecFlag();
 
@@ -287,14 +287,14 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     public async Task ReleaseIntentIgnoresForeignRecords()
     {
         var store = CreateStore();
-        store.ReleaseIntent(ValidOperationId, "fp-1");
+        store.ReleaseIntent(ValidOperationId, "fp-1", null);
 
         _ = store.ReserveIntent(ValidOperationId, "fp-1", null, out _);
-        store.ReleaseIntent(ValidOperationId, "fp-2");
+        store.ReleaseIntent(ValidOperationId, "fp-2", null);
         _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
 
-        store.RecordSuccess(ValidOperationId, "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
-        store.ReleaseIntent(ValidOperationId, "fp-1");
+        store.RecordSuccess(ValidOperationId, "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }), null);
+        store.ReleaseIntent(ValidOperationId, "fp-1", null);
         _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyCompleted);
     }
 
@@ -304,7 +304,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     {
         var store = CreateStore();
         store.RestoreStarted(ValidOperationId, DateTime.UtcNow);
-        store.ReleaseIntent(ValidOperationId, "fp-1");
+        store.ReleaseIntent(ValidOperationId, "fp-1", null);
 
         _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
     }
@@ -316,7 +316,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         var store = CreateStore();
 
         _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.Acquired);
-        store.ReleaseIntent(ValidOperationId, "fp-1");
+        store.ReleaseIntent(ValidOperationId, "fp-1", null);
 
         _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.Acquired);
     }
@@ -386,7 +386,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     {
         var store = CreateStore();
         _ = store.ReserveIntent(ValidOperationId, "fp-1", null, out _);
-        store.RecordSuccess(ValidOperationId, "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
+        store.RecordSuccess(ValidOperationId, "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }), null);
 
         _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyCompleted);
         var replayed = store.TryReplay(ValidOperationId, "fp-1", TryAddAsyncResponse.Parser, out var response);

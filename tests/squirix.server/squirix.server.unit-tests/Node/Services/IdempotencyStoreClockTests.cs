@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Snapshot;
@@ -35,7 +36,7 @@ public sealed class IdempotencyStoreClockTests : DisposableServerUnitTestBase
     {
         var clock = new SteppedWallClock();
         var store = CreateStore(clock, 16);
-        store.RecordSuccess("op-1", "fp-1", ResponseBytes);
+        store.RecordSuccess("op-1", "fp-1", ResponseBytes, null);
 
         clock.Advance(TimeSpan.FromMinutes(1));
         var withinRetention = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out _);
@@ -52,7 +53,7 @@ public sealed class IdempotencyStoreClockTests : DisposableServerUnitTestBase
     {
         var clock = new SteppedWallClock();
         var store = CreateStore(clock, 16);
-        store.RecordSuccess("op-1", "fp-1", ResponseBytes);
+        store.RecordSuccess("op-1", "fp-1", ResponseBytes, null);
 
         clock.Advance(TimeSpan.FromSeconds(1));
         clock.StepWallClock(TimeSpan.FromMinutes(20));
@@ -66,16 +67,47 @@ public sealed class IdempotencyStoreClockTests : DisposableServerUnitTestBase
     {
         var clock = new SteppedWallClock();
         var store = CreateStore(clock, 2);
-        store.RecordSuccess("op-1", "fp-1", ResponseBytes);
+        store.RecordSuccess("op-1", "fp-1", ResponseBytes, null);
         clock.Advance(TimeSpan.FromSeconds(1));
         clock.StepWallClock(TimeSpan.FromMinutes(-10));
-        store.RecordSuccess("op-2", "fp-2", ResponseBytes);
+        store.RecordSuccess("op-2", "fp-2", ResponseBytes, null);
         clock.Advance(TimeSpan.FromSeconds(1));
 
-        store.RecordSuccess("op-3", "fp-3", ResponseBytes);
+        store.RecordSuccess("op-3", "fp-3", ResponseBytes, null);
 
         _ = await Assert.That(store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out _)).IsFalse();
         _ = await Assert.That(store.TryReplay("op-2", "fp-2", TryAddAsyncResponse.Parser, out _)).IsTrue();
+    }
+
+    /// <summary>After a backward wall-clock step, an outcome past the minimum retention on monotonic time is still evicted for a new operation.</summary>
+    [Test]
+    public async Task BackwardWallStepKeepsEvictionLive()
+    {
+        var clock = new SteppedWallClock();
+        var store = CreateStore(clock, 1);
+        store.RecordSuccess("op-1", "fp-1", ResponseBytes, null);
+        clock.StepWallClock(TimeSpan.FromHours(-1));
+        clock.Advance(TimeSpan.FromMinutes(2));
+
+        var reserved = store.ReserveIntent("op-2", "fp-2", null, out _);
+
+        _ = await Assert.That(reserved).IsEqualTo(IdempotencyReserveResult.Acquired);
+        _ = await Assert.That(store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out _)).IsFalse();
+    }
+
+    /// <summary>A forward wall-clock step does not age an outcome past the minimum retention: the new operation is refused.</summary>
+    [Test]
+    public async Task ForwardWallStepKeepsYoungOutcome()
+    {
+        var clock = new SteppedWallClock();
+        var store = CreateStore(clock, 1);
+        store.RecordSuccess("op-1", "fp-1", ResponseBytes, null);
+        clock.StepWallClock(TimeSpan.FromMinutes(10));
+
+        var refused = NodeExceptionAssert.For<SquirixException>().Throws(store, static s => s.ReserveIntent("op-2", "fp-2", null, out _));
+
+        _ = await Assert.That(refused.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
+        _ = await Assert.That(store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out _)).IsTrue();
     }
 
     /// <summary>A record restored from disk has no monotonic origin, so it ages by the wall time of the server clock.</summary>
@@ -97,19 +129,19 @@ public sealed class IdempotencyStoreClockTests : DisposableServerUnitTestBase
     {
         var clock = new SteppedWallClock();
         var source = CreateStore(clock, 16);
-        source.RecordSuccess("op-a", "fp-a", ResponseBytes);
+        source.RecordSuccess("op-a", "fp-a", ResponseBytes, null);
         _ = source.ReserveIntent("op-b", "fp-b", null, out _);
-        source.RecordSuccess("op-c", "fp-c", ResponseBytes);
-        source.ReleaseIntent("op-b", "fp-b");
-        source.RecordSuccess("op-d", "fp-d", ResponseBytes);
+        source.RecordSuccess("op-c", "fp-c", ResponseBytes, null);
+        source.ReleaseIntent("op-b", "fp-b", null);
+        source.RecordSuccess("op-d", "fp-d", ResponseBytes, null);
         var exported = new List<PersistedIdempotencyRecord>();
         IIdempotencySnapshotExporter exporter = source;
         exporter.ExportSnapshot(exported, clock.GetUtcNow().UtcDateTime);
 
         var restored = CreateStore(clock, 3);
         restored.RestoreSnapshotRecords(exported);
-        restored.RecordSuccess("op-e", "fp-e", ResponseBytes);
-        restored.RecordSuccess("op-f", "fp-f", ResponseBytes);
+        restored.RecordSuccess("op-e", "fp-e", ResponseBytes, null);
+        restored.RecordSuccess("op-f", "fp-f", ResponseBytes, null);
 
         _ = await Assert.That(restored.TryReplay("op-a", "fp-a", TryAddAsyncResponse.Parser, out _)).IsFalse();
         _ = await Assert.That(restored.TryReplay("op-c", "fp-c", TryAddAsyncResponse.Parser, out _)).IsFalse();
@@ -124,7 +156,7 @@ public sealed class IdempotencyStoreClockTests : DisposableServerUnitTestBase
         var clock = new SteppedWallClock();
         var store = CreateStore(clock, 16);
         var options = new IdempotencyOptions { Retention = Retention, BackgroundSweepInterval = TimeSpan.FromMinutes(1) };
-        store.RecordSuccess("op-1", "fp-1", ResponseBytes);
+        store.RecordSuccess("op-1", "fp-1", ResponseBytes, null);
         using var sweep = new IdempotencyStoreSweepService(store, Options.Create(options), NullLogger<IdempotencyStoreSweepService>.Instance, clock);
 
         await sweep.StartAsync(cancellationToken);
