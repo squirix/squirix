@@ -2,8 +2,8 @@
 """Compare the allocations of the CI wire allocation benchmarks with their baseline.
 
 Usage:
-  check-wire-alloc.py <BenchmarkDotNet artifacts dir> <baseline json>            check
-  check-wire-alloc.py <BenchmarkDotNet artifacts dir> <baseline json> --write    rewrite the baseline
+  check-wire-alloc.py <baseline json> <BenchmarkDotNet artifacts dir>                 check
+  check-wire-alloc.py <baseline json> --write <BenchmarkDotNet artifacts dir>...      rewrite the baseline
 
 The baseline holds allocated bytes per operation, measured on the CI runner, for every benchmark
 the CI filter selects. A check fails when a benchmark allocates more than its baseline plus the
@@ -11,6 +11,9 @@ tolerance, when a benchmark has no baseline, or when a baseline entry was not me
 that selects nothing must not pass). Allocations below the baseline by more than the tolerance
 pass with a note to lower the baseline. A table of every benchmark goes to stdout and, in CI,
 to the job summary.
+
+Some cases move by about 2% between runs, so --write takes the results of several CI runs and
+records their mean.
 """
 
 import glob
@@ -32,27 +35,41 @@ def read_results(artifacts):
     return results
 
 
+def write_baseline(baseline_path, baseline, runs):
+    names = sorted(runs[0])
+    if any(sorted(run) != names for run in runs):
+        print("The runs measured different benchmarks.", file=sys.stderr)
+        return 1
+    baseline["bytesPerOperation"] = {name: round(sum(run[name] for run in runs) / len(runs)) for name in names}
+    with open(baseline_path, "w", encoding="utf-8", newline="\n") as file:
+        json.dump(baseline, file, indent=2)
+        file.write("\n")
+    print(f"Wrote the mean of {len(runs)} run(s) for {len(names)} benchmarks to {baseline_path}.")
+    return 0
+
+
 def main(argv):
-    if len(argv) not in (3, 4) or (len(argv) == 4 and argv[3] != "--write"):
+    write = len(argv) >= 4 and argv[2] == "--write"
+    if not write and len(argv) != 3:
         print(__doc__, file=sys.stderr)
         return 2
 
-    artifacts, baseline_path = argv[1], argv[2]
-    results = read_results(artifacts)
-    if not results:
-        print(f"No benchmark results with allocation data under {artifacts}/results.", file=sys.stderr)
-        return 1
+    baseline_path = argv[1]
+    runs = []
+    for artifacts in argv[3:] if write else argv[2:]:
+        results = read_results(artifacts)
+        if not results:
+            print(f"No benchmark results with allocation data under {artifacts}/results.", file=sys.stderr)
+            return 1
+        runs.append(results)
 
     with open(baseline_path, encoding="utf-8") as file:
         baseline = json.load(file)
 
-    if len(argv) == 4:
-        baseline["bytesPerOperation"] = dict(sorted(results.items()))
-        with open(baseline_path, "w", encoding="utf-8", newline="\n") as file:
-            json.dump(baseline, file, indent=2)
-            file.write("\n")
-        print(f"Wrote {len(results)} baseline entries to {baseline_path}.")
-        return 0
+    if write:
+        return write_baseline(baseline_path, baseline, runs)
+
+    results = runs[0]
 
     tolerance = float(baseline["tolerance"])
     expected = baseline["bytesPerOperation"]

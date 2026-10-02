@@ -856,7 +856,7 @@ jobs:
             # BenchmarkDotNet exits 0 when a case fails or the filter selects nothing, so the check also fails on a missing result.
             -   name: Compare Allocations With The Baseline
                 if: ${{ !cancelled() }}
-                run: python3 tools/ci/check-wire-alloc.py "$BDN_ARTIFACTS" benchmarks/squirix.e2e.benchmarks/wire-alloc-ci-baseline.json
+                run: python3 tools/ci/check-wire-alloc.py benchmarks/squirix.e2e.benchmarks/wire-alloc-ci-baseline.json "$BDN_ARTIFACTS"
 
             -   name: Upload Benchmark Artifacts
                 if: always()

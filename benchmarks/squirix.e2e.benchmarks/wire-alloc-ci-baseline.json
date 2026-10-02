@@ -1,14 +1,14 @@
 {
   "runner": "ubuntu-latest",
-  "tolerance": 0.03,
+  "tolerance": 0.05,
   "bytesPerOperation": {
-    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 15176,
-    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 14930,
-    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 18230,
-    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 22409,
-    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 29422,
-    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 29440,
-    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 34873,
-    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 39225
+    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 15161,
+    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 14961,
+    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 17976,
+    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 21982,
+    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 29418,
+    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 29423,
+    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 34891,
+    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 39371
   }
 }
