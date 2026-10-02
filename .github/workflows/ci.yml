@@ -802,20 +802,16 @@ jobs:
     # Guards the allocations of the gRPC wire path: GetValue and Set for a scalar and a structured value, ephemeral and
     # persistent (8 cases of the 52-row matrix in docs/benchmarks/e2e-benchmarks.md). Allocated bytes per operation barely
     # move between runs, unlike times on a shared runner, so they are compared with a baseline measured on this runner
-    # kind; see tools/ci/check-wire-alloc.py. The job builds the benchmarks itself and so starts with the workflow.
+    # kind; see tools/ci/check-wire-alloc.py. The job builds the benchmarks itself and, like build-ubuntu, classifies the
+    # change set itself, so it starts with the workflow instead of after the Detect Changes job.
     wire-alloc-guard:
         name: Wire Allocation Guard (Ubuntu / Net10.0)
         runs-on: ubuntu-latest
         timeout-minutes: 20
-        needs: changes
         # The guard covers develop: its pushes, pull requests into it, schedule and dispatch.
         if: |
-            (github.ref == 'refs/heads/develop' || github.base_ref == 'develop' ||
-             github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && (
-            needs.changes.outputs.code == 'true' ||
-            github.event_name == 'schedule' ||
-            github.event_name == 'workflow_dispatch'
-            )
+            github.ref == 'refs/heads/develop' || github.base_ref == 'develop' ||
+            github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -832,13 +828,23 @@ jobs:
                 with:
                     persist-credentials: false
 
+            -   name: Detect Changes
+                id: changes
+                uses: ./.github/actions/detect-changes
+
+            -   name: Decide Whether To Guard
+                id: gate
+                run: echo "guard=${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
+
             -   name: Setup .NET
+                if: steps.gate.outputs.guard == 'true'
                 uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
                 with:
                     global-json-file: global.json
 
             # Reads the package cache of the build jobs; see verify-coding-conventions.
             -   name: Restore NuGet Package Cache
+                if: steps.gate.outputs.guard == 'true'
                 uses: actions/cache/restore@v6
                 with:
                     path: ~/.nuget/packages
@@ -846,9 +852,11 @@ jobs:
 
             # Analyzers only report diagnostics, and the analysis shards run them on these projects.
             -   name: Build E2E Benchmarks
+                if: steps.gate.outputs.guard == 'true'
                 run: dotnet build benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj --configuration Release -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
 
             -   name: Ensure Dev HTTPS Certificate
+                if: steps.gate.outputs.guard == 'true'
                 shell: bash
                 run: bash tools/ci/ensure-dev-https-cert.sh
 
@@ -857,6 +865,7 @@ jobs:
             # In process, BenchmarkDotNet does not build a project of its own (about 110 s here, since it recompiled the
             # benchmarks with analyzers) or start a process per case.
             -   name: Run Wire Allocation Benchmarks
+                if: steps.gate.outputs.guard == 'true'
                 shell: bash
                 env:
                     SQUIRIX_E2E_BENCHMARK_IN_PROCESS: "1"
@@ -875,11 +884,11 @@ jobs:
 
             # BenchmarkDotNet exits 0 when a case fails or the filter selects nothing, so the check also fails on a missing result.
             -   name: Compare Allocations With The Baseline
-                if: ${{ !cancelled() }}
+                if: ${{ !cancelled() && steps.gate.outputs.guard == 'true' }}
                 run: python3 tools/ci/check-wire-alloc.py benchmarks/squirix.e2e.benchmarks/wire-alloc-ci-baseline.json "$BDN_ARTIFACTS"
 
             -   name: Upload Benchmark Artifacts
-                if: always()
+                if: ${{ always() && steps.gate.outputs.guard == 'true' }}
                 uses: actions/upload-artifact@v7
                 with:
                     name: benchmarks-wire-alloc
