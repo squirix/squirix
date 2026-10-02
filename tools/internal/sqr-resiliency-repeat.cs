@@ -6,11 +6,11 @@ using System.Globalization;
 
 var runs = new[]
 {
-    new ResiliencyRun("tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "FullyQualifiedName~Squirix.Server.UnitTests.Cluster.NodeCallPolicyTests", "CallPolicy unit tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.Cluster.Replication.RoutingDeadlineFlowTests", "Routing deadline flow integration tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.RpcMutationIdempotencyIntegrationTests", "Mutation idempotency integration tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.CrossNodeOpIdIdempotencyTests", "Cross-node operation idempotency integration tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.RpcIdempotencyRestartTests", "Idempotency restart integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "/*/*/NodeCallPolicyTests/*", "CallPolicy unit tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/RoutingDeadlineFlowTests/*", "Routing deadline flow integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/RpcMutationIdempotencyIntegrationTests/*", "Mutation idempotency integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/CrossNodeOpIdIdempotencyTests/*", "Cross-node operation idempotency integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/RpcIdempotencyRestartTests/*", "Idempotency restart integration tests"),
 };
 
 var output = Console.Out;
@@ -82,10 +82,11 @@ for (var iteration = 1; iteration <= iterations; iteration++)
         var list = new List<string>
         {
             "test",
+            "--project",
             run.Project,
             "--configuration",
             configuration,
-            "--filter",
+            "--treenode-filter",
             run.Filter,
         };
         if (noBuild)
