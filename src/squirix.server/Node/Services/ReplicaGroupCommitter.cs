@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
-using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
@@ -168,109 +167,30 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _gate.Dispose();
     }
 
-    /// <summary>Commits a replicated remove and returns the removed entry, if any.</summary>
-    /// <param name="operationId">Client operation identifier.</param>
-    /// <param name="cacheName">Target cache name.</param>
-    /// <param name="key">Target key.</param>
+    /// <summary>Commits one write under the commit gate: prepares it at the next log index, commits it, and decodes its outcome.</summary>
+    /// <typeparam name="TState">The arguments of the write.</typeparam>
+    /// <typeparam name="TResult">The decoded outcome.</typeparam>
+    /// <param name="write">The cache scope and the client operation identifier of the write.</param>
+    /// <param name="state">The arguments of the write, handed to <paramref name="prepare" />.</param>
+    /// <param name="prepare">Prepares the mutation from the running factory, the arguments, and the log index it is appended at.</param>
+    /// <param name="decode">Decodes the committed outcome.</param>
     /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
-    /// <returns>The remove outcome with the previous value when one was observed.</returns>
-    internal async Task<CacheRemoveResult<object?>> CommitRemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    /// <returns>The decoded outcome of the committed write.</returns>
+    /// <remarks>The typed writes built on this method are in <see cref="ReplicaGroupCommitterWrites" />.</remarks>
+    internal async Task<TResult> CommitAsync<TState, TResult>(
+        (string Scope, string OperationId) write,
+        TState state,
+        Func<ReplicaMutationFactory, TState, ulong, CancellationToken, ValueTask<PreparedReplicaMutation>> prepare,
+        Func<ReadOnlyMemory<byte>, ValueTask<TResult>> decode,
+        CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
+        var (coordinator, factory) = await EnsureStartedAsync(write, cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
-        var mutation = await factory.PrepareRemoveAsync(operationId, cacheName, key, index, cancellationToken).ConfigureAwait(false);
+        var mutation = await prepare(factory, state, index, cancellationToken).ConfigureAwait(false);
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
-        return await ReplicaOutcomeCodec.DecodeRemoveAsync(outcome).ConfigureAwait(false);
-    }
-
-    /// <summary>Commits a replicated expiration removal.</summary>
-    /// <param name="operationId">Client operation identifier.</param>
-    /// <param name="cacheName">Target cache name.</param>
-    /// <param name="key">Target key.</param>
-    /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
-    /// <returns><see langword="true" /> when an expiration was present and cleared.</returns>
-    internal async Task<bool> CommitRemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-    {
-        ThrowIfDisposed();
-        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
-        var index = PeekNextIndex();
-        var mutation = await factory.PrepareRemoveExpirationAsync(operationId, cacheName, key, index, cancellationToken).ConfigureAwait(false);
-        var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
-        return ReplicaOutcomeCodec.DecodeApplied(outcome);
-    }
-
-    /// <summary>Commits a replicated unconditional writing.</summary>
-    /// <param name="operationId">Client operation identifier.</param>
-    /// <param name="cacheName">Target cache name.</param>
-    /// <param name="key">Target key.</param>
-    /// <param name="entry">Entry to write.</param>
-    /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
-    /// <returns>A task that completes after the commit.</returns>
-    internal async Task CommitSetAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
-    {
-        ThrowIfDisposed();
-        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
-        var index = PeekNextIndex();
-        var mutation = factory.PrepareSet(operationId, cacheName, key, entry, index);
-        _ = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
-    }
-
-    /// <summary>Commits a replicated conditional expiration refresh.</summary>
-    /// <param name="operationId">Client operation identifier.</param>
-    /// <param name="cacheName">Target cache name.</param>
-    /// <param name="key">Target key.</param>
-    /// <param name="expiration">New expiration.</param>
-    /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
-    /// <returns><see langword="true" /> when the key exists and the expiration was refreshed.</returns>
-    internal async Task<bool> CommitTouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
-    {
-        ThrowIfDisposed();
-        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
-        var index = PeekNextIndex();
-        var mutation = await factory.PrepareTouchAsync(operationId, cacheName, key, expiration, index, cancellationToken).ConfigureAwait(false);
-        var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
-        return ReplicaOutcomeCodec.DecodeApplied(outcome);
-    }
-
-    /// <summary>Commits a replicated conditional adding and returns whether the key was absent.</summary>
-    /// <param name="operationId">Client operation identifier.</param>
-    /// <param name="cacheName">Target cache name.</param>
-    /// <param name="key">Target key.</param>
-    /// <param name="entry">Entry to add when absent.</param>
-    /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
-    /// <returns><see langword="true" /> when the key was absent and the entry was added.</returns>
-    internal async Task<bool> CommitTryAddAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
-    {
-        ThrowIfDisposed();
-        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
-        var index = PeekNextIndex();
-        var mutation = await factory.PrepareTryAddAsync(operationId, cacheName, key, entry, index, cancellationToken).ConfigureAwait(false);
-        var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
-        return ReplicaOutcomeCodec.DecodeApplied(outcome);
-    }
-
-    /// <summary>Commits a replicated value replacement.</summary>
-    /// <param name="operationId">Client operation identifier.</param>
-    /// <param name="cacheName">Target cache name.</param>
-    /// <param name="key">Target key.</param>
-    /// <param name="value">Replacement value.</param>
-    /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
-    /// <returns><see langword="true" /> when the key exists and the value was replaced.</returns>
-    internal async Task<bool> CommitUpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken)
-    {
-        ThrowIfDisposed();
-        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
-        var index = PeekNextIndex();
-        var mutation = await factory.PrepareUpdateAsync(operationId, cacheName, key, value, index, cancellationToken).ConfigureAwait(false);
-        var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
-        return ReplicaOutcomeCodec.DecodeApplied(outcome);
+        return await decode(outcome).ConfigureAwait(false);
     }
 
     /// <summary>Persists the in-memory applied index of the owned group log once the cache journal holds every applied entry durably.</summary>
