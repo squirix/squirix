@@ -834,8 +834,12 @@ jobs:
 
             # Each filter is a glob of its own: BenchmarkDotNet does not split one argument at '|'.
             # iterationCount 3: MinIterationTime(150) often yields empty rows at 1.
+            # In process, BenchmarkDotNet does not build a project of its own (about 110 s here, since it recompiled the
+            # benchmarks with analyzers) or start a process per case.
             -   name: Run Wire Allocation Benchmarks
                 shell: bash
+                env:
+                    SQUIRIX_E2E_BENCHMARK_IN_PROCESS: "1"
                 run: |
                     set -o pipefail
                     mkdir -p "$BDN_ARTIFACTS"

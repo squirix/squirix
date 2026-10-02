@@ -149,7 +149,9 @@ and both durability modes) on develop pushes, pull requests into develop, the we
 when a case allocates more than the tolerance (3%) over its entry in
 [`wire-alloc-ci-baseline.json`](../../benchmarks/squirix.e2e.benchmarks/wire-alloc-ci-baseline.json), when a case
 has no entry, or when an entry was not measured. The baseline holds bytes per operation measured on the CI runner:
-allocations differ between machines, so local numbers do not belong there.
+allocations differ between machines, so local numbers do not belong there. The job runs the benchmarks in process
+(`SQUIRIX_E2E_BENCHMARK_IN_PROCESS=1`), which skips the project BenchmarkDotNet otherwise builds and the process it
+starts per case.
 
 To accept a change in allocations, rewrite the baseline from the results of the CI run and commit it:
 
