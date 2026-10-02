@@ -408,8 +408,8 @@ jobs:
         name: Build (macos-latest / net10.0)
         runs-on: macos-latest
         timeout-minutes: 45
-        # Heads the macOS chain, which ends push runs right after the Windows one, so like build-ubuntu it classifies the change set itself instead of
-        # waiting for the Detect Changes job.
+        # Heads the macOS chain, which ends push runs right after the Windows one, so like build-ubuntu it classifies the change
+        # set itself instead of waiting for the Detect Changes job.
         if: |
             github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' ||
             github.ref == 'refs/heads/develop' || github.base_ref == 'main'
