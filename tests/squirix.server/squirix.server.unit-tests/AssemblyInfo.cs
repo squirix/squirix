@@ -16,6 +16,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.Storage.Snapshot;
 using TUnit.Core;
 
+[assembly: Rock(typeof(INodeLocator), BuildType.Create)]
 [assembly: Rock(typeof(INodeOwnershipResolver), BuildType.Create)]
 [assembly: Rock(typeof(IRemoteInvocationState), BuildType.Create)]
 [assembly: Rock(typeof(IRpcMutationIdempotencyCoordinator), BuildType.Create)]
