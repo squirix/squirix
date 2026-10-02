@@ -167,5 +167,6 @@
          turns the analyzers on, so moving a project into a shard above needs no CI change. -->
     <Target Name="SquirixPrintAnalysisShard">
         <Message Importance="high" Text="squirix-analysis-shard|$(SquirixProjectAnalysisShard)|$(MSBuildProjectFullPath)"/>
+        <Message Importance="high" Text="squirix-analysis-shards|$(SquirixAnalysisShards)"/>
     </Target>
 </Project>

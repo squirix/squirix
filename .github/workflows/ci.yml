@@ -311,16 +311,33 @@ jobs:
                     analysis-shard: ${{ matrix.shard }}
                     upload-outputs: "false"
 
-            # The build already fails on a shard name Directory.Build.props does not declare, so an equal count means the
-            # matrix above and the declared shards are the same set and no declared shard is left without a job.
-            -   name: Verify Every Analysis Shard Has A Job
-                if: steps.gate.outputs.analyze == 'true' && strategy.job-index == 0
+            # Together the shards analyze every project exactly once. The checks read the shard listing the build of a shard other
+            # than `default` wrote (see .github/actions/build-release), so they cost no further MSBuild run.
+            #  - The build fails on a shard name Directory.Build.props does not declare, so an equal count means the matrix above
+            #    and the declared shards are the same set and no declared shard is left without a job.
+            #  - Every project of the repository is in squirix.slnx, which the shard listing is taken from.
+            #  - Every project belongs to a declared shard.
+            -   name: Verify Every Project Is Analyzed Once
+                if: steps.gate.outputs.analyze == 'true' && matrix.shard != 'default'
                 shell: bash
                 run: |
-                    declared="$(dotnet msbuild src/squirix/Squirix.csproj -getProperty:SquirixAnalysisShards)"
+                    listing="$RUNNER_TEMP/analysis-shards.txt"
+                    declared="$(sed -n 's/^ *squirix-analysis-shards|//p' "$listing" | head -n 1)"
                     IFS=';' read -r -a shards <<< "$declared"
                     if [ "${#shards[@]}" -ne "${{ strategy.job-total }}" ]; then
                       echo "Directory.Build.props declares ${#shards[@]} analysis shards ($declared) but this job runs ${{ strategy.job-total }}." >&2
+                      exit 1
+                    fi
+
+                    missing="$(comm -23 <(git ls-files '*.csproj' | sort) <(sed -n 's/.*<Project Path="\([^"]*\)".*/\1/p' squirix.slnx | sort))"
+                    if [ -n "$missing" ]; then
+                      echo "Not in squirix.slnx, so no analysis shard builds them: $missing" >&2
+                      exit 1
+                    fi
+
+                    undeclared="$(sed -n 's/^ *squirix-analysis-shard|\([^|]*\)|.*/\1/p' "$listing" | sort -u | grep -vxF -f <(printf '%s\n' "${shards[@]}") || true)"
+                    if [ -n "$undeclared" ]; then
+                      echo "Projects belong to shards Directory.Build.props does not declare, so no job analyzes them: $undeclared" >&2
                       exit 1
                     fi
 
