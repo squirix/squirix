@@ -163,7 +163,7 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
             _ = setups.NextSequence.Gets().Callback(() => journal.NextSequence);
             _ = setups.RecentAppendLatencyMs.Gets().Callback(() => journal.RecentAppendLatencyMs);
             _ = setups.UsedBytes.Gets().Callback(() => journal.UsedBytes);
-            _ = setups.AppendIdempotencyOutcomeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<CancellationToken>())
+            _ = setups.AppendIdempotencyOutcomeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<Action?>(), Arg.Any<CancellationToken>())
                .Callback(journal.AppendIdempotencyOutcomeAsync);
             _ = setups.AppendPutAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
                .Callback(journal.AppendPutAsync);

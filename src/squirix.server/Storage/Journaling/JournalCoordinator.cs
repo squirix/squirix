@@ -205,14 +205,14 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         }
     }
 
-    public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken)
+    public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, Action? appended, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
         ArgumentNullException.ThrowIfNull(responseBytes);
 
         return ExecuteUnderSnapshotBarrierAsync(
-            (Journal: this, Pipeline: _appendPipeline, OperationId: operationId, Fingerprint: fingerprint, ResponseBytes: responseBytes),
+            (Journal: this, Pipeline: _appendPipeline, OperationId: operationId, Fingerprint: fingerprint, ResponseBytes: responseBytes, Appended: appended),
             static async (state, ownership, ct) =>
             {
                 // Entered after the mutation gate is held, mirroring DurableMutationExecutor: lets snapshot-cut
@@ -222,6 +222,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 {
                     var record = state.Pipeline.AllocateIdempotencyRecord(in ownership, state.OperationId, state.Fingerprint, state.ResponseBytes);
                     await state.Pipeline.AppendRecordCoreAsync(record, ct).ConfigureAwait(false);
+                    state.Appended?.Invoke();
                 }
                 finally
                 {

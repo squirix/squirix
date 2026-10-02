@@ -159,6 +159,7 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
             OperationId,
             Fingerprint,
             IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }),
+            null,
             cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
     }
@@ -196,6 +197,7 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
                 OperationId,
                 Fingerprint,
                 IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }),
+                null,
                 cancellationToken);
         }
 

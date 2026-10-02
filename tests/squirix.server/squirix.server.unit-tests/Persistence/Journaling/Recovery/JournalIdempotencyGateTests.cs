@@ -43,7 +43,7 @@ public sealed class JournalIdempotencyGateTests : IsolatedStorageTestBase
         var gateGuard = await snapshotState.MutationGate.LockAsync(cancellationToken);
 
         var initialSequence = journal.NextSequence;
-        var appendTask = journal.AppendIdempotencyOutcomeAsync(OperationId, Fingerprint, ResponseBytes, cancellationToken).AsTask();
+        var appendTask = journal.AppendIdempotencyOutcomeAsync(OperationId, Fingerprint, ResponseBytes, null, cancellationToken).AsTask();
 
         // The appending is gated: it has not been enqueued, so the journal sequence has not advanced.
         _ = await Assert.That(appendTask.IsCompleted).IsFalse();

@@ -159,10 +159,10 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
 
         public long UsedBytes => _inner.UsedBytes;
 
-        public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken)
+        public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, Action? appended, CancellationToken cancellationToken)
         {
             _trace.Record(OrderingStep.IdempotencyOutcome);
-            return _inner.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, cancellationToken);
+            return _inner.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, appended, cancellationToken);
         }
 
         public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
