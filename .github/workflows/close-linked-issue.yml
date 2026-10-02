@@ -22,9 +22,15 @@ jobs:
                 run: |
                     issues=()
 
-                    # [#N] at the start of the PR title.
+                    # [#N] at the start of the PR title, unless the body marks the PR as part of that issue ("Refs #N", "Part of #N"):
+                    # a tracker closed piece by piece stays open until its last item.
                     if [[ "$PR_TITLE" =~ ^\[#([0-9]+)\] ]]; then
-                        issues+=("${BASH_REMATCH[1]}")
+                        title_issue="${BASH_REMATCH[1]}"
+                        if printf '%s\n' "$PR_BODY" | grep -qiE "\b(refs?|part of):?[[:space:]]+#${title_issue}\b"; then
+                            echo "PR body marks #$title_issue as a partial reference; not closing it from the title."
+                        else
+                            issues+=("$title_issue")
+                        fi
                     fi
 
                     # GitHub closing keywords in the PR body (close/fix/resolve and their forms) followed by a same-repository #N.
@@ -36,7 +42,7 @@ jobs:
                         | grep -oE '[0-9]+$' || true)
 
                     if [[ ${#issues[@]} -eq 0 ]]; then
-                        echo "No [#N] in the PR title and no closing keyword in the PR body; nothing to close."
+                        echo "No issue to close from the PR title or a closing keyword in the PR body."
                         exit 0
                     fi
 
