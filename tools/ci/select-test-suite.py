@@ -30,11 +30,9 @@ SERVER_UNIT_PROJECT = "tests/squirix.server/squirix.server.unit-tests/Squirix.Se
 # translated to one TUnit treenode-filter. The legacy Client/Persistence substring
 # matched 3 MultiNode-owned methods still covered by e2e-multi-node; no legacy
 # Persistence-only test exists outside Cache.SingleNode.
-# e2e-multi-node excludes stress and mirrors
-#   (FullyQualifiedName~Cache.MultiNode|FullyQualifiedName~Security)&Suite!=Stress
-# plus the HA release classes, as one treenode-filter with class-name alternation.
-# The stress class (MixedMutationStressTests, Property("Suite","Stress")) is absent
-# from the alternation. HA release classes (M8 replica sets) stay visible here.
+# e2e-multi-node is every end-to-end test outside Cache.SingleNode except the stress suite
+# (Property("Suite","Stress"), run by its own job), selected by exclusion so a new class
+# runs without being listed here.
 SUITES = {
     "unit": ("tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj", "", False),
     "client-integration": ("tests/squirix/squirix.integration-tests/Squirix.IntegrationTests.csproj", "", False),
@@ -48,7 +46,7 @@ SUITES = {
     ),
     "e2e-multi-node": (
         "tests/squirix.e2e.tests/Squirix.E2ETests.csproj",
-        "/*/*/(CrossNodeCrudTests)|(CrossNodeExpirationTests)|(CrossNodeTypedValueTests)|(InterNodeMtlsTests)|(ReplicaSetsReleaseE2ETests)|(FailoverE2ETests)|(ClusterPackageVersionE2ETests)|(TopologyActivationE2ETests)|(LostForwardResponseE2ETests)/*",
+        "/*/(*)&(!Squirix.E2ETests.Cache.SingleNode*)/*/*[Suite!=Stress]",
         True,
     ),
     "protocol-model": ("tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj", "", False),
