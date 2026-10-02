@@ -90,13 +90,14 @@ jobs:
                 with:
                     global-json-file: global.json
 
-            -   name: Cache NuGet Packages
-                uses: actions/cache@v6
+            # The package cache is the one the build jobs write (see .github/actions/build-release) and is only read here. This job
+            # used to keep a cache of its own under a key that fell back to older caches: every copy grew to three times what a
+            # restore needs, and the copies filled the cache quota of the repository.
+            -   name: Restore NuGet Package Cache
+                uses: actions/cache/restore@v6
                 with:
                     path: ~/.nuget/packages
-                    key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
-                    restore-keys: |
-                        ${{ runner.os }}-dotnet10-nuget-
+                    key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
 
             -   name: Restore
                 run: dotnet restore squirix.slnx
@@ -633,13 +634,12 @@ jobs:
                 with:
                     global-json-file: global.json
 
-            -   name: Cache NuGet Packages
-                uses: actions/cache@v6
+            # Reads the package cache of the build jobs; see verify-coding-conventions.
+            -   name: Restore NuGet Package Cache
+                uses: actions/cache/restore@v6
                 with:
                     path: ~/.nuget/packages
-                    key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
-                    restore-keys: |
-                        ${{ runner.os }}-dotnet10-nuget-
+                    key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
 
             -   name: Download Build Outputs
                 uses: actions/download-artifact@v8
@@ -1055,21 +1055,19 @@ jobs:
                 with:
                     global-json-file: global.json
 
-            -   name: Cache NuGet Packages
-                uses: actions/cache@v6
+            # Reads the package cache of the build jobs; see verify-coding-conventions.
+            -   name: Restore NuGet Package Cache
+                uses: actions/cache/restore@v6
                 with:
                     path: ~/.nuget/packages
-                    key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
-                    restore-keys: |
-                        ${{ runner.os }}-dotnet10-nuget-
+                    key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
 
+            # Holds what the scanner downloads from SonarCloud. Java is not part of it: the scanner uses the one of the runner image.
             -   name: Cache SonarCloud Packages
                 uses: actions/cache@v6
                 with:
                     path: ~/.sonar/cache
-                    key: ${{ runner.os }}-sonar
-                    restore-keys: |
-                        ${{ runner.os }}-sonar
+                    key: ${{ runner.os }}-sonar-engine
 
             -   name: Cache SonarCloud Scanner
                 id: cache-sonar-scanner
@@ -1110,6 +1108,9 @@ jobs:
                 run: |
                     set -euo pipefail
 
+                    # The runner image ships the Java the scanner engine runs on, so the scanner need not download one.
+                    java="${JAVA_HOME_21_X64:?The runner image has no Java 21.}/bin/java"
+
                     begin_args=(
                       begin
                       "/k:${SONAR_PROJECT_KEY}"
@@ -1117,6 +1118,8 @@ jobs:
                       "/d:sonar.token=${SONAR_TOKEN}"
                       "/d:sonar.host.url=https://sonarcloud.io"
                       "/d:sonar.qualitygate.wait=false"
+                      "/d:sonar.scanner.skipJreProvisioning=true"
+                      "/d:sonar.scanner.javaExePath=${java}"
                       "/d:sonar.exclusions=**/bin/**,**/obj/**,**/.sonar/**,**/tools/**,**/samples/**,**/build/**,**/benchmarks/**"
                       "/d:sonar.coverage.exclusions=**/src/squirix.server.host/**,**/src/squirix.protocol-model/Program.cs,**/tools/**,**/samples/**,**/build/**,**/benchmarks/**"
                       # Intentional cross-assembly twins (nsdepcop forbids references in both directions,
@@ -1248,13 +1251,12 @@ jobs:
                 with:
                     persist-credentials: false
 
-            -   name: Cache NuGet Packages
-                uses: actions/cache@v6
+            # Reads the package cache of the build jobs; see verify-coding-conventions.
+            -   name: Restore NuGet Package Cache
+                uses: actions/cache/restore@v6
                 with:
                     path: ~/.nuget/packages
-                    key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
-                    restore-keys: |
-                        ${{ runner.os }}-dotnet10-nuget-
+                    key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
 
             -   name: Restore production projects
                 run: |
@@ -1465,13 +1467,12 @@ jobs:
                 with:
                     global-json-file: global.json
 
-            -   name: Cache NuGet Packages
-                uses: actions/cache@v6
+            # Reads the package cache of the build jobs; see verify-coding-conventions.
+            -   name: Restore NuGet Package Cache
+                uses: actions/cache/restore@v6
                 with:
                     path: ~/.nuget/packages
-                    key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
-                    restore-keys: |
-                        ${{ runner.os }}-dotnet10-nuget-
+                    key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
 
             -   name: Restore
                 run: dotnet restore squirix.slnx
