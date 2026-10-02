@@ -38,8 +38,8 @@ internal static class CachePipelineRegistration
     }
 
     /// <summary>
-    /// Outermost decorator runs first: Tracing → DomainError → Validation → Backpressure → Deadline → Metrics → OwnershipGuard → Memory.
-    /// The ownership guard sits above everything that commits, journals or takes key gates, so a remote key is refused before any of them.
+    /// Outermost decorator runs first: Tracing → DomainError → Validation → OwnershipGuard → Backpressure → Deadline → Metrics → Memory.
+    /// The ownership guard sits above admission and everything that commits, journals or takes key gates, so a remote key is refused before any of them.
     /// Backpressure stays outside Deadline on purpose: admission shaping (slowdown plus queue wait) must not
     /// consume the operation execution budget, otherwise a saturated node times out work that never ran.
     /// Validation stays outside Backpressure so invalid requests are rejected before taking an admission slot.
@@ -53,12 +53,8 @@ internal static class CachePipelineRegistration
             sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
             sp.GetRequiredService<IMemoryUsageAccounting>(),
             HasRecordedOutcome(sp)));
-        _ = services.AddSingleton(static sp => new OwnershipGuardCacheDecorator<object?>(
-            sp.GetRequiredService<TopologyOptions>().NodeId,
-            sp.GetRequiredService<INodeLocator>(),
-            sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>()));
         _ = services.AddSingleton(static sp => new MetricsCacheDecorator<object?>(
-            sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>(),
+            sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>(),
             sp.GetRequiredService<CacheMetrics>()));
         _ = services.AddSingleton(static sp => new DeadlineCacheDecorator<object?>(
             sp.GetRequiredService<MetricsCacheDecorator<object?>>(),
@@ -67,7 +63,11 @@ internal static class CachePipelineRegistration
             sp.GetRequiredService<DeadlineCacheDecorator<object?>>(),
             sp.GetRequiredService<IBackpressureGate>(),
             sp.GetRequiredService<IBackpressureClientIdResolver>()));
-        _ = services.AddSingleton(static sp => new ValidationCacheDecorator<object?>(sp.GetRequiredService<BackpressureCacheDecorator<object?>>()));
+        _ = services.AddSingleton(static sp => new OwnershipGuardCacheDecorator<object?>(
+            sp.GetRequiredService<TopologyOptions>().NodeId,
+            sp.GetRequiredService<INodeLocator>(),
+            sp.GetRequiredService<BackpressureCacheDecorator<object?>>()));
+        _ = services.AddSingleton(static sp => new ValidationCacheDecorator<object?>(sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>()));
         _ = services.AddSingleton(static sp => new DomainErrorMappingCacheDecorator<object?>(sp.GetRequiredService<ValidationCacheDecorator<object?>>()));
         _ = services.AddSingleton(static sp => new TracingCacheDecorator<object?>(
             sp.GetRequiredService<DomainErrorMappingCacheDecorator<object?>>(),

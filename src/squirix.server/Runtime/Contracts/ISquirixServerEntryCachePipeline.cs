@@ -7,7 +7,7 @@ namespace Squirix.Server.Runtime.Contracts;
 /// <summary>Logical cache pipeline surface available to integrations.</summary>
 /// <remarks>
 /// The surface is owner-local: an operation on a key owned by another node is refused with a gRPC <c language="csharp">FailedPrecondition</c> failure carrying the
-/// stale-owner marker, and callers must route to the owner themselves.
+/// stale-owner marker (trailer <c language="csharp">squirix-error-code</c> with value <c language="csharp">stale-owner</c>), and callers must route to the owner themselves.
 /// </remarks>
 /// <typeparam name="T">The cache value type.</typeparam>
 public interface ISquirixServerEntryCachePipeline<T> : ISquirixServerCachePipeline
