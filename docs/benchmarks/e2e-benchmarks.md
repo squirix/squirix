@@ -142,6 +142,27 @@ Update the committed baseline tables from BenchmarkDotNet JSON (one report file 
   -Branch (git branch --show-current)
 ```
 
+### CI allocation guard
+
+The `Wire Allocation Guard` CI job runs eight cases of this matrix (`GetValueAsync` and `SetAsync` for both value shapes
+and both durability modes) on develop pushes, pull requests into develop, the weekly schedule and manual runs. It fails
+when a case allocates more than the tolerance (5%) over its entry in
+[`wire-alloc-ci-baseline.json`](../../benchmarks/squirix.e2e.benchmarks/wire-alloc-ci-baseline.json), when a case
+has no entry, or when an entry was not measured. The baseline holds bytes per operation measured on the CI runner:
+allocations differ between machines, so local numbers do not belong there. The job runs the benchmarks in process
+(`SQUIRIX_E2E_BENCHMARK_IN_PROCESS=1`), which skips the project BenchmarkDotNet otherwise builds and the process it
+starts per case.
+
+The scalar `SetAsync` cases move by about 2% between runs, so the baseline is the mean of several CI runs. To accept a
+change in allocations, rewrite it from the results of two or three CI runs of the change and commit it:
+
+```bash
+gh run download <run-id-1> -n benchmarks-wire-alloc -D wire-alloc-1
+gh run download <run-id-2> -n benchmarks-wire-alloc -D wire-alloc-2
+python3 tools/ci/check-wire-alloc.py benchmarks/squirix.e2e.benchmarks/wire-alloc-ci-baseline.json --write \
+  wire-alloc-1/BenchmarkDotNet.Artifacts wire-alloc-2/BenchmarkDotNet.Artifacts
+```
+
 ## Benchmark Groups
 
 Basic operations:

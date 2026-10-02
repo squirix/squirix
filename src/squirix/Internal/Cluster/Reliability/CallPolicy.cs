@@ -98,9 +98,6 @@ internal sealed class CallPolicy : ICallPolicy
         }
     }
 
-    internal ValueTask<T> ExecuteAsync<T>(Func<CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken) =>
-        ExecuteAsync(static (callback, token) => callback(token), action, cancellationToken);
-
     private void DisposeSemaphoreUnderLockIfIdle()
     {
         if (Volatile.Read(ref _disposed) == 0 || _semaphoreDisposed || !_activeOperations.IsIdle())

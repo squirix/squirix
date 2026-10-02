@@ -59,7 +59,7 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
     {
         var policy = _policy!;
         for (var i = 0; i < Batch; i++)
-            _consumer.Consume(await policy.ExecuteAsync(static ct => CompletedValueTaskAsync(ct), CancellationToken.None).ConfigureAwait(false));
+            _consumer.Consume(await policy.ExecuteAsync(static (_, ct) => CompletedValueTaskAsync(ct), 0, CancellationToken.None).ConfigureAwait(false));
     }
 
     /// <summary>Releases benchmark resources.</summary>

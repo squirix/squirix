@@ -34,14 +34,6 @@ public class ReplicaRepairBenchmarks
         _consumer.Consume(batch.PrevLogIndex);
     }
 
-    /// <summary>Sweeps the next-index backup computation.</summary>
-    [Benchmark(OperationsPerInvoke = 1_024)]
-    public void BackUpNextIndexSweep()
-    {
-        for (var i = 4_096UL; i < 5_120UL; i++)
-            _consumer.Consume(ReplicaRepairPlanner.BackUpNextIndex(i, 64UL));
-    }
-
     /// <summary>Builds the repair entry runs reused across invocations.</summary>
     [GlobalSetup]
     public void Setup()
