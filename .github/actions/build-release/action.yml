@@ -10,7 +10,7 @@ inputs:
     required: false
     default: net10.0
   run-package-smoke:
-    description: When true, run external package smoke (ubuntu push/schedule only).
+    description: When true, run the external package smoke after the build (the package-smoke job).
     required: false
     default: "false"
   analyzers:

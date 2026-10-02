@@ -60,6 +60,14 @@
         <EnableTUnitSourceGeneration>false</EnableTUnitSourceGeneration>
     </PropertyGroup>
 
+    <!-- File-based tools and examples (single .cs files run by dotnet run) reference production projects and build them on the way.
+         The CI check of those files sets SquirixToolCheck=true, so only the file itself is analyzed there:
+         the analysis shards already cover the referenced projects. -->
+    <PropertyGroup Label="ToolCheck" Condition="'$(SquirixToolCheck)' == 'true' And '$(FileBasedProgram)' != 'true'">
+        <RunAnalyzers>false</RunAnalyzers>
+        <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    </PropertyGroup>
+
     <!-- Classify projects once; reuse in conditions below. -->
     <PropertyGroup Label="ProjectKind">
         <_NormalizedProjectDir>$([System.String]::Copy('$(MSBuildProjectDirectory)').Replace('\', '/'))</_NormalizedProjectDir>
