@@ -1118,10 +1118,10 @@ jobs:
                     fetch-depth: 0
                     persist-credentials: false
 
+            # The SDK from a cache; see .github/actions/setup-sdk. The scanner targets netcoreapp3.1 with rollForward LatestMajor,
+            # so it runs on the runtime of that SDK.
             -   name: Setup .NET
-                uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-                with:
-                    global-json-file: global.json
+                uses: ./.github/actions/setup-sdk
 
             # Reads the package cache of the build jobs; see verify-coding-conventions.
             -   name: Restore NuGet Package Cache
