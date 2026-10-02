@@ -1062,13 +1062,12 @@ jobs:
                     path: ~/.nuget/packages
                     key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
 
+            # Holds what the scanner downloads from SonarCloud. Java is not part of it: the scanner uses the one of the runner image.
             -   name: Cache SonarCloud Packages
                 uses: actions/cache@v6
                 with:
                     path: ~/.sonar/cache
-                    key: ${{ runner.os }}-sonar
-                    restore-keys: |
-                        ${{ runner.os }}-sonar
+                    key: ${{ runner.os }}-sonar-engine
 
             -   name: Cache SonarCloud Scanner
                 id: cache-sonar-scanner
@@ -1109,6 +1108,9 @@ jobs:
                 run: |
                     set -euo pipefail
 
+                    # The runner image ships the Java the scanner engine runs on, so the scanner need not download one.
+                    java="${JAVA_HOME_21_X64:?The runner image has no Java 21.}/bin/java"
+
                     begin_args=(
                       begin
                       "/k:${SONAR_PROJECT_KEY}"
@@ -1116,6 +1118,8 @@ jobs:
                       "/d:sonar.token=${SONAR_TOKEN}"
                       "/d:sonar.host.url=https://sonarcloud.io"
                       "/d:sonar.qualitygate.wait=false"
+                      "/d:sonar.scanner.skipJreProvisioning=true"
+                      "/d:sonar.scanner.javaExePath=${java}"
                       "/d:sonar.exclusions=**/bin/**,**/obj/**,**/.sonar/**,**/tools/**,**/samples/**,**/build/**,**/benchmarks/**"
                       "/d:sonar.coverage.exclusions=**/src/squirix.server.host/**,**/src/squirix.protocol-model/Program.cs,**/tools/**,**/samples/**,**/build/**,**/benchmarks/**"
                       # Intentional cross-assembly twins (nsdepcop forbids references in both directions,
