@@ -85,10 +85,11 @@ jobs:
                     persist-credentials: false
                     fetch-depth: 0
 
+            # The SDK and the .NET 10 runtimes the job runs its net10.0 apps on, from a cache; see .github/actions/setup-sdk.
             -   name: Setup .NET
-                uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+                uses: ./.github/actions/setup-sdk
                 with:
-                    global-json-file: global.json
+                    net10-runtime: "true"
 
             # The package cache is the one the build jobs write (see .github/actions/build-release) and is only read here. This job
             # used to keep a cache of its own under a key that fell back to older caches: every copy grew to three times what a
@@ -247,10 +248,11 @@ jobs:
                 with:
                     persist-credentials: false
 
+            # The SDK and the .NET 10 runtimes the job runs its net10.0 apps on, from a cache; see .github/actions/setup-sdk.
             -   name: Setup .NET
-                uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+                uses: ./.github/actions/setup-sdk
                 with:
-                    global-json-file: global.json
+                    net10-runtime: "true"
 
             -   name: Ensure Dev HTTPS Certificate
                 shell: bash
@@ -850,11 +852,12 @@ jobs:
                 id: gate
                 run: echo "guard=${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
 
+            # The SDK and the .NET 10 runtimes the job runs its net10.0 apps on, from a cache; see .github/actions/setup-sdk.
             -   name: Setup .NET
                 if: steps.gate.outputs.guard == 'true'
-                uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+                uses: ./.github/actions/setup-sdk
                 with:
-                    global-json-file: global.json
+                    net10-runtime: "true"
 
             # Reads the package cache of the build jobs; see verify-coding-conventions.
             -   name: Restore NuGet Package Cache
