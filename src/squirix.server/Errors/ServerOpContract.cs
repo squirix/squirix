@@ -1,10 +1,13 @@
 using System;
+using Grpc.Core;
 
 namespace Squirix.Server.Errors;
 
 internal static class ServerOpContract
 {
     internal const string CommitOutcomeUnknownDetail = "COMMIT_OUTCOME_UNKNOWN";
+
+    internal const string NoWriteMajorityDetail = "Replica group has no verified write majority; nothing was written.";
 
     private const string EntryTagCountExceededDetail = "Entry tag count exceeds the maximum of 32.";
 
@@ -15,6 +18,10 @@ internal static class ServerOpContract
     private const string InsertVersionMustExceedCurrentPrefix = "Version must be greater than current (current=";
 
     private const string PayloadTooLargeDetail = "Payload size limit is 4194304 bytes.";
+
+    /// <summary>Creates the refusal of a replicated write before its local append, while the group has no verified write majority.</summary>
+    /// <returns><see cref="StatusCode.Unavailable" /> without the unknown-outcome code: nothing was written, so a retry may run elsewhere or later.</returns>
+    internal static RpcException NoWriteMajority() => new(new Status(StatusCode.Unavailable, NoWriteMajorityDetail));
 
     internal static SquirixException CommitOutcomeUnknown() => new(SquirixErrorCode.CommitOutcomeUnknown, "CommitOutcomeUnknown", CommitOutcomeUnknownDetail);
 

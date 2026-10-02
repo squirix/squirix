@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Cluster.Replication;
@@ -215,7 +216,8 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
         var eligibility = registry.EligibilityFor("n1");
         _ = eligibility.TryMarkCatchingUp(1, default);
         _ = eligibility.TryMarkCatchingUp(2, default);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(committer.CommitSetAsync(NewOperationId(), "cache", "refused", Entry("refused"), cancellationToken));
+        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "refused", Entry("refused"), cancellationToken));
+        _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
         await committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken);
 
         await SequenceAssert.EqualAsync(["k1", "k2", "k3"], cache.Applied.ToArray(), StringComparer.Ordinal);

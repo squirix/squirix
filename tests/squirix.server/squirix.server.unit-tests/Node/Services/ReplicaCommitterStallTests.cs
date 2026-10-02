@@ -384,7 +384,8 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         // Invalid progress demotes a ready follower to catching up: the next write has no verified majority and drops the started
         // state, so the write after it resyncs (a new coordinator whose start re-verifies the follower).
         _ = registry.EligibilityFor("n1").TryMarkCatchingUp(1, default);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken));
+        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken));
+        _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
     }
 
     private static async Task<ulong> LastLogIndexAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)
