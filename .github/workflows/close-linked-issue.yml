@@ -4,6 +4,8 @@ on:
     pull_request:
         types: [ closed ]
 
+permissions: { }
+
 jobs:
     close-linked:
         name: Close Linked Issue
@@ -26,7 +28,10 @@ jobs:
                     # a tracker closed piece by piece stays open until its last item.
                     if [[ "$PR_TITLE" =~ ^\[#([0-9]+)\] ]]; then
                         title_issue="${BASH_REMATCH[1]}"
-                        if printf '%s\n' "$PR_BODY" | grep -qiE "\b(refs?|part of):?[[:space:]]+#${title_issue}\b"; then
+                        partial=$(printf '%s\n' "$PR_BODY" \
+                            | grep -oiE '\b(refs?|part of):?[[:space:]]+#[0-9]+([[:space:]]*(,|and)[[:space:]]*#[0-9]+)*' \
+                            | grep -oE '[0-9]+' || true)
+                        if printf '%s\n' "$partial" | grep -qx "$title_issue"; then
                             echo "PR body marks #$title_issue as a partial reference; not closing it from the title."
                         else
                             issues+=("$title_issue")
