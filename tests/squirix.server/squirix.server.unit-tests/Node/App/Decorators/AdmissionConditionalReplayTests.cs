@@ -154,7 +154,11 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         _ = present.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(stored));
         _ = present.Setups.UpdateAsync("op-1", CacheName, Key, "v2", Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
         var absent = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = absent.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        var reads = 0;
+
+        // The key is absent when admission reads it and holds the replayed entry when the replay is accounted.
+        _ = absent.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>())
+                  .Callback((_, _, _) => ValueTask.FromResult(Interlocked.Increment(ref reads) == 1 ? null : stored));
         _ = absent.Setups.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
         var updateAccounting = new MemoryUsageAccounting();
         var addAccounting = new MemoryUsageAccounting();
@@ -165,6 +169,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         _ = await Assert.That(updateAccounting.ReadEntryCount()).IsEqualTo(1);
         _ = await Assert.That(updateAccounting.ReadRejectedWriteCount()).IsEqualTo(0L);
         _ = await Assert.That(added).IsTrue();
+        _ = await Assert.That(addAccounting.ReadEntryCount()).IsEqualTo(1);
         _ = await Assert.That(addAccounting.ReadRejectedWriteCount()).IsEqualTo(0L);
     }
 
