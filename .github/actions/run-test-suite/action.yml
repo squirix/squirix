@@ -13,55 +13,27 @@ inputs:
     description: Suite or group id defined in tools/ci/select-test-suite.py (for example server-unit, server-unit-a, e2e-multi-node, or the light group).
     required: true
   collect-coverage:
-    description: When true, collect Coverlet coverage (Ubuntu only).
+    description: When true, the test hosts also write Cobertura coverage, one report per suite.
     required: false
     default: "false"
 
 runs:
   using: composite
   steps:
-    - name: Select Runner Mode
-      id: mode
-      shell: bash
-      run: |
-        # Jobs without coverage run the built test host directly: `dotnet test` needs a package restore (hence the NuGet cache) only to
-        # discover the project, and the host in bin is self-contained. That is every Windows and macOS job and, on Linux, the pull
-        # request jobs (Linux push jobs collect coverage; ARM keeps `dotnet test`). Those jobs also skip installing the SDK pinned
-        # in global.json, because every runner image already ships the .NET 10 runtime the host needs.
-        echo "direct=${{ inputs.collect-coverage != 'true' && (runner.os != 'Linux' || github.event_name == 'pull_request') }}" >> "$GITHUB_OUTPUT"
-
-    - name: Setup .NET
-      if: steps.mode.outputs.direct != 'true'
-      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-      with:
-        global-json-file: global.json
-
+    # Every job runs the built test hosts directly. A host is self-contained in bin and needs only the .NET 10 runtime, which
+    # every runner image ships, so no job installs the SDK pinned in global.json, restores packages or caches them.
     # The macOS image keeps .NET in the home folder of the runner, where a test host does not look on its own.
     - name: Point Test Hosts At The Runner .NET (macOS)
-      if: steps.mode.outputs.direct == 'true' && runner.os == 'macOS'
+      if: runner.os == 'macOS'
       shell: bash
       run: |
         echo "DOTNET_ROOT=$(python3 -c 'import os, shutil; print(os.path.dirname(os.path.realpath(shutil.which("dotnet"))))')" >> "$GITHUB_ENV"
-
-    - name: Cache NuGet Packages
-      if: steps.mode.outputs.direct != 'true'
-      uses: actions/cache@v6
-      with:
-        path: ~/.nuget/packages
-        key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-dotnet10-nuget-
 
     - name: Download Build Outputs
       uses: actions/download-artifact@v8
       with:
         name: build-output-${{ inputs.os }}-${{ inputs.framework }}
         path: .
-
-    - name: Restore (Resolve Packages For Collectors)
-      if: steps.mode.outputs.direct != 'true'
-      shell: bash
-      run: dotnet restore squirix.slnx
 
     - name: Restore Executable Bits For Test Hosts (Unix)
       if: runner.os != 'Windows'
@@ -92,14 +64,9 @@ runs:
 
     # Creating and trusting the certificate costs 1-13 s of SDK start-up per job, so suites that cannot host a server skip it.
     - name: Ensure Dev HTTPS Certificate
-      if: steps.select.outputs.https_cert == 'true' && steps.mode.outputs.direct != 'true'
+      if: steps.select.outputs.https_cert == 'true'
       shell: bash
-      run: bash tools/ci/ensure-dev-https-cert.sh
-
-    - name: Ensure Dev HTTPS Certificate (Runner SDK)
-      if: steps.select.outputs.https_cert == 'true' && steps.mode.outputs.direct == 'true'
-      shell: bash
-      # The SDK pinned in global.json is not installed on this path; run outside the repository so the runner's SDK is used.
+      # The SDK pinned in global.json is not installed here; run outside the repository so the SDK of the runner image is used.
       working-directory: ${{ runner.temp }}
       run: bash "${{ github.workspace }}/tools/ci/ensure-dev-https-cert.sh"
 
@@ -109,7 +76,6 @@ runs:
       shell: bash
       env:
         RUNS: ${{ steps.select.outputs.runs }}
-        DIRECT: ${{ steps.mode.outputs.direct }}
       run: |
         set -o pipefail
         failed=()
@@ -122,30 +88,25 @@ runs:
             filter_args=(--treenode-filter "$filter")
           fi
 
-          status=0
-          if [ "$DIRECT" = "true" ]; then
-            # The test host is named after its project; it accepts the same Microsoft.Testing.Platform options and exit codes.
-            host="$(dirname "$project")/bin/Release/${{ inputs.framework }}/$(basename "$project" .csproj)"
-            if [ "$RUNNER_OS" = "Windows" ]; then host="$host.exe"; fi
-            "$host" \
-              "${filter_args[@]}" \
-              --report-trx --report-trx-filename "$name.trx" \
-              --results-directory "${{ github.workspace }}/TestResults" \
-              --timeout 1h 2>&1 | tee "test-output-$name.log" || status=$?
-          elif [ "${{ inputs.collect-coverage }}" = "true" ]; then
-            mkdir -p "coverage/$name"
-            dotnet test --project "$project" --framework ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
-              "${filter_args[@]}" \
-              --report-trx --report-trx-filename "$name.trx" \
-              --results-directory "${{ github.workspace }}/coverage/$name" \
-              --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml \
-              --timeout 1h 2>&1 | tee "test-output-$name.log" || status=$?
-          else
-            dotnet test --project "$project" --framework ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
-              "${filter_args[@]}" \
-              --report-trx --report-trx-filename "$name.trx" \
-              --timeout 1h 2>&1 | tee "test-output-$name.log" || status=$?
+          # The test host is named after its project and takes the Microsoft.Testing.Platform options.
+          host="$(dirname "$project")/bin/Release/${{ inputs.framework }}/$(basename "$project" .csproj)"
+          if [ "$RUNNER_OS" = "Windows" ]; then host="$host.exe"; fi
+          results="${{ github.workspace }}/TestResults"
+          coverage_args=()
+          if [ "${{ inputs.collect-coverage }}" = "true" ]; then
+            # The coverage extension is part of the host. Each suite writes into a directory of its own.
+            results="${{ github.workspace }}/coverage/$name"
+            mkdir -p "$results"
+            coverage_args=(--coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml)
           fi
+
+          status=0
+          "$host" \
+            "${filter_args[@]}" \
+            --report-trx --report-trx-filename "$name.trx" \
+            --results-directory "$results" \
+            "${coverage_args[@]}" \
+            --timeout 1h 2>&1 | tee "test-output-$name.log" || status=$?
 
           # A group keeps going after a failed suite so one job reports every failing suite, then fails as a whole.
           if [ "$status" -ne 0 ]; then
