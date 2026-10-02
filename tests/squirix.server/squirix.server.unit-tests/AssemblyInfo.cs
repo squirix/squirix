@@ -21,6 +21,7 @@ using TUnit.Core;
 [assembly: Rock(typeof(IRemoteInvocationState), BuildType.Create)]
 [assembly: Rock(typeof(IRpcMutationIdempotencyCoordinator), BuildType.Create)]
 [assembly: Rock(typeof(IGrpcCacheOperations<>), BuildType.Create)]
+[assembly: Rock(typeof(ICacheApi<>), BuildType.Create)]
 [assembly: Rock(typeof(IMemoryBudgetProvider), BuildType.Create)]
 [assembly: Rock(typeof(IReplicaCommitFaultHooks), BuildType.Create)]
 [assembly: Rock(typeof(IReplicaCommitPipeline), BuildType.Create)]
