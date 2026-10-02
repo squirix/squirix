@@ -1,5 +1,14 @@
 {
   "runner": "ubuntu-latest",
   "tolerance": 0.03,
-  "bytesPerOperation": {}
+  "bytesPerOperation": {
+    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 15176,
+    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 14930,
+    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 18230,
+    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 22409,
+    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 29422,
+    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 29440,
+    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 34873,
+    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 39225
+  }
 }
