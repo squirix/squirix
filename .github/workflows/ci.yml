@@ -354,7 +354,7 @@ jobs:
                     # The analyze-ubuntu shards run the analyzers; here only compiling matters.
                     analyzers: "false"
                     # This job proves that the solution builds on this system. The tests of every runner kind run on the outputs
-                    # of build-ubuntu, so nothing is uploaded here and no test job waits for this build.
+                    # of build-ubuntu, so nothing is uploaded here.
                     upload-outputs: "false"
 
     build-macos:
@@ -392,7 +392,7 @@ jobs:
                     # The analyze-ubuntu shards run the analyzers; here only compiling matters.
                     analyzers: "false"
                     # This job proves that the solution builds on this system. The tests of every runner kind run on the outputs
-                    # of build-ubuntu, so nothing is uploaded here and no test job waits for this build.
+                    # of build-ubuntu, so nothing is uploaded here.
                     upload-outputs: "false"
 
     build-arm:
@@ -431,7 +431,7 @@ jobs:
                     # The analyze-ubuntu shards run the analyzers; here only compiling matters.
                     analyzers: "false"
                     # This job proves that the solution builds on this system. The tests of every runner kind run on the outputs
-                    # of build-ubuntu, so nothing is uploaded here and no test job waits for this build.
+                    # of build-ubuntu, so nothing is uploaded here.
                     upload-outputs: "false"
 
     # Per-OS test matrices: each starts as soon as its build finishes; ubuntu also runs the smoke suite.
@@ -477,7 +477,10 @@ jobs:
         name: Test (windows-latest / net10.0 / ${{ matrix.suite }})
         runs-on: windows-latest
         timeout-minutes: 20
-        needs: [ build-ubuntu ]
+        # The tests run on the outputs of build-ubuntu. They also wait for the build on their own runner kind: a system that
+        # cannot build the solution is not tested, and the wait spreads the test jobs over time, so the ubuntu tests, which
+        # SonarCloud and the coverage report wait for, get their runners first under the 20 job limit of the organization.
+        needs: [ build-ubuntu, build-windows ]
         if: |
             (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.base_ref == 'main') &&
             needs.build-ubuntu.outputs.built == 'true'
@@ -522,7 +525,8 @@ jobs:
         name: Test (macos-latest / net10.0 / ${{ matrix.suite }})
         runs-on: macos-latest
         timeout-minutes: 20
-        needs: [ build-ubuntu ]
+        # Waits for the build on its own runner kind as well; see test-windows.
+        needs: [ build-ubuntu, build-macos ]
         if: |
             (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.base_ref == 'main') &&
             needs.build-ubuntu.outputs.built == 'true'
@@ -559,7 +563,8 @@ jobs:
         name: Test (ubuntu-26.04-arm / net10.0 / ${{ matrix.suite }})
         runs-on: ubuntu-26.04-arm
         timeout-minutes: 30
-        needs: [ build-ubuntu ]
+        # Waits for the build on its own runner kind as well; see test-windows.
+        needs: [ build-ubuntu, build-arm ]
         # PR fast path: ARM tests run on push/schedule/dispatch only.
         if: |
             github.event_name != 'pull_request' && needs.build-ubuntu.outputs.built == 'true'
