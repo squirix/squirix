@@ -1,0 +1,5 @@
+{
+  "runner": "ubuntu-latest",
+  "tolerance": 0.03,
+  "bytesPerOperation": {}
+}
