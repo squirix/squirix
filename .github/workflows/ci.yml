@@ -1080,7 +1080,10 @@ jobs:
         permissions:
             contents: read
             pull-requests: read
-        needs: [ changes, test-ubuntu ]
+            # Lists the jobs of this run to wait for the ubuntu tests.
+            actions: read
+        # No `needs` on test-ubuntu: the job builds while the tests run and waits for them in a step.
+        needs: [ changes ]
         # PR fast path: SonarCloud runs on push/schedule/dispatch only.
         if: |
             github.event_name != 'pull_request' &&
@@ -1157,30 +1160,11 @@ jobs:
                       dotnet tool update dotnet-sonarscanner --tool-path .sonar/scanner
                     fi
 
-            -   name: Download Coverage Reports
-                uses: actions/download-artifact@v8
-                with:
-                    pattern: coverage-raw-net10.0-*
-                    merge-multiple: true
-                    path: coverage
-
-            -   name: Verify Cobertura Reports For Sonar
-                shell: bash
-                run: |
-                    mapfile -t files < <(find coverage -name coverage.cobertura.xml -type f 2>/dev/null || true)
-                    if [ ${#files[@]} -eq 0 ]; then
-                      echo "No coverage.cobertura.xml found for SonarCloud import." >&2
-                      echo "Expected Cobertura from ubuntu test jobs (Microsoft.Testing.Extensions.CodeCoverage)." >&2
-                      find coverage -type f -print 2>/dev/null || true
-                      exit 1
-                    fi
-                    echo "Found ${#files[@]} Cobertura report(s) for SonarCloud."
-
             # SquirixSonarAnalysis leaves only the Sonar analyzers in this build; see Directory.Build.props.
             -   name: Restore
                 run: dotnet restore squirix.slnx -p:SquirixSonarAnalysis=true
 
-            -   name: Analyze With SonarCloud
+            -   name: Begin Analysis And Build
                 shell: bash
                 env:
                     GITHUB_EVENT_NAME: ${{ github.event_name }}
@@ -1218,7 +1202,71 @@ jobs:
 
                     .sonar/scanner/dotnet-sonarscanner "${begin_args[@]}"
                     dotnet build squirix.slnx --configuration Release --no-restore -p:SquirixSonarAnalysis=true
-                    .sonar/scanner/dotnet-sonarscanner end "/d:sonar.token=${SONAR_TOKEN}"
+
+            # The build above does not need the tests, so it runs while they do. The analysis is published only after the
+            # ubuntu test jobs of this run have all succeeded, because it imports their coverage.
+            -   name: Wait For The Ubuntu Tests
+                shell: bash
+                env:
+                    GH_TOKEN: ${{ github.token }}
+                run: |
+                    set -euo pipefail
+                    jobs_url="repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs?per_page=100"
+                    deadline=$((SECONDS + 1800))
+                    settled=0
+                    while true; do
+                      # The matrix jobs are listed once build-ubuntu has finished.
+                      mapfile -t rows < <(gh api --paginate "${jobs_url}" \
+                        --jq '.jobs[] | select(.name | startswith("Test (ubuntu-latest /")) | [.status, (.conclusion // "none"), .name] | @tsv')
+                      pending=0
+                      for row in "${rows[@]}"; do
+                        IFS=$'\t' read -r status conclusion name <<< "${row}"
+                        if [[ "${status}" != "completed" ]]; then
+                          pending=1
+                        elif [[ "${conclusion}" != "success" ]]; then
+                          echo "${name} finished with '${conclusion}'; there is no complete coverage to import." >&2
+                          exit 1
+                        fi
+                      done
+                      # Two listings in a row must agree, so a listing taken while the matrix is being created cannot end the wait.
+                      if [[ ${#rows[@]} -gt 0 && ${pending} -eq 0 ]]; then
+                        if [[ ${settled} -eq ${#rows[@]} ]]; then
+                          echo "All ${#rows[@]} ubuntu test jobs succeeded."
+                          break
+                        fi
+                        settled=${#rows[@]}
+                      else
+                        settled=0
+                      fi
+                      if (( SECONDS > deadline )); then
+                        echo "The ubuntu test jobs did not finish in time." >&2
+                        exit 1
+                      fi
+                      sleep 5
+                    done
+
+            -   name: Download Coverage Reports
+                uses: actions/download-artifact@v8
+                with:
+                    pattern: coverage-raw-net10.0-*
+                    merge-multiple: true
+                    path: coverage
+
+            -   name: Verify Cobertura Reports For Sonar
+                shell: bash
+                run: |
+                    mapfile -t files < <(find coverage -name coverage.cobertura.xml -type f 2>/dev/null || true)
+                    if [ ${#files[@]} -eq 0 ]; then
+                      echo "No coverage.cobertura.xml found for SonarCloud import." >&2
+                      echo "Expected Cobertura from ubuntu test jobs (Microsoft.Testing.Extensions.CodeCoverage)." >&2
+                      find coverage -type f -print 2>/dev/null || true
+                      exit 1
+                    fi
+                    echo "Found ${#files[@]} Cobertura report(s) for SonarCloud."
+
+            -   name: Publish Analysis To SonarCloud
+                shell: bash
+                run: .sonar/scanner/dotnet-sonarscanner end "/d:sonar.token=${SONAR_TOKEN}"
 
     # PVS-Studio Team: full analysis of production packages; fail CI when warnings remain.
     # Secret: PVS_STUDIO_CREDENTIALS = "<license-name> <license-key>"
