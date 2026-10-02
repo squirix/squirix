@@ -109,8 +109,6 @@ internal sealed class JournalReplayKit
             out _);
         var physical = new PhysicalCache<string>(clock);
         var cache = new JournalLoggingCacheDecorator<string>(
-            Self,
-            RocksDoubles.CreateOwnerLocator(Self),
             new ClientCache<string>(physical, physical),
             journal,
             new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance),

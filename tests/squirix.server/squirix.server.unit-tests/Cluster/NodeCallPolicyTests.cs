@@ -307,6 +307,32 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         _ = await Assert.That(attempts.Count).IsEqualTo(1);
     }
 
+    /// <summary>Ensures an admission refusal by the peer passes through without a retry.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ResourceExhaustedIsNotRetried(CancellationToken cancellationToken)
+    {
+        await using var policy = CreatePolicy(
+            new CallPolicyTimeouts(TimeSpan.FromSeconds(1), TimeSpan.Zero, TimeSpan.Zero),
+            peer: "peer-refusal",
+            timeProvider: TimeProvider.System);
+        var attempts = new InvocationCounter();
+
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
+            policy.ExecuteAsync(
+                attempts,
+                static (counter, cancellationToken) =>
+                {
+                    _ = cancellationToken;
+                    _ = counter.Increment();
+                    return ValueTask.FromException<int>(new RpcException(new Status(StatusCode.ResourceExhausted, "Server is overloaded.")));
+                },
+                cancellationToken));
+
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
+        _ = await Assert.That(attempts.Count).IsEqualTo(1);
+    }
+
     /// <summary>Ensures per-attempt timeout keeps existing retry behavior and can recover on a subsequent attempt.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

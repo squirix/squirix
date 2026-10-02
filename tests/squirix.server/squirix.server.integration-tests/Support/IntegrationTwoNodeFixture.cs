@@ -24,6 +24,12 @@ public sealed class IntegrationTwoNodeFixture : NodeIntegrationTestBase, IAsyncI
 {
     private TestCluster<IntegrationStartOptions>? _cluster;
 
+    /// <summary>Gets the first node.</summary>
+    public ITestNodeHost NodeA => Cluster["node-a"];
+
+    /// <summary>Gets the second node.</summary>
+    public ITestNodeHost NodeB => Cluster["node-b"];
+
     /// <summary>Gets the listen URI of the first node.</summary>
     public Uri UriA => Cluster["node-a"].Uri;
 

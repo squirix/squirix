@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Runtime.Contracts;
@@ -25,26 +24,18 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly IJournalCoordinator _journal;
     private readonly ILocalCacheRawReader<T>? _rawReader;
-    private readonly INodeLocator _ring;
-    private readonly string _self;
     private readonly TimeProvider _timeProvider;
 
     internal JournalLoggingCacheDecorator(
-        string self,
-        INodeLocator ring,
         ILogicalNamespacedCache<T> inner,
         IJournalCoordinator journal,
         DurableMutationExecutor durableMutations,
         TimeProvider? timeProvider = null,
         ILocalCacheRawReader<T>? rawReader = null)
     {
-        ArgumentNullException.ThrowIfNull(self);
-        ArgumentNullException.ThrowIfNull(ring);
         ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(journal);
         ArgumentNullException.ThrowIfNull(durableMutations);
-        _self = self;
-        _ring = ring;
         _inner = inner;
         _journal = journal;
         _executor = durableMutations;
@@ -62,9 +53,6 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
 
     public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
-        if (!IsLocalOwner(cacheName, key))
-            return _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
-
         var cacheKey = new CacheKey(cacheName, key);
         return _executor.ExecuteAsync(
             cacheKey,
@@ -76,53 +64,38 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             cancellationToken);
     }
 
-    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-        !IsLocalOwner(cacheName, key)
-            ? _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken)
-            : ExecuteDecidedUpsertAsync(
-                operationId,
-                cacheName,
-                key,
-                default(NoDecisionArgs),
-                static (current, _, _) => current.ExpiresUtc == null ? null : new NodeCacheEntry<T>(current.Value, current.Version, tags: current.Tags),
-                null,
-                cancellationToken);
+    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ExecuteDecidedUpsertAsync(
+        operationId,
+        cacheName,
+        key,
+        default(NoDecisionArgs),
+        static (current, _, _) => current.ExpiresUtc == null ? null : new NodeCacheEntry<T>(current.Value, current.Version, tags: current.Tags),
+        null,
+        cancellationToken);
 
-    public async ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
-        if (!IsLocalOwner(cacheName, key))
-        {
-            await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
         var durable = ResolveExpiration(entry);
         var prepared = JournalEntryPayload.PrepareEncode(durable);
         EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
-        await SetEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, prepared, cancellationToken).ConfigureAwait(false);
+        return SetEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, prepared, cancellationToken);
     }
 
-    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
-        !IsLocalOwner(cacheName, key)
-            ? _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken)
-            : ExecuteDecidedUpsertAsync(
-                operationId,
-                cacheName,
-                key,
-                expiration,
-                static (current, now, ttl) => new NodeCacheEntry<T>(
-                    current.Value,
-                    current.Version,
-                    JournalEntryExpirationMaterializer.PinToJournalPrecision(now.SaturatedAdd(ttl)),
-                    tags: current.Tags),
-                null,
-                cancellationToken);
+    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => ExecuteDecidedUpsertAsync(
+        operationId,
+        cacheName,
+        key,
+        expiration,
+        static (current, now, ttl) => new NodeCacheEntry<T>(
+            current.Value,
+            current.Version,
+            JournalEntryExpirationMaterializer.PinToJournalPrecision(now.SaturatedAdd(ttl)),
+            tags: current.Tags),
+        null,
+        cancellationToken);
 
     public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
-        if (!IsLocalOwner(cacheName, key))
-            return _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
-
         var durable = ResolveExpiration(entry);
         var prepared = JournalEntryPayload.PrepareEncode(durable);
         EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
@@ -133,9 +106,6 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     /// <remarks>The new value is validated first, so an oversized or unserializable value is rejected even when the key is absent.</remarks>
     public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
-        if (!IsLocalOwner(cacheName, key))
-            return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
-
         // The value is normalized and serialized here, before the mutation gate; under the gate only the metadata of the current entry is assembled around it.
         using var prepared = JournalEntryPayload.PrepareValue(value);
         return await ExecuteDecidedUpsertAsync(
@@ -245,8 +215,6 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         await _inner.SetEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, cancellationToken).ConfigureAwait(false);
         return true;
     }
-
-    private bool IsLocalOwner(string cacheName, string key) => string.Equals(_ring.GetOwner(cacheName, key), _self, StringComparison.Ordinal);
 
     private async ValueTask<bool> ExecuteDecidedUpsertAsync<TArgs>(
         string operationId,

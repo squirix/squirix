@@ -103,11 +103,13 @@ gRPC `ResourceExhausted`. Other live public codes include `INVALID_CACHE_KEY`, `
 `MEMORY_PRESSURE`, `JOURNAL_DISK_QUOTA`, and the `OPERATION_ID_*` family. Cache **names** still fail as
 `ArgumentException` → gRPC `InvalidArgument` without a structured `INVALID_CACHE_NAME` code.
 
-In a multi-node cluster, the entry node forwards the **client** `operation_id` to the key owner over internode gRPC
-instead of minting a new id. Idempotency records are per-node in memory (durable nodes also persist outcomes through the
-journal/snapshot path); when a retry lands on a different entry node (bootstrap endpoint switch or transport failover),
-the owner node replays the cached outcome for the same `operation_id` and fingerprint so the mutation is not applied
-twice. Operators can tune in-memory store caps with `SQUIRIX_IDEMPOTENCY_*` — see
+In a multi-node cluster, the entry node forwards the client request to the key owner over internode gRPC unchanged, with
+the **client** `operation_id` and without running the cache pipeline itself. Only the owner records the outcome:
+idempotency records are per-node in memory (durable nodes also persist outcomes through the journal/snapshot path), and
+the entry node keeps none. When a retry lands on a different entry node (bootstrap endpoint switch or transport
+failover), the owner node replays the cached outcome for the same `operation_id` and fingerprint so the mutation is not
+applied twice. The owner response and errors reach the client unchanged; an unreachable owner surfaces as `Unavailable`.
+Operators can tune in-memory store caps with `SQUIRIX_IDEMPOTENCY_*` — see
 [configuration.md — Environment variables](configuration.md#environment-variables).
 
 The approved RPC list is locked by a golden snapshot test:

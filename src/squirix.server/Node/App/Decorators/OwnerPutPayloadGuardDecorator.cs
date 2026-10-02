@@ -2,29 +2,22 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.Node.App.Decorators;
 
-/// <summary>Size-checks local-owner put payloads before in-memory mutation when journaling is disabled.</summary>
+/// <summary>Size-checks owner-local put payloads before in-memory mutation when journaling is disabled.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 [Immutable]
 internal sealed class OwnerPutPayloadGuardDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _inner;
-    private readonly INodeLocator _ring;
-    private readonly string _self;
 
-    internal OwnerPutPayloadGuardDecorator(string self, INodeLocator ring, ILogicalNamespacedCache<T> inner)
+    internal OwnerPutPayloadGuardDecorator(ILogicalNamespacedCache<T> inner)
     {
-        ArgumentNullException.ThrowIfNull(self);
-        ArgumentNullException.ThrowIfNull(ring);
         ArgumentNullException.ThrowIfNull(inner);
-        _self = self;
-        _ring = ring;
         _inner = inner;
     }
 
@@ -42,8 +35,7 @@ internal sealed class OwnerPutPayloadGuardDecorator<T> : ILogicalNamespacedCache
 
     public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
-        if (IsLocalOwner(cacheName, key))
-            JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry);
+        JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry);
 
         return _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
     }
@@ -53,17 +45,13 @@ internal sealed class OwnerPutPayloadGuardDecorator<T> : ILogicalNamespacedCache
 
     public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
-        if (IsLocalOwner(cacheName, key))
-            JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry);
+        JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry);
 
         return _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
     }
 
     public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
-        if (!IsLocalOwner(cacheName, key))
-            return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
-
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing == null)
             return false;
@@ -78,6 +66,4 @@ internal sealed class OwnerPutPayloadGuardDecorator<T> : ILogicalNamespacedCache
         JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry);
         return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
     }
-
-    private bool IsLocalOwner(string cacheName, string key) => string.Equals(_ring.GetOwner(cacheName, key), _self, StringComparison.Ordinal);
 }

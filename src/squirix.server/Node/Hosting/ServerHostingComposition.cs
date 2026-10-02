@@ -22,7 +22,6 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Errors;
-using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Endpoint;
 using Squirix.Server.Node.MemoryPressure;
@@ -176,7 +175,7 @@ internal static class ServerHostingComposition
         sp.GetRequiredService<ReplicaGroupRegistry>(),
         sp.GetRequiredService<IReplicaGroupLocator>(),
         sp.GetRequiredService<IReplicaRpcGateway>(),
-        sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>(),
+        sp.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey),
         sp.GetRequiredService<TopologyOptions>().NodeId,
         new ReplicaTopologyStamp(fingerprint.AsMemory(), sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration),
         sp.GetRequiredService<ILogger<ReplicaGroupCommitter>>())

@@ -1,11 +1,14 @@
 using Microsoft.AspNetCore.Http;
 using Rocks;
+using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
@@ -14,6 +17,10 @@ using Squirix.Server.Storage.Snapshot;
 using TUnit.Core;
 
 [assembly: Rock(typeof(INodeLocator), BuildType.Create)]
+[assembly: Rock(typeof(INodeOwnershipResolver), BuildType.Create)]
+[assembly: Rock(typeof(IRemoteInvocationState), BuildType.Create)]
+[assembly: Rock(typeof(IRpcMutationIdempotencyCoordinator), BuildType.Create)]
+[assembly: Rock(typeof(IGrpcCacheOperations<>), BuildType.Create)]
 [assembly: Rock(typeof(IMemoryBudgetProvider), BuildType.Create)]
 [assembly: Rock(typeof(IReplicaCommitFaultHooks), BuildType.Create)]
 [assembly: Rock(typeof(IReplicaCommitPipeline), BuildType.Create)]

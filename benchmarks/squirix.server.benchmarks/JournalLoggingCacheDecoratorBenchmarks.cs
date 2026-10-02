@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Microsoft.Extensions.Logging.Abstractions;
-using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
@@ -29,7 +28,6 @@ public class JournalLoggingCacheDecoratorBenchmarks
     private const int MediumOperationsPerInvoke = 10_000;
     private const string MediumValueCache = "value-16kib";
     private const int OperationsPerInvoke = 50_000;
-    private const string Self = "node-a";
     private const string SmallValueCache = "value-128b";
     private static readonly TimeSpan TouchTtl = TimeSpan.FromMinutes(10);
     private JournalLoggingCacheDecorator<string>? _decorator;
@@ -58,7 +56,7 @@ public class JournalLoggingCacheDecoratorBenchmarks
             JournalMaxSegmentMb = 64,
         };
         _host = await JournalBenchmarkHost.CreateAsync("journal-decorator-bench", options, CancellationToken.None).ConfigureAwait(false);
-        _decorator = new JournalLoggingCacheDecorator<string>(Self, new SelfLocator(), new FakeCache(), _host.Coordinator, new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance));
+        _decorator = new JournalLoggingCacheDecorator<string>(new FakeCache(), _host.Coordinator, new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance));
         _entry = new NodeCacheEntry<string> { Value = "v" };
     }
 
@@ -127,12 +125,6 @@ public class JournalLoggingCacheDecoratorBenchmarks
         var decorator = ThrowHelper.Required(_decorator, "Benchmark decorator was not initialized.");
         for (var i = 0; i < operations; i++)
             _ = await decorator.TouchAsync("op", cacheName, "key", TouchTtl, CancellationToken.None).ConfigureAwait(false);
-    }
-
-    /// <summary>Owner locator that assigns every key to the local node.</summary>
-    private sealed class SelfLocator : INodeLocator
-    {
-        public string GetOwner(string cacheName, string key) => Self;
     }
 
     /// <summary>Cache stub: keys are absent except in the existing cache, which makes update preconditions pass; the sized caches hold entries with a deadline.</summary>

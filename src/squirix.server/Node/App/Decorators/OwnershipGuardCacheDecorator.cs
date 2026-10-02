@@ -4,17 +4,20 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.App.Decorators;
 
-/// <summary>Ensures owner-local physical mutations execute only on the owning node.</summary>
+/// <summary>Refuses operations on keys this node does not own before anything commits, journals or takes a key gate.</summary>
+/// <remarks>
+/// The gRPC adapter forwards remote keys to their owner, so only in-process callers (the entry pipeline, extensions) can reach this guard with one.
+/// They are refused with the same stale-owner failure a trusted internal call gets.
+/// </remarks>
 /// <typeparam name="T">The cache value type.</typeparam>
 [Immutable]
 internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
-    private const string OwnershipMismatchMessage = "Ownership mismatch for local physical cache operation.";
-
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly INodeLocator _locator;
     private readonly string _self;
@@ -29,11 +32,17 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
         _inner = inner;
     }
 
-    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _inner.GetEntryAsync(cacheName, key, cancellationToken);
+    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        EnsureLocalOwner(cacheName, key);
+        return _inner.GetEntryAsync(cacheName, key, cancellationToken);
+    }
 
-    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _inner.GetValueAsync(cacheName, key, cancellationToken);
+    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        EnsureLocalOwner(cacheName, key);
+        return _inner.GetValueAsync(cacheName, key, cancellationToken);
+    }
 
     public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
@@ -77,6 +86,6 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
         if (string.Equals(owner, _self, StringComparison.Ordinal))
             return;
 
-        throw new InvalidOperationException(OwnershipMismatchMessage);
+        throw StaleOwnerFailure.Create(owner, _self);
     }
 }

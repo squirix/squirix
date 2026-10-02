@@ -9,9 +9,9 @@ namespace Squirix.Server.Node.Services;
 
 /// <summary>Replicated owner-local cache: reads stay local, mutations commit through the owned group.</summary>
 /// <remarks>
-/// This layer sits between ownership routing and the local pipeline on activated hosts only.
-/// Remote-owned keys never reach it (the router forwards them to the owner), and RF=1 hosts
-/// never register it, preserving the single-copy path byte for byte.
+/// This layer sits between memory admission and the local chain on activated hosts only.
+/// Remote-owned keys never reach it (the ownership guard above refuses them, and the gRPC adapter forwards
+/// them to their owner), and RF=1 hosts never register it, preserving the single-copy path byte for byte.
 /// </remarks>
 [Immutable]
 internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>

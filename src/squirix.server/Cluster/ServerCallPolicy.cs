@@ -334,7 +334,8 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
                 return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, effectiveToken).ConfigureAwait(false));
             }
 
-            if (rx.StatusCode is not (StatusCode.Unavailable or StatusCode.Internal or StatusCode.ResourceExhausted))
+            // ResourceExhausted is an admission refusal by the peer, not a transient fault: it passes through instead of being retried against a peer that just refused.
+            if (rx.StatusCode is not (StatusCode.Unavailable or StatusCode.Internal))
                 return AttemptOutcome<T>.Stop(rx);
             _metrics.IncrementRetriesTotal(_peer, ServerCallPolicyRetryClassifier.ClassifyRetryReason(rx));
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, effectiveToken).ConfigureAwait(false));
