@@ -52,9 +52,10 @@ runs:
       run: bash "${{ github.workspace }}/tools/ci/ensure-dev-https-cert.sh"
 
     # The build takes longer than the steps above, so the first look is after 20 s. Then the artifact listing is read every
-    # 2 s (one request), every 5 s after the first minute, and the build job every 10th time, to stop when it failed. The
-    # GITHUB_TOKEN limit of about 1000 requests an hour is shared by all jobs and runs of the repository. A failed request
-    # counts as "not ready yet"; the deadline stays below the timeout of the job. BUILD_JOB is the name of build-ubuntu.
+    # 2 s (one request), every 10 s after the first minute and every 20 s after three, and the build job every 10th time,
+    # to stop when it failed: a job makes at most about 70 requests, as the GITHUB_TOKEN limit of about 1000 requests an
+    # hour is shared by all jobs and runs of the repository. A failed request counts as "not ready yet"; the deadline stays
+    # below the timeout of the job. BUILD_JOB is the name of build-ubuntu.
     - name: Wait For Build Outputs
       if: inputs.wait-for-build == 'true'
       shell: bash
@@ -90,7 +91,13 @@ runs:
             echo "::error::The build outputs were not uploaded within 10 minutes." >&2
             exit 1
           fi
-          if (( SECONDS < 80 )); then sleep 2; else sleep 5; fi
+          if (( SECONDS < 80 )); then
+            sleep 2
+          elif (( SECONDS < 200 )); then
+            sleep 10
+          else
+            sleep 20
+          fi
         done
 
     # Every runner kind tests the outputs of the one ubuntu build. They are portable: the assemblies are the same whatever
