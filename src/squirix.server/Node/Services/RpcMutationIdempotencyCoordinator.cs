@@ -123,7 +123,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             // A stamped mutation frame is the decision point: from here only a journal failure or shutdown may stop the
             // outcome from being recorded, never the caller, so a retry replays it instead of seeing COMMIT_OUTCOME_UNKNOWN.
             var stamped = RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(scope);
-            var responseBytes = await RecordOutcomeDurablyAsync(journal, scope, durableResponse, stamped, cancellationToken).ConfigureAwait(false);
+            var responseBytes = await RecordOutcomeDurablyAsync(journal, scope, durableResponse, stamped, execution, cancellationToken).ConfigureAwait(false);
 
             // The in-memory outcome is recorded only after the outcome frame is appended and
             // durability is confirmed: a failure above must leave no Completed record so that
@@ -173,6 +173,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
     /// <param name="scope">Execution scope of the operation.</param>
     /// <param name="response">Response of the executed mutation.</param>
     /// <param name="stamped">Whether a mutation frame of this operation was stamped (and may be durable).</param>
+    /// <param name="execution">The completion the reservation was acquired with.</param>
     /// <param name="cancellationToken">Caller cancellation token; honored only before stamping.</param>
     /// <returns>The recorded response bytes.</returns>
     /// <exception cref="RpcException">A stamped mutation whose outcome could not be recorded: COMMIT_OUTCOME_UNKNOWN.</exception>
@@ -181,13 +182,14 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         RpcMutationIdempotencyExecutionScope scope,
         TResponse response,
         bool stamped,
+        TaskCompletionSource execution,
         CancellationToken cancellationToken)
         where TResponse : class, IMessage<TResponse>
     {
         var outcomeToken = stamped ? CancellationToken.None : cancellationToken;
         try
         {
-            var responseBytes = await scope.AppendOutcomeAsync(response, outcomeToken).ConfigureAwait(false);
+            var responseBytes = await scope.AppendOutcomeAsync(response, _store, execution, outcomeToken).ConfigureAwait(false);
             await journal.AwaitDurabilityCommitAsync(outcomeToken).ConfigureAwait(false);
             return responseBytes;
         }
@@ -239,13 +241,26 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             return scope;
         }
 
-        internal async ValueTask<byte[]> AppendOutcomeAsync<TResponse>(TResponse response, CancellationToken cancellationToken)
+        internal async ValueTask<byte[]> AppendOutcomeAsync<TResponse>(
+            TResponse response,
+            RpcMutationIdempotencyStore store,
+            TaskCompletionSource reservation,
+            CancellationToken cancellationToken)
             where TResponse : class, IMessage<TResponse>
         {
             ArgumentNullException.ThrowIfNull(response);
 
             var responseBytes = IdempotencyResponseCodec.SerializeResponseBytes(response);
-            await _journal.AppendIdempotencyOutcomeAsync(_operationId, _fingerprint, responseBytes, cancellationToken).ConfigureAwait(false);
+            var (operationId, fingerprint) = (_operationId, _fingerprint);
+
+            // Held under the mutation gate with the frame, so a snapshot cut that covers the frame also exports the outcome.
+            await _journal.AppendIdempotencyOutcomeAsync(
+                    operationId,
+                    fingerprint,
+                    responseBytes,
+                    () => store.HoldAppendedOutcome(operationId, fingerprint, responseBytes, reservation),
+                    cancellationToken)
+               .ConfigureAwait(false);
             return responseBytes;
         }
     }

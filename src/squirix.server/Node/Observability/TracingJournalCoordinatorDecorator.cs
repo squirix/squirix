@@ -49,11 +49,11 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public long UsedBytes => _inner.UsedBytes;
 
-    public async ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken)
+    public async ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, Action? appended, CancellationToken cancellationToken)
     {
         var traceContext = Enrich(null);
         using var scope = _tracer.Begin(JournalOperationKind.IdempotencyOutcome, in traceContext);
-        await _inner.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, cancellationToken).ConfigureAwait(false);
+        await _inner.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, appended, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)

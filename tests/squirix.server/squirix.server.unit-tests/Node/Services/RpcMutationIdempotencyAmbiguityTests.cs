@@ -303,7 +303,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     public async Task ReleaseIntentKeepsUnfingerprinted()
     {
         var store = CreateStore();
-        store.RestoreStarted(ValidOperationId, DateTime.UtcNow);
+        store.RestoreStarted(ValidOperationId, null, DateTime.UtcNow);
         store.ReleaseIntent(ValidOperationId, "fp-1", null);
 
         _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
@@ -360,7 +360,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     public async Task RestoredOutcomeSupersedesRestoredStarted()
     {
         var store = CreateStore();
-        store.RestoreStarted(ValidOperationId, DateTime.UtcNow);
+        store.RestoreStarted(ValidOperationId, null, DateTime.UtcNow);
         store.RestoreRecord(ValidOperationId, "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }), DateTime.UtcNow);
 
         var replayed = store.TryReplay(ValidOperationId, "fp-1", TryAddAsyncResponse.Parser, out var response);
@@ -374,7 +374,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     public async Task RestoredStartedRecordBlocksReplay()
     {
         var store = CreateStore();
-        store.RestoreStarted(ValidOperationId, DateTime.UtcNow);
+        store.RestoreStarted(ValidOperationId, null, DateTime.UtcNow);
 
         _ = await Assert.That(store.TryReplay(ValidOperationId, "fp-1", TryAddAsyncResponse.Parser, out _)).IsFalse();
         _ = await Assert.That(store.ReserveIntent(ValidOperationId, "fp-1", null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
@@ -401,7 +401,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     public async Task UnknownOutcomeSkipsHandler(CancellationToken cancellationToken)
     {
         var store = CreateStore();
-        store.RestoreStarted(ValidOperationId, DateTime.UtcNow);
+        store.RestoreStarted(ValidOperationId, null, DateTime.UtcNow);
         var coordinator = new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var flag = new ExecFlag();
 
@@ -434,7 +434,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
                              RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
                              return ValueTask.CompletedTask;
                          });
-        _ = expectations.Setups.AppendIdempotencyOutcomeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<CancellationToken>())
+        _ = expectations.Setups.AppendIdempotencyOutcomeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<Action?>(), Arg.Any<CancellationToken>())
                         .Throws(new InvalidOperationException("boom"));
         _ = expectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
         return expectations.Instance();

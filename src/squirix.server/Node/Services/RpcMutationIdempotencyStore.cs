@@ -100,7 +100,33 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
                 && (existing.Record.State != IdempotencyRecordState.Started || !ReferenceEquals(existing.Reservation, reservation)))
                 return;
 
-            AdmitLocked(operationId, new StoredRecord(CreateRecord(operationId, fingerprint, responseBytes, utcNow), timestamp, ++_nextSequence, null));
+            AdmitLocked(operationId, new StoredRecord(existing.Appended ?? CreateRecord(operationId, fingerprint, responseBytes, utcNow), timestamp, ++_nextSequence, null, null));
+        }
+    }
+
+    /// <summary>Holds the outcome of a reservation whose outcome frame was just enqueued, under the journal mutation gate.</summary>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="fingerprint">The deterministic mutation fingerprint.</param>
+    /// <param name="responseBytes">The serialized response.</param>
+    /// <param name="reservation">The completion the reservation was acquired with.</param>
+    /// <remarks>
+    /// The record stays Started, so a live retry never replays an outcome before it is durable; a snapshot cut exports the held outcome
+    /// instead, because replay skips the outcome frame at or below the cut.
+    /// </remarks>
+    internal void HoldAppendedOutcome(string operationId, string fingerprint, byte[] responseBytes, TaskCompletionSource? reservation)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
+        ArgumentNullException.ThrowIfNull(responseBytes);
+
+        lock (_capacityGate)
+        {
+            if (!_records.TryGetValue(operationId, out var existing)
+                || existing.Record.State != IdempotencyRecordState.Started
+                || !ReferenceEquals(existing.Reservation, reservation))
+                return;
+
+            _records[operationId] = existing with { Appended = CreateRecord(operationId, fingerprint, responseBytes, _timeProvider.GetUtcNow().UtcDateTime) };
         }
     }
 
@@ -116,7 +142,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         {
             var (utcNow, timestamp) = ReadClock();
             SweepExpiredLocked(utcNow, timestamp);
-            AdmitLocked(operationId, new StoredRecord(CreateRestoredRecord(operationId, fingerprint, responseBytes, createdUtc), null, ++_nextSequence, null));
+            AdmitLocked(operationId, new StoredRecord(CreateRestoredRecord(operationId, fingerprint, responseBytes, createdUtc), null, ++_nextSequence, null, null));
         }
     }
 
@@ -156,7 +182,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             }
 
             MakeRoomForNewOperationLocked(utcNow, timestamp);
-            _records[operationId] = new StoredRecord(new PersistedIdempotencyRecord(operationId, fingerprint, utcNow), timestamp, ++_nextSequence, execution);
+            _records[operationId] = new StoredRecord(new PersistedIdempotencyRecord(operationId, fingerprint, utcNow), timestamp, ++_nextSequence, execution, null);
             if (execution != null)
                 _executions[operationId] = execution;
 
@@ -185,8 +211,6 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
 
         _ = execution.TrySetResult();
     }
-
-    internal void RestoreStarted(string operationId, DateTime createdUtc) => RestoreStarted(operationId, null, createdUtc);
 
     /// <summary>Releases a write-ahead reservation when its execution failed without producing a durable outcome.</summary>
     /// <param name="operationId">The operation identifier.</param>
@@ -237,7 +261,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             if (_records.ContainsKey(operationId))
                 return;
 
-            AdmitLocked(operationId, new StoredRecord(new PersistedIdempotencyRecord(operationId, fingerprint, createdUtc), null, ++_nextSequence, null));
+            AdmitLocked(operationId, new StoredRecord(new PersistedIdempotencyRecord(operationId, fingerprint, createdUtc), null, ++_nextSequence, null, null));
         }
     }
 
@@ -252,7 +276,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             for (var i = 0; i < records.Count; i++)
             {
                 var record = records[i] ?? ThrowHelper.Throw<PersistedIdempotencyRecord>(new ArgumentException("Idempotency record must not be null.", nameof(records)));
-                AdmitLocked(record.OperationId, new StoredRecord(record, null, ++_nextSequence, null));
+                AdmitLocked(record.OperationId, new StoredRecord(record, null, ++_nextSequence, null, null));
             }
         }
     }
@@ -367,8 +391,10 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
                 ordered.Add(pair.Value);
 
             ordered.Sort(static (left, right) => left.Sequence.CompareTo(right.Sequence));
+
+            // A reservation whose outcome frame is already enqueued exports that outcome: the frame is at or below the cut.
             foreach (var stored in CollectionsMarshal.AsSpan(ordered))
-                destination.Add(stored.Record);
+                destination.Add(stored.Appended ?? stored.Record);
         }
     }
 
@@ -442,5 +468,11 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     /// <param name="CreatedTimestamp">The monotonic creation timestamp; <see langword="null" /> for a record restored from disk.</param>
     /// <param name="Sequence">The insertion sequence capacity eviction orders by.</param>
     /// <param name="Reservation">The completion of the attempt that acquired a Started record; only that attempt settles it.</param>
-    private readonly record struct StoredRecord(PersistedIdempotencyRecord Record, long? CreatedTimestamp, long Sequence, TaskCompletionSource? Reservation);
+    /// <param name="Appended">The outcome of a Started record whose outcome frame is enqueued but not yet durable; a snapshot exports it.</param>
+    private readonly record struct StoredRecord(
+        PersistedIdempotencyRecord Record,
+        long? CreatedTimestamp,
+        long Sequence,
+        TaskCompletionSource? Reservation,
+        PersistedIdempotencyRecord? Appended);
 }
