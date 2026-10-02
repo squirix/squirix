@@ -1439,8 +1439,9 @@ jobs:
             -   name: Restore
                 run: dotnet restore squirix.slnx
 
+            # NDepend reads the compiled assemblies; the analysis shards run the Roslyn analyzers.
             -   name: Build
-                run: dotnet build squirix.slnx --configuration Release --no-restore
+                run: dotnet build squirix.slnx --configuration Release --no-restore -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
 
             -   name: Synchronize NDepend project
                 run: |
