@@ -76,6 +76,35 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
         _ = await Assert.That(flag.Value).IsFalse();
     }
 
+    /// <summary>
+    /// An outcome recorded by a concurrent call between the replay probe and the reservation, and expired before it is read, lets the
+    /// retry reserve the id anew and execute instead of failing.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredReservedOutcomeExecutesAnew(CancellationToken cancellationToken)
+    {
+        var clock = new ReservationRaceClock();
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), clock);
+        clock.Store = store;
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
+        var flag = new ExecFlag();
+
+        var response = await coordinator.ExecuteAsync(
+            ValidOperationId,
+            "fp-1",
+            flag,
+            static (state, _) =>
+            {
+                state.Value = true;
+                return Task.FromResult(new TryAddAsyncResponse { Added = false });
+            },
+            cancellationToken);
+
+        _ = await Assert.That(flag.Value).IsTrue();
+        _ = await Assert.That(response.Added).IsFalse();
+    }
+
     /// <summary>Ensures expired idempotency records are swept and no longer replay.</summary>
     [Test]
     public async Task ExpiredRecordsAreNotReplayed()
@@ -247,5 +276,30 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     private sealed class ExecutionCounter
     {
         internal int Value { get; set; }
+    }
+
+    /// <summary>
+    /// A clock that stages the race on the store's second clock read, the reservation's: a concurrent call records the outcome, then
+    /// the clock moves past the retention, so the reservation still finds the outcome and the read after it finds it expired.
+    /// </summary>
+    private sealed class ReservationRaceClock : FakeTimeProvider
+    {
+        private bool _staging;
+        private int _timestampReads;
+
+        internal RpcMutationIdempotencyStore? Store { get; set; }
+
+        public override long GetTimestamp()
+        {
+            if (!_staging && ++_timestampReads == 2 && Store != null)
+            {
+                _staging = true;
+                Store.RecordSuccess(ValidOperationId, "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }), null);
+                Advance(TimeSpan.FromHours(1));
+                _staging = false;
+            }
+
+            return base.GetTimestamp();
+        }
     }
 }
