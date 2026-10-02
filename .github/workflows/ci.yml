@@ -425,96 +425,6 @@ jobs:
                     # The analyze-ubuntu shards run the analyzers; here only compiling matters.
                     analyzers: "false"
 
-    # Fast BenchmarkDotNet gate for develop push. Job.ShortRun unless SQUIRIX_E2E_BENCHMARK_LONG=1;
-    # CI overrides warmup/iterations and runs a smoke subset (GetValue + Set × scalar/structured × durability).
-    # Full 52-row wire-alloc matrix stays local — docs/benchmarks/e2e-benchmarks.md / wire-alloc-baseline.md.
-    benchmarks-fast:
-        name: Benchmarks Fast (Ubuntu / Wire Alloc)
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
-        permissions:
-            contents: read
-        needs: [ changes, build-ubuntu ]
-        if: |
-            github.event_name != 'pull_request' &&
-            needs.changes.outputs.code == 'true' && (
-              github.ref == 'refs/heads/develop' ||
-              github.base_ref == 'develop' ||
-              github.event_name == 'schedule' ||
-              github.event_name == 'workflow_dispatch'
-            )
-        env:
-            ASPNETCORE_ENVIRONMENT: Production
-            DOTNET_ENVIRONMENT: Production
-            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
-            BDN_ARTIFACTS: ${{ github.workspace }}/BenchmarkDotNet.Artifacts
-        steps:
-            -   name: Set Git Options
-                run: |
-                    git config --global core.autocrlf false
-                    git config --global core.eol lf
-
-            -   name: Checkout
-                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-                with:
-                    persist-credentials: false
-
-            -   name: Setup .NET
-                uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-                with:
-                    global-json-file: global.json
-
-            -   name: Cache NuGet Packages
-                uses: actions/cache@v6
-                with:
-                    path: ~/.nuget/packages
-                    key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
-                    restore-keys: |
-                        ${{ runner.os }}-dotnet10-nuget-
-
-            -   name: Download Build Outputs
-                uses: actions/download-artifact@v8
-                with:
-                    name: build-output-ubuntu-latest-net10.0
-                    path: .
-
-            -   name: Restore (Resolve Packages For Benchmark Host)
-                run: dotnet restore benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj
-
-            -   name: Ensure Dev HTTPS Certificate
-                shell: bash
-                run: bash tools/ci/ensure-dev-https-cert.sh
-
-            -   name: Run E2E Wire Allocation Smoke (GetValue + Set)
-                shell: bash
-                run: |
-                    set -o pipefail
-                    mkdir -p "$BDN_ARTIFACTS"
-                    chmod +x benchmarks/squirix.e2e.benchmarks/bin/Release/net10.0/Squirix.E2EBenchmarks || true
-                    # 8 cases (2 methods × 2 shapes × 2 durability) vs full 52-row matrix.
-                    # Skip Remove*/IterationSetup and extra APIs; tighten ShortRun warmups for CI.
-                    # Prefer iterationCount >= 3 — MinIterationTime(150) often yields empty rows at 1.
-                    dotnet run --project benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj \
-                      --configuration Release \
-                      --no-build \
-                      -- \
-                      --filter '*Wire*AllocBenchmarks.GetValueAsync|*Wire*AllocBenchmarks.SetAsync*' \
-                      --warmupCount 1 \
-                      --iterationCount 3 \
-                      --exporters json \
-                      --artifacts "$BDN_ARTIFACTS" 2>&1 | tee benchmark-wire-alloc.log
-
-            -   name: Upload Benchmark Artifacts
-                if: always()
-                uses: actions/upload-artifact@v7
-                with:
-                    name: benchmarks-fast-wire-alloc
-                    retention-days: 7
-                    path: |
-                        BenchmarkDotNet.Artifacts/**
-                        benchmark-wire-alloc.log
-                    if-no-files-found: warn
-
     # Per-OS test matrices: each starts as soon as its build finishes; ubuntu also runs the smoke suite.
     test-ubuntu:
         name: Test (ubuntu-latest / net10.0 / ${{ matrix.suite }})
@@ -683,14 +593,29 @@ jobs:
                     suite: ${{ matrix.suite }}
                     collect-coverage: "false"
 
-    # Full-profile explorer (~15s): safe run + three required broken-rule counterexamples.
-    protocol-model-explorer:
-        name: Protocol Model Explorer (Ubuntu / Full)
+    # Three short checks of the ubuntu build outputs. Each used to have a runner of its own and spent most of its time
+    # starting up; in one job they hold one of the 20 job slots of the organization plan instead of three. A check runs
+    # even when an earlier one failed, so one run reports every failure.
+    #  - test discovery: every test project lists at least one test;
+    #  - protocol model explorer, full profile (~15s): the safe run plus three required broken-rule counterexamples;
+    #  - wire allocation benchmarks, a smoke subset (GetValue + Set x scalar/structured x durability) with shortened
+    #    warm-up; the full 52-row matrix stays local, see docs/benchmarks/e2e-benchmarks.md and wire-alloc-baseline.md.
+    post-build-checks:
+        name: Post-Build Checks (Ubuntu / Net10.0)
         runs-on: ubuntu-latest
-        timeout-minutes: 10
-        needs: [ build-ubuntu ]
-        # PR fast path: explorer runs on push/schedule/dispatch only.
+        timeout-minutes: 20
+        permissions:
+            contents: read
+        needs: [ changes, build-ubuntu ]
+        # PR fast path: these checks run on push/schedule/dispatch only.
         if: github.event_name != 'pull_request' && needs.build-ubuntu.outputs.built == 'true'
+        env:
+            ASPNETCORE_ENVIRONMENT: Production
+            DOTNET_ENVIRONMENT: Production
+            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
+            BDN_ARTIFACTS: ${{ github.workspace }}/BenchmarkDotNet.Artifacts
+            # The benchmarks guard develop: they run for develop pushes and pull requests into it, and on schedule or dispatch.
+            RUN_BENCHMARKS: ${{ needs.changes.outputs.code == 'true' && (github.ref == 'refs/heads/develop' || github.base_ref == 'develop' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         steps:
             -   name: Set Git Options
                 run: |
@@ -707,17 +632,78 @@ jobs:
                 with:
                     global-json-file: global.json
 
+            -   name: Cache NuGet Packages
+                uses: actions/cache@v6
+                with:
+                    path: ~/.nuget/packages
+                    key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
+                    restore-keys: |
+                        ${{ runner.os }}-dotnet10-nuget-
+
             -   name: Download Build Outputs
                 uses: actions/download-artifact@v8
                 with:
                     name: build-output-ubuntu-latest-net10.0
                     path: .
 
-            -   name: Restore Executable Bits For Protocol Model (Unix)
+            -   name: Restore (Resolve Packages For Test And Benchmark Hosts)
+                run: dotnet restore squirix.slnx
+
+            -   name: Restore Executable Bits (Unix)
                 shell: bash
-                run: chmod +x src/squirix.protocol-model/bin/Release/net10.0/Squirix.ProtocolModel || true
+                run: |
+                    chmod +x tests/squirix/squirix.*-tests/bin/Release/net10.0/Squirix.*Tests || true
+                    chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/net10.0/Squirix.*Tests || true
+                    chmod +x tests/squirix.e2e.tests/bin/Release/net10.0/Squirix.E2ETests || true
+                    chmod +x tests/squirix.protocol-model/squirix.protocol-model.tests/bin/Release/net10.0/Squirix.ProtocolModel.Tests || true
+                    chmod +x src/squirix.protocol-model/bin/Release/net10.0/Squirix.ProtocolModel || true
+                    chmod +x benchmarks/squirix.e2e.benchmarks/bin/Release/net10.0/Squirix.E2EBenchmarks || true
+
+            -   name: Verify Test Discovery Per Project (Fail On Zero Tests)
+                shell: bash
+                run: |
+                    set -euo pipefail
+
+                    test_projects=()
+                    while IFS= read -r -d '' f; do
+                      test_projects+=("$f")
+                    done < <(git ls-files -z '*Tests.csproj' '*E2ETests.csproj')
+
+                    if [ ${#test_projects[@]} -eq 0 ]; then
+                      echo "No test projects found (*.Tests.csproj)." >&2
+                      exit 1
+                    fi
+
+                    for proj in "${test_projects[@]}"; do
+                      echo "Verifying tests discovered in: $proj"
+                      set +e
+                      output="$(dotnet test --project "$proj" --configuration Release --no-build --list-tests -v q --timeout 5m 2>&1)"
+                      code=$?
+                      set -e
+
+                      if [ $code -ne 0 ]; then
+                        echo "$output"
+                        echo "dotnet test --list-tests failed for $proj (exit=$code)" >&2
+                        exit $code
+                      fi
+
+                      count="$(echo "$output" | grep -oiE 'Discovered [0-9]+ tests?' | grep -oE '[0-9]+' | head -1)" || true
+                      if [ -z "$count" ]; then
+                        # Fallback: count lines that look like a discovered test FQN (assembly-qualified name with a dot).
+                        count="$(printf '%s\n' "$output" | grep -cE '^[A-Za-z0-9_.]+\.[A-Za-z0-9_]+$' || true)"
+                      fi
+                      count="$(echo "${count:-0}" | tr -d '[:space:]')"
+                      if [ "${count:-0}" -le 0 ]; then
+                        echo "$output"
+                        echo "No tests discovered in $proj" >&2
+                        exit 1
+                      fi
+
+                      echo "Discovered $count tests in $proj"
+                    done
 
             -   name: Run Full-Profile Explorer
+                if: ${{ !cancelled() }}
                 shell: bash
                 run: |
                     set -euo pipefail
@@ -783,104 +769,47 @@ jobs:
                     path: artifacts/protocol-model-explorer/**
                     if-no-files-found: warn
 
-    verify-test-discovery:
-        name: Verify Test Discovery (Ubuntu / Net10.0)
-        runs-on: ubuntu-latest
-        timeout-minutes: 15
-        needs: [ build-ubuntu ]
-        # PR fast path: discovery check runs on push/schedule/dispatch only.
-        if: github.event_name != 'pull_request' && needs.build-ubuntu.outputs.built == 'true'
-        steps:
-            -   name: Set Git Options
-                run: |
-                    git config --global core.autocrlf false
-                    git config --global core.eol lf
+            -   name: Ensure Dev HTTPS Certificate
+                if: ${{ !cancelled() && env.RUN_BENCHMARKS == 'true' }}
+                shell: bash
+                run: bash tools/ci/ensure-dev-https-cert.sh
 
-            -   name: Checkout
-                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-                with:
-                    persist-credentials: false
-
-            -   name: Setup .NET
-                uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-                with:
-                    global-json-file: global.json
-
-            -   name: Cache NuGet Packages
-                uses: actions/cache@v6
-                with:
-                    path: ~/.nuget/packages
-                    key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
-                    restore-keys: |
-                        ${{ runner.os }}-dotnet10-nuget-
-
-            -   name: Download Build Outputs
-                uses: actions/download-artifact@v8
-                with:
-                    name: build-output-ubuntu-latest-net10.0
-                    path: .
-
-            -   name: Restore (Resolve Packages For Test Host)
-                run: dotnet restore squirix.slnx
-
-            -   name: Restore Executable Bits For Test Hosts (Unix)
-                if: runner.os != 'Windows'
+            -   name: Run E2E Wire Allocation Smoke (GetValue + Set)
+                if: ${{ !cancelled() && env.RUN_BENCHMARKS == 'true' }}
                 shell: bash
                 run: |
-                    chmod +x tests/squirix/squirix.*-tests/bin/Release/net10.0/Squirix.*Tests || true
-                    chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/net10.0/Squirix.*Tests || true
-                    chmod +x tests/squirix.e2e.tests/bin/Release/net10.0/Squirix.E2ETests || true
-                    chmod +x tests/squirix.protocol-model/squirix.protocol-model.tests/bin/Release/net10.0/Squirix.ProtocolModel.Tests || true
+                    set -o pipefail
+                    mkdir -p "$BDN_ARTIFACTS"
+                    # 8 cases (2 methods × 2 shapes × 2 durability) vs full 52-row matrix.
+                    # Skip Remove*/IterationSetup and extra APIs; tighten ShortRun warmups for CI.
+                    # Prefer iterationCount >= 3 — MinIterationTime(150) often yields empty rows at 1.
+                    dotnet run --project benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj \
+                      --configuration Release \
+                      --no-build \
+                      -- \
+                      --filter '*Wire*AllocBenchmarks.GetValueAsync|*Wire*AllocBenchmarks.SetAsync*' \
+                      --warmupCount 1 \
+                      --iterationCount 3 \
+                      --exporters json \
+                      --artifacts "$BDN_ARTIFACTS" 2>&1 | tee benchmark-wire-alloc.log
 
-            -   name: Verify Test Discovery Per Project (Fail On Zero Tests)
-                shell: bash
-                run: |
-                    set -euo pipefail
-
-                    test_projects=()
-                    while IFS= read -r -d '' f; do
-                      test_projects+=("$f")
-                    done < <(git ls-files -z '*Tests.csproj' '*E2ETests.csproj')
-
-                    if [ ${#test_projects[@]} -eq 0 ]; then
-                      echo "No test projects found (*.Tests.csproj)." >&2
-                      exit 1
-                    fi
-
-                    for proj in "${test_projects[@]}"; do
-                      echo "Verifying tests discovered in: $proj"
-                      set +e
-                      output="$(dotnet test --project "$proj" --configuration Release --no-build --list-tests -v q --timeout 5m 2>&1)"
-                      code=$?
-                      set -e
-
-                      if [ $code -ne 0 ]; then
-                        echo "$output"
-                        echo "dotnet test --list-tests failed for $proj (exit=$code)" >&2
-                        exit $code
-                      fi
-
-                      count="$(echo "$output" | grep -oiE 'Discovered [0-9]+ tests?' | grep -oE '[0-9]+' | head -1)" || true
-                      if [ -z "$count" ]; then
-                        # Fallback: count lines that look like a discovered test FQN (assembly-qualified name with a dot).
-                        count="$(printf '%s\n' "$output" | grep -cE '^[A-Za-z0-9_.]+\.[A-Za-z0-9_]+$' || true)"
-                      fi
-                      count="$(echo "${count:-0}" | tr -d '[:space:]')"
-                      if [ "${count:-0}" -le 0 ]; then
-                        echo "$output"
-                        echo "No tests discovered in $proj" >&2
-                        exit 1
-                      fi
-
-                      echo "Discovered $count tests in $proj"
-                    done
+            -   name: Upload Benchmark Artifacts
+                if: ${{ always() && env.RUN_BENCHMARKS == 'true' }}
+                uses: actions/upload-artifact@v7
+                with:
+                    name: benchmarks-fast-wire-alloc
+                    retention-days: 7
+                    path: |
+                        BenchmarkDotNet.Artifacts/**
+                        benchmark-wire-alloc.log
+                    if-no-files-found: warn
 
     coverage:
         name: Coverage Report
         runs-on: ubuntu-latest
         timeout-minutes: 20
-        # The report reads only the coverage of the ubuntu tests, so it does not wait for the conventions check.
-        needs: [ changes, markdownlint, test-ubuntu, verify-test-discovery ]
+        # The report reads only the coverage of the ubuntu tests, so it waits neither for the conventions check nor for the post-build checks.
+        needs: [ changes, markdownlint, test-ubuntu ]
         # PR fast path: coverage report runs on push/schedule/dispatch only.
         if: |
             github.event_name != 'pull_request' &&
@@ -1585,13 +1514,11 @@ jobs:
             - build-arm
             - build-windows
             - build-macos
-            - benchmarks-fast
             - test-ubuntu
             - test-arm
             - test-windows
             - test-macos
-            - protocol-model-explorer
-            - verify-test-discovery
+            - post-build-checks
             - coverage
             - sonarcloud
             - pvs-studio
@@ -1622,13 +1549,11 @@ jobs:
                     RESULT_BUILD_ARM: ${{ needs.build-arm.result }}
                     RESULT_BUILD_WINDOWS: ${{ needs.build-windows.result }}
                     RESULT_BUILD_MACOS: ${{ needs.build-macos.result }}
-                    RESULT_BENCHMARKS: ${{ needs.benchmarks-fast.result }}
                     RESULT_TEST_UBUNTU: ${{ needs.test-ubuntu.result }}
                     RESULT_TEST_ARM: ${{ needs.test-arm.result }}
                     RESULT_TEST_WINDOWS: ${{ needs.test-windows.result }}
                     RESULT_TEST_MACOS: ${{ needs.test-macos.result }}
-                    RESULT_PROTOCOL_MODEL_EXPLORER: ${{ needs.protocol-model-explorer.result }}
-                    RESULT_DISCOVERY: ${{ needs.verify-test-discovery.result }}
+                    RESULT_POST_BUILD_CHECKS: ${{ needs.post-build-checks.result }}
                     RESULT_COVERAGE: ${{ needs.coverage.result }}
                     RESULT_SONAR: ${{ needs.sonarcloud.result }}
                     RESULT_PVS: ${{ needs.pvs-studio.result }}
@@ -1642,7 +1567,6 @@ jobs:
                     require_code=false
                     require_docker=false
                     require_line_endings=false
-                    require_benchmarks=false
                     require_sonar=false
                     require_pvs=false
                     require_ndepend=false
@@ -1657,9 +1581,6 @@ jobs:
                     fi
                     if [[ "$EVENT_NAME" == "pull_request" ]]; then
                       require_line_endings=true
-                    fi
-                    if [[ "$CODE_CHANGED" == "true" && ( "$GITHUB_REF" == "refs/heads/develop" || "$GITHUB_BASE_REF" == "develop" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ) ]]; then
-                      require_benchmarks=true
                     fi
                     if [[ "$require_code" == "true" && ( "$EVENT_NAME" != "pull_request" || "$PR_HEAD_REPO" == "$REPO" ) ]]; then
                       require_sonar=true
@@ -1720,16 +1641,13 @@ jobs:
                     assert_success_or_skipped "build-arm" "$require_code" "$RESULT_BUILD_ARM"
                     assert_success_or_skipped "build-windows" "$require_code" "$RESULT_BUILD_WINDOWS"
                     assert_success_or_skipped "build-macos" "$require_code" "$RESULT_BUILD_MACOS"
-                    # PR fast path: skipped on pull_request, required otherwise.
-                    assert_success_or_skipped "benchmarks-fast" "$require_benchmarks" "$RESULT_BENCHMARKS"
                     assert_success "test-ubuntu" "$require_code" "$RESULT_TEST_UBUNTU"
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "test-arm" "$require_code" "$RESULT_TEST_ARM"
                     assert_success_or_skipped "test-windows" "$require_code" "$RESULT_TEST_WINDOWS"
                     assert_success_or_skipped "test-macos" "$require_code" "$RESULT_TEST_MACOS"
                     # PR fast path: skipped on pull_request, required otherwise.
-                    assert_success_or_skipped "protocol-model-explorer" "$require_code" "$RESULT_PROTOCOL_MODEL_EXPLORER"
-                    assert_success_or_skipped "verify-test-discovery" "$require_code" "$RESULT_DISCOVERY"
+                    assert_success_or_skipped "post-build-checks" "$require_code" "$RESULT_POST_BUILD_CHECKS"
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "coverage" "$require_code" "$RESULT_COVERAGE"
                     assert_success_or_skipped "sonarcloud" "$require_sonar" "$RESULT_SONAR"
