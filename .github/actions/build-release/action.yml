@@ -56,8 +56,8 @@ runs:
     # Reduced solutions are derived at run time, so a new project is built without being listed anywhere.
     #  - test outputs: every project entry of squirix.slnx is a single line, so dropping those of benchmarks/ and samples/
     #    leaves valid XML;
-    #  - a shard other than `default`: its projects, as SquirixPrintAnalysisShard (Directory.Build.props) reports them; the
-    #    projects they reference build with them, and the `default` shard, which owns every unclaimed project, builds everything.
+    #  - an analysis shard: its projects, as SquirixPrintAnalysisShard (Directory.Build.props) reports them; the projects they
+    #    reference build with them. The `default` shard owns every unclaimed project, so a new project lands in its list.
     - name: Select Solution
       id: solution
       shell: bash
@@ -70,7 +70,7 @@ runs:
           fi
           grep -vE '<Project Path="(benchmarks|samples)/' squirix.slnx > squirix.test-outputs.slnx
           echo "path=squirix.test-outputs.slnx" >> "$GITHUB_OUTPUT"
-        elif [ -n "$shard" ] && [ "$shard" != "default" ]; then
+        elif [ -n "$shard" ]; then
           # Written to a file first: a failing msbuild then fails the step instead of leaving a partial list. The listing must
           # also name every project of the solution, so a project that printed nothing cannot drop out unnoticed.
           listing="$RUNNER_TEMP/analysis-shards.txt"
@@ -125,10 +125,16 @@ runs:
           dotnet build "$solution" --configuration Release "$keep"
         fi
 
-    # Only a build of the whole solution saves the package cache: a reduced solution restores fewer packages, and the jobs that
-    # only read the cache need all of them.
+    # Only a restore of the whole solution saves the package cache: a reduced solution restores fewer packages, and the jobs that
+    # only read the cache need all of them. On ubuntu x64 no build uses the whole solution, so the `default` analysis shard
+    # restores it for the cache when the cache missed, which only happens after a package or SDK change.
+    - name: Restore The Whole Solution For The Package Cache
+      if: steps.nuget-cache.outputs.cache-hit != 'true' && inputs.analysis-shard == 'default'
+      shell: bash
+      run: dotnet restore squirix.slnx
+
     - name: Save NuGet Package Cache
-      if: steps.nuget-cache.outputs.cache-hit != 'true' && steps.solution.outputs.path == 'squirix.slnx'
+      if: steps.nuget-cache.outputs.cache-hit != 'true' && (steps.solution.outputs.path == 'squirix.slnx' || inputs.analysis-shard == 'default')
       uses: actions/cache/save@v6
       with:
         path: ${{ env.NUGET_PACKAGES || '~/.nuget/packages' }}
