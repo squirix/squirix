@@ -104,7 +104,10 @@ jobs:
             -   name: Verify .NET 10 Baseline
                 run: dotnet run --file ./tools/internal/sqr-net10-verify.cs --
 
+            # SquirixToolCheck keeps the analyzers on the tool files and off the projects they reference; see Directory.Build.props.
             -   name: Verify File-Based Durability Tools (sqr-*.cs)
+                env:
+                    SquirixToolCheck: "true"
                 run: dotnet run --file ./tools/internal/sqr-tools-verify.cs --
 
             -   name: Ensure Dev HTTPS Certificate
@@ -112,6 +115,8 @@ jobs:
                 run: bash tools/ci/ensure-dev-https-cert.sh
 
             -   name: Verify File-Based Examples
+                env:
+                    SquirixToolCheck: "true"
                 run: dotnet run --file ./tools/internal/sqr-examples-verify.cs --
 
             -   name: Verify Coding Conventions (.editorconfig)
