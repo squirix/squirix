@@ -695,7 +695,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (ownedToAppend != null)
                 await FollowerLogDurable.AppendFramesDurableAsync(journal, owner, ownedToAppend, cancellationToken).ConfigureAwait(false);
 
-            return await CompleteAppendAsync(journal, owner, request.LeaderCommitIndex, lastVerifiedIndex, ownedToAppend != null || truncateAtIndex != null, cancellationToken)
+            // Durable frames are part of the log whatever happens next: a restart recovers them. Cancelling the metadata write behind
+            // them would report an append that already happened as refused, so it runs to completion.
+            var completion = ownedToAppend != null ? CancellationToken.None : cancellationToken;
+            return await CompleteAppendAsync(journal, owner, request.LeaderCommitIndex, lastVerifiedIndex, ownedToAppend != null || truncateAtIndex != null, completion)
                .ConfigureAwait(false);
         }
 
