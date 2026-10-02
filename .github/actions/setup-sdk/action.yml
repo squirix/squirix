@@ -1,0 +1,40 @@
+name: Setup .NET SDK
+description: >-
+  Put the SDK pinned in global.json on the path, restored from a cache of the installed SDK (3-6 s against 7-14 s for
+  actions/setup-dotnet). The folder holds that SDK alone, without the .NET 10 runtime, so it suits jobs that only build;
+  a job that runs a net10.0 app after the build keeps actions/setup-dotnet.
+
+runs:
+  using: composite
+  steps:
+    - name: Restore SDK Cache
+      id: sdk-cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ runner.temp }}/dotnet-sdk
+        key: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json') }}
+
+    # A miss happens once per runner kind after global.json changes. The install goes into the cached folder, which on Windows
+    # is on the work drive (the system drive takes about 40 s for the install).
+    - name: Install SDK
+      if: steps.sdk-cache.outputs.cache-hit != 'true'
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      env:
+        DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet-sdk
+      with:
+        global-json-file: global.json
+
+    # Jobs that miss at the same time each try to save; the first one wins and the others only log that the key exists.
+    - name: Save SDK Cache
+      if: steps.sdk-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ runner.temp }}/dotnet-sdk
+        key: ${{ steps.sdk-cache.outputs.cache-primary-key }}
+
+    - name: Put SDK On The Path
+      if: steps.sdk-cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: |
+        echo "${RUNNER_TEMP}/dotnet-sdk" >> "$GITHUB_PATH"
+        echo "DOTNET_ROOT=${RUNNER_TEMP}/dotnet-sdk" >> "$GITHUB_ENV"
