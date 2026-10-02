@@ -280,7 +280,7 @@ jobs:
             fail-fast: false
             matrix:
                 # One entry per shard in SquirixAnalysisShards (Directory.Build.props); a shard missing here is never analyzed.
-                shard: [ default, server-unit-tests, server-tests ]
+                shard: [ default, server, server-unit-tests, server-tests ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
