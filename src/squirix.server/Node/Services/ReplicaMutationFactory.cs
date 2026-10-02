@@ -1,11 +1,8 @@
 using System;
-using System.Buffers.Binary;
 using System.IO;
-using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
@@ -85,7 +82,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             _term,
             operationId,
             cacheName,
-            Fingerprint(cacheName, operationId, cacheName, key, ReplicaMutationKinds.Remove, []),
+            ReplicaOperationFingerprints.Remove(operationId, cacheName, key),
             nameof(GroupRecordKind.UserMutation),
             cacheName,
             Encoding.UTF8.GetBytes(key),
@@ -116,7 +113,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             _term,
             operationId,
             cacheName,
-            Fingerprint(cacheName, operationId, cacheName, key, ReplicaMutationKinds.RemoveExpiration, []),
+            ReplicaOperationFingerprints.RemoveExpiration(operationId, cacheName, key),
             nameof(GroupRecordKind.UserMutation),
             cacheName,
             Encoding.UTF8.GetBytes(key),
@@ -140,7 +137,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     internal PreparedReplicaMutation PrepareSet(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, ulong index)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        var request = entry.MapToProto().ToByteArray();
         var now = _clock.GetUtcNow().UtcDateTime;
         var decision = ReplicaMutationDecisions.DecideSet(entry, now);
         var record = new ReplicaLogRecord(
@@ -148,7 +144,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             _term,
             operationId,
             cacheName,
-            Fingerprint(cacheName, operationId, cacheName, key, ReplicaMutationKinds.Set, request),
+            ReplicaOperationFingerprints.Set(operationId, cacheName, key, entry),
             nameof(GroupRecordKind.UserMutation),
             cacheName,
             Encoding.UTF8.GetBytes(key),
@@ -192,7 +188,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             _term,
             operationId,
             cacheName,
-            TouchFingerprint(cacheName, operationId, key, expiration),
+            ReplicaOperationFingerprints.Touch(operationId, cacheName, key, expiration),
             nameof(GroupRecordKind.UserMutation),
             cacheName,
             Encoding.UTF8.GetBytes(key),
@@ -204,13 +200,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             0,
             0);
         return Build(cacheName, in record, index);
-
-        static byte[] TouchFingerprint(string cacheName, string operationId, string key, TimeSpan expiration)
-        {
-            Span<byte> requested = stackalloc byte[sizeof(long)];
-            BinaryPrimitives.WriteInt64LittleEndian(requested, expiration.Ticks);
-            return Fingerprint(cacheName, operationId, cacheName, key, ReplicaMutationKinds.Touch, requested);
-        }
     }
 
     /// <summary>Prepares a replicated conditional add.</summary>
@@ -231,7 +220,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     {
         ArgumentNullException.ThrowIfNull(entry);
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        var request = entry.MapToProto().ToByteArray();
         var now = _clock.GetUtcNow().UtcDateTime;
         var decision = ReplicaMutationDecisions.DecideTryAdd(current, entry, now);
         var record = new ReplicaLogRecord(
@@ -239,7 +227,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             _term,
             operationId,
             cacheName,
-            Fingerprint(cacheName, operationId, cacheName, key, ReplicaMutationKinds.TryAdd, request),
+            ReplicaOperationFingerprints.AddIfAbsent(operationId, cacheName, key, entry),
             nameof(GroupRecordKind.UserMutation),
             cacheName,
             Encoding.UTF8.GetBytes(key),
@@ -270,7 +258,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         CancellationToken cancellationToken)
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        var request = ServerProtoEx.CacheValueToGrpcValue(value).ToByteArray();
         var now = _clock.GetUtcNow().UtcDateTime;
         var decision = ReplicaMutationDecisions.DecideUpdate(current, value);
         var record = new ReplicaLogRecord(
@@ -278,7 +265,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             _term,
             operationId,
             cacheName,
-            Fingerprint(cacheName, operationId, cacheName, key, ReplicaMutationKinds.Update, request),
+            ReplicaOperationFingerprints.Update(operationId, cacheName, key, value),
             nameof(GroupRecordKind.UserMutation),
             cacheName,
             Encoding.UTF8.GetBytes(key),
@@ -294,40 +281,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
 
     private static ReplicaLogRecord DecodeRecord(ReadOnlyMemory<byte> payload, ulong logIndex) =>
         ReplicaLogCodec.Decode(payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));
-
-    private static void Append(IncrementalHash hash, string value)
-    {
-        var bytes = Encoding.UTF8.GetBytes(value);
-        Span<byte> length = stackalloc byte[4];
-        BinaryPrimitives.WriteInt32LittleEndian(length, bytes.Length);
-        hash.AppendData(length);
-        hash.AppendData(bytes);
-    }
-
-    /// <summary>Computes the canonical operation fingerprint.</summary>
-    /// <param name="scope">Operation scope distinguishing user mutations from expirations.</param>
-    /// <param name="operationId">Client operation identifier.</param>
-    /// <param name="cacheName">Target cache name.</param>
-    /// <param name="key">Target key.</param>
-    /// <param name="mutationKind">Cache mutation kind.</param>
-    /// <param name="mutationPayload">Cache mutation bytes.</param>
-    /// <returns>The SHA-256 fingerprint bytes.</returns>
-    /// <remarks>
-    /// Each string field contributes its 32-bit little-endian UTF-8 byte count followed by the bytes
-    /// themselves, in field order, so concatenations that only differ at field boundaries hash
-    /// differently.
-    /// </remarks>
-    private static byte[] Fingerprint(string scope, string operationId, string cacheName, string key, string mutationKind, ReadOnlySpan<byte> mutationPayload)
-    {
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        Append(hash, scope);
-        Append(hash, operationId);
-        Append(hash, cacheName);
-        Append(hash, key);
-        Append(hash, mutationKind);
-        hash.AppendData(mutationPayload);
-        return hash.GetHashAndReset();
-    }
 
     /// <summary>Encodes a decided record after checking that its effect agrees with its outcome.</summary>
     /// <remarks>Only the shape is checked: the entry the decision just encoded is not decoded again on every write.</remarks>

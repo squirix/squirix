@@ -79,6 +79,23 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
         _ = await Assert.That((await Log(registry).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
     }
 
+    /// <summary>A committed identifier reused with another request is reported as a reuse, and the group keeps committing.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CommittedIdReuseIsMismatch(CancellationToken cancellationToken)
+    {
+        using var hooks = new StallableFollowerLogFaultHooks();
+        await using var registry = await OpenRegistryAsync(hooks, cancellationToken);
+        await using var committer = CreateCommitter(registry);
+        var operationId = Guid.NewGuid().ToString("N");
+        await committer.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ServerOpIdMismatchException>(committer.CommitSetAsync(operationId, "cache", "k2", Entry(), cancellationToken));
+        await committer.CommitSetAsync(Guid.NewGuid().ToString("N"), "cache", "k3", Entry(), cancellationToken);
+
+        _ = await Assert.That((await Log(registry).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
+    }
+
     private static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry)
     {
         var local = new ScriptedApplyCache(ApplyMode.Fail);

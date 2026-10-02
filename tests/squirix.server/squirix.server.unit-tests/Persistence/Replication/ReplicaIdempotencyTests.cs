@@ -218,7 +218,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         var restored = state.TryRestoreOutcome(Outcome("operation", 1UL), TimeSpan.Zero);
 
         _ = await Assert.That(restored).IsFalse();
-        _ = await Assert.That(state.IsUnresolved("client", "operation")).IsTrue();
+        _ = await Assert.That(state.Lookup("client", "operation", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
     }
 
     /// <summary>An outcome rebuilt from the log is skipped once it is past retention or the store is full, and kept for the rest of its window otherwise.</summary>

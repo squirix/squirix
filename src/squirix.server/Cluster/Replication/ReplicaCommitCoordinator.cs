@@ -15,6 +15,9 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 {
     internal const string CommitOutcomeUnknownCode = "COMMIT_OUTCOME_UNKNOWN";
 
+    /// <summary>Message prefix of the refusal of an operation identifier reused with a different fingerprint.</summary>
+    internal const string FingerprintMismatchCode = "replica_operation_fingerprint_mismatch";
+
     /// <summary>Message prefix of the refusal of a new operation identity while the group idempotency state is full.</summary>
     internal const string IdempotencyCapacityCode = "replica_idempotency_capacity";
 
@@ -168,7 +171,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             if (lookup == GroupIdempotencyLookup.Found)
                 return retained.OutcomePayload;
             if (lookup == GroupIdempotencyLookup.Mismatch)
-                throw new InvalidOperationException("Operation identifier was reused with a different fingerprint.");
+                throw new InvalidOperationException($"{FingerprintMismatchCode}: operation identifier was reused with a different fingerprint.");
             if (lookup == GroupIdempotencyLookup.Unresolved)
             {
                 if (!_operations.TryGetValue(key, out operation!))
@@ -531,7 +534,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         if (reserved == GroupIdempotencyReserveResult.CapacityExceeded)
             throw new InvalidOperationException($"{IdempotencyCapacityCode}: group idempotency capacity is exhausted.");
         if (reserved == GroupIdempotencyReserveResult.FingerprintMismatch)
-            throw new InvalidOperationException("Operation identifier was reused with a different fingerprint.");
+            throw new InvalidOperationException($"{FingerprintMismatchCode}: operation identifier was reused with a different fingerprint.");
 
         var attempt = new CommitAttempt();
         var starter = new Task<Task<ReadOnlyMemory<byte>>>(() => ExecuteReservedAsync(key, mutation, timeout, attempt, cancellationToken));
