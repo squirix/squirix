@@ -820,7 +820,8 @@ jobs:
         name: Coverage Report
         runs-on: ubuntu-latest
         timeout-minutes: 20
-        needs: [ changes, markdownlint, verify-coding-conventions, test-ubuntu, verify-test-discovery ]
+        # The report reads only the coverage of the ubuntu tests, so it does not wait for the conventions check.
+        needs: [ changes, markdownlint, test-ubuntu, verify-test-discovery ]
         # PR fast path: coverage report runs on push/schedule/dispatch only.
         if: |
             github.event_name != 'pull_request' &&
