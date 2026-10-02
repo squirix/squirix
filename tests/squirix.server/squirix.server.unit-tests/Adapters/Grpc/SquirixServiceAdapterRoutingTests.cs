@@ -40,7 +40,10 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
         foreach (var call in CreateCalls())
             await call(adapter, new TestServerCallContext());
 
-        _ = await Assert.That(invoker.Requests.Count).IsEqualTo(10);
+        string[] methods = ["GetEntry", "GetExpiration", "GetOrAdd", "GetValue", "Remove", "RemoveExpiration", "SetEntry", "Touch", "TryAddEntry", "Update"];
+        _ = await Assert.That(invoker.Requests.Count).IsEqualTo(methods.Length);
+        for (var i = 0; i < methods.Length; i++)
+            _ = await Assert.That(invoker.Methods[i]).IsEqualTo(methods[i]);
     }
 
     /// <summary>A trusted internal owner RPC that reaches a node which does not own the key is refused before idempotency or the cache, reads included.</summary>

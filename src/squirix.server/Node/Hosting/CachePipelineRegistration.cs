@@ -20,6 +20,9 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class CachePipelineRegistration
 {
+    /// <summary>Service key of the owner-local cache chain below replication: the target of replicated applies and of direct local calls.</summary>
+    internal const string LocalChainKey = "local-chain";
+
     internal static IServiceCollection AddSquirixCachePipeline(this IServiceCollection services, ExtensionOptions? extensions = null, bool persistenceEnabled = false)
     {
         _ = services.AddOptions<CachePipelineDeadlineOptions>();
@@ -35,7 +38,8 @@ internal static class CachePipelineRegistration
     }
 
     /// <summary>
-    /// Outermost decorator runs first: Tracing → DomainError → Validation → Backpressure → Deadline → Metrics → Memory.
+    /// Outermost decorator runs first: Tracing → DomainError → Validation → Backpressure → Deadline → Metrics → OwnershipGuard → Memory.
+    /// The ownership guard sits above everything that commits, journals or takes key gates, so a remote key is refused before any of them.
     /// Backpressure stays outside Deadline on purpose: admission shaping (slowdown plus queue wait) must not
     /// consume the operation execution budget, otherwise a saturated node times out work that never ran.
     /// Validation stays outside Backpressure so invalid requests are rejected before taking an admission slot.
@@ -49,8 +53,12 @@ internal static class CachePipelineRegistration
             sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
             sp.GetRequiredService<IMemoryUsageAccounting>(),
             HasRecordedOutcome(sp)));
+        _ = services.AddSingleton(static sp => new OwnershipGuardCacheDecorator<object?>(
+            sp.GetRequiredService<TopologyOptions>().NodeId,
+            sp.GetRequiredService<INodeLocator>(),
+            sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>()));
         _ = services.AddSingleton(static sp => new MetricsCacheDecorator<object?>(
-            sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>(),
+            sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>(),
             sp.GetRequiredService<CacheMetrics>()));
         _ = services.AddSingleton(static sp => new DeadlineCacheDecorator<object?>(
             sp.GetRequiredService<MetricsCacheDecorator<object?>>(),
@@ -92,18 +100,12 @@ internal static class CachePipelineRegistration
                 sp.GetService<TimeProvider>(),
                 sp.GetRequiredService<ILocalCacheRawReader<object?>>()));
             _ = services.AddSingleton(static sp => new JournalPayloadPrepareCacheDecorator<object?>(sp.GetRequiredService<JournalLoggingCacheDecorator<object?>>()));
-            _ = services.AddSingleton(static sp => new OwnershipGuardCacheDecorator<object?>(
-                sp.GetRequiredService<TopologyOptions>().NodeId,
-                sp.GetRequiredService<INodeLocator>(),
-                sp.GetRequiredService<JournalPayloadPrepareCacheDecorator<object?>>()));
+            _ = services.AddKeyedSingleton<ILogicalNamespacedCache<object?>>(LocalChainKey, static (sp, _) => sp.GetRequiredService<JournalPayloadPrepareCacheDecorator<object?>>());
             return;
         }
 
         _ = services.AddSingleton(static sp => new OwnerPutPayloadGuardDecorator<object?>(sp.GetRequiredService<ClientCache<object?>>()));
-        _ = services.AddSingleton(static sp => new OwnershipGuardCacheDecorator<object?>(
-            sp.GetRequiredService<TopologyOptions>().NodeId,
-            sp.GetRequiredService<INodeLocator>(),
-            sp.GetRequiredService<OwnerPutPayloadGuardDecorator<object?>>()));
+        _ = services.AddKeyedSingleton<ILogicalNamespacedCache<object?>>(LocalChainKey, static (sp, _) => sp.GetRequiredService<OwnerPutPayloadGuardDecorator<object?>>());
     }
 
     /// <summary>Returns how memory admission asks whether the owned replica group recorded an operation's outcome; none on single-copy hosts.</summary>
@@ -124,7 +126,7 @@ internal static class CachePipelineRegistration
     /// <returns>The local cache pipeline.</returns>
     private static ILogicalNamespacedCache<object?> ResolveLocalCache(IServiceProvider sp)
     {
-        var inner = sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>();
+        var inner = sp.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(LocalChainKey);
 
         // FeatureState is the single source of truth: only network-replication-activated hosts commit.
         // RF=1 and foundation-only hosts keep the direct single-copy path untouched.

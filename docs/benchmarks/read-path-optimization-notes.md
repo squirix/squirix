@@ -106,8 +106,8 @@ After each optimization step, add a row here. Primary e2e guardrail: **`ReadExis
 | `ICacheApi.GetValueAsync`, `RoutedCacheApi`, `SquirixServiceAdapter.GetValueAsync`        | Done     |
 | `BenchmarkRawGrpcCache` uses `GetValueAsync` (wire `GetValue`; grpc-dotnet adds `Async`)  | Done     |
 | `RemoteCache<T>.GetValueAsync` → `GetValueAsync` RPC (not `GetEntryAsync` / entry)        | Done     |
-| `ClusteredCache.GetValueAsync` routes via `OwnerFor`                                      | Done     |
-| `ClusteredCache.GetValueAsync` value-only path (avoid entry fetch)                        | Done     |
+| `ClusteredCache.GetValueAsync` routes via `OwnerFor` (historical; now `OwnerRouter`)       | Done     |
+| `ClusteredCache.GetValueAsync` value-only path (historical; now `OwnerRpcForwarder`)       | Done     |
 
 Short e2e result after this step: `ReadExistingValueBatchedAsync` ≈ **126.7 µs**, **15.53 KB** allocated per operation.
 

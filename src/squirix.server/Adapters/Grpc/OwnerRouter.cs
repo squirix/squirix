@@ -3,8 +3,8 @@ using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Runtime.Invocation;
-using Squirix.Transport.Grpc.Mappers;
 
 namespace Squirix.Server.Adapters.Grpc;
 
@@ -37,13 +37,12 @@ internal sealed class OwnerRouter
             return null;
 
         var owner = _ownershipResolver.GetOwner(canonicalName, key);
-        if (string.Equals(owner, _ownershipResolver.SelfNodeId, StringComparison.Ordinal))
-            return null;
-
-        if (!_invocationState.IsInternalOwnerInvocation)
-            return owner;
-
-        var detail = $"Key is owned by '{owner}', not current node '{_ownershipResolver.SelfNodeId}'.";
-        throw new RpcException(new Status(StatusCode.FailedPrecondition, detail), GrpcStaleOwnerMarkers.CreateStaleOwnerTrailers());
+        var isLocal = string.Equals(owner, _ownershipResolver.SelfNodeId, StringComparison.Ordinal);
+        return (isLocal, _invocationState.IsInternalOwnerInvocation) switch
+        {
+            (true, _) => null,
+            (false, false) => owner,
+            (false, true) => throw StaleOwnerFailure.Create(owner, _ownershipResolver.SelfNodeId),
+        };
     }
 }
