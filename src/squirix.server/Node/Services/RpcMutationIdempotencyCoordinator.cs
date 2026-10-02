@@ -62,24 +62,21 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             var execution = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var reservation = _store.ReserveIntent(operationId, fingerprint, execution, out var inFlight);
 
+            if (reservation == IdempotencyReserveResult.Acquired)
+                return await ExecuteAcquiredAsync(operationId, fingerprint, state, execute, execution, cancellationToken).ConfigureAwait(false);
+
+            // A concurrent call completed between the replay probe and the reservation: the next pass replays its outcome, or
+            // reserves the id anew when that outcome expired in between.
+            if (reservation == IdempotencyReserveResult.AlreadyCompleted)
+                continue;
+
+            // Started with no execution to join (rebuilt from the journal, or stamped and then failed), or an unknown value: the
+            // outcome is unknown to this caller, so surface COMMIT_OUTCOME_UNKNOWN instead of re-executing.
+            if (reservation != IdempotencyReserveResult.AlreadyStarted || inFlight == null)
+                throw ServerOpContract.CommitOutcomeUnknown().ToRpcException();
+
             // Execution is in flight in this process: wait for it under this caller's own deadline. The completion never
             // faults; it only signals that the record is settled.
-            if (reservation != IdempotencyReserveResult.AlreadyStarted || inFlight == null)
-            {
-                return reservation switch
-                {
-                    // A concurrent call completed between the replay probe and the reservation; replay its outcome.
-                    IdempotencyReserveResult.AlreadyCompleted => _store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var completed) ? completed!
-                        : throw new InvalidOperationException("Idempotency reservation completed without a replayed outcome."),
-                    IdempotencyReserveResult.Acquired => await ExecuteAcquiredAsync(operationId, fingerprint, state, execute, execution, cancellationToken).ConfigureAwait(false),
-
-                    // Started with no execution to join (rebuilt from the journal, or stamped and then failed), or an unknown
-                    // value: the outcome is unknown to this caller, so surface COMMIT_OUTCOME_UNKNOWN instead of re-executing.
-                    IdempotencyReserveResult.AlreadyStarted => throw ServerOpContract.CommitOutcomeUnknown().ToRpcException(),
-                    _ => throw ServerOpContract.CommitOutcomeUnknown().ToRpcException(),
-                };
-            }
-
             await inFlight.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
     }
