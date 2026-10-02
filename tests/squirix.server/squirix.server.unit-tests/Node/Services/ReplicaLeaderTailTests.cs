@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
@@ -84,7 +85,9 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, gateway, cache);
 
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Pending);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken));
+        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken));
+        _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(refusal.Status.Detail).IsEqualTo(ServerOpContract.NoWriteMajorityDetail);
         var pending = await StatusAsync(registry, cancellationToken);
         _ = await Assert.That((pending.LastLogIndex, pending.CommitIndex)).IsEqualTo((2UL, 1UL));
         _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();

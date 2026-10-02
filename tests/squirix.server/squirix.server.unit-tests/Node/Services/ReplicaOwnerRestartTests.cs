@@ -1,8 +1,9 @@
-using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -68,7 +69,9 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, gateway);
 
         var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(write);
+        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(write);
+        _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(refusal.Status.Detail).IsEqualTo(ServerOpContract.NoWriteMajorityDetail);
 
         var eligibility = registry.EligibilityFor("n1");
         _ = await Assert.That(eligibility.StateFor(1)).IsEqualTo(ReplicaParticipantState.CatchingUp);
@@ -119,7 +122,7 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         await committer.CommitSetAsync(NewOperationId(), "cache", "k2", new NodeCacheEntry<object?> { Value = "v2", Version = 1 }, cancellationToken);
     }
 
-    /// <summary>A write that cannot reach a majority is refused before the local append, so it leaves no uncommitted tail behind.</summary>
+    /// <summary>A write that cannot reach a majority is refused retryably before the local append, so it leaves no uncommitted tail behind.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task WriteWithoutMajorityLeavesNoTail(CancellationToken cancellationToken)
@@ -132,7 +135,9 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway);
         var refused = committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(refused);
+        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(refused);
+        _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(refusal.Status.Detail).IsEqualTo(ServerOpContract.NoWriteMajorityDetail);
         _ = registry.TryGetLog("n1", out var log);
         var status = await log!.GetStatusAsync(cancellationToken);
         _ = await Assert.That(status.LastLogIndex).IsEqualTo(status.CommitIndex);

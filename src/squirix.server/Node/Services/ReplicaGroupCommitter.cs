@@ -417,8 +417,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <param name="write">Whether a write is to be prepared next; <see langword="false" /> for verification.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The running coordinator and mutation factory.</returns>
+    /// <exception cref="Grpc.Core.RpcException">The write has no verified majority: Unavailable, nothing was written.</exception>
     /// <exception cref="SquirixException">An appended entry is not yet applied (too many requests).</exception>
-    /// <exception cref="InvalidOperationException">The write has no verified majority, or the committer is not started.</exception>
+    /// <exception cref="InvalidOperationException">The committer is not started.</exception>
     private async Task<(ReplicaCommitCoordinator Coordinator, ReplicaMutationFactory Factory)> EnsureStartedAsync(bool write, CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
@@ -436,7 +437,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         return (majority, applied, _coordinator, _factory) switch
         {
-            (false, _, _, _) => throw new InvalidOperationException("Replica group has no verified write majority; the write was refused before the local append."),
+            (false, _, _, _) => throw ServerOpContract.NoWriteMajority(),
             (true, false, _, _) => throw ServerOpContract.TooManyRequests(PendingApplyRefusalReason),
             (true, true, { } coordinator, { } factory) => (coordinator, factory),
             _ => throw new InvalidOperationException("Replica group committer is not started."),
