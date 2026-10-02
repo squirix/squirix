@@ -176,7 +176,8 @@ jobs:
     # Keep display names identical to the former matrix jobs for branch-protection continuity.
     # The ubuntu build heads the longest job chain, so it does not wait for the Detect Changes job: it starts with the
     # workflow, classifies the change set itself with the same action and skips the build when no code changed. A build
-    # that had nothing to do still ends as a success, so the jobs that consume its artifact check the `built` output.
+    # that had nothing to do still ends as a success, so the jobs that wait for it check the `built` output; test-ubuntu
+    # starts with the workflow and makes the same decision itself. The name is referenced by the wait in run-test-suite.
     build-ubuntu:
         name: Build (ubuntu-latest / net10.0)
         runs-on: ubuntu-latest
@@ -487,13 +488,19 @@ jobs:
                     # of build-ubuntu, so nothing is uploaded here.
                     upload-outputs: "false"
 
-    # Per-OS test matrices: each starts as soon as its build finishes; ubuntu also runs the smoke suite.
+    # Per-OS test matrices; ubuntu also runs the smoke suite. The ubuntu tests end a pull request run, so they start with
+    # the workflow like build-ubuntu: runner, checkout, change detection and certificate are ready during the build, and
+    # the job waits for the build outputs in a step. The other matrices start once their build has finished.
     test-ubuntu:
         name: Test (ubuntu-latest / net10.0 / ${{ matrix.suite }})
         runs-on: ubuntu-latest
         timeout-minutes: 20
-        needs: [ build-ubuntu ]
-        if: needs.build-ubuntu.outputs.built == 'true'
+        permissions:
+            contents: read
+            # Lists the artifacts and jobs of this run to wait for the build outputs.
+            actions: read
+            # The change detection lists the files of the pull request.
+            pull-requests: read
         strategy:
             fail-fast: false
             max-parallel: 8
@@ -520,7 +527,17 @@ jobs:
                 with:
                     persist-credentials: false
 
+            # The same decision build-ubuntu makes: there are build outputs to test exactly when it builds.
+            -   name: Detect Changes
+                id: changes
+                uses: ./.github/actions/detect-changes
+
+            -   name: Decide Whether To Test
+                id: gate
+                run: echo "test=${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
+
             -   name: Run Test Suite
+                if: steps.gate.outputs.test == 'true'
                 uses: ./.github/actions/run-test-suite
                 with:
                     os: ubuntu-latest
@@ -528,6 +545,7 @@ jobs:
                     suite: ${{ matrix.suite }}
                     # PR fast path: no coverage on pull_request.
                     collect-coverage: ${{ github.event_name != 'pull_request' }}
+                    wait-for-build: "true"
 
     test-windows:
         name: Test (windows-latest / net10.0 / ${{ matrix.suite }})
@@ -1225,7 +1243,7 @@ jobs:
                     deadline=$((started + 1800))
                     settled=0
                     while true; do
-                      # The matrix jobs are listed once build-ubuntu has finished.
+                      # The matrix jobs are listed once the run has created them.
                       mapfile -t rows < <(gh api --paginate "${jobs_url}" \
                         --jq '.jobs[] | select(.name | startswith("Test (ubuntu-latest /")) | [.status, (.conclusion // "none"), .name] | @tsv')
                       pending=0
