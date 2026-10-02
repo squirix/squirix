@@ -95,8 +95,8 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
     {
         try
         {
-            return _journal != null ? await ExecuteDurableAsync(_journal, operationId, fingerprint, state, execute, cancellationToken).ConfigureAwait(false)
-                : await ExecuteInMemoryAsync(operationId, fingerprint, state, execute, cancellationToken).ConfigureAwait(false);
+            return _journal != null ? await ExecuteDurableAsync(_journal, operationId, fingerprint, state, execute, execution, cancellationToken).ConfigureAwait(false)
+                : await ExecuteInMemoryAsync(operationId, fingerprint, state, execute, execution, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -111,6 +111,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         string fingerprint,
         TState state,
         Func<TState, CancellationToken, Task<TResponse>> execute,
+        TaskCompletionSource execution,
         CancellationToken cancellationToken)
         where TResponse : class, IMessage<TResponse>, new()
     {
@@ -127,7 +128,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             // The in-memory outcome is recorded only after the outcome frame is appended and
             // durability is confirmed: a failure above must leave no Completed record so that
             // a retry surfaces COMMIT_OUTCOME_UNKNOWN instead of replaying an unconfirmed outcome.
-            _store.RecordSuccess(operationId, fingerprint, responseBytes);
+            _store.RecordSuccess(operationId, fingerprint, responseBytes, execution);
             return durableResponse;
         }
         catch
@@ -138,7 +139,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             // The scope is still active here, so the ambient frame reliably reports whether stamping happened.
             // Reserved intents reconstructed from journal frames carry no fingerprint and are never released here.
             if (!RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(scope))
-                _store.ReleaseIntent(operationId, fingerprint);
+                _store.ReleaseIntent(operationId, fingerprint, execution);
             throw;
         }
     }
@@ -148,19 +149,20 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         string fingerprint,
         TState state,
         Func<TState, CancellationToken, Task<TResponse>> execute,
+        TaskCompletionSource execution,
         CancellationToken cancellationToken)
         where TResponse : class, IMessage<TResponse>, new()
     {
         try
         {
             var memoryOnlyResponse = await execute(state, cancellationToken).ConfigureAwait(false);
-            _store.RecordSuccess(operationId, fingerprint, IdempotencyResponseCodec.SerializeResponseBytes(memoryOnlyResponse));
+            _store.RecordSuccess(operationId, fingerprint, IdempotencyResponseCodec.SerializeResponseBytes(memoryOnlyResponse), execution);
             return memoryOnlyResponse;
         }
         catch
         {
             // The in-memory path never produces a durable outcome, so releasing the reservation is safe.
-            _store.ReleaseIntent(operationId, fingerprint);
+            _store.ReleaseIntent(operationId, fingerprint, execution);
             throw;
         }
     }

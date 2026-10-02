@@ -127,7 +127,7 @@ public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBas
 
     private static async Task RecordIdempotencyAsync(IJournalCoordinator journal, RpcMutationIdempotencyStore store, string operationId, CancellationToken cancellationToken)
     {
-        store.RecordSuccess(operationId, "fp", IdempotencyResponseBytes);
+        store.RecordSuccess(operationId, "fp", IdempotencyResponseBytes, null);
         await journal.AppendIdempotencyOutcomeAsync(operationId, "fp", IdempotencyResponseBytes, cancellationToken);
     }
 }

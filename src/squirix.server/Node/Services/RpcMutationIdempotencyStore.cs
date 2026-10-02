@@ -17,8 +17,15 @@ namespace Squirix.Server.Node.Services;
 /// Records are dated on the server clock and persisted with that wall time. A record created in this process also keeps the monotonic
 /// timestamp of its creation and expires only once both its wall age and its monotonic age pass the retention, so a forward wall-clock
 /// step cannot purge it early; a backward step extends its retention by the size of the step, which only strengthens deduplication. A
-/// restored record has no monotonic origin and ages by wall time. Capacity eviction drops the record inserted first, whatever its wall
-/// time, and snapshots keep that insertion order.
+/// restored record has no monotonic origin and ages by wall time.
+/// <para>
+/// At capacity a new operation evicts the completed outcome inserted first among those older than the minimum retention; snapshots
+/// keep that insertion order. That age is monotonic for a record created in this process, so a wall-clock step neither blocks nor
+/// hastens eviction. A reservation is never evicted, and when no outcome is old enough the new operation is refused as retryable, so
+/// within the retention a retry never runs alongside its first attempt. Recording an outcome and restoring records never refuse: they
+/// evict the completed outcome inserted first, or exceed the capacity when every record is a reservation; a store over capacity evicts
+/// one outcome per new operation and drains as records expire.
+/// </para>
 /// </remarks>
 [Mutable]
 internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
@@ -69,7 +76,17 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
 
     void IIdempotencySnapshotExporter.ExportSnapshot(List<PersistedIdempotencyRecord> destination, DateTime utcNow) => ExportSnapshotCore(destination, utcNow);
 
-    internal void RecordSuccess(string operationId, string fingerprint, byte[] responseBytes)
+    /// <summary>Records the outcome of the attempt that holds the reservation of <paramref name="operationId" />.</summary>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="fingerprint">The deterministic mutation fingerprint.</param>
+    /// <param name="responseBytes">The serialized response a retry replays.</param>
+    /// <param name="reservation">The completion the reservation was acquired with.</param>
+    /// <remarks>
+    /// A reservation held by another attempt (this one's expired and a retry re-acquired the id) or an outcome already recorded is
+    /// left as it is: a retry replays the first recorded outcome. The mutation already ran, so a missing record is admitted even at
+    /// capacity.
+    /// </remarks>
+    internal void RecordSuccess(string operationId, string fingerprint, byte[] responseBytes, TaskCompletionSource? reservation)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
@@ -79,7 +96,11 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         {
             var (utcNow, timestamp) = ReadClock();
             SweepExpiredLocked(utcNow, timestamp);
-            UpsertLocked(operationId, CreateRecord(operationId, fingerprint, responseBytes, utcNow), timestamp);
+            if (_records.TryGetValue(operationId, out var existing)
+                && (existing.Record.State != IdempotencyRecordState.Started || !ReferenceEquals(existing.Reservation, reservation)))
+                return;
+
+            AdmitLocked(operationId, new StoredRecord(CreateRecord(operationId, fingerprint, responseBytes, utcNow), timestamp, ++_nextSequence, null));
         }
     }
 
@@ -95,7 +116,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         {
             var (utcNow, timestamp) = ReadClock();
             SweepExpiredLocked(utcNow, timestamp);
-            UpsertLocked(operationId, CreateRestoredRecord(operationId, fingerprint, responseBytes, createdUtc), null);
+            AdmitLocked(operationId, new StoredRecord(CreateRestoredRecord(operationId, fingerprint, responseBytes, createdUtc), null, ++_nextSequence, null));
         }
     }
 
@@ -112,6 +133,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     /// </param>
     /// <returns>The reservation outcome for this caller.</returns>
     /// <exception cref="ServerOpIdMismatchException">When the stored fingerprint is non-null and differs.</exception>
+    /// <exception cref="SquirixException">The store is full of reservations in flight and outcomes younger than the minimum retention.</exception>
     internal IdempotencyReserveResult ReserveIntent(string operationId, string fingerprint, TaskCompletionSource? execution, out Task? inFlight)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
@@ -133,7 +155,8 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
                 return IdempotencyReserveResult.AlreadyStarted;
             }
 
-            UpsertLocked(operationId, new PersistedIdempotencyRecord(operationId, fingerprint, utcNow), timestamp);
+            MakeRoomForNewOperationLocked(utcNow, timestamp);
+            _records[operationId] = new StoredRecord(new PersistedIdempotencyRecord(operationId, fingerprint, utcNow), timestamp, ++_nextSequence, execution);
             if (execution != null)
                 _executions[operationId] = execution;
 
@@ -168,7 +191,8 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     /// <summary>Releases a write-ahead reservation when its execution failed without producing a durable outcome.</summary>
     /// <param name="operationId">The operation identifier.</param>
     /// <param name="fingerprint">The mutation fingerprint the reservation was acquired with.</param>
-    internal void ReleaseIntent(string operationId, string fingerprint)
+    /// <param name="reservation">The completion the reservation was acquired with; a reservation another attempt holds is kept.</param>
+    internal void ReleaseIntent(string operationId, string fingerprint, TaskCompletionSource? reservation)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
@@ -178,7 +202,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             if (!_records.TryGetValue(operationId, out var existing))
                 return;
 
-            if (existing.Record.State != IdempotencyRecordState.Started)
+            if (existing.Record.State != IdempotencyRecordState.Started || !ReferenceEquals(existing.Reservation, reservation))
                 return;
 
             // Reservations reconstructed from journal mutation frames carry no fingerprint and must outlive the
@@ -213,7 +237,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             if (_records.ContainsKey(operationId))
                 return;
 
-            UpsertLocked(operationId, new PersistedIdempotencyRecord(operationId, fingerprint, createdUtc), null);
+            AdmitLocked(operationId, new StoredRecord(new PersistedIdempotencyRecord(operationId, fingerprint, createdUtc), null, ++_nextSequence, null));
         }
     }
 
@@ -228,7 +252,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             for (var i = 0; i < records.Count; i++)
             {
                 var record = records[i] ?? ThrowHelper.Throw<PersistedIdempotencyRecord>(new ArgumentException("Idempotency record must not be null.", nameof(records)));
-                UpsertLocked(record.OperationId, record, null);
+                AdmitLocked(record.OperationId, new StoredRecord(record, null, ++_nextSequence, null));
             }
         }
     }
@@ -291,37 +315,41 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     /// <returns>The wall time and the monotonic timestamp.</returns>
     private (DateTime UtcNow, long Timestamp) ReadClock() => (_timeProvider.GetUtcNow().UtcDateTime, _timeProvider.GetTimestamp());
 
-    /// <summary>Stores a record under the next insertion sequence; the caller swept expired records first with the same clock reading.</summary>
+    /// <summary>Stores a record that must not be refused; the caller swept expired records first.</summary>
     /// <param name="operationId">The operation identifier.</param>
-    /// <param name="record">The record.</param>
-    /// <param name="createdTimestamp">The monotonic creation timestamp of a record created in this process; <see langword="null" /> for a restored one.</param>
-    private void UpsertLocked(string operationId, PersistedIdempotencyRecord record, long? createdTimestamp)
+    /// <param name="stored">The record.</param>
+    /// <remarks>A new record evicts completed outcomes of any age; when every record is in flight it exceeds the capacity.</remarks>
+    private void AdmitLocked(string operationId, in StoredRecord stored)
     {
-        var stored = new StoredRecord(record, createdTimestamp, ++_nextSequence);
 #pragma warning disable MA0160 // Intentional single-lookup TryGetValue: ContainsKey plus indexer would hash twice (see ZA0105).
-        if (_records.TryGetValue(operationId, out _))
+        if (!_records.TryGetValue(operationId, out _))
 #pragma warning restore MA0160
         {
-            _records[operationId] = stored;
-            return;
+            while (_records.Count >= _options.MaxInFlightRecords && TryEvictOldestCompletedLocked(null, default, 0))
+                _metrics.RecordEviction(_nodeId);
         }
 
-        EnsureCapacityForNewRecordLocked();
         _records[operationId] = stored;
     }
 
-    private void EnsureCapacityForNewRecordLocked()
+    /// <summary>Makes room for a new reservation, evicting only completed outcomes older than the minimum retention.</summary>
+    /// <param name="utcNow">The server clock wall time.</param>
+    /// <param name="timestamp">The server clock monotonic timestamp.</param>
+    /// <exception cref="SquirixException">Nothing can be evicted: a retryable refusal.</exception>
+    private void MakeRoomForNewOperationLocked(DateTime utcNow, long timestamp)
     {
-        while (_records.Count >= _options.MaxInFlightRecords)
-        {
-            if (!TryEvictOldestLocked())
-            {
-                _metrics.RecordRejection(_nodeId);
-                throw ServerOpContract.TooManyRequests("idempotency_store_capacity");
-            }
+        // One eviction per new operation: a store left over capacity by a restore keeps its size and drains as records expire, and a
+        // refusal never follows evictions that admitted nothing.
+        if (_records.Count < _options.MaxInFlightRecords)
+            return;
 
-            _metrics.RecordEviction(_nodeId);
+        if (!TryEvictOldestCompletedLocked(_options.MinRetention, utcNow, timestamp))
+        {
+            _metrics.RecordRejection(_nodeId);
+            throw ServerOpContract.TooManyRequests("idempotency_store_capacity");
         }
+
+        _metrics.RecordEviction(_nodeId);
     }
 
     private void ExportSnapshotCore(List<PersistedIdempotencyRecord> destination, DateTime utcNow)
@@ -344,17 +372,15 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         }
     }
 
-    /// <summary>Decides whether a record is past its retention at <paramref name="utcNow" /> and <paramref name="timestamp" />.</summary>
+    /// <summary>Decides whether a record is older than <paramref name="age" /> at <paramref name="utcNow" /> and <paramref name="timestamp" />.</summary>
     /// <param name="stored">The record.</param>
+    /// <param name="age">The age.</param>
     /// <param name="utcNow">The server clock wall time.</param>
     /// <param name="timestamp">The server clock monotonic timestamp.</param>
-    /// <returns><see langword="true" /> when the record expired.</returns>
-    private bool IsExpired(in StoredRecord stored, DateTime utcNow, long timestamp)
-    {
-        // A record created in this process must also be past the retention on monotonic time, so a forward wall step cannot purge it.
-        return utcNow - stored.Record.CreatedUtc > _options.Retention
-            && (stored.CreatedTimestamp is not { } created || _timeProvider.GetElapsedTime(created, timestamp) > _options.Retention);
-    }
+    /// <returns><see langword="true" /> when the record is older.</returns>
+    /// <remarks>A record created in this process must also be older on monotonic time, so a forward wall step cannot age it early.</remarks>
+    private bool IsOlderThan(in StoredRecord stored, TimeSpan age, DateTime utcNow, long timestamp) =>
+        utcNow - stored.Record.CreatedUtc > age && (stored.CreatedTimestamp is not { } created || _timeProvider.GetElapsedTime(created, timestamp) > age);
 
     private void SweepExpiredLocked(DateTime utcNow, long timestamp)
     {
@@ -362,7 +388,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         List<string>? expired = null;
         foreach (var (key, value) in _records)
         {
-            if (!IsExpired(in value, utcNow, timestamp))
+            if (!IsOlderThan(in value, _options.Retention, utcNow, timestamp))
                 continue;
             expired ??= [];
             expired.Add(key);
@@ -379,14 +405,25 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         }
     }
 
-    private bool TryEvictOldestLocked()
+    /// <summary>Evicts the completed outcome inserted first among those older than <paramref name="minAge" />.</summary>
+    /// <param name="minAge">The age an evicted outcome must pass; <see langword="null" /> evicts one of any age.</param>
+    /// <param name="utcNow">The server clock wall time.</param>
+    /// <param name="timestamp">The server clock monotonic timestamp.</param>
+    /// <returns><see langword="true" /> when an outcome was evicted.</returns>
+    private bool TryEvictOldestCompletedLocked(TimeSpan? minAge, DateTime utcNow, long timestamp)
     {
-        // Insertion order, not wall time: after a backward clock step the newest records carry the earliest wall times.
+        // Insertion order, not wall time: after a backward clock step the newest records carry the earliest wall times. A reservation
+        // in flight is never evicted: a retry would run alongside its first attempt.
         string? oldestKey = null;
         var oldestSequence = long.MaxValue;
         foreach (var pair in _records)
         {
-            if (pair.Value.Sequence >= oldestSequence)
+            if (pair.Value.Sequence >= oldestSequence || pair.Value.Record.State != IdempotencyRecordState.Completed)
+                continue;
+
+            // Monotonic age for a record created in this process, so a backward wall step cannot make every outcome too young.
+            var lived = pair.Value.CreatedTimestamp is { } created ? _timeProvider.GetElapsedTime(created, timestamp) : utcNow - pair.Value.Record.CreatedUtc;
+            if (minAge is { } age && lived <= age)
                 continue;
 
             oldestSequence = pair.Value.Sequence;
@@ -400,9 +437,10 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         return true;
     }
 
-    /// <summary>A record with the monotonic timestamp it was created at in this process and its insertion sequence.</summary>
+    /// <summary>A record with the monotonic timestamp it was created at in this process, its insertion sequence and the reservation holding it.</summary>
     /// <param name="Record">The persisted record.</param>
     /// <param name="CreatedTimestamp">The monotonic creation timestamp; <see langword="null" /> for a record restored from disk.</param>
     /// <param name="Sequence">The insertion sequence capacity eviction orders by.</param>
-    private readonly record struct StoredRecord(PersistedIdempotencyRecord Record, long? CreatedTimestamp, long Sequence);
+    /// <param name="Reservation">The completion of the attempt that acquired a Started record; only that attempt settles it.</param>
+    private readonly record struct StoredRecord(PersistedIdempotencyRecord Record, long? CreatedTimestamp, long Sequence, TaskCompletionSource? Reservation);
 }

@@ -82,7 +82,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     {
         var clock = new FakeTimeProvider();
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { Retention = TimeSpan.FromMilliseconds(50) }, "local", new IdempotencyMetrics(_testMeter), clock);
-        store.RecordSuccess("op-1", "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
+        store.RecordSuccess("op-1", "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }), null);
 
         clock.Advance(TimeSpan.FromMilliseconds(100));
 
@@ -97,7 +97,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     public async Task FingerprintMismatchThrowsTypedException()
     {
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
-        store.RecordSuccess("op-1", "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
+        store.RecordSuccess("op-1", "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }), null);
 
         var ex = NodeExceptionAssert.For<ServerOpIdMismatchException>().Throws(
             store,
@@ -116,7 +116,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     {
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var original = new TryAddAsyncResponse { Added = true };
-        store.RecordSuccess("op-1", "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(original));
+        store.RecordSuccess("op-1", "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(original), null);
 
         var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
 
