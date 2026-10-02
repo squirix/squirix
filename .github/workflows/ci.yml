@@ -1507,12 +1507,9 @@ jobs:
                     path: ~/.nuget/packages
                     key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
 
-            -   name: Restore
-                run: dotnet restore squirix.slnx
-
-            # NDepend reads the compiled assemblies; the analysis shards run the Roslyn analyzers.
-            -   name: Build
-                run: dotnet build squirix.slnx --configuration Release --no-restore -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
+            # NDepend reads the compiled assemblies; the analysis shards run the Roslyn analyzers. The build restores in the same process.
+            -   name: Restore And Build
+                run: dotnet build squirix.slnx --configuration Release -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
 
             -   name: Synchronize NDepend project
                 run: |
@@ -1717,11 +1714,8 @@ jobs:
                 with:
                     global-json-file: global.json
 
-            -   name: Restore
-                run: dotnet restore squirix.slnx
-
-            -   name: Build
-                run: dotnet build squirix.slnx --configuration Release --no-restore
+            -   name: Restore And Build
+                run: dotnet build squirix.slnx --configuration Release
 
             -   name: Ensure Dev HTTPS Certificate
                 shell: bash

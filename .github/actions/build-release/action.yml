@@ -65,15 +65,12 @@ runs:
           echo "path=squirix.slnx" >> "$GITHUB_OUTPUT"
         fi
 
-    - name: Restore
-      shell: bash
-      run: dotnet restore "${{ steps.solution.outputs.path }}"
-
     - name: Verify Whitespace
       shell: bash
       run: git diff --check
 
-    - name: Build
+    # The build restores in the same process: a separate restore would start the SDK and evaluate every project a second time.
+    - name: Restore And Build
       shell: bash
       env:
         # The compiler server is a fresh process that JITs Roslyn (and the analyzers); skipping tiered-PGO instrumentation
@@ -83,12 +80,12 @@ runs:
         solution="${{ steps.solution.outputs.path }}"
         if [ "${{ inputs.analyzers }}" != "true" ]; then
           # Analyzers only report diagnostics (source generators still run), so the binaries are the same and compile much faster.
-          dotnet build "$solution" --configuration Release --no-restore -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
+          dotnet build "$solution" --configuration Release -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
         elif [ -n "${{ inputs.analysis-shard }}" ]; then
           # One shard of the analyzed build: the whole solution compiles, the projects outside the shard without analyzers.
-          dotnet build "$solution" --configuration Release --no-restore "-p:SquirixAnalysisShard=${{ inputs.analysis-shard }}"
+          dotnet build "$solution" --configuration Release "-p:SquirixAnalysisShard=${{ inputs.analysis-shard }}"
         else
-          dotnet build "$solution" --configuration Release --no-restore
+          dotnet build "$solution" --configuration Release
         fi
 
     # Packages such as the code coverage extension copy native libraries for every platform into each test output
