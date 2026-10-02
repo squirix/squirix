@@ -213,6 +213,8 @@ jobs:
                     framework: net10.0
                     # The test artifact is built without analyzers; analyze-ubuntu runs the analyzed build in parallel.
                     analyzers: "false"
+                    # Nothing downloads the benchmark or sample outputs: the guard and package smoke jobs build their own.
+                    test-outputs-only: "true"
                     # Pull requests into develop run only the ubuntu tests; every other run also tests on ARM, Windows and macOS.
                     runtime-assets: ${{ github.event_name == 'pull_request' && github.base_ref != 'main' && 'host' || 'test-runners' }}
 
@@ -265,8 +267,9 @@ jobs:
     # The analyzed (TreatWarningsAsErrors) build that build-ubuntu skips for speed. It uploads nothing.
     # Like build-ubuntu it starts with the workflow and classifies the change set itself.
     # Analyzers run inside each project's compilation and the projects depend on each other in a chain, so one runner
-    # cannot spread the work. Each shard therefore gets a runner of its own, compiles the whole solution and analyzes only
-    # its own projects; together the shards analyze every project exactly once.
+    # cannot spread the work. Each shard therefore gets a runner of its own and analyzes only its own projects; together the
+    # shards analyze every project exactly once. The `default` shard compiles the whole solution, the others only their own
+    # projects and what those reference (see .github/actions/build-release).
     analyze-ubuntu:
         name: Analyze (ubuntu-latest / net10.0 / ${{ matrix.shard }})
         runs-on: ubuntu-latest
@@ -308,16 +311,33 @@ jobs:
                     analysis-shard: ${{ matrix.shard }}
                     upload-outputs: "false"
 
-            # The build already fails on a shard name Directory.Build.props does not declare, so an equal count means the
-            # matrix above and the declared shards are the same set and no declared shard is left without a job.
-            -   name: Verify Every Analysis Shard Has A Job
-                if: steps.gate.outputs.analyze == 'true' && strategy.job-index == 0
+            # Together the shards analyze every project exactly once. The checks read the shard listing the build of a shard other
+            # than `default` wrote (see .github/actions/build-release), so they cost no further MSBuild run.
+            #  - The build fails on a shard name Directory.Build.props does not declare, so an equal count means the matrix above
+            #    and the declared shards are the same set and no declared shard is left without a job.
+            #  - Every project of the repository is in squirix.slnx, which the shard listing is taken from.
+            #  - Every project belongs to a declared shard.
+            -   name: Verify Every Project Is Analyzed Once
+                if: steps.gate.outputs.analyze == 'true' && matrix.shard != 'default'
                 shell: bash
                 run: |
-                    declared="$(dotnet msbuild src/squirix/Squirix.csproj -getProperty:SquirixAnalysisShards)"
+                    listing="$RUNNER_TEMP/analysis-shards.txt"
+                    declared="$(sed -n 's/^ *squirix-analysis-shards|//p' "$listing" | head -n 1)"
                     IFS=';' read -r -a shards <<< "$declared"
                     if [ "${#shards[@]}" -ne "${{ strategy.job-total }}" ]; then
                       echo "Directory.Build.props declares ${#shards[@]} analysis shards ($declared) but this job runs ${{ strategy.job-total }}." >&2
+                      exit 1
+                    fi
+
+                    missing="$(comm -23 <(git ls-files '*.csproj' | sort) <(sed -n 's/.*<Project Path="\([^"]*\)".*/\1/p' squirix.slnx | sort))"
+                    if [ -n "$missing" ]; then
+                      echo "Not in squirix.slnx, so no analysis shard builds them: $missing" >&2
+                      exit 1
+                    fi
+
+                    undeclared="$(sed -n 's/^ *squirix-analysis-shard|\([^|]*\)|.*/\1/p' "$listing" | sort -u | grep -vxF -f <(printf '%s\n' "${shards[@]}") || true)"
+                    if [ -n "$undeclared" ]; then
+                      echo "Projects belong to shards Directory.Build.props does not declare, so no job analyzes them: $undeclared" >&2
                       exit 1
                     fi
 
@@ -1505,12 +1525,9 @@ jobs:
                     path: ~/.nuget/packages
                     key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
 
-            -   name: Restore
-                run: dotnet restore squirix.slnx
-
-            # NDepend reads the compiled assemblies; the analysis shards run the Roslyn analyzers.
-            -   name: Build
-                run: dotnet build squirix.slnx --configuration Release --no-restore -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
+            # NDepend reads the compiled assemblies; the analysis shards run the Roslyn analyzers. The build restores in the same process.
+            -   name: Restore And Build
+                run: dotnet build squirix.slnx --configuration Release -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
 
             -   name: Synchronize NDepend project
                 run: |
@@ -1715,11 +1732,8 @@ jobs:
                 with:
                     global-json-file: global.json
 
-            -   name: Restore
-                run: dotnet restore squirix.slnx
-
-            -   name: Build
-                run: dotnet build squirix.slnx --configuration Release --no-restore
+            -   name: Restore And Build
+                run: dotnet build squirix.slnx --configuration Release
 
             -   name: Ensure Dev HTTPS Certificate
                 shell: bash
