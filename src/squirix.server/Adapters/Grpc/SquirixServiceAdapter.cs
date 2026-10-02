@@ -1,9 +1,6 @@
 using System;
-using System.Buffers;
-using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Squirix.Server.Attributes;
@@ -143,98 +140,6 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
     {
         var remaining = expiresUtc - _timeProvider.GetUtcNow().UtcDateTime;
         return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
-    }
-
-    /// <summary>Builds deterministic fingerprints for mutating cache RPC requests.</summary>
-    private static class RpcMutationFingerprints
-    {
-        internal static string AddEntryIfAbsent(string cacheName, string key, CacheEntryWire entry) => JoinFingerprint(cacheName, "try-add-entry-async", key, entry);
-
-        internal static string GetOrAdd(string cacheName, string key, CacheEntryWire entry) => JoinFingerprint(cacheName, "get-or-add-async", key, entry);
-
-        internal static string Remove(string cacheName, string key) => JoinFingerprint(cacheName, "remove-async", key);
-
-        internal static string RemoveExpiration(string cacheName, string key) => JoinFingerprint(cacheName, "remove-expiration-async", key);
-
-        internal static string SetEntry(string cacheName, string key, CacheEntryWire entry) => JoinFingerprint(cacheName, "set-entry-async", key, entry);
-
-        internal static string Touch(string cacheName, string key, Duration expiration) => JoinFingerprint(cacheName, "touch-async", key, expiration);
-
-        internal static string Update(string cacheName, string key, CacheEntryWire entry) => JoinFingerprint(cacheName, "update-async", key, entry);
-
-        private static void HashMessage(IMessage message, Span<byte> digest)
-        {
-            var size = message.CalculateSize();
-            if (size <= 512)
-            {
-                Span<byte> buffer = stackalloc byte[size];
-                message.WriteTo(buffer);
-                _ = SHA256.HashData(buffer, digest);
-                return;
-            }
-
-            var rented = ArrayPool<byte>.Shared.Rent(size);
-            try
-            {
-                message.WriteTo(rented.AsSpan(0, size));
-                _ = SHA256.HashData(rented.AsSpan(0, size), digest);
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(rented);
-            }
-        }
-
-        private static string JoinFingerprint(string cacheName, string operation, string key) => string.Create(
-            checked(cacheName.Length + operation.Length + key.Length),
-            (cacheName, operation, key),
-            static (destination, state) =>
-            {
-                state.cacheName.AsSpan().CopyTo(destination);
-                var written = state.cacheName.Length;
-                state.operation.AsSpan().CopyTo(destination[written..]);
-                written += state.operation.Length;
-                state.key.AsSpan().CopyTo(destination[written..]);
-            });
-
-        private static string JoinFingerprint(string cacheName, string operation, string key, IMessage message)
-        {
-            Span<byte> digest = stackalloc byte[32];
-            HashMessage(message, digest);
-
-            var length = checked(cacheName.Length + (operation.Length * 2) + key.Length + 64);
-            if (length <= 1024)
-            {
-                Span<char> buffer = stackalloc char[length];
-                WriteFingerprint(buffer, cacheName, operation, key, digest);
-                return new string(buffer);
-            }
-
-            var rented = ArrayPool<char>.Shared.Rent(length);
-            try
-            {
-                var buffer = rented.AsSpan(0, length);
-                WriteFingerprint(buffer, cacheName, operation, key, digest);
-                return new string(buffer);
-            }
-            finally
-            {
-                ArrayPool<char>.Shared.Return(rented);
-            }
-        }
-
-        private static void WriteFingerprint(Span<char> destination, string cacheName, string operation, string key, ReadOnlySpan<byte> digest)
-        {
-            cacheName.AsSpan().CopyTo(destination);
-            var written = cacheName.Length;
-            operation.AsSpan().CopyTo(destination[written..]);
-            written += operation.Length;
-            key.AsSpan().CopyTo(destination[written..]);
-            written += key.Length;
-            operation.AsSpan().CopyTo(destination[written..]);
-            written += operation.Length;
-            HexFormat.WriteSha256HexUpper(destination[written..], digest);
-        }
     }
 
     [Immutable]
