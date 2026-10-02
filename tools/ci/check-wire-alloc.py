@@ -40,6 +40,11 @@ def write_baseline(baseline_path, baseline, runs):
     if any(sorted(run) != names for run in runs):
         print("The runs measured different benchmarks.", file=sys.stderr)
         return 1
+    # A rewrite may add cases but never drops one silently: a run that lost a case would stop guarding it.
+    dropped = sorted(set(baseline["bytesPerOperation"]) - set(names))
+    if dropped:
+        print(f"The runs did not measure {', '.join(dropped)}; remove a case from the baseline by hand when it is dropped on purpose.", file=sys.stderr)
+        return 1
     baseline["bytesPerOperation"] = {name: round(sum(run[name] for run in runs) / len(runs)) for name in names}
     with open(baseline_path, "w", encoding="utf-8", newline="\n") as file:
         json.dump(baseline, file, indent=2)
