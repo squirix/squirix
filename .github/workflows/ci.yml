@@ -445,10 +445,10 @@ jobs:
             fail-fast: false
             max-parallel: 8
             matrix:
-                # The organization runs at most 20 jobs at a time, and a run that asks for more leaves these jobs, the last
-                # ones to be created, waiting for a runner. So the five suites that take a few seconds each run back to back
-                # in one job (the `light` group), and the server unit tests, the longest suite, run as two parallel halves.
-                suite: [ light, server-unit-a, server-unit-b, server-integration, e2e-multi-node ]
+                # The organization runs at most 20 jobs at a time, and a run that asks for more leaves jobs waiting for a runner.
+                # Starting a job also takes about as long as a suite runs. So the suites share three jobs of similar length;
+                # the groups are defined in tools/ci/select-test-suite.py.
+                suite: [ light, server-unit-e2e, server-integration ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -488,8 +488,8 @@ jobs:
             fail-fast: ${{ github.event_name == 'pull_request' }}
             max-parallel: 6
             matrix:
-                # The light suites share a job (the `light-desktop` group); see test-ubuntu.
-                suite: [ light-desktop, server-unit, server-integration, e2e-multi-node ]
+                # Two jobs of similar length; see test-ubuntu.
+                suite: [ desktop-integration, server-unit-e2e ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -534,8 +534,8 @@ jobs:
             fail-fast: ${{ github.event_name == 'pull_request' }}
             max-parallel: 6
             matrix:
-                # The light suites share a job (the `light-desktop` group); see test-ubuntu.
-                suite: [ light-desktop, server-unit, server-integration, e2e-multi-node ]
+                # Two jobs of similar length; see test-ubuntu.
+                suite: [ desktop-integration, server-unit-e2e ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production

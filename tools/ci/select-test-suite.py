@@ -54,31 +54,17 @@ SUITES = {
     "protocol-model": ("tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj", "", False),
 }
 
-# The server unit tests are the longest suite, so jobs may run them as two parallel halves.
-# `server-unit-a` takes the namespaces listed here (about half of the run time) and
-# `server-unit-b` takes every other namespace. Both filters are derived from this one list,
-# so together they always cover the whole project: a namespace that is added or renamed
-# lands in `server-unit-b` on its own.
-SERVER_UNIT_FIRST_HALF = ("Squirix.Server.UnitTests.Node*", "Squirix.Server.UnitTests.Adapters*")
-
-SUITES["server-unit-a"] = (
-    SERVER_UNIT_PROJECT,
-    "/*/" + "|".join(f"({namespace})" for namespace in SERVER_UNIT_FIRST_HALF) + "/*/*",
-    True,
-)
-SUITES["server-unit-b"] = (
-    SERVER_UNIT_PROJECT,
-    "/*/" + "&".join(f"(!{namespace})" for namespace in SERVER_UNIT_FIRST_HALF) + "/*/*",
-    True,
-)
-
-# Group id -> suites one job runs back to back. `light` holds the suites that finish in a
-# few seconds each, where a runner per suite would mostly pay for its own start-up.
-# `light-desktop` is the part of `light` that the Windows and macOS jobs run. The ARM jobs run every suite they cover in
-# two groups: `arm-client` holds the client, model and end-to-end suites, `arm-server` the two server suites.
+# Group id -> suites one job runs back to back. Starting a job (runner, checkout, build outputs, certificate) takes about
+# as long as a suite runs, and every job holds one of the 20 slots of the organization, so suites share jobs. The groups
+# are balanced by run time: none is much longer than the longest suite, the server integration tests.
+#  - `light`: the suites that finish in a few seconds each (ubuntu).
+#  - `server-unit-e2e`: the server unit tests and the multi-node end-to-end tests (ubuntu, Windows, macOS).
+#  - `desktop-integration`: the part of `light` that Windows and macOS run, plus the server integration tests.
+#  - `arm-client`, `arm-server`: every suite ARM covers; nothing waits for ARM, so two jobs are enough.
 GROUPS = {
     "light": ("unit", "client-integration", "protocol-model", "smoke", "e2e-single-node"),
-    "light-desktop": ("unit", "client-integration", "e2e-single-node"),
+    "server-unit-e2e": ("server-unit", "e2e-multi-node"),
+    "desktop-integration": ("unit", "client-integration", "e2e-single-node", "server-integration"),
     "arm-client": ("unit", "client-integration", "protocol-model", "e2e-single-node", "e2e-multi-node"),
     "arm-server": ("server-unit", "server-integration"),
 }
