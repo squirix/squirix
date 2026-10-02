@@ -338,6 +338,11 @@ jobs:
                 with:
                     persist-credentials: false
 
+            # The system drive of the runner is slow: installing the SDK there takes about 40 s.
+            -   name: Install .NET On The Work Drive
+                shell: bash
+                run: echo "DOTNET_INSTALL_DIR=${RUNNER_TEMP}\\dotnet" >> "$GITHUB_ENV"
+
             -   name: Build Release Outputs
                 uses: ./.github/actions/build-release
                 with:
@@ -583,11 +588,13 @@ jobs:
 
             # Tests create their storage under the temp folder. The default one sits on the system drive, where a flush
             # takes 3-16 ms; on the work drive it takes 0.1-0.3 ms, which matters to every test that waits for durability.
+            # The SDK install goes to the work drive for the same reason.
             -   name: Use The Runner Temp Folder
                 shell: bash
                 run: |
                     echo "TEMP=${RUNNER_TEMP}" >> "$GITHUB_ENV"
                     echo "TMP=${RUNNER_TEMP}" >> "$GITHUB_ENV"
+                    echo "DOTNET_INSTALL_DIR=${RUNNER_TEMP}\\dotnet" >> "$GITHUB_ENV"
 
             -   name: Run Test Suite
                 uses: ./.github/actions/run-test-suite
