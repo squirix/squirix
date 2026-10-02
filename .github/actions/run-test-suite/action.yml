@@ -26,15 +26,22 @@ runs:
       run: |
         # Jobs without coverage run the built test host directly: `dotnet test` needs a package restore (hence the NuGet cache) only to
         # discover the project, and the host in bin is self-contained. That is every Windows and macOS job and, on Linux, the pull
-        # request jobs (Linux push jobs collect coverage; ARM keeps `dotnet test`). Linux also skips installing the SDK pinned in
-        # global.json because the runner image already ships the runtime the host needs.
+        # request jobs (Linux push jobs collect coverage; ARM keeps `dotnet test`). Those jobs also skip installing the SDK pinned
+        # in global.json, because every runner image already ships the .NET 10 runtime the host needs.
         echo "direct=${{ inputs.collect-coverage != 'true' && (runner.os != 'Linux' || github.event_name == 'pull_request') }}" >> "$GITHUB_OUTPUT"
 
     - name: Setup .NET
-      if: steps.mode.outputs.direct != 'true' || runner.os != 'Linux'
+      if: steps.mode.outputs.direct != 'true'
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         global-json-file: global.json
+
+    # The macOS image keeps .NET in the home folder of the runner, where a test host does not look on its own.
+    - name: Point Test Hosts At The Runner .NET (macOS)
+      if: steps.mode.outputs.direct == 'true' && runner.os == 'macOS'
+      shell: bash
+      run: |
+        echo "DOTNET_ROOT=$(python3 -c 'import os, shutil; print(os.path.dirname(os.path.realpath(shutil.which("dotnet"))))')" >> "$GITHUB_ENV"
 
     - name: Cache NuGet Packages
       if: steps.mode.outputs.direct != 'true'
@@ -85,12 +92,12 @@ runs:
 
     # Creating and trusting the certificate costs 1-13 s of SDK start-up per job, so suites that cannot host a server skip it.
     - name: Ensure Dev HTTPS Certificate
-      if: steps.select.outputs.https_cert == 'true' && (steps.mode.outputs.direct != 'true' || runner.os != 'Linux')
+      if: steps.select.outputs.https_cert == 'true' && steps.mode.outputs.direct != 'true'
       shell: bash
       run: bash tools/ci/ensure-dev-https-cert.sh
 
     - name: Ensure Dev HTTPS Certificate (Runner SDK)
-      if: steps.select.outputs.https_cert == 'true' && steps.mode.outputs.direct == 'true' && runner.os == 'Linux'
+      if: steps.select.outputs.https_cert == 'true' && steps.mode.outputs.direct == 'true'
       shell: bash
       # The SDK pinned in global.json is not installed on this path; run outside the repository so the runner's SDK is used.
       working-directory: ${{ runner.temp }}
