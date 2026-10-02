@@ -9,10 +9,6 @@ inputs:
     description: Target framework moniker.
     required: false
     default: net10.0
-  run-package-smoke:
-    description: When true, run the external package smoke after the build (the package-smoke job).
-    required: false
-    default: "false"
   analyzers:
     description: When false, build with Roslyn analyzers and code-style enforcement off. Used for the test artifact on pull requests; a separate job runs the analyzed build.
     required: false
@@ -29,10 +25,10 @@ inputs:
     description: When true, leave the benchmark outputs, the testkit library outputs and the obj intermediates out of the artifact, because the consuming jobs run the test hosts straight from bin.
     required: false
     default: "false"
-  host-runtimes-only:
-    description: When true, leave the runtime-specific assets of other operating systems and CPU architectures (runtimes/<rid>/) out of the artifact. The artifact is only ever consumed on the runner kind that built it.
+  runtime-assets:
+    description: Which runtime-specific assets (runtimes/<rid>/) the artifact keeps. `all` keeps every one; `host` keeps the runner's own platform, for an artifact only the runner kind that built it consumes; `test-runners` keeps the platforms of the test runner kinds (Linux x64 and ARM64, Windows x64, macOS ARM64).
     required: false
-    default: "false"
+    default: all
 
 runs:
   using: composite
@@ -49,7 +45,7 @@ runs:
     - name: Cache NuGet Packages
       uses: actions/cache@v6
       with:
-        path: ~/.nuget/packages
+        path: ${{ env.NUGET_PACKAGES || '~/.nuget/packages' }}
         key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
 
     - name: Ensure Local Package Feed Exists
@@ -81,33 +77,23 @@ runs:
           dotnet build squirix.slnx --configuration Release --no-restore
         fi
 
-    # Only the package smoke needs the certificate here; every test job creates its own.
-    - name: Ensure Dev HTTPS Certificate
-      if: inputs.run-package-smoke == 'true'
-      shell: bash
-      run: bash tools/ci/ensure-dev-https-cert.sh
-
-    - name: Run External Package Smoke
-      if: inputs.run-package-smoke == 'true'
-      shell: bash
-      run: dotnet run --file ./tools/internal/sqr-package-smoke.cs --
-
     # Packages such as the code coverage extension copy native libraries for every platform into each test output
-    # (about 40 MB per test project). Only the runner's own platform can load them, so the rest is dead weight in the artifact.
+    # (about 40 MB per test project). Only the platforms the tests run on can load them, so the rest is dead weight in the artifact.
     # The list names foreign platforms instead of the host's own, so an unknown folder is kept rather than dropped.
     - name: Select Foreign Runtime Assets
       id: foreign-runtimes
-      if: inputs.upload-outputs == 'true' && inputs.host-runtimes-only == 'true'
+      if: inputs.upload-outputs == 'true' && inputs.runtime-assets != 'all'
       shell: bash
       run: |
-        case "${{ runner.os }}-${{ runner.arch }}" in
-          Linux-X64) foreign=("win*" "osx*" "linux-musl*" "linux-arm*") ;;
-          Linux-ARM64) foreign=("win*" "osx*" "linux-musl*" "linux-x64") ;;
-          Windows-X64) foreign=("linux*" "osx*" "unix*" "win-arm*" "win-x86") ;;
-          macOS-ARM64) foreign=("win*" "linux*" "osx-x64") ;;
-          macOS-X64) foreign=("win*" "linux*" "osx-arm64") ;;
+        case "${{ inputs.runtime-assets }}/${{ runner.os }}-${{ runner.arch }}" in
+          test-runners/*) foreign=("win-arm64" "win-x86" "osx-x64" "linux-musl*" "linux-arm") ;;
+          host/Linux-X64) foreign=("win*" "osx*" "linux-musl*" "linux-arm*") ;;
+          host/Linux-ARM64) foreign=("win*" "osx*" "linux-musl*" "linux-x64") ;;
+          host/Windows-X64) foreign=("linux*" "osx*" "unix*" "win-arm*" "win-x86") ;;
+          host/macOS-ARM64) foreign=("win*" "linux*" "osx-x64") ;;
+          host/macOS-X64) foreign=("win*" "linux*" "osx-arm64") ;;
           *)
-            echo "No foreign runtime list for ${{ runner.os }}-${{ runner.arch }}." >&2
+            echo "No foreign runtime list for '${{ inputs.runtime-assets }}' on ${{ runner.os }}-${{ runner.arch }}." >&2
             exit 1
             ;;
         esac

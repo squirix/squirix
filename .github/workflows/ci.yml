@@ -213,9 +213,9 @@ jobs:
                     framework: net10.0
                     # The test artifact is built without analyzers; analyze-ubuntu runs the analyzed build in parallel.
                     analyzers: "false"
-                    test-only-artifact: ${{ github.event_name == 'pull_request' }}
-                    # Pull requests into main run the Windows and macOS tests on this artifact, so it keeps the assets of every platform there.
-                    host-runtimes-only: ${{ github.event_name == 'pull_request' && github.base_ref != 'main' }}
+                    test-only-artifact: "true"
+                    # Pull requests into develop run only the ubuntu tests; every other run also tests on ARM, Windows and macOS.
+                    runtime-assets: ${{ github.event_name == 'pull_request' && github.base_ref != 'main' && 'host' || 'test-runners' }}
 
     # Packs the client and server packages and runs the sample against them. It has a runner of its own so the jobs
     # that wait for the build outputs of build-ubuntu do not wait for it too.
@@ -246,14 +246,28 @@ jobs:
                 with:
                     persist-credentials: false
 
-            -   name: Build And Run Package Smoke
-                uses: ./.github/actions/build-release
+            -   name: Setup .NET
+                uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
                 with:
-                    artifact-os: ubuntu-latest
-                    framework: net10.0
-                    run-package-smoke: "true"
-                    analyzers: "false"
-                    upload-outputs: "false"
+                    global-json-file: global.json
+
+            # Reads the package cache of the build jobs; see verify-coding-conventions.
+            -   name: Restore NuGet Package Cache
+                uses: actions/cache/restore@v6
+                with:
+                    path: ~/.nuget/packages
+                    key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
+
+            -   name: Ensure Dev HTTPS Certificate
+                shell: bash
+                run: bash tools/ci/ensure-dev-https-cert.sh
+
+            # `dotnet pack` builds only the two packaged projects. SquirixToolCheck builds them without analyzers, which the
+            # analysis shards already run on them (and on the sample); see Directory.Build.props.
+            -   name: Run External Package Smoke
+                env:
+                    SquirixToolCheck: "true"
+                run: dotnet run --file ./tools/internal/sqr-package-smoke.cs --
 
     # The analyzed (TreatWarningsAsErrors) build that build-ubuntu skips for speed. It uploads nothing.
     # Like build-ubuntu it starts with the workflow and classifies the change set itself.
@@ -335,22 +349,28 @@ jobs:
                     git config --global core.autocrlf false
                     git config --global core.eol lf
 
+            # On Windows actions/checkout spends 10-15 s setting up and removing credentials and, after the job, running
+            # `git submodule foreach`. The repository is public, so a shallow fetch of the commit needs neither.
             -   name: Checkout
-                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-                with:
-                    persist-credentials: false
-
-            # The system drive of the runner is slow: installing the SDK there takes about 40 s.
-            -   name: Install .NET On The Work Drive
                 shell: bash
-                run: echo "DOTNET_INSTALL_DIR=${RUNNER_TEMP}\\dotnet" >> "$GITHUB_ENV"
+                run: |
+                    git init -q .
+                    git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+                    git fetch -q --depth=1 --no-tags origin "${GITHUB_SHA}"
+                    git checkout -q --detach FETCH_HEAD
+
+            # The system drive of the runner is slow: installing the SDK there takes about 40 s, and unpacking the package cache 35 s.
+            -   name: Install .NET And Packages On The Work Drive
+                shell: bash
+                run: |
+                    echo "DOTNET_INSTALL_DIR=${RUNNER_TEMP}\\dotnet" >> "$GITHUB_ENV"
+                    echo "NUGET_PACKAGES=${RUNNER_TEMP}\\nuget-packages" >> "$GITHUB_ENV"
 
             -   name: Build Release Outputs
                 uses: ./.github/actions/build-release
                 with:
                     artifact-os: windows-latest
                     framework: net10.0
-                    run-package-smoke: "false"
                     # The analyze-ubuntu shards run the analyzers; here only compiling matters.
                     analyzers: "false"
                     # This job proves that the solution builds on this system. The tests of every runner kind run on the outputs
@@ -388,7 +408,6 @@ jobs:
                 with:
                     artifact-os: macos-latest
                     framework: net10.0
-                    run-package-smoke: "false"
                     # The analyze-ubuntu shards run the analyzers; here only compiling matters.
                     analyzers: "false"
                     # This job proves that the solution builds on this system. The tests of every runner kind run on the outputs
@@ -427,7 +446,6 @@ jobs:
                 with:
                     artifact-os: ubuntu-arm
                     framework: net10.0
-                    run-package-smoke: "false"
                     # The analyze-ubuntu shards run the analyzers; here only compiling matters.
                     analyzers: "false"
                     # This job proves that the solution builds on this system. The tests of every runner kind run on the outputs
@@ -500,10 +518,14 @@ jobs:
                     git config --global core.autocrlf false
                     git config --global core.eol lf
 
+            # A shallow fetch instead of actions/checkout; see build-windows.
             -   name: Checkout
-                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-                with:
-                    persist-credentials: false
+                shell: bash
+                run: |
+                    git init -q .
+                    git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+                    git fetch -q --depth=1 --no-tags origin "${GITHUB_SHA}"
+                    git checkout -q --detach FETCH_HEAD
 
             # Tests create their storage under the temp folder. The default one sits on the system drive, where a flush
             # takes 3-16 ms; on the work drive it takes 0.1-0.3 ms, which matters to every test that waits for durability.
@@ -632,80 +654,51 @@ jobs:
                 with:
                     persist-credentials: false
 
-            -   name: Setup .NET
-                uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-                with:
-                    global-json-file: global.json
-
-            # Reads the package cache of the build jobs; see verify-coding-conventions.
-            -   name: Restore NuGet Package Cache
-                uses: actions/cache/restore@v6
-                with:
-                    path: ~/.nuget/packages
-                    key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
-
+            # The checks below run the built hosts on the .NET 10 runtime of the runner image; only the benchmarks need the SDK.
             -   name: Download Build Outputs
                 uses: actions/download-artifact@v8
                 with:
                     name: build-output-ubuntu-latest-net10.0
                     path: .
 
-            -   name: Restore (Resolve Packages For Test And Benchmark Hosts)
-                run: dotnet restore squirix.slnx
-
-            -   name: Restore Executable Bits (Unix)
-                shell: bash
-                run: |
-                    chmod +x tests/squirix/squirix.*-tests/bin/Release/net10.0/Squirix.*Tests || true
-                    chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/net10.0/Squirix.*Tests || true
-                    chmod +x tests/squirix.e2e.tests/bin/Release/net10.0/Squirix.E2ETests || true
-                    chmod +x tests/squirix.protocol-model/squirix.protocol-model.tests/bin/Release/net10.0/Squirix.ProtocolModel.Tests || true
-                    chmod +x src/squirix.protocol-model/bin/Release/net10.0/Squirix.ProtocolModel || true
-                    chmod +x benchmarks/squirix.e2e.benchmarks/bin/Release/net10.0/Squirix.E2EBenchmarks || true
-
+            # The hosts list their tests in parallel; each output goes to a file of its own and is printed in order.
             -   name: Verify Test Discovery Per Project (Fail On Zero Tests)
                 shell: bash
                 run: |
                     set -euo pipefail
 
-                    test_projects=()
-                    while IFS= read -r -d '' f; do
-                      test_projects+=("$f")
-                    done < <(git ls-files -z '*Tests.csproj' '*E2ETests.csproj')
-
+                    mapfile -d '' -t test_projects < <(git ls-files -z '*Tests.csproj')
                     if [ ${#test_projects[@]} -eq 0 ]; then
-                      echo "No test projects found (*.Tests.csproj)." >&2
+                      echo "No test projects found (*Tests.csproj)." >&2
                       exit 1
                     fi
 
-                    for proj in "${test_projects[@]}"; do
-                      echo "Verifying tests discovered in: $proj"
-                      set +e
-                      output="$(dotnet test --project "$proj" --configuration Release --no-build --list-tests -v q --timeout 5m 2>&1)"
-                      code=$?
-                      set -e
-
-                      if [ $code -ne 0 ]; then
-                        echo "$output"
-                        echo "dotnet test --list-tests failed for $proj (exit=$code)" >&2
-                        exit $code
-                      fi
-
-                      count="$(echo "$output" | grep -oiE 'Discovered [0-9]+ tests?' | grep -oE '[0-9]+' | head -1)" || true
-                      if [ -z "$count" ]; then
-                        # Fallback: count lines that look like a discovered test FQN (assembly-qualified name with a dot).
-                        count="$(printf '%s\n' "$output" | grep -cE '^[A-Za-z0-9_.]+\.[A-Za-z0-9_]+$' || true)"
-                      fi
-                      count="$(echo "${count:-0}" | tr -d '[:space:]')"
-                      if [ "${count:-0}" -le 0 ]; then
-                        echo "$output"
-                        echo "No tests discovered in $proj" >&2
-                        exit 1
-                      fi
-
-                      echo "Discovered $count tests in $proj"
+                    out_dir="$(mktemp -d)"
+                    pids=()
+                    for i in "${!test_projects[@]}"; do
+                      proj="${test_projects[$i]}"
+                      host="$(dirname "$proj")/bin/Release/net10.0/$(basename "$proj" .csproj).dll"
+                      dotnet "$host" --list-tests --timeout 5m > "$out_dir/$i.log" 2>&1 &
+                      pids+=("$!")
                     done
 
+                    failed=0
+                    for i in "${!test_projects[@]}"; do
+                      proj="${test_projects[$i]}"
+                      code=0
+                      wait "${pids[$i]}" || code=$?
+                      count="$(grep -oE 'found [0-9]+ test' "$out_dir/$i.log" | grep -oE '[0-9]+' | head -1 || true)"
+                      if [ "$code" -ne 0 ] || [ "${count:-0}" -le 0 ]; then
+                        cat "$out_dir/$i.log"
+                        echo "No tests discovered in $proj (exit=$code)." >&2
+                        failed=1
+                      else
+                        echo "Discovered $count tests in $proj"
+                      fi
+                    done
+                    exit "$failed"
+
+            # The four cases run in parallel; each output goes to a file of its own and is printed in order.
             -   name: Run Full-Profile Explorer
                 if: ${{ !cancelled() }}
                 shell: bash
@@ -720,27 +713,25 @@ jobs:
                       local expect_invariant="$2"
                       local out="$OUT_ROOT/$broken"
                       mkdir -p "$out"
-                      echo "::group::explorer broken=$broken"
                       set +e
                       dotnet "$EXE" --profile full --output "$out" --broken "$broken"
                       local code=$?
                       set -e
-                      echo "::endgroup::"
                       if [[ -z "$expect_invariant" ]]; then
                         # 0 = fixed point; 4 = MaxStates truncation without violation (documented residual risk).
                         if [[ "$code" -ne 0 && "$code" -ne 4 ]]; then
                           echo "Explorer exited $code for --broken $broken (expected 0 or 4)." >&2
                           cat "$out/summary.json" 2>/dev/null || true
-                          exit 1
+                          return 1
                         fi
                       elif [[ "$code" -ne 0 ]]; then
                         echo "Explorer exited $code for --broken $broken (expected 0)." >&2
                         cat "$out/summary.json" 2>/dev/null || true
-                        exit 1
+                        return 1
                       fi
                       if [[ ! -f "$out/summary.json" ]]; then
                         echo "Missing summary.json for --broken $broken." >&2
-                        exit 1
+                        return 1
                       fi
                       cat "$out/summary.json"
                       if [[ -z "$expect_invariant" ]]; then
@@ -749,20 +740,37 @@ jobs:
                           return 0
                         fi
                         echo "Safe full profile expected violation:null." >&2
-                        exit 1
+                        return 1
                       fi
                       if grep -Fq "\"invariant\":\"$expect_invariant\"" "$out/summary.json"; then
                         echo "OK broken=$broken invariant=$expect_invariant"
                         return 0
                       fi
                       echo "Broken mode $broken expected invariant $expect_invariant." >&2
-                      exit 1
+                      return 1
                     }
 
-                    run_case none ""
-                    run_case vote ElectionSafety
-                    run_case current-term-commit CurrentTermCommit
-                    run_case read-index ReadIndex
+                    cases=( "none:" "vote:ElectionSafety" "current-term-commit:CurrentTermCommit" "read-index:ReadIndex" )
+                    pids=()
+                    for c in "${cases[@]}"; do
+                      run_case "${c%%:*}" "${c#*:}" > "$OUT_ROOT/${c%%:*}.log" 2>&1 &
+                      pids+=("$!")
+                    done
+
+                    failed=0
+                    for i in "${!cases[@]}"; do
+                      broken="${cases[$i]%%:*}"
+                      code=0
+                      wait "${pids[$i]}" || code=$?
+                      echo "::group::explorer broken=$broken"
+                      cat "$OUT_ROOT/$broken.log"
+                      echo "::endgroup::"
+                      if [ "$code" -ne 0 ]; then
+                        echo "Explorer case $broken failed." >&2
+                        failed=1
+                      fi
+                    done
+                    exit "$failed"
 
             -   name: Upload Explorer Summaries
                 if: always()
@@ -772,6 +780,25 @@ jobs:
                     retention-days: 7
                     path: artifacts/protocol-model-explorer/**
                     if-no-files-found: warn
+
+            -   name: Setup .NET
+                if: ${{ !cancelled() && env.RUN_BENCHMARKS == 'true' }}
+                uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+                with:
+                    global-json-file: global.json
+
+            # Reads the package cache of the build jobs; see verify-coding-conventions.
+            -   name: Restore NuGet Package Cache
+                if: ${{ !cancelled() && env.RUN_BENCHMARKS == 'true' }}
+                uses: actions/cache/restore@v6
+                with:
+                    path: ~/.nuget/packages
+                    key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
+
+            # The build artifact carries only what the test jobs run, so the benchmarks are built here.
+            -   name: Build E2E Benchmarks
+                if: ${{ !cancelled() && env.RUN_BENCHMARKS == 'true' }}
+                run: dotnet build benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj --configuration Release -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
 
             -   name: Ensure Dev HTTPS Certificate
                 if: ${{ !cancelled() && env.RUN_BENCHMARKS == 'true' }}
@@ -845,13 +872,14 @@ jobs:
 
                     echo "found=true" >> "$GITHUB_OUTPUT"
 
+            # One ReportGenerator run writes the merged Cobertura file the gate reads and the report that is uploaded.
             -   name: Merge Coverage Reports
                 if: steps.covcheck.outputs.found == 'true'
                 uses: danielpalme/ReportGenerator-GitHub-Action@a003c8fb9ac008fd0fffd5faa4f7d3ecb52e0675
                 with:
                     reports: coverage/**/coverage.cobertura.xml
-                    targetdir: coverage/merged
-                    reporttypes: Cobertura
+                    targetdir: coverage/report
+                    reporttypes: HtmlInline;Cobertura;TextSummary
                     assemblyfilters: '+Squirix;+Squirix.Server;-Squirix.TestKit;-Squirix.Server.TestKit'
                     classfilters: '+*;-JetBrains.Annotations.*'
 
@@ -859,7 +887,7 @@ jobs:
                 if: steps.covcheck.outputs.found == 'true'
                 shell: pwsh
                 run: |
-                    $merged = Get-ChildItem -Path coverage/merged -Recurse -Filter Cobertura.xml -ErrorAction SilentlyContinue | Select-Object -First 1
+                    $merged = Get-ChildItem -Path coverage/report -Recurse -Filter Cobertura.xml -ErrorAction SilentlyContinue | Select-Object -First 1
                     if (-not $merged) {
                         throw "Merged Cobertura report was not produced."
                     }
@@ -877,16 +905,6 @@ jobs:
                     if ($rate -lt $threshold) {
                         throw "Line coverage is below the configured threshold."
                     }
-
-            -   name: Generate Coverage Report
-                if: steps.covcheck.outputs.found == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
-                uses: danielpalme/ReportGenerator-GitHub-Action@a003c8fb9ac008fd0fffd5faa4f7d3ecb52e0675
-                with:
-                    reports: coverage/**/coverage.cobertura.xml
-                    targetdir: coverage/report
-                    reporttypes: HtmlInline;Cobertura;TextSummary
-                    assemblyfilters: '+Squirix;+Squirix.Server;-Squirix.TestKit;-Squirix.Server.TestKit'
-                    classfilters: '+*;-JetBrains.Annotations.*'
 
             -   name: Upload Coverage Artifact
                 if: steps.covcheck.outputs.found == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
@@ -924,78 +942,42 @@ jobs:
                     path: test-results
 
             -   name: Write Top 5 Slowest Tests To Summary
-                shell: pwsh
+                shell: python
                 run: |
-                    $trxFiles = @(Get-ChildItem -Path test-results -Recurse -Filter *.trx -ErrorAction SilentlyContinue)
-                    if ($trxFiles.Count -eq 0) {
-                        "### Slowest tests (top 5)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-                        "_No TRX files were found._" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-                        exit 0
-                    }
+                    import glob, os, re
+                    import xml.etree.ElementTree as ET
 
-                    $results = New-Object System.Collections.Generic.List[object]
-                    $skipped = New-Object System.Collections.Generic.List[string]
-                    foreach ($trx in $trxFiles) {
-                        try {
-                            # -Raw avoids Object[] cast failures; try/catch skips malformed TRX (e.g. duplicate attributes).
-                            $xmlText = Get-Content -LiteralPath $trx.FullName -Raw -ErrorAction Stop
-                            $doc = New-Object System.Xml.XmlDocument
-                            $doc.XmlResolver = $null
-                            $doc.LoadXml($xmlText)
-                        }
-                        catch {
-                            $skipped.Add(('{0}: {1}' -f $trx.Name, $_.Exception.Message))
-                            continue
-                        }
+                    # TimeSpan "c" format: [d.]hh:mm:ss[.fffffff]
+                    pattern = re.compile(r"^(?:(\d+)\.)?(\d+):(\d+):(\d+(?:\.\d+)?)$")
+                    results, skipped = [], 0
+                    files = glob.glob("test-results/**/*.trx", recursive=True)
+                    for path in files:
+                        try:
+                            # A malformed TRX (for example duplicate attributes) is skipped.
+                            for _, node in ET.iterparse(path):
+                                if not node.tag.endswith("UnitTestResult"):
+                                    continue
+                                text = node.get("duration") or ""
+                                match = pattern.match(text)
+                                if match:
+                                    days, hours, minutes, seconds = match.groups()
+                                    total = int(days or 0) * 86400 + int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+                                    results.append((total, node.get("testName") or "<unknown>", text))
+                                node.clear()
+                        except ET.ParseError:
+                            skipped += 1
 
-                        $nodes = $doc.SelectNodes("//*[local-name()='UnitTestResult']")
-                        if ($null -eq $nodes) {
-                            continue
-                        }
-
-                        foreach ($node in $nodes) {
-                            $durationText = $node.duration
-                            if ([string]::IsNullOrWhiteSpace($durationText)) {
-                                continue
-                            }
-
-                            $duration = [TimeSpan]::Zero
-                            if (-not [TimeSpan]::TryParse($durationText, [ref]$duration)) {
-                                continue
-                            }
-
-                            $testName = [string]$node.testName
-                            if ([string]::IsNullOrWhiteSpace($testName)) {
-                                $testName = "<unknown>"
-                            }
-
-                            $results.Add([PSCustomObject]@{
-                                Name = $testName
-                                Duration = $duration
-                                DurationText = $duration.ToString("c")
-                            })
-                        }
-                    }
-
-                    "### Slowest tests (top 5)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-                    if ($results.Count -eq 0) {
-                        "_No per-test durations found in TRX files._" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-                        if ($skipped.Count -gt 0) {
-                            "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-                            "_Skipped malformed TRX: $($skipped.Count)_" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-                        }
-                        exit 0
-                    }
-
-                    $top = $results | Sort-Object Duration -Descending | Select-Object -First 5
-                    foreach ($item in $top) {
-                        ('- {0} - {1}' -f $item.Name, $item.DurationText) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-                    }
-
-                    if ($skipped.Count -gt 0) {
-                        "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-                        "_Skipped malformed TRX: $($skipped.Count)_" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-                    }
+                    lines = ["### Slowest tests (top 5)"]
+                    if not files:
+                        lines.append("_No TRX files were found._")
+                    elif not results:
+                        lines.append("_No per-test durations found in TRX files._")
+                    for _, name, text in sorted(results, reverse=True)[:5]:
+                        lines.append(f"- {name} - {text}")
+                    if skipped:
+                        lines += ["", f"_Skipped malformed TRX: {skipped}_"]
+                    with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+                        summary.write("\n".join(lines) + "\n")
 
     # Free SonarCloud for public OSS. Create project + SONAR_TOKEN before first green run:
     # https://sonarcloud.io → import GitHub org squirix → project key squirix
@@ -1183,7 +1165,8 @@ jobs:
                         echo "The ubuntu test jobs did not finish in time." >&2
                         exit 1
                       fi
-                      sleep 5
+                      # This job ends the run, so a short poll interval ends it sooner.
+                      sleep 2
                     done
 
             -   name: Download Coverage Reports
