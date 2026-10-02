@@ -205,11 +205,48 @@ jobs:
                 with:
                     artifact-os: ubuntu-latest
                     framework: net10.0
-                    run-package-smoke: ${{ github.event_name != 'pull_request' }}
                     # The test artifact is built without analyzers; analyze-ubuntu runs the analyzed build in parallel.
                     analyzers: "false"
                     test-only-artifact: ${{ github.event_name == 'pull_request' }}
                     host-runtimes-only: ${{ github.event_name == 'pull_request' }}
+
+    # Packs the client and server packages and runs the sample against them. It has a runner of its own so the jobs
+    # that wait for the build outputs of build-ubuntu do not wait for it too.
+    package-smoke:
+        name: Package Smoke (Ubuntu / Net10.0)
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        needs: changes
+        # PR fast path: the package smoke runs on push/schedule/dispatch only.
+        if: |
+            github.event_name != 'pull_request' && (
+            needs.changes.outputs.code == 'true' ||
+            github.event_name == 'schedule' ||
+            github.event_name == 'workflow_dispatch'
+            )
+        env:
+            ASPNETCORE_ENVIRONMENT: Production
+            DOTNET_ENVIRONMENT: Production
+            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
+        steps:
+            -   name: Set Git Options
+                run: |
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+
+            -   name: Build And Run Package Smoke
+                uses: ./.github/actions/build-release
+                with:
+                    artifact-os: ubuntu-latest
+                    framework: net10.0
+                    run-package-smoke: "true"
+                    analyzers: "false"
+                    upload-outputs: "false"
 
     # The analyzed (TreatWarningsAsErrors) build that build-ubuntu skips for speed. It uploads nothing.
     # Like build-ubuntu it starts with the workflow and classifies the change set itself.
@@ -1481,6 +1518,7 @@ jobs:
             - verify-line-endings
             - docker-build
             - build-ubuntu
+            - package-smoke
             - analyze-ubuntu
             - build-arm
             - build-windows
@@ -1517,6 +1555,7 @@ jobs:
                     RESULT_LINE_ENDINGS: ${{ needs.verify-line-endings.result }}
                     RESULT_DOCKER: ${{ needs.docker-build.result }}
                     RESULT_BUILD_UBUNTU: ${{ needs.build-ubuntu.result }}
+                    RESULT_PACKAGE_SMOKE: ${{ needs.package-smoke.result }}
                     RESULT_ANALYZE_UBUNTU: ${{ needs.analyze-ubuntu.result }}
                     RESULT_BUILD_ARM: ${{ needs.build-arm.result }}
                     RESULT_BUILD_WINDOWS: ${{ needs.build-windows.result }}
@@ -1611,6 +1650,8 @@ jobs:
                     assert_success "docker-build" "$require_docker" "$RESULT_DOCKER"
 
                     assert_success "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
+                    # PR fast path: skipped on pull_request, required otherwise.
+                    assert_success_or_skipped "package-smoke" "$require_code" "$RESULT_PACKAGE_SMOKE"
                     # The test artifacts are built without analyzers, so the analyzed build is required on every event.
                     assert_success "analyze-ubuntu" "$require_code" "$RESULT_ANALYZE_UBUNTU"
                     # PR fast path: skipped on pull_request, required otherwise.
