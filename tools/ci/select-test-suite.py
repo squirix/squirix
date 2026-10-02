@@ -74,8 +74,10 @@ SUITES["server-unit-b"] = (
 
 # Group id -> suites one job runs back to back. `light` holds the suites that finish in a
 # few seconds each, where a runner per suite would mostly pay for its own start-up.
+# `light-macos` is the part of `light` that the macOS jobs run.
 GROUPS = {
     "light": ("unit", "client-integration", "protocol-model", "smoke", "e2e-single-node"),
+    "light-macos": ("unit", "client-integration", "e2e-single-node"),
 }
 
 
