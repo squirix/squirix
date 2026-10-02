@@ -514,11 +514,12 @@ jobs:
         if: needs.build-ubuntu.outputs.built == 'true'
         strategy:
             fail-fast: false
-            max-parallel: 9
+            max-parallel: 8
             matrix:
-                # Pull requests run the five suites that take a few seconds each back to back in one job (the `light` group).
-                # Other events keep those on a runner each. Every event runs the server unit tests as two parallel halves.
-                suite: ${{ fromJSON(github.event_name == 'pull_request' && '["light","server-unit-a","server-unit-b","server-integration","e2e-multi-node"]' || '["smoke","unit","client-integration","server-unit-a","server-unit-b","server-integration","e2e-single-node","e2e-multi-node","protocol-model"]') }}
+                # The organization runs at most 20 jobs at a time, and a run that asks for more leaves these jobs, the last
+                # ones to be created, waiting for a runner. So the five suites that take a few seconds each run back to back
+                # in one job (the `light` group), and the server unit tests, the longest suite, run as two parallel halves.
+                suite: [ light, server-unit-a, server-unit-b, server-integration, e2e-multi-node ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -558,7 +559,8 @@ jobs:
             fail-fast: ${{ github.event_name == 'pull_request' }}
             max-parallel: 6
             matrix:
-                suite: [ unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node ]
+                # The light suites share a job (the `light-desktop` group); see test-ubuntu.
+                suite: [ light-desktop, server-unit, server-integration, e2e-multi-node ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -605,9 +607,8 @@ jobs:
             fail-fast: ${{ github.event_name == 'pull_request' }}
             max-parallel: 6
             matrix:
-                # macOS runners are the scarcest: with one job per suite a job regularly waited a minute for a runner,
-                # and at times ten. The three suites that take a few seconds each share a job (the `light-macos` group).
-                suite: [ light-macos, server-unit, server-integration, e2e-multi-node ]
+                # The light suites share a job (the `light-desktop` group); see test-ubuntu.
+                suite: [ light-desktop, server-unit, server-integration, e2e-multi-node ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -647,7 +648,8 @@ jobs:
             fail-fast: ${{ github.event_name == 'pull_request' }}
             max-parallel: 7
             matrix:
-                suite: [ unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node, protocol-model ]
+                # The light suites share a job (the `light-arm` group); see test-ubuntu.
+                suite: [ light-arm, server-unit, server-integration, e2e-multi-node ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
