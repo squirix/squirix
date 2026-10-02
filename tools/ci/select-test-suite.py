@@ -55,12 +55,15 @@ SUITES = {
 # Group id -> suites one job runs back to back. Starting a job (runner, checkout, build outputs, certificate) takes about
 # as long as a suite runs, and every job holds one of the 20 slots of the organization, so suites share jobs. The groups
 # are balanced by run time: none is much longer than the longest suite, the server integration tests.
-#  - `light-e2e`: the suites that finish in a few seconds each plus the multi-node end-to-end tests (ubuntu); ubuntu runs
-#    the server unit tests alone, so its three jobs (with the server integration tests) end at about the same time.
+#  - `light`: the suites that finish in a few seconds each (ubuntu, pull requests, which run the multi-node end-to-end
+#    tests in a job of their own).
+#  - `light-e2e`: `light` plus the multi-node end-to-end tests (ubuntu, outside pull requests); ubuntu runs the server
+#    unit tests alone, so its three jobs (with the server integration tests) end at about the same time.
 #  - `server-unit-e2e`: the server unit tests and the multi-node end-to-end tests (Windows, macOS).
 #  - `desktop-integration`: the short suites Windows and macOS run, plus the server integration tests.
 #  - `arm-client`, `arm-server`: every suite ARM covers; nothing waits for ARM, so two jobs are enough.
 GROUPS = {
+    "light": ("unit", "client-integration", "protocol-model", "smoke", "e2e-single-node"),
     "light-e2e": ("unit", "client-integration", "protocol-model", "smoke", "e2e-single-node", "e2e-multi-node"),
     "server-unit-e2e": ("server-unit", "e2e-multi-node"),
     "desktop-integration": ("unit", "client-integration", "e2e-single-node", "server-integration"),
