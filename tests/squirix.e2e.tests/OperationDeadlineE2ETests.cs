@@ -34,7 +34,11 @@ public sealed class OperationDeadlineE2ETests : EndToEndTestBase
         _ = await Assert.That(budget.GetValueOrDefault() <= OperationDeadline).IsTrue();
     }
 
-    /// <summary>A call forwarded to the owner node carries a budget no larger than the forwarding node observed.</summary>
+    /// <summary>
+    /// A call forwarded to the owner node carries a budget no larger than the forwarding node observed, up to the rounding of the wire
+    /// timeout: the gRPC client rounds the timeout it sends up to three significant figures of milliseconds (14963 ms is sent as 15 s).
+    /// The forwarding node still cancels the call at its own deadline.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task ForwardedCallSharesClientDeadline(CancellationToken cancellationToken)
@@ -52,8 +56,21 @@ public sealed class OperationDeadlineE2ETests : EndToEndTestBase
         _ = await Assert.That(atEntry is { }).IsTrue();
         _ = await Assert.That(atOwner is { }).IsTrue();
         _ = await Assert.That(atOwner.GetValueOrDefault() > TimeSpan.Zero).IsTrue();
-        _ = await Assert.That(atOwner.GetValueOrDefault() <= atEntry.GetValueOrDefault()).IsTrue();
+        _ = await Assert.That(atOwner.GetValueOrDefault() <= WireTimeoutCeiling(atEntry.GetValueOrDefault())).IsTrue();
         _ = await Assert.That(atEntry.GetValueOrDefault() <= OperationDeadline).IsTrue();
+    }
+
+    /// <summary>Returns <paramref name="budget" /> as the gRPC client sends it: whole milliseconds rounded up to three significant figures.</summary>
+    /// <param name="budget">The budget.</param>
+    /// <returns>The timeout the next hop receives.</returns>
+    private static TimeSpan WireTimeoutCeiling(TimeSpan budget)
+    {
+        var milliseconds = Convert.ToInt64(Math.Ceiling(budget.TotalMilliseconds));
+        var unit = 1L;
+        while (milliseconds / unit >= 1000)
+            unit *= 10;
+
+        return TimeSpan.FromMilliseconds((milliseconds + unit - 1) / unit * unit);
     }
 
     private static TimeSpan? Last(DeadlineBudgetProbe probe)
