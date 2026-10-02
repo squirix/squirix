@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
-using Squirix.Server.Node.Hosting;
 
 namespace Squirix.Server.Node.Services;
 
@@ -14,12 +13,14 @@ namespace Squirix.Server.Node.Services;
 /// </summary>
 internal sealed class JournalStopService : IHostedLifecycleService
 {
-    private readonly JournalCoordinatorHost _host;
+    private readonly Func<ValueTask> _stopJournal;
 
-    internal JournalStopService(JournalCoordinatorHost host)
+    /// <summary>Initializes a new instance of the <see cref="JournalStopService" /> class.</summary>
+    /// <param name="stopJournal">Stops the journal within its own shutdown budget; the owner of the journal supplies it.</param>
+    internal JournalStopService(Func<ValueTask> stopJournal)
     {
-        ArgumentNullException.ThrowIfNull(host);
-        _host = host;
+        ArgumentNullException.ThrowIfNull(stopJournal);
+        _stopJournal = stopJournal;
     }
 
     /// <inheritdoc />
@@ -39,7 +40,7 @@ internal sealed class JournalStopService : IHostedLifecycleService
 
         // The host token is ignored on purpose: the journal's own budget and stage floors bound the stop, and giving up early would only
         // move the drain into disposal. A failure propagates so the host reports it.
-        _host.StopAsync().AsTask();
+        _stopJournal().AsTask();
 
     /// <inheritdoc />
     public Task StoppingAsync(CancellationToken cancellationToken) => Task.CompletedTask;

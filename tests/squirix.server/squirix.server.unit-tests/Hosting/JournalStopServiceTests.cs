@@ -35,7 +35,7 @@ public sealed class JournalStopServiceTests : IsolatedStorageTestBase
         await using var journalHost = new JournalCoordinatorHost(NullLoggerFactory.Instance, TimeProvider.System);
         journalHost.Attach(journal.Journal);
         using var host = new HostBuilder()
-                         .ConfigureServices(services => services.AddHostedService(_ => new JournalStopService(journalHost)))
+                         .ConfigureServices(services => services.AddHostedService(_ => new JournalStopService(journalHost.StopAsync)))
                          .Build();
         await host.StartAsync(cancellationToken);
 
@@ -54,7 +54,7 @@ public sealed class JournalStopServiceTests : IsolatedStorageTestBase
     public async Task HostWithoutJournalStopsQuietly(CancellationToken cancellationToken)
     {
         await using var journalHost = new JournalCoordinatorHost(NullLoggerFactory.Instance, TimeProvider.System);
-        var service = new JournalStopService(journalHost);
+        var service = new JournalStopService(journalHost.StopAsync);
 
         _ = await Assert.That(service.StoppedAsync(cancellationToken).IsCompletedSuccessfully).IsTrue();
     }
