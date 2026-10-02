@@ -537,6 +537,14 @@ jobs:
                 with:
                     persist-credentials: false
 
+            # Tests create their storage under the temp folder. The default one sits on the system drive, where a flush
+            # takes 3-16 ms; on the work drive it takes 0.1-0.3 ms, which matters to every test that waits for durability.
+            -   name: Use The Runner Temp Folder
+                shell: bash
+                run: |
+                    echo "TEMP=${RUNNER_TEMP}" >> "$GITHUB_ENV"
+                    echo "TMP=${RUNNER_TEMP}" >> "$GITHUB_ENV"
+
             -   name: Run Test Suite
                 uses: ./.github/actions/run-test-suite
                 with:
