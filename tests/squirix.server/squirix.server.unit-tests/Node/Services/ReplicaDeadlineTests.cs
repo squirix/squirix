@@ -96,6 +96,22 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
         _ = await Assert.That(Decode(retry).ExpiresUtcTicks).IsNotEqualTo(Decode(first).ExpiresUtcTicks);
     }
 
+    /// <summary>The same operation identifier touching with another expiration has another fingerprint, so it is reported as a mismatch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TouchFingerprintCoversExpiration(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider();
+        var cache = NewCache(clock);
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock, NullLogger.Instance);
+        await ApplyAsync(cache, factory.PrepareSet("op-0", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 1UL), cancellationToken);
+
+        var shorter = await factory.PrepareTouchAsync("op-1", CacheName, Key, TimeSpan.FromMinutes(5), 2UL, cancellationToken);
+        var longer = await factory.PrepareTouchAsync("op-1", CacheName, Key, TimeSpan.FromHours(1), 2UL, cancellationToken);
+
+        _ = await Assert.That(longer.OperationFingerprint.Span.SequenceEqual(shorter.OperationFingerprint.Span)).IsFalse();
+    }
+
     /// <summary>A Set or TryAdd with a relative expiration, applied twice with time advanced in between, sets the same deadline both times.</summary>
     /// <param name="kind">The replicated write kind.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>

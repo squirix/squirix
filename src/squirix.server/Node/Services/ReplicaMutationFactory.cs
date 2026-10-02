@@ -173,8 +173,8 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <remarks>
     /// The record carries the touched entry and pins its absolute deadline, prepare time plus <paramref name="expiration" />, in
     /// <c language="csharp">ExpiresUtcTicks</c>, so every apply of it (a replay included) sets the same deadline instead of
-    /// extending it from the apply time. The fingerprint does not cover the deadline: a retry prepared at a later time keeps
-    /// its operation identity.
+    /// extending it from the apply time. The fingerprint covers the requested <paramref name="expiration" /> but not the deadline:
+    /// a retry prepared at a later time keeps its operation identity, and the same identifier with another expiration is a mismatch.
     /// </remarks>
     internal async Task<PreparedReplicaMutation> PrepareTouchAsync(
         string operationId,
@@ -192,7 +192,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             _term,
             operationId,
             cacheName,
-            Fingerprint(cacheName, operationId, cacheName, key, ReplicaMutationKinds.Touch, []),
+            TouchFingerprint(cacheName, operationId, key, expiration),
             nameof(GroupRecordKind.UserMutation),
             cacheName,
             Encoding.UTF8.GetBytes(key),
@@ -204,6 +204,13 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             0,
             0);
         return Build(cacheName, in record, index);
+
+        static byte[] TouchFingerprint(string cacheName, string operationId, string key, TimeSpan expiration)
+        {
+            Span<byte> requested = stackalloc byte[sizeof(long)];
+            BinaryPrimitives.WriteInt64LittleEndian(requested, expiration.Ticks);
+            return Fingerprint(cacheName, operationId, cacheName, key, ReplicaMutationKinds.Touch, requested);
+        }
     }
 
     /// <summary>Prepares a replicated conditional add.</summary>
