@@ -1501,8 +1501,8 @@ jobs:
 
     # NDepend (Team): full analysis via the official NDepend GitHub Action with squirix.ndproj.
     # Fails CI when any configured quality gate fails (stopIfQGFailed=true).
-    # Baseline = base branch (PRs) or most recent analysis on the same branch (push/schedule/dispatch),
-    # mirroring the "PR base / previous commit" regression rule.
+    # Baseline = the analysis of the latest run of the same branch (develop for a branch without one) whose NDepend job
+    # passed, mirroring the "previous commit" regression rule; see Resolve NDepend Baseline.
     # Secret: NDependLicense = NDepend GitHub Action activation data
     # (https://www.ndepend.com/activation_githubaction). Skipped on fork PRs (secrets unavailable).
     # The action uploads an `ndepend` artifact and posts a summary comment on same-repo PRs.
@@ -1567,15 +1567,91 @@ jobs:
                         exit 1
                     fi
 
+            # The action's own `recent` baseline took the latest analysis even from a run that failed the gate, so a new
+            # issue failed one run and then became part of the baseline; its listing (status=completed) could also lag by
+            # days. The baseline is the newest run of the branch, else of develop, whose NDepend job succeeded and whose
+            # `ndepend` artifact has not expired; it is given to the action by run id. On main that is usually a develop
+            # run, which can be ahead of the released commit. A manual dispatch may run without a baseline, to recover
+            # once no passed analysis is left.
+            -   name: Resolve NDepend Baseline
+                id: ndepend-baseline
+                env:
+                    GH_TOKEN: ${{ github.token }}
+                    BRANCH: ${{ github.ref_name }}
+                run: |
+                    set -euo pipefail
+                    shopt -s inherit_errexit
+                    # Either listing can lag behind; their union is scanned newest first. Pull request runs have no NDepend job.
+                    list_runs() {
+                      local filter='.workflow_runs[] | select(.head_branch == env.B and .event != "pull_request"
+                        and .status == "completed" and .id != (env.GITHUB_RUN_ID | tonumber)) | "\(.run_number) \(.id)"'
+                      B="$1" gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+                          -f branch="$1" -F per_page=50 --jq "${filter}"
+                      B="$1" gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+                          -F per_page=100 --jq "${filter}"
+                    }
+                    # A failed or malformed answer stops the step: read as "not passed" it would pick a run that failed the gate.
+                    count() {
+                      local value
+                      value=$(gh api "$1" --jq "$2")
+                      if [[ ! "${value}" =~ ^[0-9]+$ ]]; then
+                        echo "::error::Unexpected answer from $1: '${value}'." >&2
+                        exit 1
+                      fi
+                      echo "${value}"
+                    }
+                    find_baseline() {
+                      local ids id passed artifacts
+                      ids=$(list_runs "$1" | sort -rn -k1,1 | awk '!seen[$2]++ && n++ < 30 { print $2 }')
+                      for id in ${ids}; do
+                        passed=$(count "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/jobs?per_page=100" \
+                            '[.jobs[] | select(.name == "NDepend" and .conclusion == "success")] | length')
+                        if (( passed == 0 )); then
+                          continue
+                        fi
+                        artifacts=$(count "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/artifacts?name=ndepend" \
+                            '[.artifacts[] | select(.expired | not)] | length')
+                        if (( artifacts > 0 )); then
+                          echo "${id}"
+                          return
+                        fi
+                      done
+                    }
+                    run_id=$(find_baseline "${BRANCH}")
+                    if [[ -z "${run_id}" && "${BRANCH}" != "develop" ]]; then
+                      run_id=$(find_baseline develop)
+                    fi
+                    if [[ -n "${run_id}" ]]; then
+                      echo "NDepend baseline: run ${run_id}"
+                    elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+                      echo "::warning::No passed NDepend analysis found; this run has no baseline."
+                    else
+                      echo "::error::No passed NDepend analysis found to compare with; dispatch the workflow to run without one." >&2
+                      exit 1
+                    fi
+                    echo "run-id=${run_id}" >> "${GITHUB_OUTPUT}"
+
             -   name: Run NDepend Analysis
                 uses: ndepend/ndepend-action@6ea2f4658a571ae7d4e04a2ae07fa70464b68f14 # latest ndepend (unreleased; last release v1.0.0)
                 with:
                     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                     license: ${{ secrets.NDependLicense }}
                     customconfig: squirix.ndproj
-                    baseline: ${{ github.event_name == 'pull_request' && format('{0}_recent', github.base_ref) || 'recent' }}
+                    baseline: ${{ steps.ndepend-baseline.outputs.run-id }}
                     stopIfQGFailed: true
                     retention-days: 14
+
+            # The action looks for the `ndepend` artifact among the first 30 artifacts of the baseline run only, and on a
+            # miss it analyzes without a baseline, which passes the new-issues gate unchecked.
+            -   name: Verify NDepend Baseline Was Used
+                if: steps.ndepend-baseline.outputs.run-id != ''
+                env:
+                    BASELINE_RUN_ID: ${{ steps.ndepend-baseline.outputs.run-id }}
+                run: |
+                    if ! find "${RUNNER_TEMP}/NDependBaseLine" -name '*.ndar' -not -path '*/Baseline/*' | grep -q .; then
+                      echo "::error::The NDepend action did not load the analysis of run ${BASELINE_RUN_ID} as its baseline." >&2
+                      exit 1
+                    fi
 
     ci-success:
         name: CI success
