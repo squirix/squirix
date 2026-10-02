@@ -1,9 +1,9 @@
 name: Run Test Suite
-description: Download build outputs and run one CI test suite or suite group (optional coverage on Ubuntu).
+description: Download the build outputs and run one CI test suite or suite group, with coverage when asked.
 
 inputs:
   os:
-    description: Runner OS label matching artifact name (ubuntu-latest, ubuntu-arm, windows-latest, macos-latest).
+    description: Runner kind (ubuntu-latest, ubuntu-arm, windows-latest, macos-latest); it names the uploaded test results.
     required: true
   framework:
     description: Target framework moniker.
@@ -20,30 +20,14 @@ inputs:
 runs:
   using: composite
   steps:
-    # Every job runs the built test hosts directly. A host is self-contained in bin and needs only the .NET 10 runtime, which
-    # every runner image ships, so no job installs the SDK pinned in global.json, restores packages or caches them.
-    # The macOS image keeps .NET in the home folder of the runner, where a test host does not look on its own.
-    - name: Point Test Hosts At The Runner .NET (macOS)
-      if: runner.os == 'macOS'
-      shell: bash
-      run: |
-        echo "DOTNET_ROOT=$(python3 -c 'import os, shutil; print(os.path.dirname(os.path.realpath(shutil.which("dotnet"))))')" >> "$GITHUB_ENV"
-
+    # Every runner kind tests the outputs of the one ubuntu build. They are portable: the assemblies are the same whatever
+    # system compiles them, and the output folders carry the native assets of every platform. A test assembly needs only
+    # the .NET 10 runtime, which every runner image ships, so no job installs the SDK pinned in global.json.
     - name: Download Build Outputs
       uses: actions/download-artifact@v8
       with:
-        name: build-output-${{ inputs.os }}-${{ inputs.framework }}
+        name: build-output-ubuntu-latest-${{ inputs.framework }}
         path: .
-
-    - name: Restore Executable Bits For Test Hosts (Unix)
-      if: runner.os != 'Windows'
-      shell: bash
-      run: |
-        # Artifact download drops +x; TUnit launches the apphost and needs execute bits on Linux/macOS.
-        chmod +x tests/squirix/squirix.*-tests/bin/Release/${{ inputs.framework }}/Squirix.*Tests || true
-        chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/${{ inputs.framework }}/Squirix.*Tests || true
-        chmod +x tests/squirix.e2e.tests/bin/Release/${{ inputs.framework }}/Squirix.E2ETests || true
-        chmod +x tests/squirix.protocol-model/squirix.protocol-model.tests/bin/Release/${{ inputs.framework }}/Squirix.ProtocolModel.Tests || true
 
     - name: Shim python3 On Windows
       if: runner.os == 'Windows'
@@ -88,9 +72,9 @@ runs:
             filter_args=(--treenode-filter "$filter")
           fi
 
-          # The test host is named after its project and takes the Microsoft.Testing.Platform options.
-          host="$(dirname "$project")/bin/Release/${{ inputs.framework }}/$(basename "$project" .csproj)"
-          if [ "$RUNNER_OS" = "Windows" ]; then host="$host.exe"; fi
+          # The test assembly is named after its project and takes the Microsoft.Testing.Platform options. It starts through
+          # the dotnet host of the runner, because the native launcher next to it belongs to the system that built it.
+          host="$(dirname "$project")/bin/Release/${{ inputs.framework }}/$(basename "$project" .csproj).dll"
           results="${{ github.workspace }}/TestResults"
           coverage_args=()
           if [ "${{ inputs.collect-coverage }}" = "true" ]; then
@@ -101,7 +85,7 @@ runs:
           fi
 
           status=0
-          "$host" \
+          dotnet "$host" \
             "${filter_args[@]}" \
             --report-trx --report-trx-filename "$name.trx" \
             --results-directory "$results" \
