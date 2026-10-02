@@ -24,6 +24,7 @@ namespace Squirix.Server.Node.Services;
 internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 {
     private const int MaxInFlight = 2;
+    private const string CommitBudgetRefusalReason = "replica_commit_budget";
     private const string PendingApplyRefusalReason = "replica_apply_pending";
     private static readonly TimeSpan DefaultCommitBudget = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
@@ -350,13 +351,42 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             // is kept, and the caller gets a retryable refusal while older outcomes age out.
             throw ServerOpContract.TooManyRequests(ReplicaCommitCoordinator.IdempotencyCapacityCode);
         }
-        catch
+        catch (Exception error)
         {
             // The local appending was refused before anything was marked appended: an interrupted
             // append may leave the durable log ahead of the pipeline positions, so drop the started
             // state and rebuild from status.LastLogIndex on the next attempt.
             _started = false;
+
+            // The log may still hold the entry (its frames were durable when the write behind them failed): the next start recovers and
+            // pins it as the tail, and a majority may commit it, so the caller must not be told the write was refused.
+            if (await HoldsEntryAsync(_registry, GroupId, mutation).ConfigureAwait(false))
+            {
+                ServerLog.ReplicaCommitOutcomeUnknown(Log, error);
+                throw ServerOpContract.CommitOutcomeUnknown();
+            }
+
+            // The commit runs on the budget only, so a cancellation here is the budget expiring before the append: a definite refusal.
+            if (error is OperationCanceledException)
+                throw ServerOpContract.TooManyRequests(CommitBudgetRefusalReason);
             throw;
+        }
+
+        static async ValueTask<bool> HoldsEntryAsync(ReplicaGroupRegistry registry, string groupId, PreparedReplicaMutation mutation)
+        {
+            if (!registry.TryGetLog(groupId, out var log))
+                return false;
+
+            try
+            {
+                var status = await log.GetStatusAsync(CancellationToken.None).ConfigureAwait(false);
+                return status.LastLogIndex >= mutation.LogIndex && await log.GetTermAtAsync(mutation.LogIndex, CancellationToken.None).ConfigureAwait(false) == mutation.Term;
+            }
+            catch (ObjectDisposedException)
+            {
+                // A closed log cannot tell; the original failure is reported as it is.
+                return false;
+            }
         }
     }
 

@@ -147,6 +147,25 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await Assert.That(read).IsEqualTo(1);
     }
 
+    /// <summary>An append whose frames reached the disk completes although its cancellation fires before the metadata write behind them.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DurableFramesOutliveLateCancellation(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-log-late-cancel");
+        using var late = new CancellationTokenSource();
+        var hooks = new CancelOnFlush(late);
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, hooks);
+        await log.OpenAsync(cancellationToken);
+        hooks.Arm();
+
+        var result = await log.AppendAsync(Append(1UL, 1UL, "a"), late.Token);
+
+        _ = await Assert.That(late.IsCancellationRequested).IsTrue();
+        _ = await Assert.That(result.Success).IsTrue();
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(1UL);
+    }
+
     /// <summary>Advancing the applied index releases applied entry payloads from memory.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -910,5 +929,42 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     {
         var memory = ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload)));
         return new FollowerLogAppendRequest("leader-1", term, index - 1, prevLogTerm ?? (index == 1UL ? 0UL : term), 0UL, memory);
+    }
+
+    /// <summary>Cancels a token on the first durable flush after it is armed: the frames of an append are on disk, its metadata is not.</summary>
+    [ThreadSafe]
+    private sealed class CancelOnFlush : IFollowerLogFaultHooks
+    {
+        private readonly CancellationTokenSource _source;
+        private int _armed;
+
+        internal CancelOnFlush(CancellationTokenSource source)
+        {
+            _source = source;
+        }
+
+        public void OnFrameWritten()
+        {
+        }
+
+        public void OnMetaWritten()
+        {
+        }
+
+        public void OnFlushed()
+        {
+            if (Interlocked.Exchange(ref _armed, 0) == 1)
+                _source.Cancel();
+        }
+
+        public void OnCommitAdvanced()
+        {
+        }
+
+        public void OnBeforeMemoryApply()
+        {
+        }
+
+        internal void Arm() => Volatile.Write(ref _armed, 1);
     }
 }

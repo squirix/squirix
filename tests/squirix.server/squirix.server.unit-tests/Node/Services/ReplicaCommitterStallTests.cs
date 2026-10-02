@@ -19,11 +19,11 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
-using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using static Squirix.Server.UnitTests.Node.Services.ReplicaCommitterDoubles;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -48,12 +48,6 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     private static readonly TimeSpan ShortCommitBudget = TimeSpan.FromSeconds(1);
 
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
-
-    private enum ApplyMode
-    {
-        Fail = 0,
-        Stall = 1,
-    }
 
     /// <summary>
     /// A write whose outcome is unknown after its local append reaches the pipeline as the stable commit-unknown contract (gRPC
@@ -479,37 +473,6 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         return registry;
     }
 
-    [Immutable]
-    private sealed class TwoNodeLocator : IReplicaGroupLocator
-    {
-        public int ReplicaCount => 2;
-
-        public void GetReplicaGroup(string originalOwnerNodeId, Span<string> destination)
-        {
-            destination[0] = "n1";
-            destination[1] = "n2";
-        }
-    }
-
-    /// <summary>Follower double that always holds the leader batch; an optional callback runs on each append, after the local append.</summary>
-    [Immutable]
-    private sealed class AcceptingGateway : IReplicaRpcGateway
-    {
-        private readonly Action? _onAppend;
-
-        internal AcceptingGateway(Action? onAppend = null)
-        {
-            _onAppend = onAppend;
-        }
-
-        public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
-        {
-            _onAppend?.Invoke();
-            var last = batch.Records.Count == 0 ? batch.PrevLogIndex : batch.Records[^1].LogIndex;
-            return Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last));
-        }
-    }
-
     /// <summary>Follower double whose appends stay unanswered until released, and then fail the transport.</summary>
     [ThreadSafe]
     private sealed class StalledGateway : IReplicaRpcGateway
@@ -582,60 +545,5 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 
             return count;
         }
-    }
-
-    /// <summary>
-    /// Local cache double whose memory apply of a replicated write fails until recovered, or stalls ignoring cancellation until released;
-    /// it records the keys of the writes applied after recovery.
-    /// </summary>
-    [ThreadSafe]
-    private sealed class ScriptedApplyCache : ILogicalNamespacedCache<object?>
-    {
-        private readonly TaskCompletionSource _applyEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource _applyReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly ApplyMode _mode;
-        private readonly VolatileBool _recovered = new();
-
-        internal ScriptedApplyCache(ApplyMode mode)
-        {
-            _mode = mode;
-        }
-
-        internal ConcurrentQueue<string> Applied { get; } = new();
-
-        internal Task ApplyEntered => _applyEntered.Task;
-
-        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult<NodeCacheEntry<object?>?>(null);
-
-        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new NodeCacheValueResult<object?>(false, null));
-
-        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new CacheRemoveResult<object?>(false, null));
-
-        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(false);
-
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
-        {
-            _ = _applyEntered.TrySetResult();
-            if (_mode == ApplyMode.Stall)
-                return new ValueTask(_applyReleased.Task);
-            if (!_recovered.Read())
-                return ValueTask.FromException(new InvalidOperationException("Injected memory apply failure after the majority."));
-
-            Applied.Enqueue(key);
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => ValueTask.FromResult(false);
-
-        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(false);
-
-        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) => ValueTask.FromResult(false);
-
-        internal void Recover() => _recovered.Write(true);
-
-        internal void ReleaseApply() => _ = _applyReleased.TrySetResult();
     }
 }
