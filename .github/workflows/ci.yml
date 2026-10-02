@@ -214,7 +214,8 @@ jobs:
                     # The test artifact is built without analyzers; analyze-ubuntu runs the analyzed build in parallel.
                     analyzers: "false"
                     test-only-artifact: ${{ github.event_name == 'pull_request' }}
-                    host-runtimes-only: ${{ github.event_name == 'pull_request' }}
+                    # Pull requests into main run the Windows and macOS tests on this artifact, so it keeps the assets of every platform there.
+                    host-runtimes-only: ${{ github.event_name == 'pull_request' && github.base_ref != 'main' }}
 
     # Packs the client and server packages and runs the sample against them. It has a runner of its own so the jobs
     # that wait for the build outputs of build-ubuntu do not wait for it too.
@@ -352,7 +353,9 @@ jobs:
                     run-package-smoke: "false"
                     # The analyze-ubuntu shards run the analyzers; here only compiling matters.
                     analyzers: "false"
-                    test-only-artifact: "true"
+                    # This job proves that the solution builds on this system. The tests of every runner kind run on the outputs
+                    # of build-ubuntu, so nothing is uploaded here.
+                    upload-outputs: "false"
 
     build-macos:
         name: Build (macos-latest / net10.0)
@@ -388,7 +391,9 @@ jobs:
                     run-package-smoke: "false"
                     # The analyze-ubuntu shards run the analyzers; here only compiling matters.
                     analyzers: "false"
-                    test-only-artifact: "true"
+                    # This job proves that the solution builds on this system. The tests of every runner kind run on the outputs
+                    # of build-ubuntu, so nothing is uploaded here.
+                    upload-outputs: "false"
 
     build-arm:
         name: Build (ubuntu-26.04-arm / net10.0)
@@ -425,6 +430,9 @@ jobs:
                     run-package-smoke: "false"
                     # The analyze-ubuntu shards run the analyzers; here only compiling matters.
                     analyzers: "false"
+                    # This job proves that the solution builds on this system. The tests of every runner kind run on the outputs
+                    # of build-ubuntu, so nothing is uploaded here.
+                    upload-outputs: "false"
 
     # Per-OS test matrices: each starts as soon as its build finishes; ubuntu also runs the smoke suite.
     test-ubuntu:
@@ -469,13 +477,13 @@ jobs:
         name: Test (windows-latest / net10.0 / ${{ matrix.suite }})
         runs-on: windows-latest
         timeout-minutes: 20
-        needs: [ build-windows ]
+        # The tests run on the outputs of build-ubuntu. They also wait for the build on their own runner kind: a system that
+        # cannot build the solution is not tested, and the wait spreads the test jobs over time, so the ubuntu tests, which
+        # SonarCloud and the coverage report wait for, get their runners first under the 20 job limit of the organization.
+        needs: [ build-ubuntu, build-windows ]
         if: |
-            ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.base_ref == 'main')) && (
-            needs.changes.outputs.code == 'true' ||
-            github.event_name == 'schedule' ||
-            github.event_name == 'workflow_dispatch'
-            )
+            (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.base_ref == 'main') &&
+            needs.build-ubuntu.outputs.built == 'true'
         strategy:
             fail-fast: ${{ github.event_name == 'pull_request' }}
             max-parallel: 6
@@ -517,13 +525,11 @@ jobs:
         name: Test (macos-latest / net10.0 / ${{ matrix.suite }})
         runs-on: macos-latest
         timeout-minutes: 20
-        needs: [ build-macos ]
+        # Waits for the build on its own runner kind as well; see test-windows.
+        needs: [ build-ubuntu, build-macos ]
         if: |
-            ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.base_ref == 'main')) && (
-            needs.changes.outputs.code == 'true' ||
-            github.event_name == 'schedule' ||
-            github.event_name == 'workflow_dispatch'
-            )
+            (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.base_ref == 'main') &&
+            needs.build-ubuntu.outputs.built == 'true'
         strategy:
             fail-fast: ${{ github.event_name == 'pull_request' }}
             max-parallel: 6
@@ -557,14 +563,11 @@ jobs:
         name: Test (ubuntu-26.04-arm / net10.0 / ${{ matrix.suite }})
         runs-on: ubuntu-26.04-arm
         timeout-minutes: 30
-        needs: [ build-arm ]
+        # Waits for the build on its own runner kind as well; see test-windows.
+        needs: [ build-ubuntu, build-arm ]
         # PR fast path: ARM tests run on push/schedule/dispatch only.
         if: |
-            github.event_name != 'pull_request' && (
-            needs.changes.outputs.code == 'true' ||
-            github.event_name == 'schedule' ||
-            github.event_name == 'workflow_dispatch'
-            )
+            github.event_name != 'pull_request' && needs.build-ubuntu.outputs.built == 'true'
         strategy:
             fail-fast: ${{ github.event_name == 'pull_request' }}
             max-parallel: 2
