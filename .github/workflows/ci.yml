@@ -345,13 +345,11 @@ jobs:
         name: Build (windows-latest / net10.0)
         runs-on: windows-latest
         timeout-minutes: 45
-        needs: changes
+        # Heads the Windows chain, which ends push runs, so like build-ubuntu it classifies the change set itself instead of
+        # waiting for the Detect Changes job.
         if: |
-            ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.base_ref == 'main')) && (
-            needs.changes.outputs.code == 'true' ||
-            github.event_name == 'schedule' ||
-            github.event_name == 'workflow_dispatch'
-            )
+            github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' ||
+            github.ref == 'refs/heads/develop' || github.base_ref == 'main'
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -378,14 +376,24 @@ jobs:
                     done
                     git checkout -q --detach FETCH_HEAD
 
+            -   name: Detect Changes
+                id: changes
+                uses: ./.github/actions/detect-changes
+
+            -   name: Decide Whether To Build
+                id: gate
+                run: echo "build=${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
+
             # The system drive of the runner is slow: installing the SDK there takes about 40 s, and unpacking the package cache 35 s.
             -   name: Install .NET And Packages On The Work Drive
+                if: steps.gate.outputs.build == 'true'
                 shell: bash
                 run: |
                     echo "DOTNET_INSTALL_DIR=${RUNNER_TEMP}\\dotnet" >> "$GITHUB_ENV"
                     echo "NUGET_PACKAGES=${RUNNER_TEMP}\\nuget-packages" >> "$GITHUB_ENV"
 
             -   name: Build Release Outputs
+                if: steps.gate.outputs.build == 'true'
                 uses: ./.github/actions/build-release
                 with:
                     artifact-os: windows-latest
@@ -400,13 +408,11 @@ jobs:
         name: Build (macos-latest / net10.0)
         runs-on: macos-latest
         timeout-minutes: 45
-        needs: changes
+        # Heads the macOS chain, which ends push runs right after the Windows one, so like build-ubuntu it classifies the change set itself instead of
+        # waiting for the Detect Changes job.
         if: |
-            ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.base_ref == 'main')) && (
-            needs.changes.outputs.code == 'true' ||
-            github.event_name == 'schedule' ||
-            github.event_name == 'workflow_dispatch'
-            )
+            github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' ||
+            github.ref == 'refs/heads/develop' || github.base_ref == 'main'
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -422,7 +428,16 @@ jobs:
                 with:
                     persist-credentials: false
 
+            -   name: Detect Changes
+                id: changes
+                uses: ./.github/actions/detect-changes
+
+            -   name: Decide Whether To Build
+                id: gate
+                run: echo "build=${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
+
             -   name: Build Release Outputs
+                if: steps.gate.outputs.build == 'true'
                 uses: ./.github/actions/build-release
                 with:
                     artifact-os: macos-latest
