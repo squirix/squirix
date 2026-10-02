@@ -213,7 +213,6 @@ jobs:
                     framework: net10.0
                     # The test artifact is built without analyzers; analyze-ubuntu runs the analyzed build in parallel.
                     analyzers: "false"
-                    test-only-artifact: "true"
                     # Pull requests into develop run only the ubuntu tests; every other run also tests on ARM, Windows and macOS.
                     runtime-assets: ${{ github.event_name == 'pull_request' && github.base_ref != 'main' && 'host' || 'test-runners' }}
 
@@ -251,17 +250,11 @@ jobs:
                 with:
                     global-json-file: global.json
 
-            # Reads the package cache of the build jobs; see verify-coding-conventions.
-            -   name: Restore NuGet Package Cache
-                uses: actions/cache/restore@v6
-                with:
-                    path: ~/.nuget/packages
-                    key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
-
             -   name: Ensure Dev HTTPS Certificate
                 shell: bash
                 run: bash tools/ci/ensure-dev-https-cert.sh
 
+            # The smoke restores into a package folder of its own, so the package cache of the build jobs is of no use here.
             # `dotnet pack` builds only the two packaged projects. SquirixToolCheck builds them without analyzers, which the
             # analysis shards already run on them (and on the sample); see Directory.Build.props.
             -   name: Run External Package Smoke
@@ -350,13 +343,19 @@ jobs:
                     git config --global core.eol lf
 
             # On Windows actions/checkout spends 10-15 s setting up and removing credentials and, after the job, running
-            # `git submodule foreach`. The repository is public, so a shallow fetch of the commit needs neither.
+            # `git submodule foreach`. The repository is public, so a shallow fetch of the commit needs neither (a private
+            # repository would need actions/checkout back).
             -   name: Checkout
                 shell: bash
                 run: |
                     git init -q .
                     git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
-                    git fetch -q --depth=1 --no-tags origin "${GITHUB_SHA}"
+                    # Three attempts, like actions/checkout.
+                    for attempt in 1 2 3; do
+                      git fetch -q --depth=1 --no-tags origin "${GITHUB_SHA}" && break
+                      [ "$attempt" -eq 3 ] && exit 1
+                      sleep 5
+                    done
                     git checkout -q --detach FETCH_HEAD
 
             # The system drive of the runner is slow: installing the SDK there takes about 40 s, and unpacking the package cache 35 s.
@@ -524,7 +523,12 @@ jobs:
                 run: |
                     git init -q .
                     git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
-                    git fetch -q --depth=1 --no-tags origin "${GITHUB_SHA}"
+                    # Three attempts, like actions/checkout.
+                    for attempt in 1 2 3; do
+                      git fetch -q --depth=1 --no-tags origin "${GITHUB_SHA}" && break
+                      [ "$attempt" -eq 3 ] && exit 1
+                      sleep 5
+                    done
                     git checkout -q --detach FETCH_HEAD
 
             # Tests create their storage under the temp folder. The default one sits on the system drive, where a flush
@@ -924,7 +928,7 @@ jobs:
                       cat coverage/report/Summary.txt >> $GITHUB_STEP_SUMMARY
                       echo '```' >> $GITHUB_STEP_SUMMARY
                     else
-                      echo "Coverage gate executed. HTML report generation is enabled only for main/develop/schedule/manual runs." >> $GITHUB_STEP_SUMMARY
+                      echo "Coverage gate executed; no text summary was produced." >> $GITHUB_STEP_SUMMARY
                     fi
 
     test-duration-summary:
@@ -952,8 +956,8 @@ jobs:
                     results, skipped = [], 0
                     files = glob.glob("test-results/**/*.trx", recursive=True)
                     for path in files:
+                        rows = []
                         try:
-                            # A malformed TRX (for example duplicate attributes) is skipped.
                             for _, node in ET.iterparse(path):
                                 if not node.tag.endswith("UnitTestResult"):
                                     continue
@@ -962,10 +966,13 @@ jobs:
                                 if match:
                                     days, hours, minutes, seconds = match.groups()
                                     total = int(days or 0) * 86400 + int(hours) * 3600 + int(minutes) * 60 + float(seconds)
-                                    results.append((total, node.get("testName") or "<unknown>", text))
+                                    rows.append((total, node.get("testName") or "<unknown>", text))
                                 node.clear()
-                        except ET.ParseError:
+                        except (ET.ParseError, OSError, UnicodeDecodeError):
+                            # A malformed TRX (for example duplicate attributes) is skipped as a whole.
                             skipped += 1
+                            continue
+                        results += rows
 
                     lines = ["### Slowest tests (top 5)"]
                     if not files:
@@ -1135,7 +1142,8 @@ jobs:
                 run: |
                     set -euo pipefail
                     jobs_url="repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs?per_page=100"
-                    deadline=$((SECONDS + 1800))
+                    started=${SECONDS}
+                    deadline=$((started + 1800))
                     settled=0
                     while true; do
                       # The matrix jobs are listed once build-ubuntu has finished.
@@ -1165,8 +1173,15 @@ jobs:
                         echo "The ubuntu test jobs did not finish in time." >&2
                         exit 1
                       fi
-                      # This job ends the run, so a short poll interval ends it sooner.
-                      sleep 2
+                      # This job ends the run, so it polls often: 1 s before the confirming listing, every 2 s in the first minute,
+                      # then every 10 s (tests queued for a runner) to stay well inside the API rate limit of the token.
+                      if (( settled > 0 )); then
+                        sleep 1
+                      elif (( SECONDS - started < 60 )); then
+                        sleep 2
+                      else
+                        sleep 10
+                      fi
                     done
 
             -   name: Download Coverage Reports

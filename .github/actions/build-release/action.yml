@@ -1,5 +1,5 @@
 name: Build Release Outputs
-description: Restore and Release-build the solution; upload bin/obj artifacts for test jobs.
+description: Restore and Release-build the solution; upload the outputs the test jobs run.
 
 inputs:
   artifact-os:
@@ -21,10 +21,6 @@ inputs:
     description: When false, skip the build output artifact upload (analyzer-only build).
     required: false
     default: "true"
-  test-only-artifact:
-    description: When true, leave the benchmark outputs, the testkit library outputs and the obj intermediates out of the artifact, because the consuming jobs run the test hosts straight from bin.
-    required: false
-    default: "false"
   runtime-assets:
     description: Which runtime-specific assets (runtimes/<rid>/) the artifact keeps. `all` keeps every one; `host` keeps the runner's own platform, for an artifact only the runner kind that built it consumes; `test-runners` keeps the platforms of the test runner kinds (Linux x64 and ARM64, Windows x64, macOS ARM64).
     required: false
@@ -113,19 +109,14 @@ runs:
         retention-days: 1
         # Level 1: the payload is mostly DLLs that barely shrink further, so the extra CPU of the default level is wasted.
         compression-level: 1
-        # Jobs that run the test hosts directly do not use the benchmark outputs, the testkit library outputs (each test project
-        # already carries a copy of its testkit) or the obj intermediates, so leaving them out shrinks the artifact by about a third.
-        # The .pdb files stay: they give failing tests file and line numbers.
+        # The consumers run the hosts straight from bin: they do not use the benchmark outputs, the testkit library outputs (each
+        # test project already carries a copy of its testkit) or the obj intermediates. The .pdb files stay: they give failing
+        # tests file and line numbers.
         path: |
           src/**/bin/Release/${{ inputs.framework }}/
-          src/**/obj/Release/${{ inputs.framework }}/
           tests/**/bin/Release/${{ inputs.framework }}/
-          tests/**/obj/Release/${{ inputs.framework }}/
-          ${{ inputs.test-only-artifact != 'true' && format('benchmarks/**/bin/Release/{0}/', inputs.framework) || '' }}
-          ${{ inputs.test-only-artifact != 'true' && format('benchmarks/**/obj/Release/{0}/', inputs.framework) || '' }}
-          ${{ inputs.test-only-artifact == 'true' && '!tests/squirix/squirix.testkit/**' || '' }}
-          ${{ inputs.test-only-artifact == 'true' && '!tests/squirix.server/squirix.server.testkit/**' || '' }}
-          ${{ inputs.test-only-artifact == 'true' && '!**/obj/**' || '' }}
+          !tests/squirix/squirix.testkit/**
+          !tests/squirix.server/squirix.server.testkit/**
           ${{ steps.foreign-runtimes.outputs.excludes }}
           !**/*.xml
           !**/ref/**

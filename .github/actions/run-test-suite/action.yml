@@ -21,7 +21,7 @@ runs:
   using: composite
   steps:
     # Every runner kind tests the outputs of the one ubuntu build. They are portable: the assemblies are the same whatever
-    # system compiles them, and the output folders carry the native assets of every platform. A test assembly needs only
+    # system compiles them, and the output folders carry the native assets of every test platform. A test assembly needs only
     # the .NET 10 runtime, which every runner image ships, so no job installs the SDK pinned in global.json.
     - name: Download Build Outputs
       uses: actions/download-artifact@v8
