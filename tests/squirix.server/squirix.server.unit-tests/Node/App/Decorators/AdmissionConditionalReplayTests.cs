@@ -6,10 +6,12 @@ using Microsoft.Extensions.Options;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -100,12 +102,87 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         _ = await Assert.That(added).IsFalse();
     }
 
+    /// <summary>
+    /// Under critical memory pressure a retried set whose outcome is recorded replays it instead of being refused, counts no rejection and
+    /// accounts the entry the inner cache holds after the replay.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RecordedSetReplaysUnderPressure(CancellationToken cancellationToken)
+    {
+        var entry = new NodeCacheEntry<string> { Value = "v", Version = 1 };
+        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
+        var reads = 0;
+
+        // The key is absent when admission reads it and holds the replayed entry when the replay is accounted.
+        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>())
+                 .Callback((_, _, _) => ValueTask.FromResult(Interlocked.Increment(ref reads) == 1 ? null : entry));
+        _ = inner.Setups.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var accounting = new MemoryUsageAccounting();
+        var cache = Create(inner.Instance(), accounting, static (_, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1);
+
+        await cache.SetEntryAsync("op-1", CacheName, Key, entry, cancellationToken);
+
+        _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(0L);
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
+    }
+
+    /// <summary>Under critical memory pressure a set without a recorded outcome is refused before the inner pipeline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnrecordedSetRefusedUnderPressure(CancellationToken cancellationToken)
+    {
+        var entry = new NodeCacheEntry<string> { Value = "v", Version = 1 };
+        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
+        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        var accounting = new MemoryUsageAccounting();
+        var cache = Create(inner.Instance(), accounting, static (_, _) => false, 1);
+
+        // The inner double has no set set up: a call would throw something else.
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask());
+
+        _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(1L);
+    }
+
+    /// <summary>Under critical memory pressure retried updates and adds whose outcomes are recorded replay them and account the stored entry.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RecordedUpdateAndAddReplayUnderPressure(CancellationToken cancellationToken)
+    {
+        var stored = new NodeCacheEntry<string> { Value = "v", Version = 1 };
+        var present = new ILogicalNamespacedCacheCreateExpectations<string>();
+        _ = present.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(stored));
+        _ = present.Setups.UpdateAsync("op-1", CacheName, Key, "v2", Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
+        var absent = new ILogicalNamespacedCacheCreateExpectations<string>();
+        var reads = 0;
+
+        // The key is absent when admission reads it and holds the replayed entry when the replay is accounted.
+        _ = absent.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>())
+                  .Callback((_, _, _) => ValueTask.FromResult(Interlocked.Increment(ref reads) == 1 ? null : stored));
+        _ = absent.Setups.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
+        var updateAccounting = new MemoryUsageAccounting();
+        var addAccounting = new MemoryUsageAccounting();
+        var updated = await Create(present.Instance(), updateAccounting, static (_, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1).UpdateAsync("op-1", CacheName, Key, "v2", cancellationToken);
+        var added = await Create(absent.Instance(), addAccounting, static (_, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1).TryAddEntryAsync("op-1", CacheName, Key, stored, cancellationToken);
+
+        _ = await Assert.That(updated).IsTrue();
+        _ = await Assert.That(updateAccounting.ReadEntryCount()).IsEqualTo(1);
+        _ = await Assert.That(updateAccounting.ReadRejectedWriteCount()).IsEqualTo(0L);
+        _ = await Assert.That(added).IsTrue();
+        _ = await Assert.That(addAccounting.ReadEntryCount()).IsEqualTo(1);
+        _ = await Assert.That(addAccounting.ReadRejectedWriteCount()).IsEqualTo(0L);
+    }
+
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 
-    private MemoryAdmissionCacheDecorator<string> Create(ILogicalNamespacedCache<string> inner, MemoryUsageAccounting accounting, Func<string, string, bool>? hasRecordedOutcome)
+    private MemoryAdmissionCacheDecorator<string> Create(
+        ILogicalNamespacedCache<string> inner,
+        MemoryUsageAccounting accounting,
+        Func<string, string, bool>? hasRecordedOutcome,
+        long maxEstimatedCacheBytes = 10_000_000_000)
     {
-        var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
+        var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = maxEstimatedCacheBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
         var gate = new PressureGate(new StateEvaluator(options), accounting, Self, _testMeter);
         return new MemoryAdmissionCacheDecorator<string>(inner, gate, new CacheEntrySizeEstimator<string>(), accounting, hasRecordedOutcome);
     }

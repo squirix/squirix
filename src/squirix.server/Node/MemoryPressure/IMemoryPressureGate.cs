@@ -3,6 +3,12 @@ namespace Squirix.Server.Node.MemoryPressure;
 /// <summary>Composition-layer admission gate for memory-growing cache writes under critical pressure (v0.7.3).</summary>
 internal interface IMemoryPressureGate
 {
+    /// <summary>Tells, without counting a rejection, whether memory pressure policy would refuse a memory-growing write now.</summary>
+    /// <param name="estimatedNetGrowthBytes">Best-effort non-negative net growth in estimated resident bytes.</param>
+    /// <param name="magnitudeUnknown">When <see langword="true" />, the net growth cannot be bounded cheaply.</param>
+    /// <returns><see langword="true" /> when <see cref="ThrowIfMemoryGrowingWriteRejected" /> would throw.</returns>
+    bool RejectsMemoryGrowingWrite(long estimatedNetGrowthBytes, bool magnitudeUnknown);
+
     /// <summary>
     /// Throws an internal memory-pressure admission exception when the operation must not proceed because
     /// memory pressure policy rejects a growing mutation at critical pressure.

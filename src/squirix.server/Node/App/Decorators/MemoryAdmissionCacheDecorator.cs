@@ -82,7 +82,9 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             return await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
 
         var replacement = CreateExpirationMetadataReplacement(existing, false);
-        AdmitReplaceOrInsert(keyValue, existing, replacement, AdmissionOperations.Set);
+        if (AdmitReplaceOrInsert(keyValue, existing, replacement, AdmissionOperations.Set, operationId))
+            return await AccountAnsweredAsync(keyValue, _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken)).ConfigureAwait(false);
+
         var removed = await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
         if (removed)
             AccountReplaceOrInsert(keyValue, replacement);
@@ -95,7 +97,13 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         var keyValue = new CacheKey(cacheName, key);
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        AdmitReplaceOrInsert(keyValue, existing, entry, AdmissionOperations.Set);
+        if (AdmitReplaceOrInsert(keyValue, existing, entry, AdmissionOperations.Set, operationId))
+        {
+            await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+            if (await _inner.GetEntryAsync(cacheName, key, CancellationToken.None).ConfigureAwait(false) is { } current)
+                AccountReplaceOrInsert(keyValue, current);
+            return;
+        }
 
         // A pipeline that records outcomes decides the upsert itself; an add here would record a retry of this set under another kind.
         if (existing == null && _hasRecordedOutcome == null)
@@ -124,7 +132,9 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             return await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
 
         var replacement = CreateExpirationMetadataReplacement(existing, true);
-        AdmitReplaceOrInsert(keyValue, existing, replacement, AdmissionOperations.Set);
+        if (AdmitReplaceOrInsert(keyValue, existing, replacement, AdmissionOperations.Set, operationId))
+            return await AccountAnsweredAsync(keyValue, _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken)).ConfigureAwait(false);
+
         var touched = await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
         if (touched)
             AccountReplaceOrInsert(keyValue, replacement);
@@ -138,18 +148,11 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing != null)
-        {
-            if (!IsRecorded(cacheName, operationId))
-                return false;
+            return IsRecorded(cacheName, operationId) && await AccountAnsweredAsync(keyValue, _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken)).ConfigureAwait(false);
 
-            // A recorded outcome is replayed; should it age out first, an entry that expires meanwhile lets the add insert: admit that.
-            if (existing.ExpiresUtc != null)
-                AdmitReplaceOrInsert(keyValue, existing, entry, AdmissionOperations.TryAdd);
-
+        if (AdmitReplaceOrInsert(keyValue, null, entry, AdmissionOperations.TryAdd, operationId))
             return await AccountAnsweredAsync(keyValue, _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken)).ConfigureAwait(false);
-        }
 
-        AdmitReplaceOrInsert(keyValue, null, entry, AdmissionOperations.TryAdd);
         if (!await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false))
             return false;
 
@@ -172,7 +175,9 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             Expiration = existing.Expiration,
             Version = existing.Version,
         };
-        AdmitReplaceOrInsert(keyValue, existing, replacement, AdmissionOperations.Set);
+        if (AdmitReplaceOrInsert(keyValue, existing, replacement, AdmissionOperations.Set, operationId))
+            return await AccountAnsweredAsync(keyValue, _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken)).ConfigureAwait(false);
+
         var updated = await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
         if (!updated || EqualityComparer<T?>.Default.Equals(existing.Value, value))
             return updated;
@@ -253,10 +258,30 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         return true;
     }
 
-    private void AdmitReplaceOrInsert(CacheKey key, NodeCacheEntry<T>? existing, NodeCacheEntry<T> proposed, string operation)
+    /// <summary>Admits a memory-growing write, unless it is a retry of an operation whose outcome the inner pipeline recorded.</summary>
+    /// <param name="key">The written key.</param>
+    /// <param name="existing">The entry the key holds now, or <see langword="null" />.</param>
+    /// <param name="proposed">The entry the write would store.</param>
+    /// <param name="operation">The admission operation label.</param>
+    /// <param name="operationId">The client operation identifier.</param>
+    /// <returns>
+    /// <see langword="true" /> when pressure would refuse the write but its outcome is recorded: the caller hands it to the inner pipeline,
+    /// which replays the outcome and grows nothing, and accounts what the inner cache then holds. The recorded outcome is looked up only
+    /// when the write would be refused. Should the outcome age out between this lookup and the replay, the write runs once more past
+    /// admission: a single write, still accounted from what the inner cache holds.
+    /// </returns>
+    /// <exception cref="Squirix.Server.Errors.ResourceExhaustedException">Pressure refuses the write and no outcome is recorded for it.</exception>
+    private bool AdmitReplaceOrInsert(CacheKey key, NodeCacheEntry<T>? existing, NodeCacheEntry<T> proposed, string operation, string operationId)
     {
         var growth = MemoryAdmissionJournalExtensions.ComputeNetGrowthForReplace(key, existing, false, proposed, false, _estimator, out var magnitudeUnknown);
+        if (!_gate.RejectsMemoryGrowingWrite(growth, magnitudeUnknown))
+            return false;
+
+        if (IsRecorded(key.Namespace, operationId))
+            return true;
+
         _gate.ThrowIfMemoryGrowingWriteRejected(growth, magnitudeUnknown, operation);
+        return false;
     }
 
     /// <summary>Takes the write gate of the key's stripe, which every local mutation holds from its inner write until its accounting update.</summary>
