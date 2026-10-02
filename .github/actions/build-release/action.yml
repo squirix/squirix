@@ -21,6 +21,10 @@ inputs:
     description: When false, skip the build output artifact upload (analyzer-only build).
     required: false
     default: "true"
+  test-outputs-only:
+    description: When true, build only the projects under src/ and tests/, whose outputs the artifact carries; the benchmarks and samples are built by the jobs that run them. Otherwise the whole solution builds.
+    required: false
+    default: "false"
   runtime-assets:
     description: Which runtime-specific assets (runtimes/<rid>/) the artifact keeps. `all` keeps every one; `host` keeps the runner's own platform, for an artifact only the runner kind that built it consumes; `test-runners` keeps the platforms of the test runner kinds (Linux x64 and ARM64, Windows x64, macOS ARM64).
     required: false
@@ -48,9 +52,22 @@ runs:
       shell: bash
       run: mkdir -p artifacts/packages
 
+    # The reduced solution is derived from squirix.slnx, so a new project under src/ or tests/ is built without being listed anywhere.
+    # Every project entry is a single line, so dropping the lines of benchmarks/ and samples/ leaves valid XML.
+    - name: Select Solution
+      id: solution
+      shell: bash
+      run: |
+        if [ "${{ inputs.test-outputs-only }}" = "true" ]; then
+          grep -vE '<Project Path="(benchmarks|samples)/' squirix.slnx > squirix.test-outputs.slnx
+          echo "path=squirix.test-outputs.slnx" >> "$GITHUB_OUTPUT"
+        else
+          echo "path=squirix.slnx" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Restore
       shell: bash
-      run: dotnet restore squirix.slnx
+      run: dotnet restore "${{ steps.solution.outputs.path }}"
 
     - name: Verify Whitespace
       shell: bash
@@ -63,14 +80,15 @@ runs:
         # makes that startup faster and does not change the build result.
         DOTNET_TieredPGO: "0"
       run: |
+        solution="${{ steps.solution.outputs.path }}"
         if [ "${{ inputs.analyzers }}" != "true" ]; then
           # Analyzers only report diagnostics (source generators still run), so the binaries are the same and compile much faster.
-          dotnet build squirix.slnx --configuration Release --no-restore -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
+          dotnet build "$solution" --configuration Release --no-restore -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
         elif [ -n "${{ inputs.analysis-shard }}" ]; then
           # One shard of the analyzed build: the whole solution compiles, the projects outside the shard without analyzers.
-          dotnet build squirix.slnx --configuration Release --no-restore "-p:SquirixAnalysisShard=${{ inputs.analysis-shard }}"
+          dotnet build "$solution" --configuration Release --no-restore "-p:SquirixAnalysisShard=${{ inputs.analysis-shard }}"
         else
-          dotnet build squirix.slnx --configuration Release --no-restore
+          dotnet build "$solution" --configuration Release --no-restore
         fi
 
     # Packages such as the code coverage extension copy native libraries for every platform into each test output

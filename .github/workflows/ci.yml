@@ -213,6 +213,8 @@ jobs:
                     framework: net10.0
                     # The test artifact is built without analyzers; analyze-ubuntu runs the analyzed build in parallel.
                     analyzers: "false"
+                    # Nothing downloads the benchmark or sample outputs: the guard and package smoke jobs build their own.
+                    test-outputs-only: "true"
                     # Pull requests into develop run only the ubuntu tests; every other run also tests on ARM, Windows and macOS.
                     runtime-assets: ${{ github.event_name == 'pull_request' && github.base_ref != 'main' && 'host' || 'test-runners' }}
 
