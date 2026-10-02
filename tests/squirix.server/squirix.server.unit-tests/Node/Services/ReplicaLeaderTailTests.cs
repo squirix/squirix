@@ -167,6 +167,31 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();
     }
 
+    /// <summary>
+    /// The identifier of a tail entry that is not committed yet, reused with another request, is reported as a reuse while the write is
+    /// refused, not as the unknown outcome of the entry.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TailReuseBeforeCommitIsMismatch(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-owner-tail-reuse-before");
+        await SeedAsync(dir, cancellationToken);
+        await SeedTailAsync(dir, 1, cancellationToken, "k1");
+        var gateway = new ScriptedGateway();
+        gateway.Set("n2", FollowerMode.Down);
+        gateway.Set("n3", FollowerMode.Down);
+        var cache = new StubCache();
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var committer = CreateCommitter(registry, gateway, cache);
+
+        var reuse = committer.CommitTryAddAsync(TailOperationId("k1"), "cache", "k1", Entry("other"), cancellationToken);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ServerOpIdMismatchException>(reuse);
+        _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(2UL);
+        _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();
+    }
+
     /// <summary>The tail recovered at the first write after a restart is applied in log order before that write.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

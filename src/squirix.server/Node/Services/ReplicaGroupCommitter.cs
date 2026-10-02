@@ -173,6 +173,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <typeparam name="TResult">The decoded outcome.</typeparam>
     /// <param name="write">The cache scope and the client operation identifier of the write.</param>
     /// <param name="state">The arguments of the write, handed to <paramref name="prepare" />.</param>
+    /// <param name="fingerprint">
+    /// Computes the operation fingerprint of the write from its arguments; called only when the write is refused before it is
+    /// prepared and an entry with its identity is retained.
+    /// </param>
     /// <param name="prepare">Prepares the mutation from the running factory, the arguments, and the log index it is appended at.</param>
     /// <param name="decode">Decodes the committed outcome.</param>
     /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
@@ -181,13 +185,28 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     internal async Task<TResult> CommitAsync<TState, TResult>(
         (string Scope, string OperationId) write,
         TState state,
+        Func<TState, byte[]> fingerprint,
         Func<ReplicaMutationFactory, TState, ulong, CancellationToken, ValueTask<PreparedReplicaMutation>> prepare,
         Func<ReadOnlyMemory<byte>, ValueTask<TResult>> decode,
         CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync(write, cancellationToken).ConfigureAwait(false);
+        ReplicaCommitCoordinator coordinator;
+        ReplicaMutationFactory factory;
+        try
+        {
+            (coordinator, factory) = await EnsureStartedAsync(true, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception) when (LookupRetained(write, state, fingerprint) is var retained && retained is GroupIdempotencyLookup.Unresolved or GroupIdempotencyLookup.Mismatch)
+        {
+            // A retry of an operation whose entry is appended but not yet committed (possibly by the process before a restart) must
+            // neither re-execute nor be told it failed: its outcome stays unknown until a commit resolves the entry, which the retry
+            // then replays. Whatever refused this attempt, only the unknown outcome is true for the operation. The same identifier
+            // with another request is a reuse, reported as such whatever the state of the entry.
+            throw retained == GroupIdempotencyLookup.Mismatch ? new ServerOpIdMismatchException() : ServerOpContract.CommitOutcomeUnknown();
+        }
+
         var index = PeekNextIndex();
         var mutation = await prepare(factory, state, index, cancellationToken).ConfigureAwait(false);
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
@@ -309,7 +328,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // A coordinator that still retains entries is never replaced (its restart refuses): the verified slots are admitted into it,
         // and its resolver commits and applies what they now cover. Otherwise the coordinator starts here, recovering the log tail.
         var coordinator = !await TryApplyPendingAsync().ConfigureAwait(false) && _coordinator is { } retained ? retained
-            : (await EnsureStartedAsync(null, cancellationToken).ConfigureAwait(false)).Coordinator;
+            : (await EnsureStartedAsync(false, cancellationToken).ConfigureAwait(false)).Coordinator;
         var current = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
 
         // A commit may have moved the tail between the unguarded probe and the gate: the verdicts then describe
@@ -339,9 +358,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
         catch (Exception error) when (IsPostAppendOutcome(error))
         {
-            // A durable majority may hold the entry: keep the reservation and sequencing untouched and
-            // report the stable contract (gRPC Unavailable with COMMIT_OUTCOME_UNKNOWN), so callers stop
-            // instead of retrying under a new identity. The original cause is logged before it is dropped.
+            // A durable majority may hold the entry: keep the reservation and sequencing untouched and report the stable contract
+            // (gRPC Unavailable with COMMIT_OUTCOME_UNKNOWN), so callers stop instead of retrying under a new identity.
             ServerLog.ReplicaCommitOutcomeUnknown(Log, error);
             throw ServerOpContract.CommitOutcomeUnknown();
         }
@@ -350,6 +368,11 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             // Refused when the identity was reserved, before anything was appended: the pipeline positions stand, so the started state
             // is kept, and the caller gets a retryable refusal while older outcomes age out.
             throw ServerOpContract.TooManyRequests(ReplicaCommitCoordinator.IdempotencyCapacityCode);
+        }
+        catch (InvalidOperationException error) when (error.Message.StartsWith(ReplicaCommitCoordinator.FingerprintMismatchCode, StringComparison.Ordinal))
+        {
+            // Refused the same way at the lookup, as a reuse of the identifier.
+            throw new ServerOpIdMismatchException();
         }
         catch (Exception error)
         {
@@ -391,48 +414,47 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     }
 
     /// <summary>Starts the coordinator when needed and, for a write, checks that it may be prepared and appended now.</summary>
-    /// <param name="write">The operation identity of the write, or <see langword="null" /> for verification.</param>
+    /// <param name="write">Whether a write is to be prepared next; <see langword="false" /> for verification.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The running coordinator and mutation factory.</returns>
-    /// <exception cref="SquirixException">
-    /// An appended entry is not yet applied (too many requests), or the write retries an operation whose entry is not yet committed
-    /// (commit outcome unknown).
-    /// </exception>
+    /// <exception cref="SquirixException">An appended entry is not yet applied (too many requests).</exception>
     /// <exception cref="InvalidOperationException">The write has no verified majority, or the committer is not started.</exception>
-    private async Task<(ReplicaCommitCoordinator Coordinator, ReplicaMutationFactory Factory)> EnsureStartedAsync(
-        (string Scope, string OperationId)? write,
-        CancellationToken cancellationToken)
+    private async Task<(ReplicaCommitCoordinator Coordinator, ReplicaMutationFactory Factory)> EnsureStartedAsync(bool write, CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
-        try
-        {
-            if (!_started)
-                await StartAsync(cancellationToken).ConfigureAwait(false);
+        if (!_started)
+            await StartAsync(cancellationToken).ConfigureAwait(false);
 
-            // Refused before anything is appended: a write that cannot reach a majority would leave an uncommitted local tail.
-            // Dropping the started state re-probes the followers on the next write. Decisions are prepared from live memory, so an
-            // entry that is appended but not yet applied would leave the decision blind to its effect: such a
-            // write fails definitely and may be retried; only this gate appends, so the check cannot go stale before the prepare.
-            var majority = write == null || _registry.EligibilityFor(GroupId).HasWriteMajority();
-            var applied = write == null || (majority && await TryApplyPendingAsync().ConfigureAwait(false));
-            if (!majority)
-                _started = false;
+        // Refused before anything is appended: a write that cannot reach a majority would leave an uncommitted local tail.
+        // Dropping the started state re-probes the followers on the next write. Decisions are prepared from live memory, so an
+        // entry that is appended but not yet applied would leave the decision blind to its effect: such a
+        // write fails definitely and may be retried; only this gate appends, so the check cannot go stale before the prepare.
+        var majority = !write || _registry.EligibilityFor(GroupId).HasWriteMajority();
+        var applied = !write || (majority && await TryApplyPendingAsync().ConfigureAwait(false));
+        if (!majority)
+            _started = false;
 
-            return (majority, applied, _coordinator, _factory) switch
-            {
-                (false, _, _, _) => throw new InvalidOperationException("Replica group has no verified write majority; the write was refused before the local append."),
-                (true, false, _, _) => throw ServerOpContract.TooManyRequests(PendingApplyRefusalReason),
-                (true, true, { } coordinator, { } factory) => (coordinator, factory),
-                _ => throw new InvalidOperationException("Replica group committer is not started."),
-            };
-        }
-        catch (Exception) when (write is { } retry && _registry.TryGetLog(GroupId, out var log) && log.Idempotency.IsUnresolved(retry.Scope, retry.OperationId))
+        return (majority, applied, _coordinator, _factory) switch
         {
-            // A retry of an operation whose entry is appended but not yet committed (possibly by the process before a restart) must
-            // neither re-execute nor be told it failed: its outcome stays unknown until a commit resolves the entry, which the retry
-            // then replays. Whatever refused this attempt, only the unknown outcome is true for the operation.
-            throw ServerOpContract.CommitOutcomeUnknown();
-        }
+            (false, _, _, _) => throw new InvalidOperationException("Replica group has no verified write majority; the write was refused before the local append."),
+            (true, false, _, _) => throw ServerOpContract.TooManyRequests(PendingApplyRefusalReason),
+            (true, true, { } coordinator, { } factory) => (coordinator, factory),
+            _ => throw new InvalidOperationException("Replica group committer is not started."),
+        };
+    }
+
+    /// <summary>Looks up the entry retained in the owned group log for the identity of a write.</summary>
+    /// <typeparam name="TState">The type of the write arguments.</typeparam>
+    /// <param name="write">The cache scope and the client operation identifier of the write.</param>
+    /// <param name="state">The arguments of the write.</param>
+    /// <param name="fingerprint">Computes the operation fingerprint of the write.</param>
+    /// <returns>The lookup; a miss when the owned group log is not open.</returns>
+    /// <remarks>The fingerprint, which encodes and hashes the request, is computed only once an entry with the identity is found.</remarks>
+    private GroupIdempotencyLookup LookupRetained<TState>((string Scope, string OperationId) write, TState state, Func<TState, byte[]> fingerprint)
+    {
+        return !_registry.TryGetLog(GroupId, out var log) || log.Idempotency.Lookup(write.Scope, write.OperationId, [], out _) == GroupIdempotencyLookup.Miss
+            ? GroupIdempotencyLookup.Miss
+            : log.Idempotency.Lookup(write.Scope, write.OperationId, fingerprint(state), out _);
     }
 
     /// <summary>Returns the next group log index to prepare with: the one after the last entry appended to the local log.</summary>
