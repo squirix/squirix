@@ -212,13 +212,24 @@ internal sealed class GroupIdempotencyState
     /// <param name="kind">The record kind.</param>
     /// <param name="logIndex">The journal index that carries the record.</param>
     /// <param name="term">The term in which the record was appended.</param>
+    /// <param name="alreadyLogged">
+    /// <see langword="true" /> for an entry the log already holds, such as a recovered tail: it is pinned even past the capacity, which
+    /// bounds new operations only, since refusing it would leave a logged entry unpinned and stop its group from starting.
+    /// </param>
     /// <returns>
     /// <see cref="GroupIdempotencyReserveResult.Success" /> when the reservation was created or already retained,
     /// <see cref="GroupIdempotencyReserveResult.FingerprintMismatch" /> when a record exists with a different
-    /// fingerprint, or <see cref="GroupIdempotencyReserveResult.CapacityExceeded" /> when the key is new and the
-    /// store is at capacity.
+    /// fingerprint, or <see cref="GroupIdempotencyReserveResult.CapacityExceeded" /> when the key is new, not
+    /// <paramref name="alreadyLogged" />, and the store is at capacity.
     /// </returns>
-    internal GroupIdempotencyReserveResult Reserve(string scope, string operationId, ReadOnlySpan<byte> operationFingerprint, GroupRecordKind kind, ulong logIndex, ulong term)
+    internal GroupIdempotencyReserveResult Reserve(
+        string scope,
+        string operationId,
+        ReadOnlySpan<byte> operationFingerprint,
+        GroupRecordKind kind,
+        ulong logIndex,
+        ulong term,
+        bool alreadyLogged = false)
     {
         lock (_sync)
         {
@@ -241,7 +252,7 @@ internal sealed class GroupIdempotencyState
                 return GroupIdempotencyReserveResult.Success;
             }
 
-            if (_records.Count >= Capacity)
+            if (_records.Count >= Capacity && !alreadyLogged)
                 return GroupIdempotencyReserveResult.CapacityExceeded;
 
             var memory = BufferEx.CopyToOwned(operationFingerprint);

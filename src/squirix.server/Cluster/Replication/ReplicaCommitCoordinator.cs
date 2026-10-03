@@ -727,7 +727,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         /// Uncommitted tail recovered at start, retained with an unresolved idempotency pin per entry, or <see langword="null" /> when the
         /// log tail is fully committed.
         /// </param>
-        /// <exception cref="InvalidOperationException">A recovered entry cannot be pinned: its identity is retained with another fingerprint, or the idempotency capacity is exhausted.</exception>
+        /// <exception cref="InvalidOperationException">A recovered entry cannot be pinned: its identity is retained with another fingerprint.</exception>
         internal ReplicaPendingApplies(
             IReplicaCommitPipeline pipeline,
             GroupIdempotencyState idempotency,
@@ -749,7 +749,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             {
                 var kind = string.Equals(entry.OperationScope, ReplicaExpirationOperationId.OperationScope, StringComparison.Ordinal) ? GroupRecordKind.Expiration
                     : GroupRecordKind.UserMutation;
-                var reserved = idempotency.Reserve(entry.OperationScope, entry.OperationId, entry.OperationFingerprint.Span, kind, entry.LogIndex, entry.Term);
+                var reserved = idempotency.Reserve(entry.OperationScope, entry.OperationId, entry.OperationFingerprint.Span, kind, entry.LogIndex, entry.Term, true);
                 if (reserved != GroupIdempotencyReserveResult.Success)
                     throw new InvalidOperationException($"Recovered log entry {entry.LogIndex} cannot be pinned for idempotent retries: {reserved}.");
 
