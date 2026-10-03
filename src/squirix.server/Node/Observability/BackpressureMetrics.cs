@@ -107,7 +107,7 @@ internal sealed class BackpressureMetrics
         _ = _meter.CreateObservableGauge(
             "squirix_backpressure_tracked_clients",
             () => new Measurement<int>(Aggregate(static e => e.ObserveTrackedClients())),
-            description: "Current number of client buckets tracked for backpressure state");
+            description: "Current number of client buckets tracked for backpressure state; zero unless a per-client limit is set");
 
         return new ObserverRegistration(observerId, this);
     }

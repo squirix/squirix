@@ -1,4 +1,3 @@
-using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.IntegrationTests.Support;
@@ -30,7 +29,7 @@ public sealed class BackpressureClientIdTests : NodeIntegrationTestBase
     [Test]
     public async Task PerClientLimitResolvesCallerIds(CancellationToken cancellationToken)
     {
-        var admission = new AdmissionOptions { PerClientMaxInFlight = 4, MaxSlowdownDelay = TimeSpan.Zero };
+        var admission = new AdmissionOptions { PerClientMaxInFlight = 4 };
         await using var cluster = await StartClusterAsync("node_bp_client", new IntegrationStartOptions { BackpressureOptions = admission }, cancellationToken);
 
         var resolver = cluster["node_bp_client"].GetRequiredService<IBackpressureClientIdResolver>();

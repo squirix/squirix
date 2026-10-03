@@ -108,10 +108,12 @@ public sealed class BackpressureRateLimitingTests : DisposableServerUnitTestBase
         var (rejectedDecision, rejectedLease) = await gate.AcquireAsync("grpc", "get", "grpc:client-a", cancellationToken);
         rejectedLease.Dispose();
 
-        using var secondClient = (await gate.AcquireAsync("grpc", "get", "grpc:client-b", cancellationToken)).Lease;
+        var (secondDecision, secondClient) = await gate.AcquireAsync("grpc", "get", "grpc:client-b", cancellationToken);
+        secondClient.Dispose();
 
         _ = await Assert.That(rejectedDecision.IsAccepted).IsFalse();
         _ = await Assert.That(rejectedDecision.RejectReason).IsEqualTo("client_rate_limit");
+        _ = await Assert.That(secondDecision.IsAccepted).IsTrue();
         _ = await Assert.That(sink.HasEvent("squirix_backpressure_rate_limit_reject_total", ("transport", "grpc"), ("op", "get"), ("scope", "client"))).IsTrue();
     }
 

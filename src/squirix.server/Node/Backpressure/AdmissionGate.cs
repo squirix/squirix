@@ -97,7 +97,9 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     private Lease AcquireLease(string clientId, ClientState client)
     {
         AdjustInFlight(1);
-        _ = Interlocked.Increment(ref client.InFlightRef);
+        if (!ReferenceEquals(client, _sharedClient))
+            _ = Interlocked.Increment(ref client.InFlightRef);
+
         return new Lease(this, clientId, client);
     }
 
@@ -186,7 +188,9 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private void Release(string clientId, ClientState client)
     {
-        _ = Interlocked.Decrement(ref client.InFlightRef);
+        if (!ReferenceEquals(client, _sharedClient))
+            _ = Interlocked.Decrement(ref client.InFlightRef);
+
         AdjustInFlight(-1);
         _slots.Release();
         RemoveIdleClient(clientId, client);
