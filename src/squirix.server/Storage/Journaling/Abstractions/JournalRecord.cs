@@ -18,6 +18,9 @@ internal sealed class JournalRecord
     /// <summary>Gets or sets idempotency response bytes; only set for <see cref="JournalOperationKind.IdempotencyOutcome" />.</summary>
     internal ReadOnlyMemory<byte> IdempotencyResponseBytes { get; set; }
 
+    /// <summary>Gets or sets the request fingerprint stamped next to <see cref="MutationOperationId" />; <see langword="null" /> when the frame carries none.</summary>
+    internal string? MutationFingerprint { get; set; }
+
     /// <summary>Gets or sets cache mutation operation id; set for mutation records appended inside an idempotent RPC scope.</summary>
     internal string? MutationOperationId { get; set; }
 
@@ -42,6 +45,7 @@ internal sealed class JournalRecord
     {
         PutEntryBytes = default;
         MutationOperationId = null;
+        MutationFingerprint = null;
         IdempotencyOperationId = null;
         IdempotencyFingerprint = null;
         IdempotencyResponseBytes = default;

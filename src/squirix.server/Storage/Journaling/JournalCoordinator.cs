@@ -573,6 +573,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             };
 
             record.MutationOperationId = stampedOperationId;
+            record.MutationFingerprint = stampedOperationId != null ? RpcMutationIdempotencyExecutionAmbient.ActiveFingerprintValue : null;
             return stampedOperationId != null;
         }
 

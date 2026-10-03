@@ -8,6 +8,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
@@ -92,7 +93,18 @@ internal sealed class ReplicaLeaderApplier
             throw;
         }
 
-        await ReplicaCacheApplier.ExecuteAsync(_local, record, effect, entry, cancellationToken).ConfigureAwait(false);
+        // The group log is the durable source of a replicated write: its cache journal frame must not become an RPC write-ahead
+        // intent, or a restart would rebuild a Started record that hides the group outcome the committer replays.
+        var stamping = RpcMutationIdempotencyExecutionAmbient.SuspendStamping();
+        try
+        {
+            await ReplicaCacheApplier.ExecuteAsync(_local, record, effect, entry, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            RpcMutationIdempotencyExecutionAmbient.ResumeStamping(stamping);
+        }
+
         Volatile.Write(ref _appliedIndex, logIndex);
     }
 

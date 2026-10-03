@@ -8,17 +8,42 @@ internal static class RpcMutationIdempotencyExecutionAmbient
 {
     private static readonly AsyncLocal<ScopeFrame?> Current = new();
 
-    /// <summary>Gets the operation identifier of the active idempotent RPC, or <see langword="null" /> when no scope is active.</summary>
-    internal static string? ActiveOperationIdValue => Current.Value?.OperationId;
+    /// <summary>Gets the operation identifier journal mutation frames are stamped with, or <see langword="null" /> when no scope is active or stamping is suspended.</summary>
+    internal static string? ActiveOperationIdValue => Current.Value is { StampingSuspended: false } frame ? frame.OperationId : null;
+
+    /// <summary>Gets the request fingerprint journal mutation frames are stamped with, or <see langword="null" /> when no scope is active or stamping is suspended.</summary>
+    internal static string? ActiveFingerprintValue => Current.Value is { StampingSuspended: false } frame ? frame.Fingerprint : null;
 
     /// <summary>Gets a value indicating whether durability is currently deferred for an active idempotent RPC.</summary>
     internal static bool IsDeferred => Current.Value != null;
 
-    internal static void Activate(object scope, string operationId)
+    internal static void Activate(object scope, string operationId, string fingerprint)
     {
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
-        Current.Value = new ScopeFrame(scope, operationId, Current.Value);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
+        Current.Value = new ScopeFrame(scope, operationId, fingerprint, Current.Value, false);
+    }
+
+    /// <summary>Stops stamping mutation frames with the active operation id until <see cref="ResumeStamping" /> is called with the returned token.</summary>
+    /// <returns>The token to pass to <see cref="ResumeStamping" />.</returns>
+    /// <remarks>Durability stays deferred; only the write-ahead stamp is dropped, for writes whose durable source is not the cache journal.</remarks>
+    internal static object? SuspendStamping()
+    {
+        var previous = Current.Value;
+        if (previous == null)
+            return null;
+
+        Current.Value = new ScopeFrame(previous.Scope, previous.OperationId, previous.Fingerprint, previous, true);
+        return previous;
+    }
+
+    /// <summary>Restores the stamping state captured by <see cref="SuspendStamping" />.</summary>
+    /// <param name="token">The token returned by <see cref="SuspendStamping" />.</param>
+    internal static void ResumeStamping(object? token)
+    {
+        if (token is ScopeFrame previous)
+            Current.Value = previous;
     }
 
     internal static void Deactivate(object scope)
@@ -35,8 +60,8 @@ internal static class RpcMutationIdempotencyExecutionAmbient
     {
         for (var frame = Current.Value; frame != null; frame = frame.Parent)
         {
-            if (ReferenceEquals(frame.Scope, scope))
-                return frame.MutationStamped;
+            if (ReferenceEquals(frame.Scope, scope) && frame.MutationStamped)
+                return true;
         }
 
         return false;
@@ -47,12 +72,16 @@ internal static class RpcMutationIdempotencyExecutionAmbient
 
     private sealed class ScopeFrame
     {
-        internal ScopeFrame(object scope, string operationId, ScopeFrame? parent)
+        internal ScopeFrame(object scope, string operationId, string fingerprint, ScopeFrame? parent, bool stampingSuspended)
         {
             Scope = scope;
             OperationId = operationId;
+            Fingerprint = fingerprint;
             Parent = parent;
+            StampingSuspended = stampingSuspended;
         }
+
+        internal string Fingerprint { get; }
 
         internal bool MutationStamped { get; private set; }
 
@@ -61,6 +90,8 @@ internal static class RpcMutationIdempotencyExecutionAmbient
         internal ScopeFrame? Parent { get; }
 
         internal object Scope { get; }
+
+        internal bool StampingSuspended { get; }
 
         internal void MarkStamped() => MutationStamped = true;
     }

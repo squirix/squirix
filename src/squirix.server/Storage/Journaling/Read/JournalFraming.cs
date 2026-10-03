@@ -13,7 +13,7 @@ internal static class JournalFraming
 
     internal const int FrameHeaderSize = JournalFrameEnvelope.HeaderSize;
 
-    internal const byte Version = 2;
+    internal const byte Version = 3;
 
     private const int FrameFooterSize = JournalFrameEnvelope.FooterSize;
 

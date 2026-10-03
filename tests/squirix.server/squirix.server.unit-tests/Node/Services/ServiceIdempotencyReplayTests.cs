@@ -6,9 +6,11 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -16,6 +18,7 @@ using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.IO;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
@@ -76,6 +79,86 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
 
         _ = await Assert.That(idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out _)).IsFalse();
         _ = await Assert.That(idempotencyStore.ReserveIntent(OperationId, Fingerprint, null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
+    }
+
+    /// <summary>
+    /// A started record rebuilt from a stamped mutation frame carries the stamped fingerprint: a retry of another request under the same
+    /// operation id is rejected as an operation-id reuse, the same request still sees the unknown outcome.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplayKeepsStampedFingerprint(CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-idempotency-started-fingerprint");
+        var persistence = CreatePersistence(scenario.DataDir);
+        await WriteStartedMutationAsync(scenario, persistence, false, cancellationToken);
+
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
+
+        var mismatch = NodeExceptionAssert.For<ServerOpIdMismatchException>().Throws(idempotencyStore, static value => _ = value.ReserveIntent(OperationId, "other-fingerprint", null, out _));
+        _ = await Assert.That(mismatch.Message).IsEqualTo(ServerOpIdMismatchException.StableDetail);
+        _ = await Assert.That(idempotencyStore.ReserveIntent(OperationId, Fingerprint, null, out _)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
+    }
+
+    /// <summary>
+    /// A write applied from a replica group entry inside an idempotent RPC scope is not stamped: its cache journal frame carries no operation
+    /// id, the scope reports no stamped mutation, and recovery rebuilds no started record, so a retry reaches the committer, which replays
+    /// the group outcome.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplicatedApplyIsNotStamped(CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-replicated-apply");
+        using var groupDir = new TempDirectory("squirix-replicated-apply-group");
+        var persistence = CreatePersistence(scenario.DataDir);
+        var ambientScope = new object();
+        bool stamped;
+        await using (var journal = JournalCoordinatorFactory.Create(
+                         persistence,
+                         await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken),
+                         scenario.Ledger,
+                         new AsyncManualResetEvent(true),
+                         NullLoggerFactory.Instance,
+                         TimeProvider.System,
+                         out _))
+        {
+            await using var registry = await ReplicaOwnerTestKit.OpenRegistryAsync(groupDir, cancellationToken);
+            await using var committer = ReplicaOwnerTestKit.CreateCommitter(registry, new ReplicaOwnerTestKit.ScriptedGateway(), new JournalingCache(journal));
+            RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId, Fingerprint);
+            try
+            {
+                await committer.CommitSetAsync(OperationId, "default", "idempotency-key", ReplicaOwnerTestKit.Entry("idempotency-key"), cancellationToken);
+                stamped = RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(ambientScope);
+            }
+            finally
+            {
+                RpcMutationIdempotencyExecutionAmbient.Deactivate(ambientScope);
+            }
+
+            await journal.AwaitDurabilityCommitAsync(cancellationToken);
+        }
+
+        var putFrames = 0;
+        using (var records = JournalReadPath.ReadAll(scenario.DataDir, 1, CancellationToken.None))
+        {
+            while (records.MoveNext())
+            {
+                if (records.Current.Operation != JournalOperationKind.Put)
+                    continue;
+
+                putFrames++;
+                _ = await Assert.That(records.Current.MutationOperationId).IsNull();
+            }
+        }
+
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
+
+        _ = await Assert.That(stamped).IsFalse();
+        _ = await Assert.That(putFrames).IsEqualTo(1);
+        _ = await Assert.That(idempotencyStore.ReserveIntent(OperationId, Fingerprint, null, out _)).IsEqualTo(IdempotencyReserveResult.Acquired);
     }
 
     /// <summary>Replay supersedes the write-ahead started marker with the durable outcome when both frames exist.</summary>
@@ -181,7 +264,7 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
             out _);
 
         var ambientScope = new object();
-        RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId);
+        RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId, Fingerprint);
         try
         {
             await journal.AppendPutUnderGateAsync(CacheKey.Default("idempotency-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
@@ -202,5 +285,37 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
         }
 
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
+    }
+
+    /// <summary>Local cache double that journals every replicated set through the real journal coordinator, as the local write chain does.</summary>
+    [ThreadSafe]
+    private sealed class JournalingCache : ILogicalNamespacedCache<object?>
+    {
+        private readonly IJournalCoordinator _journal;
+
+        internal JournalingCache(IJournalCoordinator journal)
+        {
+            _journal = journal;
+        }
+
+        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult<NodeCacheEntry<object?>?>(null);
+
+        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new NodeCacheValueResult<object?>(false, null));
+
+        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new CacheRemoveResult<object?>(false, null));
+
+        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(false);
+
+        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+            _journal.AppendPutUnderGateAsync(new CacheKey(cacheName, key), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
+
+        public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => ValueTask.FromResult(false);
+
+        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(false);
+
+        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) => ValueTask.FromResult(false);
     }
 }

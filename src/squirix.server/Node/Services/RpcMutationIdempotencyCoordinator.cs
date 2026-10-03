@@ -234,7 +234,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             ArgumentNullException.ThrowIfNull(journal);
 
             var scope = new RpcMutationIdempotencyExecutionScope(operationId, fingerprint, journal);
-            RpcMutationIdempotencyExecutionAmbient.Activate(scope, operationId);
+            RpcMutationIdempotencyExecutionAmbient.Activate(scope, operationId, fingerprint);
             return scope;
         }
 

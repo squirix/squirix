@@ -166,6 +166,7 @@ public sealed class RpcMutationIdempotencyCapacityTests : IsolatedStorageTestBas
                 Key = CacheKey.Default("big"),
                 PutEntryBytes = JournalEntryPayloadKit.EncodePut(value),
                 MutationOperationId = OperationId,
+                MutationFingerprint = "fingerprint",
             };
             var frame = JournalFraming.FrameTotalLength(BinaryJournalCodec.PrepareEncode(record).BodyLength);
             if (frame == target)

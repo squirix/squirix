@@ -38,9 +38,13 @@ u32 payloadLen       // per opcode, see below
 | 1      | Put                           | cache-entry blob (`CacheEntryCodec`)                    |
 | 2      | Remove                        | empty (`payloadLen = 0`)                                |
 | 3      | IdempotencyOutcome            | structured idempotency outcome                          |
-| 4      | PutWithMutationOperationId    | mutation operation id prefix, then the cache-entry blob |
-| 5      | RemoveWithMutationOperationId | mutation operation id prefix only                       |
+| 4      | PutWithMutationOperationId    | mutation prefix, then the cache-entry blob              |
+| 5      | RemoveWithMutationOperationId | mutation prefix only                                    |
 | 6      | IdempotencyStarted            | structured write-ahead idempotency intent               |
+
+The mutation prefix of opcodes 4 and 5 is `u16 operationIdLen`, the operation id (UTF-8), `u16 fingerprintLen`, the request fingerprint
+(UTF-8; `0` when none). A cache-entry frame written for an idempotent RPC carries it as the write-ahead intent, so recovery rebuilds the
+started record with the fingerprint. A frame applied from a replica group entry carries no prefix: the group log is its durable source.
 
 ## Cache-entry frames
 
@@ -53,5 +57,5 @@ and snapshot plus tail recovery give the same state for any cut of the journal.
 
 ## File format version
 
-The file header version is `2`. A segment with any other non-zero version under the journal magic is rejected on read, recovery and
+The file header version is `3`. A segment with any other non-zero version under the journal magic is rejected on read, recovery and
 compaction with an error, and is never truncated or repaired. An opcode value outside the table above fails decoding.
