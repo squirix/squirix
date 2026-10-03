@@ -139,7 +139,7 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         var policyDisposed = CreateForwarder(new CapturingCallInvoker(), disposedPolicy);
         var poolExpectations = new IServerClientPoolCreateExpectations();
         _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).Callback(static _ => throw new ObjectDisposedException("pool"));
-        var lookupDisposed = new OwnerRpcForwarder(poolExpectations.Instance(), CreateGate([], Decision.Accepted()), CreateClientIdResolver());
+        var lookupDisposed = new OwnerRpcForwarder(poolExpectations.Instance(), CreateGate([], Decision.Accepted()), CreateClientIdResolver(), RingAgreements.Create());
 
         var fromPolicy = await NodeAsyncAssert.ThrowsAsync<RpcException>(policyDisposed.GetValueAsync(Owner, request, cancellationToken));
         var fromLookup = await NodeAsyncAssert.ThrowsAsync<RpcException>(lookupDisposed.GetValueAsync(Owner, request, cancellationToken));
@@ -185,6 +185,57 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         var result = await forwarder.GetOrAddAsync(Owner, new GetOrAddAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken);
 
         _ = await Assert.That(result).IsSameReferenceAs(response);
+    }
+
+    /// <summary>A ring-mismatch refusal from the owner fences the entry node and reaches the client with its trailer.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RingMismatchFromOwnerFencesEntryNode(CancellationToken cancellationToken)
+    {
+        var agreement = RingAgreements.Create();
+        var invoker = new CapturingCallInvoker(failure: static () => RingMismatchFailure.Mismatch());
+        var forwarder = CreateForwarder(invoker, agreement: agreement);
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            forwarder.RemoveAsync(Owner, new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken));
+
+        _ = await Assert.That(RingMismatchFailure.IsMismatch(failure)).IsTrue();
+        _ = await Assert.That(invoker.Requests.Count).IsEqualTo(1);
+        _ = await Assert.That(agreement.IsFenced).IsTrue();
+        _ = await Assert.That(agreement.FirstMismatch).IsEqualTo(new RingMismatchReport(Owner, RingMismatchDirection.Outbound, "unknown"));
+    }
+
+    /// <summary>A ring-fenced refusal from the owner does not fence the entry node, because the owner agrees with it on the ring.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RingFencedFromOwnerDoesNotFence(CancellationToken cancellationToken)
+    {
+        var agreement = RingAgreements.Create();
+        var invoker = new CapturingCallInvoker(failure: static () => RingMismatchFailure.Fenced());
+        var forwarder = CreateForwarder(invoker, agreement: agreement);
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            forwarder.RemoveAsync(Owner, new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken));
+
+        _ = await Assert.That(RingMismatchFailure.IsRefusal(failure)).IsTrue();
+        _ = await Assert.That(invoker.Requests.Count).IsEqualTo(1);
+        _ = await Assert.That(agreement.IsFenced).IsFalse();
+    }
+
+    /// <summary>A stale-owner refusal from the owner does not fence the entry node.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StaleOwnerFromOwnerDoesNotFence(CancellationToken cancellationToken)
+    {
+        var agreement = RingAgreements.Create();
+        var invoker = new CapturingCallInvoker(failure: static () => StaleOwnerFailure.Create("node-c", Owner));
+        var forwarder = CreateForwarder(invoker, agreement: agreement);
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            forwarder.RemoveAsync(Owner, new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken));
+
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
+        _ = await Assert.That(agreement.IsFenced).IsFalse();
     }
 
     /// <summary>An admission refusal by the owner passes through to the client after one attempt.</summary>
@@ -240,14 +291,14 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         return expectations.Instance();
     }
 
-    private OwnerRpcForwarder CreateForwarder(CapturingCallInvoker invoker, IServerCallPolicy? policy = null, IBackpressureGate? gate = null)
+    private OwnerRpcForwarder CreateForwarder(CapturingCallInvoker invoker, IServerCallPolicy? policy = null, IBackpressureGate? gate = null, RingAgreement? agreement = null)
     {
         var poolExpectations = new IServerClientPoolCreateExpectations();
         var client = new SquirixCacheService.SquirixCacheServiceClient(invoker);
         var callPolicy = policy ?? CreatePolicy();
         _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(client);
         _ = poolExpectations.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(callPolicy);
-        return new OwnerRpcForwarder(poolExpectations.Instance(), gate ?? CreateGate([], Decision.Accepted()), CreateClientIdResolver());
+        return new OwnerRpcForwarder(poolExpectations.Instance(), gate ?? CreateGate([], Decision.Accepted()), CreateClientIdResolver(), agreement ?? RingAgreements.Create());
     }
 
     private ServerCallPolicy CreatePolicy() => new(

@@ -119,8 +119,8 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
         // The cache operations and the coordinator have no setups: any call to them fails the test.
         return new SquirixServiceAdapter<object?>(
             new IGrpcCacheOperationsCreateExpectations<object?>().Instance(),
-            new OwnerRouter(ownership.Instance(), invocation.Instance()),
-            new OwnerRpcForwarder(pool.Instance(), gate.Instance(), clientIds.Instance()),
+            new OwnerRouter(ownership.Instance(), invocation.Instance(), RingAgreements.Create()),
+            new OwnerRpcForwarder(pool.Instance(), gate.Instance(), clientIds.Instance(), RingAgreements.Create()),
             new IRpcMutationIdempotencyCoordinatorCreateExpectations().Instance(),
             TimeProvider.System);
     }

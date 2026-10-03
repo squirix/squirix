@@ -58,11 +58,15 @@ internal static class RuntimeServiceRegistration
 
             _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
             _ = services.AddSingleton<IGrpcCacheOperations<object?>, CacheOperations<object?>>();
-            _ = services.AddSingleton(static sp => new OwnerRouter(sp.GetRequiredService<INodeOwnershipResolver>(), sp.GetRequiredService<IRemoteInvocationState>()));
+            _ = services.AddSingleton(static sp => new OwnerRouter(
+                sp.GetRequiredService<INodeOwnershipResolver>(),
+                sp.GetRequiredService<IRemoteInvocationState>(),
+                sp.GetRequiredService<RingAgreement>()));
             _ = services.AddSingleton(static sp => new OwnerRpcForwarder(
                 sp.GetRequiredService<IServerClientPool>(),
                 sp.GetRequiredService<IBackpressureGate>(),
-                sp.GetRequiredService<IBackpressureClientIdResolver>()));
+                sp.GetRequiredService<IBackpressureClientIdResolver>(),
+                sp.GetRequiredService<RingAgreement>()));
             _ = services.AddSingleton(static sp => new RpcMutationIdempotencyStore(
                 sp.GetRequiredService<IdempotencyOptions>(),
                 sp.GetRequiredService<TopologyOptions>().NodeId,

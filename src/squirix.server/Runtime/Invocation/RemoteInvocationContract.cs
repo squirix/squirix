@@ -8,4 +8,7 @@ internal static class RemoteInvocationContract
 
     /// <summary>gRPC request metadata value for internal owner-routed RPC classification.</summary>
     public const string InternalOwnerRpcHeaderValue = "true";
+
+    /// <summary>gRPC request metadata key that carries the ring fingerprint of the calling node on internal owner-routed RPCs.</summary>
+    public const string RingFingerprintHeaderName = "squirix-ring-fingerprint";
 }

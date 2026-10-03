@@ -62,6 +62,8 @@ Readiness behavior (`GET /health/ready`):
   failure (**Unhealthy**) takes precedence. The host keeps the default ASP.NET Core status mapping, so a **Degraded**
   readiness answers HTTP `200` with the body `Degraded` (**Healthy** answers `200` with `Healthy`, **Unhealthy** `503`
   with `Unhealthy`): a probe that checks only the status code does not see it.
+- `ring_agreement` is **Unhealthy** once the node detected a cluster ring mismatch with a peer and refuses cache operations until it is restarted. The check
+  description, which names the peer and the side that detected the mismatch, appears in the health-check log entry (repeated at `Error` on each probe), not in the HTTP body. See [clustering.md](clustering.md#ring-agreement).
 - The default ASP.NET Core readiness check is unchanged: **normal** and **high** memory pressure do **not** fail
   readiness by themselves.
 - **Critical** memory pressure does **not** flip readiness to unhealthy in the current host: operators rely on

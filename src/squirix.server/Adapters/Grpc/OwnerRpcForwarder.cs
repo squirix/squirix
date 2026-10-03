@@ -24,15 +24,18 @@ internal sealed class OwnerRpcForwarder
     private readonly IBackpressureClientIdResolver _clientIdResolver;
     private readonly IBackpressureGate _gate;
     private readonly IServerClientPool _pool;
+    private readonly RingAgreement _ringAgreement;
 
-    internal OwnerRpcForwarder(IServerClientPool pool, IBackpressureGate gate, IBackpressureClientIdResolver clientIdResolver)
+    internal OwnerRpcForwarder(IServerClientPool pool, IBackpressureGate gate, IBackpressureClientIdResolver clientIdResolver, RingAgreement ringAgreement)
     {
         ArgumentNullException.ThrowIfNull(pool);
         ArgumentNullException.ThrowIfNull(gate);
         ArgumentNullException.ThrowIfNull(clientIdResolver);
+        ArgumentNullException.ThrowIfNull(ringAgreement);
         _pool = pool;
         _gate = gate;
         _clientIdResolver = clientIdResolver;
+        _ringAgreement = ringAgreement;
     }
 
     internal Task<GetEntryAsyncResponse> GetEntryAsync(string owner, GetEntryAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
@@ -156,6 +159,10 @@ internal sealed class OwnerRpcForwarder
             }
             catch (RpcException ex)
             {
+                // The owner refused because its ring differs from this node: fence this node too, then relay the refusal with its trailers.
+                if (RingMismatchFailure.IsMismatch(ex))
+                    _ringAgreement.ReportOutboundMismatch(owner);
+
                 throw RelayOwnerFailure(ex);
             }
             catch (Exception ex) when (ex is HttpRequestException or IOException)

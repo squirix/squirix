@@ -322,6 +322,10 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             if (ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(rx.Status.Detail))
                 return AttemptOutcome<T>.Stop(rx);
 
+            // A ring refusal comes from a configuration disagreement that a retry cannot fix; nothing was executed on the peer.
+            if (RingMismatchFailure.IsRefusal(rx))
+                return AttemptOutcome<T>.Stop(rx);
+
             var canRetry = attempt < _maxAttempts && ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken);
             if (!canRetry)
                 return AttemptOutcome<T>.Stop(rx);

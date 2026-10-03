@@ -198,6 +198,12 @@ internal static class ServerHostingComposition
     private static void AddSquirixClusterStack(IServiceCollection services, TopologyOptions cluster, ICompositionArgs args)
     {
         _ = services.AddSquirixClusterLocator(cluster);
+        _ = services.AddHealthChecks().Add(
+            new HealthCheckRegistration(
+                "ring_agreement",
+                static sp => new RingAgreementHealthCheck(sp.GetRequiredService<RingAgreement>()),
+                HealthStatus.Unhealthy,
+                ["ready"]));
         _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory);
         _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
         _ = services.AddSingleton(static _ => new ReplicaRepairService(RepairQueueCapacity));

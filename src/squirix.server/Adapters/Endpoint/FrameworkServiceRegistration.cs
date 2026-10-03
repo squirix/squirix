@@ -31,7 +31,8 @@ internal static class FrameworkServiceRegistration
             sp.GetRequiredService<IRemoteInvocationScopeFactory>(),
             sp.GetRequiredService<TopologyOptions>(),
             sp.GetRequiredService<MtlsOptions>(),
-            sp.GetRequiredService<MtlsCertificate>()));
+            sp.GetRequiredService<MtlsCertificate>(),
+            sp.GetRequiredService<RingAgreement>()));
         _ = services.AddSingleton<ResourceExhaustedExceptionInterceptor>();
 
         return services;
@@ -42,18 +43,26 @@ internal static class FrameworkServiceRegistration
         private readonly TopologyOptions _cluster;
         private readonly MtlsCertificate _mtls;
         private readonly MtlsOptions _mtlsOptions;
+        private readonly RingAgreement _ringAgreement;
         private readonly IRemoteInvocationScopeFactory _scopeFactory;
 
-        internal InvocationContextInterceptor(IRemoteInvocationScopeFactory scopeFactory, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificate mtls)
+        internal InvocationContextInterceptor(
+            IRemoteInvocationScopeFactory scopeFactory,
+            TopologyOptions cluster,
+            MtlsOptions mtlsOptions,
+            MtlsCertificate mtls,
+            RingAgreement ringAgreement)
         {
             ArgumentNullException.ThrowIfNull(scopeFactory);
             ArgumentNullException.ThrowIfNull(cluster);
             ArgumentNullException.ThrowIfNull(mtlsOptions);
             ArgumentNullException.ThrowIfNull(mtls);
+            ArgumentNullException.ThrowIfNull(ringAgreement);
             _scopeFactory = scopeFactory;
             _cluster = cluster;
             _mtlsOptions = mtlsOptions;
             _mtls = mtls;
+            _ringAgreement = ringAgreement;
         }
 
         public override async Task ServerStreamingServerHandler<TRequest, TResponse>(
@@ -75,10 +84,22 @@ internal static class FrameworkServiceRegistration
             return await continuation(request, context).ConfigureAwait(false);
         }
 
+        private static string ResolvePeerNodeId(ServerCallContext context)
+        {
+            var certificate = context.GetHttpContext().Connection.ClientCertificate;
+            return certificate != null && MtlsCertificateIdentity.TryGetNodeId(certificate, out var nodeId) ? nodeId : "unknown";
+        }
+
         private bool ResolveInternalOwnerInvocation(ServerCallContext context)
         {
             SquirixClusterConnectionSecurity.RejectSpoofedInternalOwnerHeader(context, _cluster, _mtlsOptions, _mtls);
-            return SquirixClusterConnectionSecurity.IsTrustedInternalOwnerCall(context, _cluster, _mtlsOptions, _mtls);
+            if (!SquirixClusterConnectionSecurity.IsTrustedInternalOwnerCall(context, _cluster, _mtlsOptions, _mtls))
+                return false;
+
+            // Refuse a caller with a different ring before any handler or idempotency store runs.
+            var peerFingerprint = context.RequestHeaders.GetValue(RemoteInvocationContract.RingFingerprintHeaderName);
+            _ringAgreement.EnsureInboundAgreement(peerFingerprint, ResolvePeerNodeId(context));
+            return true;
         }
 
         /// <summary>Centralizes trusted cluster-peer checks used by transport auth and inbound RPC classification.</summary>
