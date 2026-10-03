@@ -178,7 +178,7 @@ internal sealed class ServerClientPool : IServerClientPool
 
     private async Task DisposePolicyAsync(string nodeId)
     {
-        var failure = await _policies[nodeId].CaptureDisposeFailureAsync().ConfigureAwait(false);
+        var failure = await _policies[nodeId].CaptureFailureAsync().ConfigureAwait(false);
         if (failure != null)
             ServerLog.ClientPoolPolicyDisposeFailed(_logger, failure, nodeId);
     }

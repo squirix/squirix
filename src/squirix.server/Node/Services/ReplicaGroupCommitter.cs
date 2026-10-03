@@ -178,6 +178,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <param name="decode">Decodes the committed outcome.</param>
     /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
     /// <returns>The decoded outcome of the committed write.</returns>
+    /// <exception cref="ServerOpIdMismatchException">The operation identifier is reused with another request.</exception>
+    /// <exception cref="SquirixException">The outcome of the operation is unknown, or the write is refused retryably.</exception>
     /// <remarks>The typed writes built on this method are in <see cref="ReplicaGroupCommitterWrites" />.</remarks>
     internal async Task<TResult> CommitAsync<TState, TResult>(
         (string Scope, string OperationId) write,
@@ -189,21 +191,24 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        ReplicaCommitCoordinator coordinator;
-        ReplicaMutationFactory factory;
-        try
+        var starting = EnsureStartedAsync(true, cancellationToken);
+        if (await starting.CaptureFailureAsync().ConfigureAwait(false) != null)
         {
-            (coordinator, factory) = await EnsureStartedAsync(true, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception) when (LookupRetained(write, state, fingerprint) is var retained && retained is GroupIdempotencyLookup.Unresolved or GroupIdempotencyLookup.Mismatch)
-        {
-            // A retry of an operation whose entry is appended but not yet committed (possibly by the process before a restart) must
-            // neither re-execute nor be told it failed: its outcome stays unknown until a commit resolves the entry, which the retry
-            // then replays. Whatever refused this attempt, only the unknown outcome is true for the operation. The same identifier
-            // with another request is a reuse, reported as such whatever the state of the entry.
-            throw retained == GroupIdempotencyLookup.Mismatch ? new ServerOpIdMismatchException() : ServerOpContract.CommitOutcomeUnknown();
+            // Whatever refused the start, a retained entry of this operation decides the answer. A retry of a committed operation replays
+            // its outcome: it needs no majority and no apply. A retry of an operation whose entry is appended but not yet committed
+            // (possibly by the process before a restart) must neither re-execute nor be told it failed: its outcome stays unknown until a
+            // commit resolves the entry. The same identifier with another request is a reuse, whatever the state of the entry. Without a
+            // retained entry the refusal stands and is rethrown by the await below.
+            var retained = LookupRetained(write, state, fingerprint, out var recorded);
+            if (retained == GroupIdempotencyLookup.Found)
+                return await decode(recorded.OutcomePayload).ConfigureAwait(false);
+            if (retained == GroupIdempotencyLookup.Mismatch)
+                throw new ServerOpIdMismatchException();
+            if (retained == GroupIdempotencyLookup.Unresolved)
+                throw ServerOpContract.CommitOutcomeUnknown();
         }
 
+        var (coordinator, factory) = await starting.ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await prepare(factory, state, index, cancellationToken).ConfigureAwait(false);
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
@@ -446,13 +451,15 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <param name="write">The cache scope and the client operation identifier of the write.</param>
     /// <param name="state">The arguments of the write.</param>
     /// <param name="fingerprint">Computes the operation fingerprint of the write.</param>
+    /// <param name="record">The retained record when the lookup finds the outcome; otherwise <see langword="default" />.</param>
     /// <returns>The lookup; a miss when the owned group log is not open.</returns>
     /// <remarks>The fingerprint, which encodes and hashes the request, is computed only once an entry with the identity is found.</remarks>
-    private GroupIdempotencyLookup LookupRetained<TState>((string Scope, string OperationId) write, TState state, Func<TState, byte[]> fingerprint)
+    private GroupIdempotencyLookup LookupRetained<TState>((string Scope, string OperationId) write, TState state, Func<TState, byte[]> fingerprint, out GroupIdempotencyRecord record)
     {
+        record = default;
         return !_registry.TryGetLog(GroupId, out var log) || log.Idempotency.Lookup(write.Scope, write.OperationId, [], out _) == GroupIdempotencyLookup.Miss
             ? GroupIdempotencyLookup.Miss
-            : log.Idempotency.Lookup(write.Scope, write.OperationId, fingerprint(state), out _);
+            : log.Idempotency.Lookup(write.Scope, write.OperationId, fingerprint(state), out record);
     }
 
     /// <summary>Returns the next group log index to prepare with: the one after the last entry appended to the local log.</summary>

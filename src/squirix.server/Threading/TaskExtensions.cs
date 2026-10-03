@@ -10,6 +10,23 @@ namespace Squirix.Server.Threading;
 /// </remarks>
 internal static class TaskExtensions
 {
+    /// <summary>Awaits the task and returns any failure instead of throwing it.</summary>
+    /// <param name="task">The task to await.</param>
+    /// <returns>The failure, or <see langword="null" /> when the task completed successfully.</returns>
+    internal static async ValueTask<Exception?> CaptureFailureAsync(this Task task)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+        try
+        {
+            await task.ConfigureAwait(false);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
     /// <summary>Awaits the task and returns a failure <paramref name="filter" /> accepts instead of throwing it; any other failure propagates.</summary>
     /// <param name="task">The task to await.</param>
     /// <param name="filter">Selects the failures to capture, expected to be a <see langword="static" /> lambda so the call does not allocate a closure.</param>
@@ -31,7 +48,7 @@ internal static class TaskExtensions
     /// <summary>Disposes <paramref name="disposable" /> and returns any failure instead of throwing it, including one thrown before the disposal task is returned.</summary>
     /// <param name="disposable">The object to dispose.</param>
     /// <returns>The failure, or <see langword="null" /> when the disposal completed.</returns>
-    internal static async ValueTask<Exception?> CaptureDisposeFailureAsync(this IAsyncDisposable disposable)
+    internal static async ValueTask<Exception?> CaptureFailureAsync(this IAsyncDisposable disposable)
     {
         ArgumentNullException.ThrowIfNull(disposable);
         try
