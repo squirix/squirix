@@ -7,9 +7,8 @@ namespace Squirix.Server.Storage.Journaling;
 [Immutable]
 internal sealed class PendingAppendEntry
 {
-    internal PendingAppendEntry(JournalWorkItem item, byte[] frameBytes, int frameLength, TaskCompletionSource? ack)
+    internal PendingAppendEntry(byte[] frameBytes, int frameLength, TaskCompletionSource? ack)
     {
-        Item = item;
         FrameBytes = frameBytes;
         FrameLength = frameLength;
         Ack = ack;
@@ -23,7 +22,4 @@ internal sealed class PendingAppendEntry
 
     /// <summary>Gets the exact length of the framed payload inside <see cref="FrameBytes" />.</summary>
     internal int FrameLength { get; }
-
-    /// <summary>Gets the tracked append work item.</summary>
-    internal JournalWorkItem Item { get; }
 }

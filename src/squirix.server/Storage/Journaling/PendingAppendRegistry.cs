@@ -224,7 +224,7 @@ internal sealed class PendingAppendRegistry
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(frameBytes);
-        var entry = new PendingAppendEntry(item, frameBytes, frameLength, ack);
+        var entry = new PendingAppendEntry(frameBytes, frameLength, ack);
         lock (_sync)
         {
             // Admitting after a failure drain would park the entry on work nobody will

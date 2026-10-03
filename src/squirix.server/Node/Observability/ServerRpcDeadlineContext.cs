@@ -37,7 +37,7 @@ internal static class ServerRpcDeadlineContext
     {
         ArgumentNullException.ThrowIfNull(clock);
         var deadline = Normalize(deadlineUtc);
-        var scope = new Scope(deadline, deadline is { } value ? ServerDeadlineBudget.Start(value, clock) : null, Current.Value);
+        var scope = new Scope(deadline is { } value ? ServerDeadlineBudget.Start(value, clock) : null, Current.Value);
         Current.Value = scope;
         return scope;
     }
@@ -62,16 +62,13 @@ internal static class ServerRpcDeadlineContext
         private readonly Scope? _parent;
         private int _disposed;
 
-        internal Scope(DateTime? deadline, ServerDeadlineBudget? budget, Scope? parent)
+        internal Scope(ServerDeadlineBudget? budget, Scope? parent)
         {
-            Deadline = deadline;
             Budget = budget;
             _parent = parent;
         }
 
         internal ServerDeadlineBudget? Budget { get; }
-
-        internal DateTime? Deadline { get; }
 
         private bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
