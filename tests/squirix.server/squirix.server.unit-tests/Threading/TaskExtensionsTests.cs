@@ -63,7 +63,7 @@ public sealed class TaskExtensionsTests
     {
         var expected = new InvalidOperationException("dispose faulted");
 
-        var failure = await Failing(expected, false).CaptureDisposeFailureAsync();
+        var failure = await Failing(expected, false).CaptureFailureAsync();
 
         _ = await Assert.That(failure).IsSameReferenceAs(expected);
     }
@@ -74,7 +74,7 @@ public sealed class TaskExtensionsTests
     {
         var expected = new InvalidOperationException("dispose threw");
 
-        var failure = await Failing(expected, true).CaptureDisposeFailureAsync();
+        var failure = await Failing(expected, true).CaptureFailureAsync();
 
         _ = await Assert.That(failure).IsSameReferenceAs(expected);
     }
