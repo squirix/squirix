@@ -294,8 +294,15 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             }
 
             await _faultHooks.OnStageAsync(ReplicaCommitStage.FollowerFanOutStarted, mutation, cancellationToken).ConfigureAwait(false);
-            while (_quorum.FindCommitIndex(_commitIndex, mutation.LogIndex) < mutation.LogIndex && pending.Count > 0)
-                await RecordNextAcknowledgementAsync(pending, pendingReplicaIndexes, mutation, cancellationToken).ConfigureAwait(false);
+            while (true)
+            {
+                // Read before the majority check, so an acknowledgement recorded after the check completes it and wakes the wait below.
+                var progress = _quorum.ProgressVersion;
+                if (_quorum.FindCommitIndex(_commitIndex, mutation.LogIndex) >= mutation.LogIndex || pending.Count == 0)
+                    break;
+
+                await RecordNextAcknowledgementAsync(pending, pendingReplicaIndexes, mutation, progress, cancellationToken).ConfigureAwait(false);
+            }
 
             if (_quorum.FindCommitIndex(_commitIndex, mutation.LogIndex) < mutation.LogIndex)
                 throw new InvalidOperationException("A durable majority was not reached before the deadline.");
@@ -539,9 +546,18 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         List<Task<FollowerCompletion>> pending,
         HashSet<int> pendingReplicaIndexes,
         PreparedReplicaMutation mutation,
+        ulong progressVersion,
         CancellationToken cancellationToken)
     {
-        var completed = await Task.WhenAny(pending).WaitAsync(cancellationToken).ConfigureAwait(false);
+        var next = Task.WhenAny(pending);
+        var progress = _quorum.WaitForProgressAsync(progressVersion, cancellationToken);
+        if (await Task.WhenAny(next, progress).ConfigureAwait(false) == progress)
+        {
+            await progress.ConfigureAwait(false);
+            return;
+        }
+
+        var completed = await next.ConfigureAwait(false);
         _ = pending.Remove(completed);
         var follower = await completed.ConfigureAwait(false);
         _ = pendingReplicaIndexes.Remove(follower.ReplicaIndex);
