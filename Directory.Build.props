@@ -195,5 +195,5 @@
         <Message Importance="high" Text="squirix-analysis-shard|%(_SquirixProjectAnalysisShard.Identity)|$(MSBuildProjectFullPath)"/>
         <Message Importance="high" Text="squirix-analysis-shards|$(SquirixAnalysisShards)"/>
     </Target>
-    <Import Project="experiment/patched-analyzers.targets"/>
+    <Import Project="experiment/patched-analyzers.targets" Condition="Exists('experiment/patched-analyzers.targets')"/>
 </Project>
