@@ -25,6 +25,9 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
 
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>Bounds the coordinator's wait for its parked observer: the window in which a gate released early would let the verification apply.</summary>
+    private static readonly TimeSpan ObserverDrainBudget = TimeSpan.FromMilliseconds(500);
+
     /// <summary>
     /// A verification that passed its first disposal check and then queued behind a disposal does not apply the committed entry still
     /// pending in the coordinator, and fails with <see cref="ObjectDisposedException" />, because the disposal keeps the gate until the
@@ -37,7 +40,7 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
         var local = new ScriptedApplyCache(ApplyMode.StallThenFail);
         var gateway = new ParkingGateway { HeldNode = "n3" };
         await using var registry = await OpenRegistryAsync(3, cancellationToken);
-        var committer = CreateCommitter(registry, local, gateway, null, new ThreeNodeLocator());
+        var committer = CreateCommitter(registry, local, gateway, ObserverDrainBudget, new ThreeNodeLocator());
         try
         {
             // The write holds the gate while its first apply stalls; the entry is committed and stays pending when the apply fails. The

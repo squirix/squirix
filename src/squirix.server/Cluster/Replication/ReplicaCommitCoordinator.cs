@@ -21,6 +21,9 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// <summary>Message prefix of the refusal of a new operation identity while the group idempotency state is full.</summary>
     internal const string IdempotencyCapacityCode = "replica_idempotency_capacity";
 
+    /// <summary>The default <see cref="ShutdownBudget" />.</summary>
+    internal static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(5);
+
     private static readonly TimeSpan ObserveTimeout = TimeSpan.FromSeconds(5);
 
     private readonly ReplicaMutationGate _admission;
@@ -99,7 +102,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         _turn = new ReplicaLogTurn(options.InitialLogIndex);
         _admission = new ReplicaMutationGate(options.MaxInFlight);
         _commitIndex = options.InitialCommitIndex;
-        ShutdownBudget = ObserveTimeout;
+        ShutdownBudget = DefaultShutdownBudget;
     }
 
     /// <summary>Gets a value indicating whether some locally appended entry is not applied to memory yet.</summary>

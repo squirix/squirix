@@ -112,7 +112,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the replication metrics counting the inconsistent log records the committer refuses to apply; none are counted unless set.</summary>
     internal ReplicationMetrics? Metrics { private get; init; }
 
-    /// <summary>Gets the longest wait for an in-flight commit on dispose; 30 seconds unless set.</summary>
+    /// <summary>Gets the longest wait for an in-flight commit on dispose, which also caps the coordinator's own teardown wait; 30 seconds unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
     internal TimeSpan ShutdownBudget
     {
@@ -523,6 +523,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             eligibility,
             Applier.RecoverTail(tail, term, factory))
         {
+            // The coordinator's teardown is part of this committer's dispose, so it never waits longer than this committer's budget.
+            ShutdownBudget = ShutdownBudget < ReplicaCommitCoordinator.DefaultShutdownBudget ? ShutdownBudget : ReplicaCommitCoordinator.DefaultShutdownBudget,
             ShutdownLeakReporter = budget => ServerLog.ReplicaCoordinatorLeakedOnShutdown(Log, budget),
             AbandonedWorkFaultReporter = error => ServerLog.ReplicaCoordinatorAbandonedWorkFaulted(Log, error),
         };
