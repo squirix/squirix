@@ -294,26 +294,8 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             }
 
             await _faultHooks.OnStageAsync(ReplicaCommitStage.FollowerFanOutStarted, mutation, cancellationToken).ConfigureAwait(false);
-            while (true)
-            {
-                // Read before the majority check, so an acknowledgement recorded after the check completes it and wakes the wait below.
-                var progress = _quorum.ProgressVersion;
-                if (_quorum.FindCommitIndex(_commitIndex, mutation.LogIndex) >= mutation.LogIndex)
-                    break;
 
-                if (pending.Count == 0)
-                {
-                    // No follower of this entry is left to answer, but an acknowledgement buffered behind a prefix that an earlier entry's
-                    // observation still records can complete the majority: wait for that progress, within the budget, before giving up.
-                    if (!_quorum.HasBufferedThrough(mutation.LogIndex))
-                        break;
-
-                    await _quorum.WaitForProgressAsync(progress, cancellationToken).ConfigureAwait(false);
-                    continue;
-                }
-
-                await RecordNextAcknowledgementAsync(pending, pendingReplicaIndexes, mutation, progress, cancellationToken).ConfigureAwait(false);
-            }
+            await AwaitMajorityAsync(pending, pendingReplicaIndexes, mutation, cancellationToken).ConfigureAwait(false);
 
             if (_quorum.FindCommitIndex(_commitIndex, mutation.LogIndex) < mutation.LogIndex)
                 throw new InvalidOperationException("A durable majority was not reached before the deadline.");
@@ -555,26 +537,52 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         _pipeline.RecordLaggingReplica(follower.ReplicaIndex, mutation.LogIndex);
     }
 
-    private async Task RecordNextAcknowledgementAsync(
+    /// <summary>Records follower completions of the entry until a majority backs it, no follower or progress that could complete it is left, or the token ends.</summary>
+    /// <param name="pending">The follower observations of the entry that did not complete yet.</param>
+    /// <param name="pendingReplicaIndexes">The slots of <paramref name="pending" />.</param>
+    /// <param name="mutation">The entry being committed.</param>
+    /// <param name="cancellationToken">The commit budget token.</param>
+    /// <returns>An asynchronous operation; the caller checks whether the majority was reached.</returns>
+    private async Task AwaitMajorityAsync(
         List<Task<FollowerCompletion>> pending,
         HashSet<int> pendingReplicaIndexes,
         PreparedReplicaMutation mutation,
-        ulong progressVersion,
         CancellationToken cancellationToken)
     {
-        var next = Task.WhenAny(pending);
-        var progress = _quorum.WaitForProgressAsync(progressVersion, cancellationToken);
-        if (await Task.WhenAny(next, progress).ConfigureAwait(false) == progress)
+        // Rebuilt only once a follower completion is consumed, so wakes from other paths do not stack continuations on every follower task.
+        var next = pending.Count > 0 ? Task.WhenAny(pending) : null;
+        while (true)
         {
-            await progress.ConfigureAwait(false);
-            return;
-        }
+            // Read before the majority check, so an acknowledgement recorded after the check wakes the wait below.
+            var progressVersion = _quorum.ProgressVersion;
+            if (_quorum.FindCommitIndex(_commitIndex, mutation.LogIndex) >= mutation.LogIndex)
+                return;
 
-        var completed = await next.ConfigureAwait(false);
-        _ = pending.Remove(completed);
-        var follower = await completed.ConfigureAwait(false);
-        _ = pendingReplicaIndexes.Remove(follower.ReplicaIndex);
-        RecordAcknowledgement(in follower, mutation);
+            if (next == null)
+            {
+                // No follower of this entry is left to answer, but an acknowledgement buffered behind a prefix that an earlier entry's
+                // observation still records can complete the majority: wait for that progress, within the budget, before giving up.
+                if (!_quorum.HasBufferedThrough(mutation.LogIndex))
+                    return;
+
+                await _quorum.WaitForProgressAsync(progressVersion, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            var progress = _quorum.WaitForProgressAsync(progressVersion, cancellationToken);
+            if (await Task.WhenAny(next, progress).ConfigureAwait(false) == progress)
+            {
+                await progress.ConfigureAwait(false);
+                continue;
+            }
+
+            var completed = await next.ConfigureAwait(false);
+            _ = pending.Remove(completed);
+            var follower = await completed.ConfigureAwait(false);
+            _ = pendingReplicaIndexes.Remove(follower.ReplicaIndex);
+            RecordAcknowledgement(in follower, mutation);
+            next = pending.Count > 0 ? Task.WhenAny(pending) : null;
+        }
     }
 
     /// <summary>Reserves idempotency and registers the commit operation.</summary>
