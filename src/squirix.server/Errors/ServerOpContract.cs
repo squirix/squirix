@@ -10,9 +10,9 @@ internal static class ServerOpContract
     internal const string NoWriteMajorityDetail = "Replica group has no verified write majority; nothing was written.";
 
     internal const string RingFencedDetail =
-        "Cache operations are refused: this node detected a cluster ring mismatch with a peer; make the peer lists agree and restart the affected nodes.";
+        "Cache operations are refused: the key owner or this node detected a cluster ring mismatch with a peer; make the peer lists agree and restart the affected nodes.";
 
-    internal const string RingMismatchDetail = "Cluster ring mismatch: the forwarding node and the key owner were started with different peer lists; nothing was executed.";
+    internal const string RingMismatchDetail = "Cluster ring mismatch: the forwarding node and the key owner disagree on the peer list, ring settings or server version; nothing was executed.";
 
     private const string EntryTagCountExceededDetail = "Entry tag count exceeds the maximum of 32.";
 

@@ -8,7 +8,7 @@ namespace Squirix.Server.Cluster;
 
 /// <summary>Digest of the inputs that decide key ownership on the RF=1 consistent-hash ring.</summary>
 /// <remarks>
-/// Two nodes build the same ring only when their cluster id, virtual node count, and distinct node id set match, so equal fingerprints mean equal ownership.
+/// Covers the ring inputs (virtual node count, distinct node id set) plus the cluster id, so equal fingerprints imply equal ownership.
 /// Peer order, duplicate ids, URIs, configuration generation, and replica count do not affect it.
 /// </remarks>
 [Immutable]

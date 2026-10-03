@@ -91,7 +91,10 @@ Ring mismatch signals:
 - A ring mismatch means two nodes were started with different `ClusterId`, `VirtualNodes`, or peer `NodeId` lists, so they disagree on key owners.
 - The first forwarded call between them is refused before it touches any idempotency store. Clients see `Unavailable` and the trailer `squirix-error-code`
   with `ring-mismatch`; later operations on the fenced nodes see `ring-fenced`.
-- `/health/ready` answers `503` on every fenced node and the `ring_agreement` check names the peer. The node logs an `Error` with both ring fingerprints.
+- A missing fingerprint means the peer runs a version without ring agreement: a rolling upgrade to this version fences the upgraded nodes, so upgrade RF=1 clusters
+  with a full stop and start.
+- `/health/ready` answers `503` with the body `Unhealthy` on every fenced node. The peer name is in the `ring_agreement` health-check log entry (repeated at `Error` on each probe)
+  and in the node `Error` log with both ring fingerprints, not in the HTTP body.
 - Align the configuration on all nodes and restart the misconfigured nodes and every node that reports the mismatch. A fenced node stays refused until restart.
   See [clustering.md](clustering.md#ring-agreement).
 

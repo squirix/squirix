@@ -24,7 +24,7 @@ public sealed class RingMismatchFailureTests : ServerUnitTestBase
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(failure.Trailers.GetValue(ErrorCodeKey)).IsEqualTo("ring-mismatch");
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(
-            "Cluster ring mismatch: the forwarding node and the key owner were started with different peer lists; nothing was executed.");
+            "Cluster ring mismatch: the forwarding node and the key owner disagree on the peer list, ring settings or server version; nothing was executed.");
     }
 
     /// <summary>The fenced failure is Unavailable with the ring-fenced trailer and stable detail.</summary>
@@ -36,7 +36,7 @@ public sealed class RingMismatchFailureTests : ServerUnitTestBase
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(failure.Trailers.GetValue(ErrorCodeKey)).IsEqualTo("ring-fenced");
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(
-            "Cache operations are refused: this node detected a cluster ring mismatch with a peer; make the peer lists agree and restart the affected nodes.");
+            "Cache operations are refused: the key owner or this node detected a cluster ring mismatch with a peer; make the peer lists agree and restart the affected nodes.");
     }
 
     /// <summary>Only the mismatch failure is classified as a mismatch.</summary>

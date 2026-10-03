@@ -88,10 +88,13 @@ A node that finds a peer with a different ring stops serving cache operations in
 
 Symptoms:
 
-- Clients get `Unavailable` with the detail `Cluster ring mismatch: the forwarding node and the key owner were started with different peer lists; nothing was executed.`
-  for the first forwarded call, and `Cache operations are refused: this node detected a cluster ring mismatch with a peer; make the peer lists agree and restart the
-  affected nodes.` afterwards. Retrying does not help.
-- `/health/ready` answers `503` on a fenced node; the `ring_agreement` check names the peer and the side that detected the mismatch. `/health/live` is not affected.
+- Clients get `Unavailable` with the detail `Cluster ring mismatch: the forwarding node and the key owner disagree on the peer list, ring settings or server version; nothing was executed.`
+  for the first forwarded call, and `Cache operations are refused: the key owner or this node
+  detected a cluster ring mismatch with a peer; make the peer lists agree and restart the affected nodes.` afterwards. Retrying against the fenced nodes does not help;
+  the client fails over to other endpoints.
+- A missing peer fingerprint means the peer runs a version without ring agreement.
+- `/health/ready` answers `503` with the body `Unhealthy` on a fenced node; `/health/live` is not affected. The `ring_agreement` description that names the peer and the
+  side that detected the mismatch appears in the health-check log entry, which repeats at `Error` on each probe, not in the HTTP body.
 - The node logs one `Error` entry per peer with the local and peer ring fingerprints.
 
 Fix:
@@ -99,9 +102,12 @@ Fix:
 1. Make `ClusterId`, `VirtualNodes`, and the peer `NodeId` list identical on every node.
 2. Restart the misconfigured nodes and every node that reports the mismatch.
 3. Change peer lists with a full stop and start of the cluster, not a rolling restart: a node on the old list and a node on the new list disagree until all nodes are restarted.
+4. Moving to a version that has ring agreement, and any later change of the fingerprint format, also needs a full stop and start, RF=1 included: a node on the old version sends no
+   fingerprint, so the upgraded nodes record a mismatch and are fenced during a rolling upgrade.
 
 Limitations:
 
 - Detection happens on the first forwarded call between the two nodes; nodes that never forward to each other are not compared.
+- A peer that is not in the receiver peer list is rejected at the mTLS handshake and appears as an unreachable owner, not as a ring mismatch.
 - Recovery needs a restart; a fenced node does not rejoin by itself when the configurations are corrected.
 - The check covers ownership inputs only. Replication topology agreement for RF>1 is verified separately by the topology fingerprint.
