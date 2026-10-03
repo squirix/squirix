@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -58,6 +59,67 @@ public sealed class ReplicaCommitDisposeTests
     }
 
     /// <summary>
+    /// Dispose does not tear the gates and the sequencer down under an apply of committed entries running outside any commit, reports the
+    /// leak, and refuses a new apply; the running apply then completes once the memory apply recovers.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeDoesNotTearDownLiveApply(CancellationToken cancellationToken)
+    {
+        var pipeline = new StallingApplyPipeline(true);
+        var leaks = new LeakRecorder();
+        var coordinator = CreateCoordinator(pipeline, leaks);
+        try
+        {
+            // The first apply fails after the majority: the commit ends unknown and its entry stays pending, with no commit left running.
+            var commit = StartCommitAsync(coordinator, ReplicaMutationTestKit.CreateMutation(), StallTimeout);
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var apply = coordinator.ApplyCommittedAsync();
+            await pipeline.ApplyEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+            await coordinator.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(coordinator.ApplyCommittedAsync());
+            _ = await Assert.That(leaks.Count).IsEqualTo(1);
+            _ = await Assert.That(leaks.FirstBudget).IsEqualTo(ShutdownBudget);
+
+            pipeline.ReleaseApply();
+            _ = await Assert.That(await apply.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken)).IsTrue();
+        }
+        finally
+        {
+            pipeline.ReleaseApply();
+            await coordinator.DisposeAsync();
+        }
+    }
+
+    /// <summary>A commit abandoned by dispose that fails after the shutdown budget is reported to the owner instead of only being observed.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AbandonedFaultIsReported(CancellationToken cancellationToken)
+    {
+        var pipeline = new StallingApplyPipeline();
+        var faults = new FaultRecorder();
+        var coordinator = CreateCoordinator(pipeline, new LeakRecorder(), faults.Report);
+        try
+        {
+            var commit = StartCommitAsync(coordinator, ReplicaMutationTestKit.CreateMutation(), StallTimeout);
+            await pipeline.ApplyEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            await coordinator.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+            pipeline.FailApply(new IOException("Injected memory apply failure."));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+
+            var reported = await faults.Reported.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(reported.GetBaseException()).IsTypeOf<IOException>();
+        }
+        finally
+        {
+            pipeline.ReleaseApply();
+            await coordinator.DisposeAsync();
+        }
+    }
+
+    /// <summary>
     /// A commit queued for admission behind a stuck one still ends at its own budget after dispose gave up, instead of waiting forever on
     /// a semaphore disposed under it; the stuck commit then completes once the apply recovers.
     /// </summary>
@@ -104,11 +166,12 @@ public sealed class ReplicaCommitDisposeTests
         _ = await Assert.That(leaks.Count).IsEqualTo(0);
     }
 
-    private static ReplicaCommitCoordinator CreateCoordinator(StallingApplyPipeline pipeline, LeakRecorder leaks) =>
+    private static ReplicaCommitCoordinator CreateCoordinator(StallingApplyPipeline pipeline, LeakRecorder leaks, Action<Exception>? faults = null) =>
         new(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue))
         {
             ShutdownBudget = ShutdownBudget,
             ShutdownLeakReporter = leaks.Report,
+            AbandonedWorkFaultReporter = faults,
         };
 
     private static PreparedReplicaMutation CreateMutation(ulong logIndex, string operationId) => new(
@@ -119,6 +182,17 @@ public sealed class ReplicaCommitDisposeTests
 
     private static Task<ReadOnlyMemory<byte>> StartCommitAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation, TimeSpan timeout) =>
         coordinator.CommitAsync(mutation, timeout, CancellationToken.None).AsTask();
+
+    /// <summary>Abandoned-work fault reporter double keeping the first reported fault.</summary>
+    [ThreadSafe]
+    private sealed class FaultRecorder
+    {
+        private readonly TaskCompletionSource<Exception> _reported = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal Task<Exception> Reported => _reported.Task;
+
+        internal void Report(Exception fault) => _ = _reported.TrySetResult(fault);
+    }
 
     /// <summary>Shutdown leak reporter double recording the budget of every leak the coordinator reports.</summary>
     [ThreadSafe]
@@ -137,9 +211,18 @@ public sealed class ReplicaCommitDisposeTests
     [ThreadSafe]
     private sealed class StallingApplyPipeline : IReplicaCommitPipeline
     {
+        private readonly bool _failFirstApply;
         private readonly TaskCompletionSource _applyEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _applyReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        private int _applyCalls;
+
+        internal StallingApplyPipeline(bool failFirstApply = false)
+        {
+            _failFirstApply = failFirstApply;
+        }
+
+        /// <summary>Gets a task that completes when an apply stalled.</summary>
         internal Task ApplyEntered => _applyEntered.Task;
 
         public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
@@ -151,6 +234,9 @@ public sealed class ReplicaCommitDisposeTests
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
+            if (_failFirstApply && Interlocked.Increment(ref _applyCalls) == 1)
+                return ValueTask.FromException(new InvalidOperationException("Injected memory apply failure after the majority."));
+
             _ = _applyEntered.TrySetResult();
             return new ValueTask(_applyReleased.Task);
         }
@@ -158,6 +244,8 @@ public sealed class ReplicaCommitDisposeTests
         public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
         {
         }
+
+        internal void FailApply(Exception error) => _ = _applyReleased.TrySetException(error);
 
         internal void ReleaseApply() => _ = _applyReleased.TrySetResult();
     }

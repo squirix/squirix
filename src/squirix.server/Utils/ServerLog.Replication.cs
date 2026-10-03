@@ -92,4 +92,10 @@ internal static partial class ServerLog
         Level = LogLevel.Information,
         Message = "Replica group {GroupId} rebuilt {Count} idempotency outcomes of committed log entries after the restart")]
     internal static partial void ReplicaOutcomesRestored(ILogger logger, string groupId, int count);
+
+    [LoggerMessage(
+        EventId = 4017,
+        Level = LogLevel.Error,
+        Message = "Replica commit coordinator work abandoned at shutdown failed after the shutdown budget expired")]
+    internal static partial void ReplicaCoordinatorAbandonedWorkFaulted(ILogger logger, Exception exception);
 }

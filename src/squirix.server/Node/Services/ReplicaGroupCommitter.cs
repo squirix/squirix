@@ -518,6 +518,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             Applier.RecoverTail(tail, term, factory))
         {
             ShutdownLeakReporter = budget => ServerLog.ReplicaCoordinatorLeakedOnShutdown(Log, budget),
+            AbandonedWorkFaultReporter = error => ServerLog.ReplicaCoordinatorAbandonedWorkFaulted(Log, error),
         };
 
         // Before a restart the outcomes of the committed entries above the snapshot lived only in memory; their records carry them, so
