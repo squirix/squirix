@@ -192,7 +192,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         var starting = EnsureStartedAsync(true, cancellationToken);
-        if (await starting.CaptureFailureAsync(static _ => true).ConfigureAwait(false) != null)
+        if (await starting.CaptureFailureAsync().ConfigureAwait(false) != null)
         {
             // Whatever refused the start, a retained entry of this operation decides the answer. A retry of a committed operation replays
             // its outcome: it needs no majority and no apply. A retry of an operation whose entry is appended but not yet committed

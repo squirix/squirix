@@ -10,6 +10,23 @@ namespace Squirix.Server.Threading;
 /// </remarks>
 internal static class TaskExtensions
 {
+    /// <summary>Awaits the task and returns any failure instead of throwing it.</summary>
+    /// <param name="task">The task to await.</param>
+    /// <returns>The failure, or <see langword="null" /> when the task completed successfully.</returns>
+    internal static async ValueTask<Exception?> CaptureFailureAsync(this Task task)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+        try
+        {
+            await task.ConfigureAwait(false);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
     /// <summary>Awaits the task and returns a failure <paramref name="filter" /> accepts instead of throwing it; any other failure propagates.</summary>
     /// <param name="task">The task to await.</param>
     /// <param name="filter">Selects the failures to capture, expected to be a <see langword="static" /> lambda so the call does not allocate a closure.</param>
