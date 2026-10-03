@@ -211,7 +211,7 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
 
             var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(EnqueueAsync(sender, 2));
 
-            _ = await Assert.That(error.Message).IsEqualTo("follower append out of order");
+            _ = await Assert.That(error.Message).IsEqualTo("Follower 'n2' append out of order: index 2 after 2.");
         }
         finally
         {

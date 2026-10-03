@@ -56,7 +56,7 @@ public sealed class ReplicaFollowerSenderTests : ServerUnitTestBase
             _ = EnqueueAsync(sender, 1);
             var first = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
             _ = EnqueueAsync(sender, 2);
-            _ = EnqueueAsync(sender, 3, 2);
+            _ = EnqueueAsync(sender, 3, 2, prevTerm: 1);
             first.Accept();
 
             var second = await BoundedAsync(gateway.CallAsync(1), cancellationToken);

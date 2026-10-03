@@ -206,7 +206,12 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// The task of the follower's acknowledgement. It fails, instead of this call throwing, when the sender is disposed, the backlog is
     /// full, the entry does not follow the entries enqueued before it, the follower refuses the request, or the request fails.
     /// </returns>
-    internal Task<ReplicaDurableAcknowledgement> EnqueueAsync(PreparedReplicaMutation mutation, in ReplicaLogRecord record, ulong prevLogIndex, ulong prevLogTerm, ulong leaderCommitIndex)
+    internal Task<ReplicaDurableAcknowledgement> EnqueueAsync(
+        PreparedReplicaMutation mutation,
+        in ReplicaLogRecord record,
+        ulong prevLogIndex,
+        ulong prevLogTerm,
+        ulong leaderCommitIndex)
     {
         ArgumentNullException.ThrowIfNull(mutation);
 
@@ -219,7 +224,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                 return Task.FromException<ReplicaDurableAcknowledgement>(new ObjectDisposedException(nameof(ReplicaFollowerSender)));
 
             if (record.LogIndex <= _lastEnqueuedIndex || record.Term < _lastEnqueuedTerm)
-                return Task.FromException<ReplicaDurableAcknowledgement>(new InvalidOperationException("follower append out of order"));
+                return Task.FromException<ReplicaDurableAcknowledgement>(new InvalidOperationException($"Follower '{_nodeId}' append out of order: index {record.LogIndex} after {_lastEnqueuedIndex}."));
 
             if (_pending.Count >= MaxPendingEntries || (_pending.Count > 0 && _pendingBytes + item.Bytes > MaxPendingBytes))
                 return Task.FromException<ReplicaDurableAcknowledgement>(new InvalidOperationException(BacklogFullMessage));
@@ -247,7 +252,8 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         {
             var mutation = batch[i].Mutation;
             _ = result.Success
-                ? batch[i].Completion.TrySetResult(new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true))
+                ? batch[i].Completion.TrySetResult(
+                    new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true))
                 : batch[i].Completion.TrySetException(new InvalidOperationException($"Follower '{nodeId}' refused append: {result.RefusalCode}."));
         }
     }
