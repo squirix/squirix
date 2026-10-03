@@ -37,7 +37,11 @@ internal sealed class ElectionTimer : IDisposable
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    /// <inheritdoc />
+    /// <summary>Stops the timer; once this returns the callback never starts again.</summary>
+    /// <remarks>
+    /// A callback already running on another thread is waited out, so the callback must not wait for a thread that disposes this
+    /// timer. Disposing from inside the callback returns at once.
+    /// </remarks>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -90,14 +94,15 @@ internal sealed class ElectionTimer : IDisposable
         }
     }
 
-    /// <summary>Invokes the armed callback outside the gate so re-arming from the callback cannot deadlock.</summary>
+    /// <summary>Invokes the armed callback under the gate, so a dispose either prevents it or waits for it to finish.</summary>
     /// <param name="state">Unused timer state.</param>
+    /// <remarks>The gate is reentrant: the callback may reset, restart or dispose this timer.</remarks>
     private void OnTick(object? state)
     {
-        Action? elapsed;
         lock (_sync)
-            elapsed = _elapsed;
-
-        elapsed?.Invoke();
+        {
+            if (Volatile.Read(ref _disposed) == 0)
+                _elapsed?.Invoke();
+        }
     }
 }
