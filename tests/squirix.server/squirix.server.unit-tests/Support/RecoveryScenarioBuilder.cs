@@ -18,7 +18,7 @@ internal sealed class RecoveryScenarioBuilder : IDisposable
     {
         _dir = dir;
         DataDir = dir;
-        Persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+        Persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16 };
         Ledger = new Ledger(Persistence, NullLogger<Ledger>.Instance);
         Cache = new PhysicalCache<object?>();
     }

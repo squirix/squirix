@@ -67,7 +67,6 @@ public sealed class JournalGroupCommitFlushFailureTests : IsolatedStorageTestBas
     {
         DataDir = Dir,
         JournalMaxSegmentMb = 4,
-        FlushInterval = 600_000,
         ManifestRetentionCount = 1,
         JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(20),
         JournalGroupCommitMaxBatch = 1,

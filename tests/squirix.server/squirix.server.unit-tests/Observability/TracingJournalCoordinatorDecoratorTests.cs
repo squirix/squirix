@@ -31,7 +31,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
     [Test]
     public async Task AppendPutAsyncCreatesJournalPutSpan(CancellationToken cancellationToken)
     {
-        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 600_000 };
+        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16 };
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var core = JournalCoordinatorFactory.Create(
             options,
@@ -58,7 +58,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
     [Test]
     public async Task DisposeLeavesInnerJournalOpen(CancellationToken cancellationToken)
     {
-        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 600_000 };
+        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16 };
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var core = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
@@ -76,7 +76,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
     [Test]
     public async Task DisposeStopsForwardingAppends(CancellationToken cancellationToken)
     {
-        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 600_000 };
+        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16 };
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var core = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
@@ -108,7 +108,6 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
             DataDir = Dir,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(groupCommitMaxWaitMilliseconds),
             JournalMaxSegmentMb = 16,
-            FlushInterval = 600_000,
         };
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var core = JournalCoordinatorFactory.Create(

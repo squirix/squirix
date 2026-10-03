@@ -47,7 +47,7 @@ public abstract class JournalStartupRepairTestBase : IsolatedStorageTestBase
 
     private protected static State NewManifest() => new() { Format = 1, CurrentJournal = 1, NextSequence = 1 };
 
-    private protected static PersistenceOptions NewPersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+    private protected static PersistenceOptions NewPersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16 };
 
     private protected byte[] BuildFrame(ulong sequence, string key)
     {

@@ -35,7 +35,6 @@ public sealed class JournalBootstrapHeaderAccountingTests : ServerUnitTestBase
             DataDir = dir,
             JournalMaxSegmentMb = 1,
             JournalMaxTotalBytesMb = 1,
-            FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);

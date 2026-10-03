@@ -50,7 +50,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
         var clock = new FakeTimeProvider(real.AddTicks(-(real.Ticks % TimeSpan.TicksPerMillisecond) + 1234));
         var records = await PrepareRecordsAsync(clock, cancellationToken);
 
-        var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1, FlushInterval = 5, ManifestRetentionCount = 1 };
+        var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1, ManifestRetentionCount = 1 };
         await ApplyThroughJournalAsync(persistence, clock, records, cancellationToken);
         var recovered = await RecoverAsync(persistence, clock, cancellationToken);
         var direct = new PhysicalCache<object?>(clock);

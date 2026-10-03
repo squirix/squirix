@@ -325,7 +325,6 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
             {
                 DataDir = dataDir,
                 JournalMaxSegmentMb = 1,
-                FlushInterval = 5,
                 ManifestRetentionCount = 1,
             };
             var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);

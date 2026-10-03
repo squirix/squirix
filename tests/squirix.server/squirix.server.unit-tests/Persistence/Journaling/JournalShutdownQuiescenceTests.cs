@@ -41,7 +41,6 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 4,
-            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
         };
 
@@ -68,7 +67,6 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 4,
-            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
@@ -95,7 +93,6 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 4,
-            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
         };
 
@@ -117,7 +114,6 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 4,
-            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
         };
 
@@ -183,7 +179,6 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         {
             DataDir = dataDir,
             JournalMaxSegmentMb = 4,
-            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = groupCommitMaxWait,
             JournalGroupCommitMaxBatch = 8,

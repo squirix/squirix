@@ -245,7 +245,6 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         {
             DataDir = dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
         var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
@@ -274,7 +273,6 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         {
             DataDir = dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
         var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);

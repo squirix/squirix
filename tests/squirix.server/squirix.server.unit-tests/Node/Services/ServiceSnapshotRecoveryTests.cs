@@ -68,7 +68,7 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
     public async Task SnapshotRecoveryReplaysJournalTail(CancellationToken cancellationToken)
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-binary-snapshot");
-        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
         var writer = StoreFactory.CreateWriter(persistence);
         var e = new NodeCacheEntry<object?> { Value = "from-snapshot", Version = 1 };
         IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> readOnlyList = [(CacheKey.Default("base"), e)];
@@ -115,7 +115,7 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
     private Task RunRecoveryAsync(RecoveryScenarioBuilder scenario, CancellationToken cancellationToken)
     {
         var gate = new AsyncManualResetEvent(true);
-        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var reader = StoreFactory.CreateReader();
         var dependencies = new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, gate, store, reader, TimeProvider.System);

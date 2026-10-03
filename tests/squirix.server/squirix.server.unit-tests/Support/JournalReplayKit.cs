@@ -53,7 +53,6 @@ internal sealed class JournalReplayKit
         {
             DataDir = dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 5,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(1) : TimeSpan.Zero,
         };

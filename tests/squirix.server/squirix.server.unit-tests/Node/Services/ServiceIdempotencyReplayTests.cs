@@ -181,7 +181,7 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 
-    private static PersistenceOptions CreatePersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+    private static PersistenceOptions CreatePersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16 };
 
     private static long ReadIdempotencyOutcomeUnixMs(string dataDir)
     {

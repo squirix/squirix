@@ -47,7 +47,6 @@ public class ManifestSegmentRollBenchmarks
             JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
             JournalMaxSegmentMb = 1,
             JournalMaxSegmentCount = 1024,
-            FlushInterval = 600_000,
             ManifestRetentionCount = retention,
             SnapshotRetentionCount = retention,
         };

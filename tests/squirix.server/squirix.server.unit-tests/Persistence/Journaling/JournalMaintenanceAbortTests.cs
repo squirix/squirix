@@ -37,7 +37,6 @@ public sealed class JournalMaintenanceAbortTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 600_000,
         };
 
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
@@ -84,7 +83,6 @@ public sealed class JournalMaintenanceAbortTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 600_000,
         };
 
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
@@ -136,7 +134,6 @@ public sealed class JournalMaintenanceAbortTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 600_000,
         };
 
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);

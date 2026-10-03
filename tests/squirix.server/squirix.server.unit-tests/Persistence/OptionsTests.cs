@@ -31,7 +31,6 @@ public sealed class OptionsTests
         _ = await Assert.That(o.JournalMaxSegmentCount).IsEqualTo(32);
         _ = await Assert.That(o.JournalMaxTotalBytesMb).IsEqualTo(2048);
         _ = await Assert.That(o.JournalPlatformBackend).IsEqualTo(JournalPlatformBackend.Auto);
-        _ = await Assert.That(o.FlushInterval).IsEqualTo(10);
         _ = await Assert.That(o.ManifestRetentionCount).IsEqualTo(3);
         _ = await Assert.That(o.JournalGroupCommitMaxWait).IsEqualTo(TimeSpan.Zero);
         _ = await Assert.That(o.JournalGroupCommitMaxBatch).IsEqualTo(32);
@@ -61,13 +60,11 @@ public sealed class OptionsTests
         var options = new PersistenceOptions
         {
             JournalMaxSegmentMb = 1,
-            FlushInterval = 1,
             ManifestRetentionCount = 1,
             SnapshotRetentionCount = 1,
         };
 
         _ = await Assert.That(options.JournalMaxSegmentMb).IsEqualTo(1);
-        _ = await Assert.That(options.FlushInterval).IsEqualTo(1);
         _ = await Assert.That(options.ManifestRetentionCount).IsEqualTo(1);
         _ = await Assert.That(options.SnapshotRetentionCount).IsEqualTo(1);
     }
@@ -76,12 +73,11 @@ public sealed class OptionsTests
     [Test]
     public async Task JsonDeserializeBindsValidatedScalars()
     {
-        const string json = """{"dataDir":"data","journalMaxSegmentMb":64,"flushInterval":20,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
+        const string json = """{"dataDir":"data","journalMaxSegmentMb":64,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
         var options = new ServerJsonSerializer().Deserialize<PersistenceOptions>(json);
         _ = await Assert.That(options).IsNotNull();
         _ = await Assert.That(options.DataDir).IsEqualTo("data");
         _ = await Assert.That(options.JournalMaxSegmentMb).IsEqualTo(64);
-        _ = await Assert.That(options.FlushInterval).IsEqualTo(20);
         _ = await Assert.That(options.ManifestRetentionCount).IsEqualTo(2);
         _ = await Assert.That(options.SnapshotRetentionCount).IsEqualTo(4);
     }
@@ -90,7 +86,6 @@ public sealed class OptionsTests
     /// <param name="propertyName">Property being validated.</param>
     [Test]
     [Arguments(nameof(PersistenceOptions.JournalMaxSegmentMb))]
-    [Arguments(nameof(PersistenceOptions.FlushInterval))]
     [Arguments(nameof(PersistenceOptions.ManifestRetentionCount))]
     [Arguments(nameof(PersistenceOptions.SnapshotRetentionCount))]
     [Arguments(nameof(PersistenceOptions.JournalStallDegradedThreshold))]
@@ -141,13 +136,12 @@ public sealed class OptionsTests
 
         // Unchanged defaults
         _ = await Assert.That(overridden.JournalMaxSegmentMb).IsEqualTo(defaults.JournalMaxSegmentMb);
-        _ = await Assert.That(overridden.FlushInterval).IsEqualTo(defaults.FlushInterval);
+        _ = await Assert.That(overridden.SnapshotRetentionCount).IsEqualTo(defaults.SnapshotRetentionCount);
     }
 
     private static PersistenceOptions CreateWithInvalidScalar(string propertyName) => propertyName switch
     {
         nameof(PersistenceOptions.JournalMaxSegmentMb) => new PersistenceOptions { JournalMaxSegmentMb = 0 },
-        nameof(PersistenceOptions.FlushInterval) => new PersistenceOptions { FlushInterval = 0 },
         nameof(PersistenceOptions.ManifestRetentionCount) => new PersistenceOptions { ManifestRetentionCount = 0 },
         nameof(PersistenceOptions.SnapshotRetentionCount) => new PersistenceOptions { SnapshotRetentionCount = 0 },
         nameof(PersistenceOptions.JournalStallDegradedThreshold) => new PersistenceOptions { JournalStallDegradedThreshold = TimeSpan.Zero },

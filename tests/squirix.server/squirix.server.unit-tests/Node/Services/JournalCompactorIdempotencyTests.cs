@@ -207,7 +207,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
         _ = await Assert.That(found).IsTrue();
     }
 
-    private static PersistenceOptions CreatePersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+    private static PersistenceOptions CreatePersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16 };
 
     /// <summary>Runs recovery for the given scenario.</summary>
     /// <param name="scenario">The recovery scenario.</param>

@@ -113,7 +113,7 @@ public sealed class HostLogIsolationTests : NodeIntegrationTestBase
 
         await cluster.StopNodeAsync(nodeId);
         await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, cancellationToken);
-        var persistence = new PersistenceOptions { DataDir = node.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+        var persistence = new PersistenceOptions { DataDir = node.DataDir, JournalMaxSegmentMb = 16 };
         using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         var path = NodePathKit.Combine(node.DataDir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(manifest.CurrentJournal)}{FileExtensions.Journal}");

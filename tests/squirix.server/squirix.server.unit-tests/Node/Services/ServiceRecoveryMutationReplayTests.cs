@@ -176,7 +176,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         using var scenario = RecoveryScenarioBuilder.Create("squirix-compaction-unassigned-opcode");
         BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 255, "a");
         await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
-        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(), DateTime.UtcNow, cancellationToken));
     }
@@ -213,7 +213,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         BinaryJournalTestSegmentWriter.SetHeaderVersion(path, 1);
         var lengthBefore = new FileInfo(path).Length;
         var manifest = new State { Format = 1, CurrentJournal = 1, NextSequence = 2 };
-        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
             (manifest, persistence),
@@ -232,7 +232,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "a", "v"));
         BinaryJournalTestSegmentWriter.SetHeaderVersion(BinaryJournalTestSegmentWriter.SegmentPath(scenario.DataDir, 1), 1);
         await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
-        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(), DateTime.UtcNow, cancellationToken));
     }
@@ -242,7 +242,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
 
     private static RecoveryService<object?> CreateRecovery(RecoveryScenarioBuilder scenario, RpcMutationIdempotencyStore store)
     {
-        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
         var reader = StoreFactory.CreateReader();
         var recoveryDependencies = new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, new AsyncManualResetEvent(true), store, reader, TimeProvider.System);
         return new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, recoveryDependencies);

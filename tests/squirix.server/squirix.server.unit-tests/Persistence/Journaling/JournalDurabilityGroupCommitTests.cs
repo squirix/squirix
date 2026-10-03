@@ -317,7 +317,6 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(50),
             JournalGroupCommitMaxBatch = 8,
@@ -353,7 +352,6 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.FromSeconds(30),
             JournalGroupCommitMaxBatch = 32,

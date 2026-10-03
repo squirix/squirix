@@ -54,5 +54,5 @@ public sealed class JournalIdempotencyGateTests : IsolatedStorageTestBase
         _ = await Assert.That(journal.NextSequence).IsNotEqualTo(initialSequence);
     }
 
-    private static PersistenceOptions CreatePersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+    private static PersistenceOptions CreatePersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16 };
 }
