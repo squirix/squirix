@@ -191,29 +191,24 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        ReplicaCommitCoordinator coordinator;
-        ReplicaMutationFactory factory;
-        try
+        var starting = EnsureStartedAsync(true, cancellationToken);
+        if (await starting.CaptureFailureAsync(static _ => true).ConfigureAwait(false) != null)
         {
-            (coordinator, factory) = await EnsureStartedAsync(true, cancellationToken).ConfigureAwait(false);
-        }
-#pragma warning disable CA1031 // Whatever refused the start, a committed outcome of this operation is its true answer and is replayed instead.
-        catch (Exception) when (LookupRetained(write, state, fingerprint, out var recorded) == GroupIdempotencyLookup.Found)
-#pragma warning restore CA1031
-        {
-            // A retry of a committed operation replays its outcome: it needs no majority and no apply, so whatever refused this attempt
-            // does not apply to it.
-            return await decode(recorded.OutcomePayload).ConfigureAwait(false);
-        }
-        catch (Exception) when (LookupRetained(write, state, fingerprint, out _) is var retained && retained is GroupIdempotencyLookup.Unresolved or GroupIdempotencyLookup.Mismatch)
-        {
-            // A retry of an operation whose entry is appended but not yet committed (possibly by the process before a restart) must
-            // neither re-execute nor be told it failed: its outcome stays unknown until a commit resolves the entry, which the retry
-            // then replays. Whatever refused this attempt, only the unknown outcome is true for the operation. The same identifier
-            // with another request is a reuse, reported as such whatever the state of the entry.
-            throw retained == GroupIdempotencyLookup.Mismatch ? new ServerOpIdMismatchException() : ServerOpContract.CommitOutcomeUnknown();
+            // Whatever refused the start, a retained entry of this operation decides the answer. A retry of a committed operation replays
+            // its outcome: it needs no majority and no apply. A retry of an operation whose entry is appended but not yet committed
+            // (possibly by the process before a restart) must neither re-execute nor be told it failed: its outcome stays unknown until a
+            // commit resolves the entry. The same identifier with another request is a reuse, whatever the state of the entry. Without a
+            // retained entry the refusal stands and is rethrown by the await below.
+            var retained = LookupRetained(write, state, fingerprint, out var recorded);
+            if (retained == GroupIdempotencyLookup.Found)
+                return await decode(recorded.OutcomePayload).ConfigureAwait(false);
+            if (retained == GroupIdempotencyLookup.Mismatch)
+                throw new ServerOpIdMismatchException();
+            if (retained == GroupIdempotencyLookup.Unresolved)
+                throw ServerOpContract.CommitOutcomeUnknown();
         }
 
+        var (coordinator, factory) = await starting.ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await prepare(factory, state, index, cancellationToken).ConfigureAwait(false);
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
