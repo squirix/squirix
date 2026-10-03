@@ -1182,9 +1182,13 @@ jobs:
                       dotnet tool update dotnet-sonarscanner --tool-path .sonar/scanner
                     fi
 
-            # SquirixSonarAnalysis leaves only the Sonar analyzers in this build; see Directory.Build.props.
+            # SquirixSonarAnalysis leaves only the Sonar analyzers in this build; see Directory.Build.props. Sonar excludes
+            # benchmarks/ and samples/ from the analysis (sonar.exclusions below), so the build leaves them out too, as the
+            # test outputs of build-release do: every project entry of squirix.slnx is a single line.
             -   name: Restore
-                run: dotnet restore squirix.slnx -p:SquirixSonarAnalysis=true
+                run: |
+                    grep -vE '<Project Path="(benchmarks|samples)/' squirix.slnx > squirix.sonar.slnx
+                    dotnet restore squirix.sonar.slnx -p:SquirixSonarAnalysis=true
 
             -   name: Begin Analysis And Build
                 shell: bash
@@ -1228,7 +1232,8 @@ jobs:
                     fi
 
                     .sonar/scanner/dotnet-sonarscanner "${begin_args[@]}"
-                    dotnet build squirix.slnx --configuration Release --no-restore -p:SquirixSonarAnalysis=true
+                    dotnet build squirix.sonar.slnx --configuration Release --no-restore -p:SquirixSonarAnalysis=true \
+                      -p:ShouldUnsetParentConfigurationAndPlatform=false
 
             # The build above does not need the tests, so it runs while they do. The analysis is published only after the
             # ubuntu test jobs of this run have all succeeded, because it imports their coverage.
