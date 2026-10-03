@@ -48,7 +48,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     private long _ops;
 
     internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, AsyncManualResetEvent startupGate, ILoggerFactory loggerFactory, TimeProvider? timeProvider = null)
-        : this(opt, manifest, manifestStore, startupGate, JournalSegmentWriterFactory.Create(opt.JournalPlatformBackend), loggerFactory, timeProvider)
+        : this(opt, manifest, manifestStore, startupGate, JournalSegmentWriterFactory.Create(), loggerFactory, timeProvider)
     {
     }
 

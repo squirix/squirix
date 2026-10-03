@@ -44,7 +44,6 @@ public class ManifestSegmentRollBenchmarks
         var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
         var options = new PersistenceOptions
         {
-            JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
             JournalMaxSegmentMb = 1,
             JournalMaxSegmentCount = 1024,
             ManifestRetentionCount = retention,

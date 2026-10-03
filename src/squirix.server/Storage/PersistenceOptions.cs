@@ -44,11 +44,6 @@ internal sealed record PersistenceOptions
     [JsonInclude]
     internal int JournalMaxTotalBytesMb { get; init; } = JournalSegmentLimits.DefaultMaxTotalBytesMb;
 
-    /// <summary>Gets the configured platform backend used for the journal storage.</summary>
-    [JsonPropertyName("journalPlatformBackend")]
-    [JsonInclude]
-    internal JournalPlatformBackend JournalPlatformBackend { get; init; } = JournalPlatformBackend.Auto;
-
     /// <summary>
     /// Gets how long one journal segment I/O call (a write or a flush) may stay in progress before readiness reports the node
     /// degraded. Internal host default only: not bound from configuration.

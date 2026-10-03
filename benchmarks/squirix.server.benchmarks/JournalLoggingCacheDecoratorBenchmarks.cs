@@ -52,7 +52,6 @@ public class JournalLoggingCacheDecoratorBenchmarks
     {
         var options = new PersistenceOptions
         {
-            JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
             JournalMaxSegmentMb = 64,
         };
         _host = await JournalBenchmarkHost.CreateAsync("journal-decorator-bench", options, CancellationToken.None).ConfigureAwait(false);

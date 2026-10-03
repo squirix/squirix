@@ -78,7 +78,6 @@ public class DurableMutationGroupCommitBenchmarks
     {
         var options = new PersistenceOptions
         {
-            JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(1),
             JournalGroupCommitMaxBatch = 32,
             JournalMaxSegmentMb = 64,

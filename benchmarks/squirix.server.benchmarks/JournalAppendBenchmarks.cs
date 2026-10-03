@@ -16,7 +16,6 @@ namespace Squirix.Server.Benchmarks;
 public class JournalAppendBenchmarks
 {
     private const int OperationsPerInvoke = 100_000;
-    private const JournalPlatformBackend PlatformBackend = JournalPlatformBackend.RandomAccess;
     private JournalBenchmarkHost? _host;
     private CacheKey _key = new("bench", "key");
     private byte[] _putPayload = [];
@@ -70,7 +69,6 @@ public class JournalAppendBenchmarks
     {
         var options = new PersistenceOptions
         {
-            JournalPlatformBackend = PlatformBackend,
             JournalGroupCommitMaxWait = GroupCommitMaxWait,
             JournalGroupCommitMaxBatch = 32,
             JournalMaxSegmentMb = 64,
