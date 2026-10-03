@@ -74,16 +74,11 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         var log = OwnerLog(owner);
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
         var cache = owner.GetCache<object?>(CacheName);
-        var followers = Followers(cluster);
         var snapshots = new HashSet<ulong>();
         var peak = 0;
         for (var i = 1; i <= writes; i++)
         {
             await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = $"value-{i}", Version = i }, cancellationToken);
-
-            // Compaction never passes a follower that is behind, and a follower that misses an entry never catches up: each write is
-            // received by every follower before the next one starts, so the load cannot leave a follower behind.
-            await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, OwnerId, followers, cancellationToken);
             var retention = await log.GetRetentionAsync(cancellationToken);
             peak = Math.Max(peak, retention.RetainedEntries);
             if (retention.SnapshotIndex > 0)
@@ -202,9 +197,9 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         _ = services.AddSingleton(new ReplicaLogCompactionOptions { Interval = MaintenanceInterval });
     }
 
-    /// <summary>Overwrites one key owned by node-a, each write with a fresh operation identifier, and waits after each write until the followers hold it.</summary>
+    /// <summary>Overwrites one key owned by node-a, each write with a fresh operation identifier, and waits after the last write until the followers hold it.</summary>
     /// <param name="owner">The group owner.</param>
-    /// <param name="followers">The followers that must receive each write before the next one starts; none when they need not keep up.</param>
+    /// <param name="followers">The followers that must hold every write before the method returns; none when they need not keep up.</param>
     /// <param name="count">The number of overwrites.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The operation identifiers, in write order; write number i stores value-i at version i.</returns>
@@ -217,9 +212,9 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         {
             operations[i - 1] = Guid.NewGuid().ToString("N");
             await cache.SetEntryAsync(operations[i - 1], CacheName, key, Entry(i), cancellationToken);
-            await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, OwnerId, followers, cancellationToken);
         }
 
+        await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, OwnerId, followers, cancellationToken);
         return operations;
     }
 
