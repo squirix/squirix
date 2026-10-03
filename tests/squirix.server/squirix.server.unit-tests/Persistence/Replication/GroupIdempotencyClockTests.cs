@@ -73,7 +73,7 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
         _ = await source.AdvanceCommitAsync(1UL, cancellationToken);
         Resolve(source.Idempotency);
         leader.Advance(AgeAtCapture);
-        var snapshot = await source.CreateSnapshotAsync(1UL, cancellationToken);
+        var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, sourceDir, 1UL, cancellationToken);
 
         bool installed;
         await using (var target = new FollowerLog(targetDir, GroupId, composition, NullLogger<FollowerLog>.Instance, Options(follower)))

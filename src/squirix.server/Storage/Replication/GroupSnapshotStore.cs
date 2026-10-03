@@ -106,7 +106,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     ///     </para>
     ///     <para>
     ///     For example, <c language="csharp">FollowerLog</c> satisfies this contract by invoking publication only while holding its
-    ///     single-writer gate (<c language="csharp">CreateSnapshotAsync</c> and <c language="csharp">InstallSnapshotAsync</c>).
+    ///     single-writer gate (<c language="csharp">CompactThroughAsync</c> and <c language="csharp">InstallSnapshotAsync</c>).
     ///     </para>
     /// </remarks>
     internal async Task PublishAsync(GroupSnapshot snapshot, CancellationToken cancellationToken)

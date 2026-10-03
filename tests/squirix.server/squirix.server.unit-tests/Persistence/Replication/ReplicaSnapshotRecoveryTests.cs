@@ -80,9 +80,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = log.Idempotency.Reserve("client", "op-1", [1], GroupRecordKind.UserMutation, 1UL, 1UL);
             _ = log.Idempotency.TryResolve("client", "op-1", [9], 1UL, 1UL);
             _ = await log.AdvanceAppliedAsync(8UL, cancellationToken);
-            _ = await log.CreateSnapshotAsync(8UL, cancellationToken);
-            var compact = await log.CompactAsync(cancellationToken);
-            _ = await Assert.That(compact.Success).IsTrue();
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 8UL, cancellationToken);
             _ = await Assert.That(log.SnapshotPath).IsNotNull();
         }
 
@@ -118,7 +116,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = log.Idempotency.TryResolve("client", "op-epoch", [9], 1UL, 1UL);
             _ = await Assert.That(log.Idempotency.Lookup("client", "op-epoch", [1], out var preRecord) is GroupIdempotencyLookup.Found).IsTrue();
             _ = await Assert.That(preRecord.ResolvedUtc!.Value).IsEqualTo(DateTime.UnixEpoch);
-            _ = await log.CreateSnapshotAsync(1UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 1UL, cancellationToken);
         }
 
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, options);
@@ -145,7 +143,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await source.OpenAsync(cancellationToken);
         _ = await source.AppendAsync(Append(1UL, 3UL, "snapshot"), cancellationToken);
         _ = await source.AdvanceCommitAsync(1UL, cancellationToken);
-        var snapshot = await source.CreateSnapshotAsync(1UL, cancellationToken);
+        var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 1UL, cancellationToken);
 
         await using (var initialTarget = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance))
             await initialTarget.OpenAsync(cancellationToken);
@@ -188,7 +186,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             new FollowerLogAppendRequest("leader", 2UL, 1UL, 1UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 2UL, Encoding.UTF8.GetBytes("source-2")))),
             cancellationToken);
         _ = await source.AdvanceCommitAsync(2UL, cancellationToken);
-        var snapshot = await source.CreateSnapshotAsync(2UL, cancellationToken);
+        var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 2UL, cancellationToken);
 
         await using (var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
@@ -228,7 +226,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = source.Idempotency.TryResolve("client", "operation-1", [9], 1UL, 1UL);
         _ = await source.AdvanceCommitAsync(2UL, cancellationToken);
 
-        var snapshot = await source.CreateSnapshotAsync(2UL, cancellationToken);
+        var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 2UL, cancellationToken);
 
         await using var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await target.OpenAsync(cancellationToken);
@@ -272,7 +270,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = source.Idempotency.Reserve("client", "operation-1", [1, 2, 3], GroupRecordKind.UserMutation, 1UL, 1UL);
         _ = source.Idempotency.TryResolve("client", "operation-1", [9], 1UL, 1UL);
         _ = await source.AdvanceCommitAsync(2UL, cancellationToken);
-        var snapshot = await source.CreateSnapshotAsync(2UL, cancellationToken);
+        var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 2UL, cancellationToken);
 
         await using (var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
@@ -359,7 +357,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             await source.OpenAsync(cancellationToken);
             _ = await source.AppendAsync(Append(1UL, 3UL, "snapshot"), cancellationToken);
             _ = await source.AdvanceCommitAsync(1UL, cancellationToken);
-            _ = await source.CreateSnapshotAsync(1UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 1UL, cancellationToken);
         }
 
         await using (var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance))
@@ -409,7 +407,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
                     ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 2UL, Encoding.UTF8.GetBytes("source-2")))),
                 cancellationToken);
             _ = await source.AdvanceCommitAsync(2UL, cancellationToken);
-            _ = await source.CreateSnapshotAsync(2UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 2UL, cancellationToken);
         }
 
         await using (var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance))
@@ -462,7 +460,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
             _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
             _ = await source.AdvanceCommitAsync(2UL, cancellationToken);
-            _ = await source.CreateSnapshotAsync(2UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 2UL, cancellationToken);
         }
 
         await using (var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance))
@@ -517,7 +515,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             await seed.OpenAsync(cancellationToken);
             _ = await seed.AppendAsync(Append(1UL, 1UL, "snapshot"), cancellationToken);
             _ = await seed.AdvanceCommitAsync(1UL, cancellationToken);
-            _ = await seed.CreateSnapshotAsync(1UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(seed, dir, 1UL, cancellationToken);
         }
 
         // The corrupt state can no longer be produced through PublishAsync, so patch the published file directly,
@@ -640,7 +638,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             await source.OpenAsync(cancellationToken);
             _ = await source.AppendAsync(Append(1UL, 1UL, "snapshot"), cancellationToken);
             _ = await source.AdvanceCommitAsync(1UL, cancellationToken);
-            _ = await source.CreateSnapshotAsync(1UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 1UL, cancellationToken);
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(GroupStoragePaths.GetSnapshotPath(dir2, GroupId))!);
@@ -702,7 +700,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = source.Idempotency.Reserve("client", "operation-1", [1, 2, 3], GroupRecordKind.UserMutation, 1UL, 1UL);
             _ = source.Idempotency.TryResolve("client", "operation-1", [9], 1UL, 1UL);
             _ = await source.AdvanceCommitAsync(1UL, cancellationToken);
-            _ = await source.CreateSnapshotAsync(1UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 1UL, cancellationToken);
         }
 
         await using (var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance))
@@ -742,9 +740,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await log.AppendAsync(Append(5UL, "e"), cancellationToken);
             _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
             _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
-            _ = await log.CreateSnapshotAsync(3UL, cancellationToken);
-            var result = await log.CompactAsync(cancellationToken);
-            _ = await Assert.That(result.Success).IsTrue();
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 3UL, cancellationToken);
         }
 
         var bytes = await File.ReadAllBytesAsync(logPath, cancellationToken);
@@ -789,9 +785,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
             _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
             _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
-            _ = await log.CreateSnapshotAsync(3UL, cancellationToken);
-            var result = await log.CompactAsync(cancellationToken);
-            _ = await Assert.That(result.Success).IsTrue();
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 3UL, cancellationToken);
 
             // Append and commit past the boundary so the durable commit watermark exceeds the
             // snapshot base while the suffix frames stay outside the snapshot's coverage.
@@ -866,7 +860,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             await source.OpenAsync(cancellationToken);
             _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
             _ = await source.AdvanceCommitAsync(1UL, cancellationToken);
-            _ = await source.CreateSnapshotAsync(1UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 1UL, cancellationToken);
         }
 
         await using (var target = new FollowerLog(dir2, "grp-b", GroupComposition.Create("grp-b"), NullLogger<FollowerLog>.Instance))

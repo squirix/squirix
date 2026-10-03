@@ -281,16 +281,21 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-base-duplicate-applied");
         var composition = GroupComposition.Create(GroupId);
 
+        var faults = FollowerSnapshotScenario.CreateCompactionFaults();
+        await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, faults))
+        {
+            await seed.OpenAsync(cancellationToken);
+            _ = await Assert.That((await seed.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
+            _ = await Assert.That((await seed.AdvanceCommitAsync(1UL, cancellationToken)).Success).IsTrue();
+
+            // The snapshot is published but the journal is not compacted, so after the restart the applied frame
+            // keeps its offset in EntryOffsets and a retransmission must be an exact duplicate, not a conflict.
+            await FollowerSnapshotScenario.PublishWithoutCompactionAsync(seed, faults, 1UL, cancellationToken);
+        }
+
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
-        _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
-        _ = await Assert.That((await log.AdvanceCommitAsync(1UL, cancellationToken)).Success).IsTrue();
-        _ = await Assert.That((await log.AdvanceAppliedAsync(1UL, cancellationToken)).Success).IsTrue();
-
-        // CreateSnapshotAsync installs the baseline without compacting the journal, so the released frame
-        // keeps its offset in EntryOffsets and a retransmission must be an exact duplicate, not a conflict.
-        var snapshot = await log.CreateSnapshotAsync(1UL, cancellationToken);
-        _ = await Assert.That(snapshot.LastIncludedIndex).IsEqualTo(1UL);
+        _ = await Assert.That(log.SnapshotPath).IsNotNull();
 
         var retransmission = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
 
@@ -478,8 +483,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         // payload comparison rather than the applied-region term-only acceptance.
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
 
-        _ = await Assert.That((await log.AdvanceAppliedAsync(1UL, cancellationToken)).Success).IsTrue();
-        var snapshot = await log.CreateSnapshotAsync(1UL, cancellationToken);
+        var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 1UL, cancellationToken);
         _ = await Assert.That(snapshot.LastIncludedIndex).IsEqualTo(1UL);
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(1UL);
@@ -681,10 +685,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AdvanceCommitAsync(2UL, cancellationToken)).Success).IsTrue();
-        _ = await Assert.That((await log.AdvanceAppliedAsync(2UL, cancellationToken)).Success).IsTrue();
-        _ = await Assert.That((await log.CreateSnapshotAsync(2UL, cancellationToken)).LastIncludedIndex).IsEqualTo(2UL);
-        var compact = await log.CompactAsync(cancellationToken);
-        _ = await Assert.That(compact.Success).IsTrue();
+        _ = await Assert.That((await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 2UL, cancellationToken)).LastIncludedIndex).IsEqualTo(2UL);
 
         var memory = ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("conflict")));
         var request = new FollowerLogAppendRequest("leader-1", 1UL, 1UL, 1UL, 0UL, memory);
@@ -793,14 +794,33 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task ResidentBasePayloadConflictRejected(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-log-snapshot-base-conflict");
+        using var sourceDir = new TempDirectory("squirix-follower-log-snapshot-base-conflict-source");
         var composition = GroupComposition.Create(GroupId);
+
+        // The covering snapshot comes from a compacted log; the replica under test holds the same committed entries, none of them applied yet,
+        // so the base entry is still retained in memory when it restarts with the snapshot published.
+        await using (var source = new FollowerLog(sourceDir, GroupId, composition, NullLogger<FollowerLog>.Instance))
+        {
+            await source.OpenAsync(cancellationToken);
+            _ = await Assert.That((await source.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
+            _ = await Assert.That((await source.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken)).Success).IsTrue();
+            _ = await Assert.That((await source.AdvanceCommitAsync(2UL, cancellationToken)).Success).IsTrue();
+            _ = await Assert.That((await FollowerSnapshotScenario.CompactThroughAsync(source, sourceDir, 2UL, cancellationToken)).LastIncludedIndex).IsEqualTo(2UL);
+        }
+
+        await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
+        {
+            await seed.OpenAsync(cancellationToken);
+            _ = await Assert.That((await seed.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
+            _ = await Assert.That((await seed.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken)).Success).IsTrue();
+            _ = await Assert.That((await seed.AdvanceCommitAsync(2UL, cancellationToken)).Success).IsTrue();
+        }
+
+        File.Copy(GroupStoragePaths.GetSnapshotPath(sourceDir, GroupId), GroupStoragePaths.GetSnapshotPath(dir, GroupId));
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
-        _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
-        _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken)).Success).IsTrue();
-        _ = await Assert.That((await log.AdvanceCommitAsync(2UL, cancellationToken)).Success).IsTrue();
-        _ = await Assert.That((await log.CreateSnapshotAsync(2UL, cancellationToken)).LastIncludedIndex).IsEqualTo(2UL);
+        _ = await Assert.That(log.SnapshotPath).IsNotNull();
 
         // The leader re-sends the snapshot base entry at index 2 with the same term but a different payload while the
         // local basis entry is still resident; the exact payload comparison must reject the conflict instead of the
