@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -206,12 +206,12 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// The task of the follower's acknowledgement. It fails, instead of this call throwing, when the sender is disposed, the backlog is
     /// full, the entry does not follow the entries enqueued before it, the follower refuses the request, or the request fails.
     /// </returns>
-    [SuppressMessage("Usage", "VSTHRD003", Justification = "The completion source is created by this call and completed only by the send loop or by the dispose drain.")]
     internal Task<ReplicaDurableAcknowledgement> EnqueueAsync(PreparedReplicaMutation mutation, in ReplicaLogRecord record, ulong prevLogIndex, ulong prevLogTerm, ulong leaderCommitIndex)
     {
         ArgumentNullException.ThrowIfNull(mutation);
 
-        var item = new PendingAppend(mutation, in record, prevLogIndex, prevLogTerm, leaderCommitIndex);
+        var completion = new TaskCompletionSource<ReplicaDurableAcknowledgement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var item = new PendingAppend(mutation, in record, prevLogIndex, prevLogTerm, leaderCommitIndex, completion);
         TaskCompletionSource? started = null;
         lock (_sync)
         {
@@ -238,7 +238,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         if (started != null)
             StartLoop(started);
 
-        return item.Completion.Task;
+        return completion.Task;
     }
 
     private static void Complete(List<PendingAppend> batch, in FollowerLogAppendResult result, string nodeId)
@@ -293,32 +293,33 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
-    [SuppressMessage("Design", "CA1031", Justification = "The loop must never fault: every failure of a request is delivered to the entries it carried.")]
     private async Task RunAsync(TaskCompletionSource done)
     {
         // A pending-free exit is decided under the lock in TakeBatch, so an enqueue racing the exit starts a loop of its own.
         while (TakeBatch() is { } batch)
         {
-            try
-            {
-                var records = new ReplicaLogRecord[batch.Count];
-                for (var i = 0; i < records.Length; i++)
-                    records[i] = batch[i].Record;
-
-                var first = batch[0];
-                var request = new FollowerBatch(records, _header.LeaderNodeId, first.Record.Term, first.PrevLogIndex, first.PrevLogTerm, batch[^1].LeaderCommitIndex);
-                using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
-                using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token);
-                var result = await _rpc.AppendEntriesAsync(_nodeId, _header, request, linked.Token).ConfigureAwait(false);
-                Complete(batch, in result, _nodeId);
-            }
-            catch (Exception error)
-            {
+            if (await SendBatchAsync(batch).CaptureFailureAsync().ConfigureAwait(false) is { } error)
                 Fail(batch, error);
-            }
         }
 
         _ = done.TrySetResult();
+    }
+
+    /// <summary>Sends one request and completes the entries it carried with the follower's answer.</summary>
+    /// <param name="batch">The entries of the request, in log order.</param>
+    /// <returns>A task that faults when the request fails or times out; the caller fails the entries then.</returns>
+    private async Task SendBatchAsync(List<PendingAppend> batch)
+    {
+        var records = new ReplicaLogRecord[batch.Count];
+        for (var i = 0; i < records.Length; i++)
+            records[i] = batch[i].Record;
+
+        var first = batch[0];
+        var request = new FollowerBatch(records, _header.LeaderNodeId, first.Record.Term, first.PrevLogIndex, first.PrevLogTerm, batch[^1].LeaderCommitIndex);
+        using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token);
+        var result = await _rpc.AppendEntriesAsync(_nodeId, _header, request, linked.Token).ConfigureAwait(false);
+        Complete(batch, in result, _nodeId);
     }
 
     /// <summary>Starts the send loop on the calling thread, up to its first wait, without the caller's execution context.</summary>
@@ -343,7 +344,13 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     [Immutable]
     private sealed class PendingAppend
     {
-        internal PendingAppend(PreparedReplicaMutation mutation, in ReplicaLogRecord record, ulong prevLogIndex, ulong prevLogTerm, ulong leaderCommitIndex)
+        internal PendingAppend(
+            PreparedReplicaMutation mutation,
+            in ReplicaLogRecord record,
+            ulong prevLogIndex,
+            ulong prevLogTerm,
+            ulong leaderCommitIndex,
+            TaskCompletionSource<ReplicaDurableAcknowledgement> completion)
         {
             Mutation = mutation;
             Record = record;
@@ -351,11 +358,12 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             PrevLogTerm = prevLogTerm;
             LeaderCommitIndex = leaderCommitIndex;
             Bytes = mutation.CanonicalPayload.Length;
+            Completion = completion;
         }
 
         internal long Bytes { get; }
 
-        internal TaskCompletionSource<ReplicaDurableAcknowledgement> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource<ReplicaDurableAcknowledgement> Completion { get; }
 
         internal ulong LeaderCommitIndex { get; }
 
