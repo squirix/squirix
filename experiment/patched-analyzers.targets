@@ -1,0 +1,24 @@
+<Project>
+    <!-- Experiment, never merged: replaces four analyzers with builds that carry the upstream performance fixes. -->
+    <PropertyGroup>
+        <_ExpDir>$(MSBuildThisFileDirectory)analyzers</_ExpDir>
+    </PropertyGroup>
+    <Target Name="ExperimentSwapAnalyzers" BeforeTargets="CoreCompile">
+        <ItemGroup Condition="'@(Analyzer->AnyHaveMetadataValue('Filename', 'Meziantou.Analyzer'))' == 'true'">
+            <Analyzer Remove="@(Analyzer)" Condition="'%(Filename)' == 'Meziantou.Analyzer' Or '%(Filename)' == 'Meziantou.Analyzer.CodeFixers'"/>
+            <Analyzer Include="$(_ExpDir)/meziantou/Meziantou.Analyzer.dll;$(_ExpDir)/meziantou/Meziantou.Analyzer.CodeFixers.dll"/>
+        </ItemGroup>
+        <ItemGroup Condition="'@(Analyzer->AnyHaveMetadataValue('Filename', 'ILLink.RoslynAnalyzer'))' == 'true'">
+            <Analyzer Remove="@(Analyzer)" Condition="'%(Filename)' == 'ILLink.RoslynAnalyzer'"/>
+            <Analyzer Include="$(_ExpDir)/illink/ILLink.RoslynAnalyzer.dll"/>
+        </ItemGroup>
+        <ItemGroup Condition="'@(Analyzer->AnyHaveMetadataValue('Filename', 'NsDepCop.Analyzer'))' == 'true'">
+            <Analyzer Remove="@(Analyzer)" Condition="'%(Filename)' == 'NsDepCop.Analyzer' Or '%(Filename)' == 'DotNet.Glob'"/>
+            <Analyzer Include="$(_ExpDir)/nsdepcop/NsDepCop.Analyzer.dll;$(_ExpDir)/nsdepcop/DotNet.Glob.dll"/>
+        </ItemGroup>
+        <ItemGroup Condition="'@(Analyzer->AnyHaveMetadataValue('Filename', 'SonarAnalyzer.CSharp'))' == 'true'">
+            <Analyzer Remove="@(Analyzer)" Condition="'%(Filename)' == 'SonarAnalyzer.CSharp'"/>
+            <Analyzer Include="$(_ExpDir)/sonar/*.dll"/>
+        </ItemGroup>
+    </Target>
+</Project>
