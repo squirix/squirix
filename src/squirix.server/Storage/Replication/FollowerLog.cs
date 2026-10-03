@@ -200,15 +200,23 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         // AppendVerifiedBatchAsync, synchronously after PrepareAppendBatch and before any await).
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-            return new FollowerLogAppendResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm, _lastLogIndex);
+        return await AppendLockedAsync(request, cancellationToken).ConfigureAwait(false);
+    }
 
-        var termError = await FollowerLogAppend.AdvanceTermIfHigherAsync(_journal, this, request, cancellationToken).ConfigureAwait(false);
-        if (termError != null)
-            return termError.Value;
+    /// <inheritdoc />
+    public async Task<FollowerLogAppendResult> AppendAsync(
+        FollowerLogAppendRequest request,
+        ReadOnlyMemory<byte> topologyFingerprint,
+        ulong configurationGeneration,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request.LeaderNodeId);
 
-        var consistencyError = FollowerLogAppend.VerifyPreviousLogConsistency(_journal, this, in request);
-        return consistencyError ?? await FollowerLogAppend.AppendVerifiedBatchAsync(_journal, this, request, cancellationToken).ConfigureAwait(false);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        return CaptureStatus().IsTopologyMismatch(topologyFingerprint, configurationGeneration)
+            ? new FollowerLogAppendResult(false, FollowerLogRefusal.TopologyMismatch, _meta.CurrentTerm, _lastLogIndex)
+            : await AppendLockedAsync(request, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -471,6 +479,24 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         _ = FileEx.TryDeleteFile(_journal.Paths.LogTempPath);
 
         await FollowerLogStartup.OpenGroupAsync(_journal, this, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Appends a batch after the readiness, term, and consistency checks.</summary>
+    /// <param name="request">The appending request.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The outcome of the appending attempt.</returns>
+    /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
+    private async Task<FollowerLogAppendResult> AppendLockedAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken)
+    {
+        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
+            return new FollowerLogAppendResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm, _lastLogIndex);
+
+        var termError = await FollowerLogAppend.AdvanceTermIfHigherAsync(_journal, this, request, cancellationToken).ConfigureAwait(false);
+        if (termError != null)
+            return termError.Value;
+
+        var consistencyError = FollowerLogAppend.VerifyPreviousLogConsistency(_journal, this, in request);
+        return consistencyError ?? await FollowerLogAppend.AppendVerifiedBatchAsync(_journal, this, request, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Builds the status of the durable log state.</summary>

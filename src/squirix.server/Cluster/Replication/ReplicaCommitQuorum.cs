@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Replication;
@@ -13,6 +14,8 @@ internal sealed class ReplicaCommitQuorum
     private readonly Dictionary<int, HashSet<ulong>> _futureAcks = [];
     private readonly ulong[] _matchIndexes;
     private readonly Lock _sync = new();
+    private TaskCompletionSource? _progress;
+    private ulong _version;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaCommitQuorum" /> class.</summary>
     /// <param name="replicaCount">Fixed the replica count, including the leader.</param>
@@ -40,6 +43,58 @@ internal sealed class ReplicaCommitQuorum
 
     internal int RequiredCopies { get; }
 
+    /// <summary>Gets a counter that moves whenever a recorded match index advances.</summary>
+    /// <remarks>
+    /// A commit that waits on its own followers reads it before it checks for a majority and then waits with
+    /// <see cref="WaitForProgressAsync" />, so progress made by another path in between, such as the background observation of an earlier
+    /// entry that completes the prefix of a buffered acknowledgement, still wakes it.
+    /// </remarks>
+    internal ulong ProgressVersion
+    {
+        get
+        {
+            lock (_sync)
+                return _version;
+        }
+    }
+
+    /// <summary>Checks whether an acknowledgement at or below an index is buffered behind a missing prefix.</summary>
+    /// <param name="logIndex">The highest index of interest.</param>
+    /// <returns><see langword="true" /> when some slot holds a buffered acknowledgement that the arrival of its prefix would count.</returns>
+    internal bool HasBufferedThrough(ulong logIndex)
+    {
+        lock (_sync)
+        {
+            foreach (var buffered in _futureAcks.Values)
+                foreach (var index in buffered)
+                {
+                    if (index <= logIndex)
+                        return true;
+                }
+
+            return false;
+        }
+    }
+
+    /// <summary>Waits until the progress version moves past a value read earlier.</summary>
+    /// <param name="seenVersion">The version read before the check that found no majority.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes once the version differs from <paramref name="seenVersion" />.</returns>
+    internal Task WaitForProgressAsync(ulong seenVersion, CancellationToken cancellationToken)
+    {
+        Task changed;
+        lock (_sync)
+        {
+            if (_version != seenVersion)
+                return Task.CompletedTask;
+
+            _progress ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            changed = _progress.Task;
+        }
+
+        return changed.WaitAsync(cancellationToken);
+    }
+
     /// <summary>Raises the recorded match index of a replica to a leader-verified durable position.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
     /// <param name="matchIndex">Contiguous durable index the leader verified on the replica (Log Matching).</param>
@@ -49,6 +104,10 @@ internal sealed class ReplicaCommitQuorum
     /// acknowledgements it now covers.
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="replicaIndex" /> is outside the fixed group.</exception>
+    /// <remarks>
+    /// Raising a match index signals progress. Changes of eligibility do not, so they must happen while no commit waits for a majority;
+    /// they run under the committer gate, which every commit holds.
+    /// </remarks>
     internal void Admit(int replicaIndex, ulong matchIndex)
     {
         if (replicaIndex < 0 || replicaIndex >= ReplicaCount)
@@ -57,7 +116,10 @@ internal sealed class ReplicaCommitQuorum
         lock (_sync)
         {
             if (matchIndex > _matchIndexes[replicaIndex])
+            {
                 _matchIndexes[replicaIndex] = matchIndex;
+                SignalProgressLocked();
+            }
 
             if (!_futureAcks.TryGetValue(replicaIndex, out var buffered))
                 return;
@@ -159,11 +221,22 @@ internal sealed class ReplicaCommitQuorum
         {
             _matchIndexes[replicaIndex] = acknowledgement.LogIndex;
             AdvanceThroughBuffered(replicaIndex);
+            SignalProgressLocked();
             return true;
         }
 
         BufferFutureLocked(replicaIndex, acknowledgement.LogIndex);
         return true;
+    }
+
+    /// <summary>Moves the progress version and completes the wait of the previous one, if any waits.</summary>
+    /// <remarks>Must be called under <see cref="_sync" />.</remarks>
+    private void SignalProgressLocked()
+    {
+        _version++;
+        var done = _progress;
+        _progress = null;
+        _ = done?.TrySetResult();
     }
 
     /// <summary>Buffers a future index arriving ahead of its missing prefix.</summary>

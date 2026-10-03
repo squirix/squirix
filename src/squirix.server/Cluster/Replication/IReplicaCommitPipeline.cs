@@ -17,6 +17,11 @@ internal interface IReplicaCommitPipeline
     /// <param name="mutation">Prepared mutation.</param>
     /// <param name="cancellationToken">Absolute-deadline cancellation token.</param>
     /// <returns>The follower's durable acknowledgement.</returns>
+    /// <remarks>
+    /// An implementation may ignore <paramref name="cancellationToken" />: the entry is already in the local log, so it must always reach
+    /// the follower in order, and a late acknowledgement must still be observed. The commit stops at its budget while it waits for the
+    /// majority, not through this call.
+    /// </remarks>
     ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken);
 
     /// <summary>Durably advances the local group commit index.</summary>

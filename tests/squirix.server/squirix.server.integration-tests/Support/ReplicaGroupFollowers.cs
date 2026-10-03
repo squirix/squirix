@@ -11,9 +11,9 @@ namespace Squirix.Server.IntegrationTests.Support;
 
 /// <summary>Waits until the followers of an owned replica group hold everything its owner has appended.</summary>
 /// <remarks>
-/// A commit returns once a majority holds the entry, so the slowest follower may still be receiving it when the next write
-/// starts, or when a test stops the follower. A follower that misses an entry is never caught up again, so a test that needs every
-/// follower to keep up waits here after each write instead of relying on the timing of the runner.
+/// A commit returns once a majority holds the entry, so the slowest follower may still be receiving it when a test stops that
+/// follower or reads its log. A follower is sent its entries in order, so a write does not overtake the previous one; a test that needs
+/// every follower to hold what the owner appended waits here once, at that point, instead of pacing its writes.
 /// </remarks>
 internal static class ReplicaGroupFollowers
 {
@@ -31,8 +31,8 @@ internal static class ReplicaGroupFollowers
     /// <exception cref="InvalidOperationException">No follower received the entry, or a follower did not move at all while it waited: replication itself is broken.</exception>
     /// <exception cref="SkipTestException">Some follower kept advancing but did not reach the entry in time while another received it; a follower that misses an entry stays behind, so the run cannot show what it checks.</exception>
     /// <remarks>
-    /// A write started while a follower is still receiving the previous one, without this wait, can leave that follower behind for good;
-    /// such an unpaced run is not covered here.
+    /// A follower that stays behind although it keeps receiving appends, or one that receives nothing, is not caught up by waiting; the
+    /// exceptions above report it.
     /// </remarks>
     internal static async Task AwaitCaughtUpAsync(ITestNodeHost owner, string groupId, (string Id, ITestNodeHost Host)[] followers, CancellationToken cancellationToken)
     {

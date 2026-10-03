@@ -25,4 +25,17 @@ internal readonly record struct FollowerLogStatus(
     ulong LastLogTerm,
     ulong CommitIndex,
     ulong LastAppliedIndex,
-    FollowerLogReadiness Readiness);
+    FollowerLogReadiness Readiness)
+{
+    /// <summary>Checks whether a leader topology disagrees with this log.</summary>
+    /// <param name="fingerprint">Leader topology fingerprint.</param>
+    /// <param name="generation">Leader configuration generation.</param>
+    /// <returns><see langword="true" /> when the generation is stale or a non-empty durable fingerprint differs.</returns>
+    /// <remarks>An empty durable fingerprint adopts nothing here but never conflicts; an older generation is refused.</remarks>
+    internal bool IsTopologyMismatch(ReadOnlyMemory<byte> fingerprint, ulong generation)
+    {
+        var isGenerationStale = generation < ConfigurationGeneration;
+        var isFingerprintMismatch = !TopologyFingerprint.IsEmpty && !TopologyFingerprint.Span.SequenceEqual(fingerprint.Span);
+        return isGenerationStale || isFingerprintMismatch;
+    }
+}
