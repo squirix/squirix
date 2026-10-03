@@ -14,13 +14,16 @@ internal sealed class OwnerRouter
 {
     private readonly IRemoteInvocationState _invocationState;
     private readonly INodeOwnershipResolver _ownershipResolver;
+    private readonly RingAgreement _ringAgreement;
 
-    internal OwnerRouter(INodeOwnershipResolver ownershipResolver, IRemoteInvocationState invocationState)
+    internal OwnerRouter(INodeOwnershipResolver ownershipResolver, IRemoteInvocationState invocationState, RingAgreement ringAgreement)
     {
         ArgumentNullException.ThrowIfNull(ownershipResolver);
         ArgumentNullException.ThrowIfNull(invocationState);
+        ArgumentNullException.ThrowIfNull(ringAgreement);
         _ownershipResolver = ownershipResolver;
         _invocationState = invocationState;
+        _ringAgreement = ringAgreement;
     }
 
     /// <summary>Finds the node a client call must be forwarded to.</summary>
@@ -29,10 +32,12 @@ internal sealed class OwnerRouter
     /// <returns>The owner node id when another node owns the key; <see langword="null" /> when the call runs on this node.</returns>
     /// <remarks>An invalid cache name or key runs on this node, so the canonical validation error is raised as for any local call.</remarks>
     /// <exception cref="RpcException">
+    /// <see cref="StatusCode.Unavailable" /> with the ring-fenced trailer when this node detected a ring mismatch with a peer; or
     /// <see cref="StatusCode.FailedPrecondition" /> with the stale-owner trailer when a trusted internal owner RPC reaches a node that does not own the key.
     /// </exception>
     internal string? FindRemoteOwner(string cacheName, string key)
     {
+        _ringAgreement.EnsureNotFenced();
         if (!ServerCacheName.TryParsePublic(cacheName, out var canonicalName) || !CacheKeyValidator.TryValidate(key, out _))
             return null;
 

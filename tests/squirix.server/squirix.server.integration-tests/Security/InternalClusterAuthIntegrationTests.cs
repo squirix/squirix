@@ -322,5 +322,14 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
 
         _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(refused.Trailers.GetValue("squirix-error-code")).IsEqualTo("ring-mismatch");
+
+        // The receiver is fenced: even a client call for a key it owns is refused, so the refused write cannot have been served.
+        using var clientChannel = CreateGrpcChannel(cluster["node-a"].Uri);
+        var clientA = new SquirixCacheService.SquirixCacheServiceClient(clientChannel);
+        var fenced = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            clientA.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken).ResponseAsync);
+
+        _ = await Assert.That(fenced.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(fenced.Trailers.GetValue("squirix-error-code")).IsEqualTo("ring-fenced");
     }
 }

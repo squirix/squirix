@@ -4,8 +4,10 @@ using Rocks;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Errors;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.TestKit;
+using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -62,6 +64,23 @@ public sealed class OwnerRouterTests
         _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
     }
 
+    /// <summary>A node fenced by a ring mismatch refuses with the ring-fenced marker before it resolves any owner.</summary>
+    [Test]
+    public async Task FencedRouterRefusesBeforeResolvingOwner()
+    {
+        var agreement = RingAgreements.Create();
+        agreement.ReportOutboundMismatch(Remote);
+
+        // The resolver has no setups: resolving an owner would fail the test with a different exception.
+        var router = new OwnerRouter(new INodeOwnershipResolverCreateExpectations().Instance(), CreateInvocationState(false), agreement);
+
+        var failure = NodeExceptionAssert.For<RpcException>().Throws(router, static r => _ = r.FindRemoteOwner("cache", "key"));
+
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(RingMismatchFailure.IsRefusal(failure)).IsTrue();
+        _ = await Assert.That(RingMismatchFailure.IsMismatch(failure)).IsFalse();
+    }
+
     /// <summary>An invalid cache name or key never consults ownership, so the canonical validation error is raised by the local path.</summary>
     /// <param name="cacheName">The cache name.</param>
     /// <param name="key">The key.</param>
@@ -74,7 +93,7 @@ public sealed class OwnerRouterTests
     {
         var ownership = new INodeOwnershipResolverCreateExpectations();
         _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
-        var router = new OwnerRouter(ownership.Instance(), CreateInvocationState(true));
+        var router = new OwnerRouter(ownership.Instance(), CreateInvocationState(true), RingAgreements.Create());
 
         _ = await Assert.That(router.FindRemoteOwner(cacheName, key)).IsNull();
     }
@@ -91,6 +110,6 @@ public sealed class OwnerRouterTests
         var ownership = new INodeOwnershipResolverCreateExpectations();
         _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
         _ = ownership.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(owner);
-        return new OwnerRouter(ownership.Instance(), CreateInvocationState(internalCall));
+        return new OwnerRouter(ownership.Instance(), CreateInvocationState(internalCall), RingAgreements.Create());
     }
 }
