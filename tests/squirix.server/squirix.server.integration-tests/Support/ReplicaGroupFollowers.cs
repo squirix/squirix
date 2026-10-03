@@ -12,8 +12,8 @@ namespace Squirix.Server.IntegrationTests.Support;
 /// <summary>Waits until the followers of an owned replica group hold everything its owner has appended.</summary>
 /// <remarks>
 /// A commit returns once a majority holds the entry, so the slowest follower may still be receiving it when a test stops that
-/// follower or reads its log. A follower is sent its entries in order, so a later write cannot leave it behind; a test that needs every
-/// follower to hold what the owner appended waits here once, at that point, instead of pacing its writes.
+/// follower or reads its log. A follower is sent its entries in order, so a write does not overtake the previous one; a test that needs
+/// every follower to hold what the owner appended waits here once, at that point, instead of pacing its writes.
 /// </remarks>
 internal static class ReplicaGroupFollowers
 {

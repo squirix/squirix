@@ -29,6 +29,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     private readonly IReplicaRpcGateway _rpc;
     private readonly Lock _sync = new();
     private bool _closed;
+    private bool _draining;
     private TaskCompletionSource? _loopDone;
     private long _pendingBytes;
     private ulong _lastEnqueuedIndex;
@@ -60,7 +61,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         MaxBatchEntries = 64;
     }
 
-    /// <summary>Gets the most entries one request carries; 64 unless set.</summary>
+    /// <summary>Initializes the most entries one request carries; 64 unless set.</summary>
     internal int MaxBatchEntries
     {
         private get;
@@ -72,7 +73,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
-    /// <summary>Gets the most canonical payload bytes one request carries; 4 MiB unless set. A single larger entry still goes out alone.</summary>
+    /// <summary>Initializes the most canonical payload bytes one request carries; 4 MiB unless set. A single larger entry still goes out alone.</summary>
     internal long MaxBatchBytes
     {
         private get;
@@ -84,7 +85,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
-    /// <summary>Gets the most entries waiting to be sent; 1024 unless set.</summary>
+    /// <summary>Initializes the most entries waiting to be sent; 1024 unless set.</summary>
     internal int MaxPendingEntries
     {
         private get;
@@ -96,7 +97,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
-    /// <summary>Gets the most canonical payload bytes waiting to be sent; 64 MiB unless set. A single larger entry is still accepted while nothing else waits.</summary>
+    /// <summary>Initializes the most canonical payload bytes waiting to be sent; 64 MiB unless set. A single larger entry is still accepted while nothing else waits.</summary>
     internal long MaxPendingBytes
     {
         private get;
@@ -108,7 +109,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
-    /// <summary>Gets the longest wait on dispose for the request in flight; 30 seconds unless set.</summary>
+    /// <summary>Initializes the longest wait on dispose for the request in flight; 30 seconds unless set.</summary>
     internal TimeSpan ShutdownBudget
     {
         private get;
@@ -120,7 +121,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
-    /// <summary>Gets the time source of the append timeout; the system clock unless set.</summary>
+    /// <summary>Initializes the time source of the append timeout; the system clock unless set.</summary>
     internal TimeProvider TimeProvider { private get; init; } = TimeProvider.System;
 
     /// <inheritdoc />
@@ -165,6 +166,32 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
+    /// <summary>Stops admitting entries and waits until the ones already queued, and the request in flight, have been answered.</summary>
+    /// <param name="budget">The longest wait; entries still queued after it are left for <see cref="DisposeAsync" /> to fail.</param>
+    /// <returns>A task that completes when the sender is idle or the budget elapsed.</returns>
+    /// <remarks>Used where a pipeline is replaced but its follower must still receive every entry the leader already appended.</remarks>
+    internal async ValueTask DrainAsync(TimeSpan budget)
+    {
+        Task? loop;
+        lock (_sync)
+        {
+            _draining = true;
+            loop = _loopDone?.Task;
+        }
+
+        if (loop == null)
+            return;
+
+        try
+        {
+            await loop.WaitAsync(budget, TimeProvider.System, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // The rest is failed by the dispose that follows.
+        }
+    }
+
     /// <summary>Queues one entry for the follower and returns the task of its acknowledgement; never waits.</summary>
     /// <param name="mutation">Prepared mutation the entry carries.</param>
     /// <param name="record">The decoded entry.</param>
@@ -184,7 +211,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         TaskCompletionSource? started = null;
         lock (_sync)
         {
-            if (_closed)
+            if (_closed || _draining)
                 return Task.FromException<ReplicaDurableAcknowledgement>(new ObjectDisposedException(nameof(ReplicaFollowerSender)));
 
             if (record.LogIndex <= _lastEnqueuedIndex || record.Term < _lastEnqueuedTerm)

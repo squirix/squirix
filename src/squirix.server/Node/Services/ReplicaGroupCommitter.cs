@@ -603,9 +603,14 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (!await TryApplyPendingAsync().ConfigureAwait(false))
             throw ServerOpContract.TooManyRequests(PendingApplyRefusalReason);
 
-        // The pipeline of the old coordinator closes first, so its follower appends cannot reach a follower after the new pipeline's.
+        // The old pipeline stops admitting and delivers what it queued to its followers, within the commit budget, before it closes:
+        // a follower that stays ready is not re-probed by the new start, so an entry dropped here would leave it refusing every later
+        // append. It also finishes before the new pipeline exists, so its appends cannot reach a follower after the new pipeline's.
         if (_pipeline != null)
+        {
+            await _pipeline.DrainAsync(CommitBudget).ConfigureAwait(false);
             await _pipeline.CloseAsync().ConfigureAwait(false);
+        }
 
         await _coordinator.DisposeAsync().ConfigureAwait(false);
     }
@@ -750,6 +755,18 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         {
             // Repair driving lands in a later milestone; the coordinator already observes stragglers
             // in the background, and a lagging replica simply stops counting toward the majority.
+        }
+
+        /// <summary>Stops admitting entries to every follower sender and waits for the queued ones to be answered.</summary>
+        /// <param name="budget">The longest wait, shared by all senders.</param>
+        /// <returns>A task that completes when every sender is idle or the budget elapsed.</returns>
+        internal async ValueTask DrainAsync(TimeSpan budget)
+        {
+            var draining = new Task[_senders.Length];
+            for (var i = 0; i < draining.Length; i++)
+                draining[i] = _senders[i].DrainAsync(budget).AsTask();
+
+            await Task.WhenAll(draining).ConfigureAwait(false);
         }
 
         /// <summary>Closes every follower sender: waiting entries fail and the requests in flight are canceled.</summary>

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -114,6 +115,49 @@ public sealed class ReplicaFollowerOrderingTests : IsolatedStorageTestBase
         {
             gateway.Release();
             await committer.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// An in-process restart of the coordinator, after a write failed at its local append, delivers the appends still queued for a slow
+    /// follower before the new pipeline sends it anything, so the follower stays in step without a refusal.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task QueuedAppendsSurviveRestart(CancellationToken cancellationToken)
+    {
+        await using var followers = await OpenFollowersAsync(cancellationToken);
+        var gateway = new FollowerLogRoutingGateway(followers.Logs);
+        using var hooks = new StallableFollowerLogFaultHooks();
+        await using var registry = await OpenRegistryAsync(Path.Join(Dir, "owner"), new FollowerLogOptions { FaultHooks = hooks }, cancellationToken);
+        await using var committer = CreateCommitter(registry, gateway);
+        try
+        {
+            gateway.ParkNext("n3");
+            await committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            await gateway.Parked.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            await committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+            // The next write fails at its local append, which drops the started state: the write after it restarts the coordinator.
+            hooks.StallNextFrameWrite();
+            var failing = committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken);
+            await hooks.Entered.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            hooks.ReleaseWithFailure(new IOException("Injected frame write failure."));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(failing.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+
+            var restarting = committer.CommitSetAsync(NewOperationId(), "cache", "k4", Entry("k4"), cancellationToken);
+            gateway.Release();
+            await restarting.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            var last = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
+            await gateway.AppendedAsync("n3", last).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+            _ = await Assert.That(gateway.Refusals.IsEmpty).IsTrue();
+            _ = await Assert.That((await followers.Logs["n3"].GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(last);
+        }
+        finally
+        {
+            gateway.Release();
+            hooks.Release();
         }
     }
 
