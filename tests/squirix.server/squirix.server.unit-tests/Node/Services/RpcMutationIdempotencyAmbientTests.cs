@@ -16,7 +16,7 @@ public sealed class RpcMutationIdempotencyAmbientTests
     public async Task DeactivateMismatchKeepsScope()
     {
         var active = new object();
-        RpcMutationIdempotencyExecutionAmbient.Activate(active, "op-1");
+        RpcMutationIdempotencyExecutionAmbient.Activate(active, "op-1", "fp-1");
         try
         {
             RpcMutationIdempotencyExecutionAmbient.Deactivate(new object());
@@ -46,10 +46,10 @@ public sealed class RpcMutationIdempotencyAmbientTests
     {
         var outer = new object();
         var inner = new object();
-        RpcMutationIdempotencyExecutionAmbient.Activate(outer, "op-outer");
+        RpcMutationIdempotencyExecutionAmbient.Activate(outer, "op-outer", "fp-outer");
         try
         {
-            RpcMutationIdempotencyExecutionAmbient.Activate(inner, "op-inner");
+            RpcMutationIdempotencyExecutionAmbient.Activate(inner, "op-inner", "fp-inner");
             try
             {
                 _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(inner)).IsFalse();

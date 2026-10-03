@@ -108,7 +108,7 @@ internal static class JournalCompactor
             if (!existing.IsStarted)
                 return;
 
-            // A mutation marker carries no fingerprint: preserve the fingerprint already recorded for
+            // A mutation marker may carry no fingerprint: preserve the fingerprint already recorded for
             // the started intent so a post-compaction retry still rejects operation-id reuse with a
             // mismatched fingerprint instead of surfacing a wildcard COMMIT_OUTCOME_UNKNOWN.
             fingerprint ??= existing.Fingerprint;
@@ -248,7 +248,7 @@ internal static class JournalCompactor
         if (!TryApplyCacheMutation(record, state))
             return false;
 
-        ApplyIdempotencyStartedMarker(record.MutationOperationId, null, record.UnixMs, idempotencyState);
+        ApplyIdempotencyStartedMarker(record.MutationOperationId, record.MutationFingerprint, record.UnixMs, idempotencyState);
         return true;
     }
 

@@ -105,7 +105,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
                          out _))
         {
             var ambientScope = new object();
-            RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId);
+            RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId, Fingerprint);
             try
             {
                 await journal.AppendPutUnderGateAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
@@ -154,7 +154,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
                          out _))
         {
             var ambientScope = new object();
-            RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId);
+            RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId, Fingerprint);
             try
             {
                 await journal.AppendPutUnderGateAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v2"), cancellationToken);

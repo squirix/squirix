@@ -187,9 +187,10 @@ bytes. The operation fingerprint is computed from the request, not from the deci
 
 A retry replays its outcome across a restart of the owner too. The group snapshot carries the outcomes of the entries it
 covers; for the committed entries above it, applied or not, the restarted owner reads the records back from the group
-log and rebuilds each outcome they carry before it serves writes. The snapshot outcomes and the pinned uncommitted tail
-take their places in the idempotency store first, and the newest log outcomes fill what is left. A rebuilt outcome
-counts its retention from the leader time of its decision, which precedes the commit by at most the commit budget, so an
+log and rebuilds each outcome they carry before it serves writes. The idempotency store keeps the outcomes with the
+newest log indexes: the pinned uncommitted tail is never displaced, a rebuilt outcome takes a free place or the place of
+the retained outcome with the oldest log index, and replaces an older outcome of the same identity, so an older snapshot
+outcome gives way. A rebuilt outcome counts its retention from the leader time of its decision, which precedes the commit by at most the commit budget, so an
 outcome already past its window is not rebuilt.
 
 A record whose effect contradicts its outcome is never applied. The entry stays pending: the client of its own commit

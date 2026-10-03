@@ -1,0 +1,137 @@
+using System;
+using System.Threading.Tasks;
+using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
+using Squirix.Server.UnitTests.Support;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
+
+namespace Squirix.Server.UnitTests.Persistence.Replication;
+
+/// <summary>Restoring the outcomes rebuilt from the committed log into the idempotency store, newest log index first.</summary>
+public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
+{
+    /// <summary>A rebuilt outcome takes the place of the snapshot outcome with the oldest log index when the store is full.</summary>
+    [Test]
+    public async Task RestoredOutcomeEvictsOlderOne()
+    {
+        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1));
+        state.RestoreFromSnapshot([Outcome("one", 1UL), Outcome("two", 2UL)], DateTime.UnixEpoch, []);
+
+        var restored = state.RestoreOutcome(Outcome("five", 5UL), TimeSpan.Zero);
+
+        _ = await Assert.That(restored).IsEqualTo(GroupOutcomeRestoreResult.Restored);
+        _ = await Assert.That(state.Lookup("client", "one", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(state.Lookup("client", "two", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(state.Lookup("client", "five", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
+    }
+
+    /// <summary>A rebuilt outcome with a newer log index replaces the stale snapshot outcome of a reused identity.</summary>
+    [Test]
+    public async Task NewerOutcomeReplacesReusedIdentity()
+    {
+        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1));
+        state.RestoreFromSnapshot([Outcome("x", 1UL, 1)], DateTime.UnixEpoch, []);
+
+        var restored = state.RestoreOutcome(Outcome("x", 5UL, 2), TimeSpan.Zero);
+
+        _ = await Assert.That(restored).IsEqualTo(GroupOutcomeRestoreResult.Restored);
+        _ = await Assert.That(state.Lookup("client", "x", [1], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
+        await SequenceAssert.EqualAsync<byte>([2], record.OutcomePayload.ToArray());
+    }
+
+    /// <summary>A pinned record is never evicted to make room for a rebuilt outcome.</summary>
+    [Test]
+    public async Task RestoredOutcomeNeverEvictsPin()
+    {
+        var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1));
+        _ = state.Reserve("client", "pin", [1], GroupRecordKind.UserMutation, 9UL, 1UL, true);
+
+        var restored = state.RestoreOutcome(Outcome("five", 5UL), TimeSpan.Zero);
+
+        _ = await Assert.That(restored).IsEqualTo(GroupOutcomeRestoreResult.Full);
+        _ = await Assert.That(state.Lookup("client", "pin", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
+    }
+
+    /// <summary>A rebuilt outcome never evicts an outcome with a newer log index.</summary>
+    [Test]
+    public async Task RestoredOutcomeNeverEvictsNewerOne()
+    {
+        var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1));
+
+        var first = state.RestoreOutcome(Outcome("five", 5UL), TimeSpan.Zero);
+        var second = state.RestoreOutcome(Outcome("four", 4UL), TimeSpan.Zero);
+
+        _ = await Assert.That(first).IsEqualTo(GroupOutcomeRestoreResult.Restored);
+        _ = await Assert.That(second).IsEqualTo(GroupOutcomeRestoreResult.Full);
+        _ = await Assert.That(state.Lookup("client", "five", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
+    }
+
+    /// <summary>A rebuild that failed part-way and is started again evicts by the records of the retry, not by an order built for the failed one.</summary>
+    [Test]
+    public async Task RetriedRebuildEvictsOldestIndex()
+    {
+        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1));
+        state.RestoreFromSnapshot([Outcome("one", 1UL), Outcome("two", 2UL)], DateTime.UnixEpoch, []);
+        state.BeginOutcomeRebuild();
+        _ = state.RestoreOutcome(Outcome("five", 5UL), TimeSpan.Zero);
+
+        // The failed rebuild is dropped, and the store holds other records when the retry starts.
+        state.RestoreFromSnapshot([Outcome("three", 3UL), Outcome("four", 4UL)], DateTime.UnixEpoch, []);
+        state.BeginOutcomeRebuild();
+        var restored = state.RestoreOutcome(Outcome("nine", 9UL), TimeSpan.Zero);
+
+        _ = await Assert.That(restored).IsEqualTo(GroupOutcomeRestoreResult.Restored);
+        _ = await Assert.That(state.Lookup("client", "three", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(state.Lookup("client", "four", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
+    }
+
+    /// <summary>An outcome cannot be restored once the rebuild is marked done.</summary>
+    [Test]
+    public void RestoreAfterRebuildThrows()
+    {
+        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1));
+        state.MarkOutcomesRebuilt();
+
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static value => _ = value.RestoreOutcome(Outcome("one", 1UL), TimeSpan.Zero));
+    }
+
+    /// <summary>Pins admitted past the capacity during the rebuild are made up for by dropping the oldest outcomes once it is done.</summary>
+    [Test]
+    public async Task RebuildTrimsOldestOutcomesPastCapacity()
+    {
+        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1));
+        state.RestoreFromSnapshot([Outcome("one", 1UL), Outcome("two", 2UL)], DateTime.UnixEpoch, []);
+        _ = state.Reserve("client", "pin", [1], GroupRecordKind.UserMutation, 9UL, 1UL, true);
+
+        state.MarkOutcomesRebuilt();
+
+        _ = await Assert.That(state.Lookup("client", "one", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(state.Lookup("client", "two", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(state.Lookup("client", "pin", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
+    }
+
+    /// <summary>The final trim orders the outcomes the rebuild admitted after its first eviction too.</summary>
+    [Test]
+    public async Task TrimSeesOutcomesAddedMidRebuild()
+    {
+        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1));
+        state.RestoreFromSnapshot([Outcome("one", 1UL)], DateTime.UnixEpoch, []);
+        _ = state.Reserve("client", "pin-a", [1], GroupRecordKind.UserMutation, 20UL, 1UL, true);
+        _ = state.Reserve("client", "pin-b", [1], GroupRecordKind.UserMutation, 21UL, 1UL, true);
+        state.BeginOutcomeRebuild();
+
+        var restored = state.RestoreOutcome(Outcome("ten", 10UL), TimeSpan.Zero);
+        state.MarkOutcomesRebuilt();
+
+        _ = await Assert.That(restored).IsEqualTo(GroupOutcomeRestoreResult.Restored);
+        _ = await Assert.That(state.Lookup("client", "one", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(state.Lookup("client", "ten", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(state.Lookup("client", "pin-a", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
+        _ = await Assert.That(state.Lookup("client", "pin-b", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
+    }
+
+    private static GroupIdempotencyRecord Outcome(string operationId, ulong logIndex, byte outcome = 200) =>
+        new("client", operationId, new byte[] { 1 }, new byte[] { outcome }, GroupRecordKind.UserMutation, DateTime.UnixEpoch, DateTime.UnixEpoch, logIndex, 1UL);
+}

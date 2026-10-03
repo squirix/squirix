@@ -18,6 +18,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 [Immutable]
 public sealed class WriteAheadMutationCodecTests
 {
+    private const string Fingerprint = "try-add-entry-async|default|k|abc123";
     private const string OpId = "0123456789abcdef0123456789abcdef";
 
     /// <summary>Write-ahead started intent frames round-trip operation id and fingerprint.</summary>
@@ -118,6 +119,7 @@ public sealed class WriteAheadMutationCodecTests
 
         _ = await Assert.That(decoded.Operation).IsEqualTo(JournalOperationKind.Put);
         _ = await Assert.That(decoded.MutationOperationId).IsEqualTo(OpId);
+        _ = await Assert.That(decoded.MutationFingerprint).IsEqualTo(Fingerprint);
         _ = await Assert.That(decoded.PutEntryBytes.Length).IsEqualTo(3);
     }
 
@@ -149,6 +151,30 @@ public sealed class WriteAheadMutationCodecTests
 
         _ = await Assert.That(decoded.Operation).IsEqualTo(JournalOperationKind.Remove);
         _ = await Assert.That(decoded.MutationOperationId).IsEqualTo(OpId);
+        _ = await Assert.That(decoded.MutationFingerprint).IsEqualTo(Fingerprint);
+    }
+
+    /// <summary>A stamp without a fingerprint round-trips with a null fingerprint.</summary>
+    [Test]
+    public async Task StampWithoutFingerprintRoundTripsNull()
+    {
+        var record = CreateRecord(JournalOperationKind.Put, new byte[] { 0x01 });
+        record.MutationFingerprint = null;
+
+        var decoded = RoundTrip(record);
+
+        _ = await Assert.That(decoded.MutationOperationId).IsEqualTo(OpId);
+        _ = await Assert.That(decoded.MutationFingerprint).IsNull();
+        _ = await Assert.That(decoded.PutEntryBytes.Length).IsEqualTo(1);
+    }
+
+    /// <summary>A mutation prefix whose fingerprint is cut short is rejected.</summary>
+    [Test]
+    public void MutationFingerprintTruncatedThrows()
+    {
+        var body = FrameBody(5, [0x01, 0x00, 0x61, 0x05, 0x00, 0x62]);
+
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(body, static buffer => _ = BinaryJournalCodec.Decode(buffer, buffer.Length));
     }
 
     /// <summary>A started frame with a truncated fingerprint is rejected.</summary>
@@ -206,7 +232,7 @@ public sealed class WriteAheadMutationCodecTests
     [Test]
     public void TruncatedPayloadOverrunThrows()
     {
-        var valid = FrameBody(5, [0x02, 0x00, 0x61, 0x62]);
+        var valid = FrameBody(5, [0x02, 0x00, 0x61, 0x62, 0x00, 0x00]);
         var padded = new byte[valid.Length + 16];
         valid.CopyTo(padded, 0);
         BinaryPrimitives.WriteInt32LittleEndian(padded.AsSpan(21), 100);
@@ -245,6 +271,7 @@ public sealed class WriteAheadMutationCodecTests
         Key = new CacheKey("default", "k"),
         PutEntryBytes = putEntryBytes,
         MutationOperationId = OpId,
+        MutationFingerprint = Fingerprint,
     };
 
     private static byte[] FrameBody(byte opcodeWire, ReadOnlySpan<byte> payload, string ns = "default", string key = "k")

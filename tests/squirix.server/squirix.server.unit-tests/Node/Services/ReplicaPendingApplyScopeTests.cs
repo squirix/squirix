@@ -28,11 +28,11 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
     /// <summary>
     /// The retained entry applied on behalf of a later idempotent RPC runs outside that RPC's
     /// <see cref="RpcMutationIdempotencyExecutionAmbient" /> scope, so its cache-WAL frame is not stamped with the foreign operation id;
-    /// the later RPC's own entry is applied inside its scope.
+    /// the later RPC's own entry is applied inside its scope with stamping suspended, because the group log is its durable source.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RetainedEntryAppliesOutsideCallerScope(CancellationToken cancellationToken)
+    public async Task ReplicatedEntriesAreNeverStamped(CancellationToken cancellationToken)
     {
         var local = new ScopeRecordingCache();
         await using var registry = await ReplicaOwnerTestKit.OpenRegistryAsync(Dir, cancellationToken);
@@ -42,7 +42,7 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
         _ = await Assert.That(first.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
 
         var scope = new object();
-        RpcMutationIdempotencyExecutionAmbient.Activate(scope, CallerOperationId);
+        RpcMutationIdempotencyExecutionAmbient.Activate(scope, CallerOperationId, "caller-fingerprint");
         try
         {
             await committer.CommitSetAsync(CallerOperationId, "cache", "k2", ReplicaOwnerTestKit.Entry("k2"), cancellationToken);
@@ -54,7 +54,8 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
 
         await SequenceAssert.EqualAsync(["k1", "k2"], local.AppliedKeys(), StringComparer.Ordinal);
         _ = await Assert.That(local.ScopeFor("k1")).IsNull();
-        _ = await Assert.That(local.ScopeFor("k2")).IsEqualTo(CallerOperationId);
+        _ = await Assert.That(local.ScopeFor("k2")).IsNull();
+        _ = await Assert.That(local.DeferredFor("k2")).IsTrue();
     }
 
     /// <summary>
@@ -64,7 +65,7 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
     [ThreadSafe]
     private sealed class ScopeRecordingCache : ILogicalNamespacedCache<object?>
     {
-        private readonly ConcurrentQueue<(string Key, string? OperationId)> _applied = new();
+        private readonly ConcurrentQueue<(string Key, string? OperationId, bool Deferred)> _applied = new();
         private int _failNext = 1;
 
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult<NodeCacheEntry<object?>?>(null);
@@ -82,7 +83,7 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
             if (Interlocked.Exchange(ref _failNext, 0) == 1)
                 return ValueTask.FromException(new InvalidOperationException("Injected memory apply failure after the majority."));
 
-            _applied.Enqueue((key, RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue));
+            _applied.Enqueue((key, RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue, RpcMutationIdempotencyExecutionAmbient.IsDeferred));
             return ValueTask.CompletedTask;
         }
 
@@ -103,9 +104,20 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
             return keys;
         }
 
+        internal bool DeferredFor(string key)
+        {
+            foreach (var (applied, _, deferred) in _applied)
+            {
+                if (string.Equals(applied, key, StringComparison.Ordinal))
+                    return deferred;
+            }
+
+            throw new InvalidOperationException($"Key '{key}' was never applied.");
+        }
+
         internal string? ScopeFor(string key)
         {
-            foreach (var (applied, operationId) in _applied)
+            foreach (var (applied, operationId, _) in _applied)
             {
                 if (string.Equals(applied, key, StringComparison.Ordinal))
                     return operationId;

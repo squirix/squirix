@@ -96,7 +96,7 @@ covered by the snapshot. The default maximum accepted file size is 64 MiB, confi
 restores the snapshot takes the age of each outcome as `capturedUtc` minus its resolution time and keeps counting it on
 its own monotonic clock, so the retention window never depends on how far apart two node clocks are. Time the snapshot
 spends at rest or in transit does not count: a restored outcome may stay replayable longer than its window, never
-shorter. A snapshot carrying an outcome resolved after `capturedUtc` is refused as corrupt.
+shorter, and only while no newer outcome needs its place. A snapshot carrying an outcome resolved after `capturedUtc` is refused as corrupt.
 
 Publication writes `group.snapshot.tmp`, flushes it, and atomically replaces `group.snapshot`. Recovery validates the
 magic, version, declared length, size bound, and CRC before restoring the committed baseline. Journal compaction keeps

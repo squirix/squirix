@@ -34,7 +34,7 @@ internal sealed record EncodeContext
 
     private static int GetOperationPayloadLength(JournalRecord record)
     {
-        var mutationOperationIdPrefix = MutationOperationIdCodec.EncodeMutationOperationIdPrefixLength(record.MutationOperationId);
+        var mutationOperationIdPrefix = MutationOperationIdCodec.EncodeMutationOperationIdPrefixLength(record.MutationOperationId, record.MutationFingerprint);
         return record.Operation switch
         {
             JournalOperationKind.Put => mutationOperationIdPrefix + record.PutEntryBytes.Length,

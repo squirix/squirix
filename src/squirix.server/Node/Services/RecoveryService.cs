@@ -330,7 +330,7 @@ internal sealed class RecoveryService<T> : IHostedService
         if (record.MutationOperationId is not { } operationId)
             return;
 
-        _idempotency.RestoreStarted(operationId, null, ResolveIdempotencyCreatedUtc(record));
+        _idempotency.RestoreStarted(operationId, record.MutationFingerprint, ResolveIdempotencyCreatedUtc(record));
     }
 
     [Immutable]
