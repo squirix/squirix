@@ -31,18 +31,33 @@
          enforcement, the projects they reference compile without them. A project belongs to the
          `default` shard unless it is claimed below, so a new project is analyzed without being listed
          anywhere. Without the property (local builds, the IDE, packaging) every project is analyzed.
+         A project may belong to several shards (a list), each running part of its analyzers (see below).
          The shard names are listed in SquirixAnalysisShards and in the CI job that runs one build per shard. -->
     <PropertyGroup Label="AnalysisShards">
-        <SquirixAnalysisShards>default;server;server-unit-tests;server-tests</SquirixAnalysisShards>
+        <SquirixAnalysisShards>default;server;server-unit-tests-1;server-unit-tests-2;server-tests</SquirixAnalysisShards>
         <SquirixProjectAnalysisShard>default</SquirixProjectAnalysisShard>
         <!-- Squirix.Server alone: in `default` its analysis delayed every project there that references it. -->
         <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server'">server</SquirixProjectAnalysisShard>
-        <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server.UnitTests'">server-unit-tests</SquirixProjectAnalysisShard>
+        <!-- Squirix.Server.UnitTests in two shards: its analyzers alone took a whole analysis job, so each shard runs half of them. -->
+        <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server.UnitTests'">server-unit-tests-1;server-unit-tests-2</SquirixProjectAnalysisShard>
         <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server.TestKit' Or '$(MSBuildProjectName)' == 'Squirix.Server.IntegrationTests' Or '$(MSBuildProjectName)' == 'Squirix.Server.SmokeTests' Or '$(MSBuildProjectName)' == 'Squirix.E2ETests'">server-tests</SquirixProjectAnalysisShard>
     </PropertyGroup>
-    <PropertyGroup Label="AnalysisShardSelection" Condition="'$(SquirixAnalysisShard)' != '' And '$(SquirixAnalysisShard)' != '$(SquirixProjectAnalysisShard)'">
+    <PropertyGroup Label="AnalysisShardSelection" Condition="'$(SquirixAnalysisShard)' != '' And !$([System.String]::Copy(';$(SquirixProjectAnalysisShard);').Contains(';$(SquirixAnalysisShard);'))">
         <RunAnalyzers>false</RunAnalyzers>
         <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    </PropertyGroup>
+    <!-- The halves of the Squirix.Server.UnitTests analyzers. SquirixDroppedAnalyzerPackages names the analyzer packages a shard
+         leaves to the other one (see SquirixDropAnalyzerPackages); an analyzer neither half drops runs in both, so a new
+         analyzer package is never skipped. A project in only one of the two shards keeps all its analyzers. -->
+    <PropertyGroup Label="AnalysisShardFirstHalf" Condition="'$(SquirixAnalysisShard)' == 'server-unit-tests-1' And $([System.String]::Copy(';$(SquirixProjectAnalysisShard);').Contains(';server-unit-tests-1;server-unit-tests-2;'))">
+        <EnableNETAnalyzers>false</EnableNETAnalyzers>
+        <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+        <SquirixDroppedAnalyzerPackages>Microsoft.CodeAnalysis.NetAnalyzers;StyleCop.Analyzers.Unstable;Roslynator.Analyzers;ErrorProne.NET.CoreAnalyzers;Microsoft.VisualStudio.Threading.Analyzers;AsyncFixer;ZeroAlloc.Analyzers;Microsoft.CodeAnalysis.BannedApiAnalyzers</SquirixDroppedAnalyzerPackages>
+    </PropertyGroup>
+    <!-- Meziantou stays with its rules off: its suppressors silence IDE0058, which this half reports. -->
+    <PropertyGroup Label="AnalysisShardSecondHalf" Condition="'$(SquirixAnalysisShard)' == 'server-unit-tests-2' And $([System.String]::Copy(';$(SquirixProjectAnalysisShard);').Contains(';server-unit-tests-1;server-unit-tests-2;'))">
+        <MeziantouAnalysisMode>None</MeziantouAnalysisMode>
+        <SquirixDroppedAnalyzerPackages>SonarAnalyzer.CSharp;Microsoft.NET.ILLink.Tasks;NsDepCop;squirix.analyzers</SquirixDroppedAnalyzerPackages>
     </PropertyGroup>
     <!-- A shard build only analyzes and its binaries are discarded, so TUnit need not generate the test registration code. -->
     <PropertyGroup Label="AnalysisShardGenerators" Condition="'$(SquirixAnalysisShard)' != ''">
@@ -159,6 +174,12 @@
         <None Include="$(MSBuildThisFileDirectory)pvs-studio.suppress.json" Link="pvs-studio.suppress.json"/>
     </ItemGroup>
 
+    <Target Name="SquirixDropAnalyzerPackages" BeforeTargets="CoreCompile" Condition="'$(SquirixDroppedAnalyzerPackages)' != ''">
+        <ItemGroup>
+            <Analyzer Remove="@(Analyzer)" Condition="$([System.String]::Copy(';$(SquirixDroppedAnalyzerPackages);').Contains(';%(Analyzer.NuGetPackageId);'))"/>
+        </ItemGroup>
+    </Target>
+
     <!-- A shard name that no project belongs to would make that build analyze nothing, so it fails instead. -->
     <Target Name="SquirixValidateAnalysisShard" BeforeTargets="CoreCompile" Condition="'$(SquirixAnalysisShard)' != '' And !$([System.String]::Copy(';$(SquirixAnalysisShards);').Contains(';$(SquirixAnalysisShard);'))">
         <Error Text="Unknown analysis shard '$(SquirixAnalysisShard)'. Known shards: $(SquirixAnalysisShards)."/>
@@ -168,7 +189,10 @@
          builds only that shard's projects (their references build with them): the list comes from the same property that
          turns the analyzers on, so moving a project into a shard above needs no CI change. -->
     <Target Name="SquirixPrintAnalysisShard">
-        <Message Importance="high" Text="squirix-analysis-shard|$(SquirixProjectAnalysisShard)|$(MSBuildProjectFullPath)"/>
+        <ItemGroup>
+            <_SquirixProjectAnalysisShard Include="$(SquirixProjectAnalysisShard)"/>
+        </ItemGroup>
+        <Message Importance="high" Text="squirix-analysis-shard|%(_SquirixProjectAnalysisShard.Identity)|$(MSBuildProjectFullPath)"/>
         <Message Importance="high" Text="squirix-analysis-shards|$(SquirixAnalysisShards)"/>
     </Target>
 </Project>
