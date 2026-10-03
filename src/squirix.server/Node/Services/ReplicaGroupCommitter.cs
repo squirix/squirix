@@ -164,9 +164,15 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         using (drain)
         {
-            if (_coordinator != null)
-                await _coordinator.DisposeAsync().ConfigureAwait(false);
-            _gate.Dispose();
+            try
+            {
+                if (_coordinator != null)
+                    await _coordinator.DisposeAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _gate.Dispose();
+            }
         }
     }
 
