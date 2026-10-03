@@ -24,8 +24,9 @@ internal static class ReplicaOutcomeRecovery
     /// <remarks>
     ///     <para>
     ///     The entries are read back from disk one at a time, applied or not, newest first and no more than the idempotency store holds:
-    ///     outcomes the snapshot restored and the pinned recovered tail take their places first, and the newest log outcomes fill what is
-    ///     left.
+    ///     the pinned recovered tail keeps its places, and the newest log outcomes take what is left: an outcome a snapshot restored is
+    ///     displaced by a newer log outcome when the store is full, and replaced by a newer outcome of its identity. The read stops at the
+    ///     first outcome that finds no older one to displace.
     ///     </para>
     ///     <para>
     ///     The age of an outcome is measured from the leader time of its decision on the wall clock, the only clock that spans a restart;
@@ -46,11 +47,12 @@ internal static class ReplicaOutcomeRecovery
                 entry =>
                 {
                     var record = Rebuild(in entry, out var decidedUtc);
-                    if (idempotency.TryRestoreOutcome(in record, now - decidedUtc))
+                    var result = idempotency.RestoreOutcome(in record, now - decidedUtc);
+                    if (result == GroupOutcomeRestoreResult.Restored)
                         restored++;
 
-                    // Snapshot outcomes and tail pins may already fill the store: the older frames would only be read to be refused.
-                    return !idempotency.IsFull;
+                    // Full at this index: no resolved outcome older than it remains, so the older frames would only be read to be refused.
+                    return result != GroupOutcomeRestoreResult.Full;
                 },
                 cancellationToken)
             .ConfigureAwait(false);

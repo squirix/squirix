@@ -27,6 +27,12 @@ namespace Squirix.Server.Storage.Replication;
 ///     clocks never meet in a subtraction. The time a snapshot spends at rest or in transit does not count toward retention:
 ///     an outcome may live longer than its window after a restore, never shorter.
 ///     </para>
+///     <para>
+///     While the outcomes of the committed log entries are rebuilt after a restart, the store keeps the outcomes with the newest log
+///     indexes: a rebuilt outcome takes the place of the retained outcome with the oldest log index when the store is full, and replaces
+///     an older outcome of the same identity. A pinned (unresolved) record is never displaced. An outcome a snapshot restored therefore
+///     stays replayable only while no newer outcome needs its place.
+///     </para>
 /// </remarks>
 [ThreadSafe]
 internal sealed class GroupIdempotencyState
@@ -39,6 +45,9 @@ internal sealed class GroupIdempotencyState
     private readonly Lock _sync = new();
     private readonly TimeProvider _timeProvider;
     private int _outcomesRebuilt;
+
+    /// <summary>The resolved outcomes in log index order while the rebuild evicts; <see langword="null" /> outside a rebuild. Guarded by <see cref="_sync" />.</summary>
+    private RebuildEvictionOrder? _rebuildEvictions;
 
     /// <summary>Initializes a new instance of the <see cref="GroupIdempotencyState" /> class.</summary>
     /// <param name="capacity">The maximum number of retained records; new reservations are rejected at capacity.</param>
@@ -83,18 +92,20 @@ internal sealed class GroupIdempotencyState
     /// </summary>
     internal bool OutcomesRebuilt => Volatile.Read(ref _outcomesRebuilt) != 0;
 
-    /// <summary>Gets a value indicating whether the store holds <see cref="Capacity" /> records, so nothing more can be restored or reserved.</summary>
-    internal bool IsFull
-    {
-        get
-        {
-            lock (_sync)
-                return _records.Count >= Capacity;
-        }
-    }
-
     /// <summary>Records that the outcomes of the committed log entries are rebuilt, so a miss now means no outcome is retained.</summary>
-    internal void MarkOutcomesRebuilt() => Volatile.Write(ref _outcomesRebuilt, 1);
+    /// <remarks>Pins admitted past the capacity while the rebuild ran are made up for here: the outcomes with the oldest log indexes are evicted until the store fits.</remarks>
+    internal void MarkOutcomesRebuilt()
+    {
+        lock (_sync)
+        {
+            if (_records.Count > Capacity)
+                new RebuildEvictionOrder(_records).TrimTo(_records, Capacity);
+
+            _rebuildEvictions = null;
+        }
+
+        Volatile.Write(ref _outcomesRebuilt, 1);
+    }
 
     /// <summary>Evicts resolved records whose retention window has elapsed; unresolved records are never evicted.</summary>
     /// <remarks>The eviction relies on the injected time source, so tests advance virtual time deterministically.</remarks>
@@ -294,16 +305,19 @@ internal sealed class GroupIdempotencyState
         }
     }
 
-    /// <summary>Restores the resolved outcome of a committed log entry that no snapshot carries.</summary>
+    /// <summary>Restores the resolved outcome of a committed log entry, the newest log index winning over a snapshot outcome.</summary>
     /// <param name="record">The resolved record rebuilt from the entry.</param>
     /// <param name="age">How long ago the outcome was decided; a negative age counts as zero.</param>
-    /// <returns>
-    /// <see langword="true" /> when the outcome was restored; <see langword="false" /> when its identity is already retained, its age is
-    /// past retention, or the store is at capacity.
-    /// </returns>
+    /// <returns>What became of the outcome.</returns>
     /// <exception cref="ArgumentException">The record is not resolved.</exception>
-    /// <remarks>A record already retained, a snapshot outcome or a pinned tail entry, is kept: it is at least as authoritative.</remarks>
-    internal bool TryRestoreOutcome(in GroupIdempotencyRecord record, TimeSpan age)
+    /// <exception cref="InvalidOperationException">The outcomes were already rebuilt.</exception>
+    /// <remarks>
+    /// A pin, or an outcome of the same identity with the same or a newer log index, is kept (<see cref="GroupOutcomeRestoreResult.Retained" />);
+    /// an older outcome of the same identity is replaced. At capacity the retained outcome with the oldest log index gives way when it is older
+    /// than <paramref name="record" />; pins are never evicted. The rebuild reads the log newest first, so a <see cref="GroupOutcomeRestoreResult.Full" />
+    /// means no older outcome remains to give way.
+    /// </remarks>
+    internal GroupOutcomeRestoreResult RestoreOutcome(in GroupIdempotencyRecord record, TimeSpan age)
     {
         if (record.IsUnresolved)
             throw new ArgumentException("A restored outcome must be resolved.", nameof(record));
@@ -311,9 +325,29 @@ internal sealed class GroupIdempotencyState
         // No sweep here: a start restores many outcomes in a row, and the next lookup or reservation sweeps anyway.
         lock (_sync)
         {
+            if (OutcomesRebuilt)
+                throw new InvalidOperationException("The outcomes of the committed log entries are already rebuilt.");
+
             age = age > TimeSpan.Zero ? age : TimeSpan.Zero;
-            var admitted = (_retention == TimeSpan.MaxValue || age < _retention) && _records.Count < Capacity;
-            return admitted && _records.TryAdd(GroupOperationKey.Of(in record), new StoredRecord(record, _timeProvider.GetTimestamp(), age));
+            if (_retention != TimeSpan.MaxValue && age >= _retention)
+                return GroupOutcomeRestoreResult.Expired;
+
+            var key = GroupOperationKey.Of(in record);
+            var stored = new StoredRecord(record, _timeProvider.GetTimestamp(), age);
+            if (_records.TryGetValue(key, out var existing))
+            {
+                if (existing.Record.IsUnresolved || existing.Record.LogIndex >= record.LogIndex)
+                    return GroupOutcomeRestoreResult.Retained;
+
+                _records[key] = stored;
+                return GroupOutcomeRestoreResult.Restored;
+            }
+
+            if (_records.Count >= Capacity && !(_rebuildEvictions ??= new RebuildEvictionOrder(_records)).TryEvictOlderThan(_records, record.LogIndex))
+                return GroupOutcomeRestoreResult.Full;
+
+            _records[key] = stored;
+            return GroupOutcomeRestoreResult.Restored;
         }
     }
 
@@ -571,6 +605,61 @@ internal sealed class GroupIdempotencyState
             age = partial == 0 || age > TimeSpan.MaxValue - TimeSpan.FromMilliseconds(1) ? age : age.Add(TimeSpan.FromTicks(TimeSpan.TicksPerMillisecond - partial));
             var resolvedUtc = age < capturedUtc - DateTime.MinValue ? capturedUtc - age : DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
             return Record with { ResolvedUtc = resolvedUtc };
+        }
+    }
+
+    /// <summary>The resolved outcomes in ascending log index order, which the rebuild evicts from the oldest.</summary>
+    /// <remarks>Built once from the records the rebuild starts with; an outcome the rebuild adds is never older than a head it could evict, and a changed head is skipped.</remarks>
+    private sealed class RebuildEvictionOrder
+    {
+        private readonly Queue<(GroupOperationKey Key, ulong LogIndex)> _queue;
+
+        internal RebuildEvictionOrder(Dictionary<GroupOperationKey, StoredRecord> records)
+        {
+            var resolved = new List<(GroupOperationKey Key, ulong LogIndex)>();
+            foreach (var (key, stored) in records)
+            {
+                if (stored.Record.IsResolved)
+                    resolved.Add((key, stored.Record.LogIndex));
+            }
+
+            resolved.Sort(static (left, right) => left.LogIndex.CompareTo(right.LogIndex));
+            _queue = new Queue<(GroupOperationKey Key, ulong LogIndex)>(resolved);
+        }
+
+        /// <summary>Evicts the oldest resolved outcomes until the store holds no more than <paramref name="capacity" /> records or none is left.</summary>
+        /// <param name="records">The records of the store.</param>
+        /// <param name="capacity">The number of records to keep at most.</param>
+        internal void TrimTo(Dictionary<GroupOperationKey, StoredRecord> records, int capacity)
+        {
+            var evicted = true;
+            while (evicted && records.Count > capacity)
+                evicted = TryEvictOlderThan(records, ulong.MaxValue);
+        }
+
+        /// <summary>Evicts the resolved outcome with the oldest log index when it is older than <paramref name="logIndex" />.</summary>
+        /// <param name="records">The records of the store.</param>
+        /// <param name="logIndex">The log index of the outcome that needs a place.</param>
+        /// <returns><see langword="true" /> when an outcome was evicted.</returns>
+        internal bool TryEvictOlderThan(Dictionary<GroupOperationKey, StoredRecord> records, ulong logIndex)
+        {
+            while (_queue.TryPeek(out var head))
+            {
+                var current = records.TryGetValue(head.Key, out var stored) && stored.Record.IsResolved && stored.Record.LogIndex == head.LogIndex;
+                if (!current)
+                {
+                    _ = _queue.Dequeue();
+                    continue;
+                }
+
+                if (head.LogIndex >= logIndex)
+                    return false;
+
+                _ = _queue.Dequeue();
+                return records.Remove(head.Key);
+            }
+
+            return false;
         }
     }
 }

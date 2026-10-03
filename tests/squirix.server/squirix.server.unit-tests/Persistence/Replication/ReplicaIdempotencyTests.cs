@@ -215,9 +215,9 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1));
         _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
 
-        var restored = state.TryRestoreOutcome(Outcome("operation", 1UL), TimeSpan.Zero);
+        var restored = state.RestoreOutcome(Outcome("operation", 1UL), TimeSpan.Zero);
 
-        _ = await Assert.That(restored).IsFalse();
+        _ = await Assert.That(restored).IsEqualTo(GroupOutcomeRestoreResult.Retained);
         _ = await Assert.That(state.Lookup("client", "operation", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
     }
 
@@ -228,15 +228,15 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), clock);
 
-        var expired = state.TryRestoreOutcome(Outcome("expired", 1UL), TimeSpan.FromHours(1));
-        var kept = state.TryRestoreOutcome(Outcome("kept", 2UL), TimeSpan.FromMinutes(50));
-        var full = state.TryRestoreOutcome(Outcome("full", 3UL), TimeSpan.Zero);
+        var expired = state.RestoreOutcome(Outcome("expired", 1UL), TimeSpan.FromHours(1));
+        var kept = state.RestoreOutcome(Outcome("kept", 2UL), TimeSpan.FromMinutes(50));
+        var full = state.RestoreOutcome(Outcome("full", 1UL), TimeSpan.Zero);
         clock.Advance(TimeSpan.FromMinutes(10));
         var aged = state.Lookup("client", "kept", [1], out _);
 
-        _ = await Assert.That(expired).IsFalse();
-        _ = await Assert.That(kept).IsTrue();
-        _ = await Assert.That(full).IsFalse();
+        _ = await Assert.That(expired).IsEqualTo(GroupOutcomeRestoreResult.Expired);
+        _ = await Assert.That(kept).IsEqualTo(GroupOutcomeRestoreResult.Restored);
+        _ = await Assert.That(full).IsEqualTo(GroupOutcomeRestoreResult.Full);
         _ = await Assert.That(aged).IsEqualTo(GroupIdempotencyLookup.Miss);
     }
 
