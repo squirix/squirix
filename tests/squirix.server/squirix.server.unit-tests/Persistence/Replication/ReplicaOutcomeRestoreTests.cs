@@ -68,6 +68,35 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
         _ = await Assert.That(state.Lookup("client", "five", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
     }
 
+    /// <summary>A rebuild that failed part-way and is started again evicts by the records of the retry, not by an order built for the failed one.</summary>
+    [Test]
+    public async Task RetriedRebuildEvictsOldestIndex()
+    {
+        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1));
+        state.RestoreFromSnapshot([Outcome("one", 1UL), Outcome("two", 2UL)], DateTime.UnixEpoch, []);
+        state.BeginOutcomeRebuild();
+        _ = state.RestoreOutcome(Outcome("five", 5UL), TimeSpan.Zero);
+
+        // The failed rebuild is dropped, and the store holds other records when the retry starts.
+        state.RestoreFromSnapshot([Outcome("three", 3UL), Outcome("four", 4UL)], DateTime.UnixEpoch, []);
+        state.BeginOutcomeRebuild();
+        var restored = state.RestoreOutcome(Outcome("nine", 9UL), TimeSpan.Zero);
+
+        _ = await Assert.That(restored).IsEqualTo(GroupOutcomeRestoreResult.Restored);
+        _ = await Assert.That(state.Lookup("client", "three", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(state.Lookup("client", "four", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
+    }
+
+    /// <summary>An outcome cannot be restored once the rebuild is marked done.</summary>
+    [Test]
+    public void RestoreAfterRebuildThrows()
+    {
+        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1));
+        state.MarkOutcomesRebuilt();
+
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static value => _ = value.RestoreOutcome(Outcome("one", 1UL), TimeSpan.Zero));
+    }
+
     /// <summary>Pins admitted past the capacity during the rebuild are made up for by dropping the oldest outcomes once it is done.</summary>
     [Test]
     public async Task RebuildTrimsOldestOutcomesPastCapacity()

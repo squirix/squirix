@@ -96,7 +96,11 @@ internal sealed class ReplicaLeaderApplier
         // The group log is the durable source of a replicated write: its cache journal frame must not become an RPC write-ahead
         // intent, or a restart would rebuild a Started record that hides the group outcome the committer replays.
         using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
+        {
+            // The entry is committed: the operation took effect even when its effect writes no cache frame.
+            RpcMutationIdempotencyExecutionAmbient.NotifyMutationApplied();
             await ReplicaCacheApplier.ExecuteAsync(_local, record, effect, entry, cancellationToken).ConfigureAwait(false);
+        }
 
         Volatile.Write(ref _appliedIndex, logIndex);
     }

@@ -33,6 +33,12 @@ namespace Squirix.Server.Storage.Replication;
 ///     an older outcome of the same identity. A pinned (unresolved) record is never displaced. An outcome a snapshot restored therefore
 ///     stays replayable only while no newer outcome needs its place.
 ///     </para>
+///     <para>
+///     The eviction argument is that an outcome with an older log index is the one nearest to its retention. Two caveats hold: pins
+///     admitted past the capacity (already logged) can make the live and the unresolved records together exceed it, so a later restart
+///     may trim live outcomes; and the order assumes the resolution time does not decrease with the log index, which leaders with skewed
+///     clocks can break across a change of leader.
+///     </para>
 /// </remarks>
 [ThreadSafe]
 internal sealed class GroupIdempotencyState
@@ -46,8 +52,8 @@ internal sealed class GroupIdempotencyState
     private readonly TimeProvider _timeProvider;
     private int _outcomesRebuilt;
 
-    /// <summary>The resolved outcomes in log index order while the rebuild evicts; <see langword="null" /> outside a rebuild. Guarded by <see cref="_sync" />.</summary>
-    private RebuildEvictionOrder? _rebuildEvictions;
+    /// <summary>The state of the rebuild in progress; <see langword="null" /> outside a rebuild. Guarded by <see cref="_sync" />.</summary>
+    private OutcomeRebuild? _rebuild;
 
     /// <summary>Initializes a new instance of the <see cref="GroupIdempotencyState" /> class.</summary>
     /// <param name="capacity">The maximum number of retained records; new reservations are rejected at capacity.</param>
@@ -98,13 +104,18 @@ internal sealed class GroupIdempotencyState
     {
         lock (_sync)
         {
-            if (_records.Count > Capacity)
-                new RebuildEvictionOrder(_records).TrimTo(_records, Capacity);
-
-            _rebuildEvictions = null;
+            (_rebuild ?? new OutcomeRebuild()).TrimTo(_records, Capacity);
+            _rebuild = null;
         }
 
         Volatile.Write(ref _outcomesRebuilt, 1);
+    }
+
+    /// <summary>Starts a rebuild of the outcomes of the committed log entries, dropping the state of a rebuild that failed part-way.</summary>
+    internal void BeginOutcomeRebuild()
+    {
+        lock (_sync)
+            _rebuild = new OutcomeRebuild();
     }
 
     /// <summary>Evicts resolved records whose retention window has elapsed; unresolved records are never evicted.</summary>
@@ -297,7 +308,7 @@ internal sealed class GroupIdempotencyState
             ThrowIfOutcomeUnresolved(records);
             var surviving = AnchorSurviving(records, capturedUtc);
             var retained = CollectRetainedRecords([.. retainedLogIndexes]);
-            var distinct = DistinctKeyCount(surviving, retained);
+            var distinct = GroupOperationKey.CountDistinct(surviving, retained);
             if (distinct > Capacity)
                 throw new InvalidDataException($"Snapshot and retained records ({distinct}) exceed configured idempotency capacity ({Capacity}).");
 
@@ -325,29 +336,9 @@ internal sealed class GroupIdempotencyState
         // No sweep here: a start restores many outcomes in a row, and the next lookup or reservation sweeps anyway.
         lock (_sync)
         {
-            if (OutcomesRebuilt)
-                throw new InvalidOperationException("The outcomes of the committed log entries are already rebuilt.");
-
-            age = age > TimeSpan.Zero ? age : TimeSpan.Zero;
-            if (_retention != TimeSpan.MaxValue && age >= _retention)
-                return GroupOutcomeRestoreResult.Expired;
-
-            var key = GroupOperationKey.Of(in record);
-            var stored = new StoredRecord(record, _timeProvider.GetTimestamp(), age);
-            if (_records.TryGetValue(key, out var existing))
-            {
-                if (existing.Record.IsUnresolved || existing.Record.LogIndex >= record.LogIndex)
-                    return GroupOutcomeRestoreResult.Retained;
-
-                _records[key] = stored;
-                return GroupOutcomeRestoreResult.Restored;
-            }
-
-            if (_records.Count >= Capacity && !(_rebuildEvictions ??= new RebuildEvictionOrder(_records)).TryEvictOlderThan(_records, record.LogIndex))
-                return GroupOutcomeRestoreResult.Full;
-
-            _records[key] = stored;
-            return GroupOutcomeRestoreResult.Restored;
+            return OutcomesRebuilt
+                ? ThrowHelper.Throw<GroupOutcomeRestoreResult>(new InvalidOperationException("The outcomes of the committed log entries are already rebuilt."))
+                : (_rebuild ??= new OutcomeRebuild()).Restore(_records, in record, age, (_retention, Capacity, _timeProvider));
         }
     }
 
@@ -423,7 +414,7 @@ internal sealed class GroupIdempotencyState
             ThrowIfOutcomeUnresolved(records);
             var surviving = AnchorSurviving(records, capturedUtc);
             var retained = CollectRetainedRecords([.. retainedLogIndexes]);
-            if (DistinctKeyCount(surviving, retained) > Capacity)
+            if (GroupOperationKey.CountDistinct(surviving, retained) > Capacity)
                 return false;
 
             MergeRestored(surviving, retained);
@@ -457,24 +448,8 @@ internal sealed class GroupIdempotencyState
                     retained.Add(pair.Value);
             }
 
-            return DistinctKeyCount(surviving, retained) <= Capacity;
+            return GroupOperationKey.CountDistinct(surviving, retained) <= Capacity;
         }
-    }
-
-    /// <summary>Counts the distinct <c language="csharp">(scope, operation id)</c> keys across the snapshot outcomes and retained records.</summary>
-    /// <param name="records">The committed outcomes carried by the snapshot.</param>
-    /// <param name="retained">The in-memory records still authoritative after installation.</param>
-    /// <returns>The number of distinct keys.</returns>
-    private static int DistinctKeyCount(List<StoredRecord> records, List<StoredRecord> retained)
-    {
-        var combined = new HashSet<GroupOperationKey>();
-        for (var i = 0; i < records.Count; i++)
-            _ = combined.Add(GroupOperationKey.Of(records[i].Record));
-
-        for (var i = 0; i < retained.Count; i++)
-            _ = combined.Add(GroupOperationKey.Of(retained[i].Record));
-
-        return combined.Count;
     }
 
     /// <summary>Throws when any snapshot outcome has not been resolved yet.</summary>
@@ -580,6 +555,22 @@ internal sealed class GroupIdempotencyState
         /// <param name="record">The record.</param>
         /// <returns>Its <c language="csharp">(scope, operation id)</c> key.</returns>
         internal static GroupOperationKey Of(in GroupIdempotencyRecord record) => new(record.OperationScope, record.OperationId);
+
+        /// <summary>Counts the distinct keys across the snapshot outcomes and the retained records.</summary>
+        /// <param name="records">The committed outcomes carried by the snapshot.</param>
+        /// <param name="retained">The in-memory records still authoritative after installation.</param>
+        /// <returns>The number of distinct keys.</returns>
+        internal static int CountDistinct(List<StoredRecord> records, List<StoredRecord> retained)
+        {
+            var combined = new HashSet<GroupOperationKey>();
+            for (var i = 0; i < records.Count; i++)
+                _ = combined.Add(Of(records[i].Record));
+
+            for (var i = 0; i < retained.Count; i++)
+                _ = combined.Add(Of(retained[i].Record));
+
+            return combined.Count;
+        }
     }
 
     /// <summary>A retained record with the monotonic anchor its retention is counted from.</summary>
@@ -608,23 +599,42 @@ internal sealed class GroupIdempotencyState
         }
     }
 
-    /// <summary>The resolved outcomes in ascending log index order, which the rebuild evicts from the oldest.</summary>
-    /// <remarks>Built once from the records the rebuild starts with; an outcome the rebuild adds is never older than a head it could evict, and a changed head is skipped.</remarks>
-    private sealed class RebuildEvictionOrder
+    /// <summary>The state of one rebuild: the resolved outcomes in ascending log index order, which the rebuild evicts from the oldest.</summary>
+    /// <remarks>The order is built when the first eviction needs it and is dropped with the rebuild, so a retried rebuild never reuses a stale one.</remarks>
+    private sealed class OutcomeRebuild
     {
-        private readonly Queue<(GroupOperationKey Key, ulong LogIndex)> _queue;
+        private Queue<(GroupOperationKey Key, ulong LogIndex)>? _queue;
 
-        internal RebuildEvictionOrder(Dictionary<GroupOperationKey, StoredRecord> records)
+        /// <summary>Restores one rebuilt outcome into <paramref name="records" />.</summary>
+        /// <param name="records">The records of the store.</param>
+        /// <param name="record">The resolved record rebuilt from the entry.</param>
+        /// <param name="age">How long ago the outcome was decided.</param>
+        /// <param name="limits">The retention, the capacity and the clock of the store.</param>
+        /// <returns>What became of the outcome.</returns>
+        internal GroupOutcomeRestoreResult Restore(
+            Dictionary<GroupOperationKey, StoredRecord> records,
+            in GroupIdempotencyRecord record,
+            TimeSpan age,
+            (TimeSpan Retention, int Capacity, TimeProvider Clock) limits)
         {
-            var resolved = new List<(GroupOperationKey Key, ulong LogIndex)>();
-            foreach (var (key, stored) in records)
+            age = age > TimeSpan.Zero ? age : TimeSpan.Zero;
+            if (limits.Retention != TimeSpan.MaxValue && age >= limits.Retention)
+                return GroupOutcomeRestoreResult.Expired;
+
+            var key = GroupOperationKey.Of(in record);
+            var stored = new StoredRecord(record, limits.Clock.GetTimestamp(), age);
+            if (records.TryGetValue(key, out var existing))
             {
-                if (stored.Record.IsResolved)
-                    resolved.Add((key, stored.Record.LogIndex));
+                if (existing.Record.IsUnresolved || existing.Record.LogIndex >= record.LogIndex)
+                    return GroupOutcomeRestoreResult.Retained;
+            }
+            else if (records.Count >= limits.Capacity && !TryEvictOlderThan(records, record.LogIndex))
+            {
+                return GroupOutcomeRestoreResult.Full;
             }
 
-            resolved.Sort(static (left, right) => left.LogIndex.CompareTo(right.LogIndex));
-            _queue = new Queue<(GroupOperationKey Key, ulong LogIndex)>(resolved);
+            records[key] = stored;
+            return GroupOutcomeRestoreResult.Restored;
         }
 
         /// <summary>Evicts the oldest resolved outcomes until the store holds no more than <paramref name="capacity" /> records or none is left.</summary>
@@ -637,26 +647,31 @@ internal sealed class GroupIdempotencyState
                 evicted = TryEvictOlderThan(records, ulong.MaxValue);
         }
 
-        /// <summary>Evicts the resolved outcome with the oldest log index when it is older than <paramref name="logIndex" />.</summary>
-        /// <param name="records">The records of the store.</param>
-        /// <param name="logIndex">The log index of the outcome that needs a place.</param>
-        /// <returns><see langword="true" /> when an outcome was evicted.</returns>
-        internal bool TryEvictOlderThan(Dictionary<GroupOperationKey, StoredRecord> records, ulong logIndex)
+        private static Queue<(GroupOperationKey Key, ulong LogIndex)> Order(Dictionary<GroupOperationKey, StoredRecord> records)
         {
-            while (_queue.TryPeek(out var head))
+            var resolved = new List<(GroupOperationKey Key, ulong LogIndex)>();
+            foreach (var (key, stored) in records)
+            {
+                if (stored.Record.IsResolved)
+                    resolved.Add((key, stored.Record.LogIndex));
+            }
+
+            resolved.Sort(static (left, right) => left.LogIndex.CompareTo(right.LogIndex));
+            return new Queue<(GroupOperationKey Key, ulong LogIndex)>(resolved);
+        }
+
+        private bool TryEvictOlderThan(Dictionary<GroupOperationKey, StoredRecord> records, ulong logIndex)
+        {
+            var queue = _queue ??= Order(records);
+            while (queue.TryPeek(out var head))
             {
                 var current = records.TryGetValue(head.Key, out var stored) && stored.Record.IsResolved && stored.Record.LogIndex == head.LogIndex;
-                if (!current)
-                {
-                    _ = _queue.Dequeue();
-                    continue;
-                }
-
-                if (head.LogIndex >= logIndex)
+                if (current && head.LogIndex >= logIndex)
                     return false;
 
-                _ = _queue.Dequeue();
-                return records.Remove(head.Key);
+                _ = queue.Dequeue();
+                if (current)
+                    return records.Remove(head.Key);
             }
 
             return false;

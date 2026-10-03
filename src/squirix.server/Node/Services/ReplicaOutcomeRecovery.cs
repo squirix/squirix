@@ -40,6 +40,7 @@ internal static class ReplicaOutcomeRecovery
         ArgumentNullException.ThrowIfNull(clock);
         var idempotency = log.Idempotency;
         idempotency.Expire();
+        idempotency.BeginOutcomeRebuild();
         var now = clock.GetUtcNow().UtcDateTime;
         var restored = 0;
         _ = await log.ReadRecentCommittedAsync(
