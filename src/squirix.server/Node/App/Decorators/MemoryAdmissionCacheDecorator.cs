@@ -121,7 +121,16 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         }
 
         await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-        AccountReplaceOrInsert(keyValue, entry);
+        if (_hasRecordedOutcome == null)
+        {
+            AccountReplaceOrInsert(keyValue, entry);
+            return;
+        }
+
+        // A recording pipeline may replay the outcome of an earlier attempt without writing, after another write replaced the key: account
+        // what the inner cache holds, read uncancelled since the write already happened.
+        if (await _inner.GetEntryAsync(cacheName, key, CancellationToken.None).ConfigureAwait(false) is { } stored)
+            AccountReplaceOrInsert(keyValue, stored);
     }
 
     public async ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)

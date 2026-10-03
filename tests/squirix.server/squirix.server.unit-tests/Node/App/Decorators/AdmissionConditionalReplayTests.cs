@@ -173,6 +173,39 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         _ = await Assert.That(addAccounting.ReadRejectedWriteCount()).IsEqualTo(0L);
     }
 
+    /// <summary>A retried set replayed after a smaller entry replaced the key accounts the stored entry, not the larger one it sent.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplayedSetAccountsStoredEntry(CancellationToken cancellationToken)
+    {
+        var large = new NodeCacheEntry<string> { Value = new string('x', 4096), Version = 1 };
+        var small = new NodeCacheEntry<string> { Value = "s", Version = 2 };
+        NodeCacheEntry<string>? stored = null;
+        var firstAttempts = 0;
+        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
+        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).Callback((_, _, _) => ValueTask.FromResult(stored));
+
+        // Every set stores its entry, except the retry of op-1, which replays the recorded outcome and writes nothing.
+        _ = inner.Setups.SetEntryAsync(Arg.Any<string>(), CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                 .Callback((operationId, _, _, entry, _) =>
+                 {
+                     if (!string.Equals(operationId, "op-1", StringComparison.Ordinal) || firstAttempts++ == 0)
+                         stored = entry;
+
+                     return ValueTask.CompletedTask;
+                 });
+        var accounting = new MemoryUsageAccounting();
+        var cache = Create(inner.Instance(), accounting, static (_, _) => false);
+
+        await cache.SetEntryAsync("op-1", CacheName, Key, large, cancellationToken);
+        await cache.SetEntryAsync("op-2", CacheName, Key, small, cancellationToken);
+        await cache.SetEntryAsync("op-1", CacheName, Key, large, cancellationToken);
+
+        _ = await Assert.That(stored).IsSameReferenceAs(small);
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
+        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(new CacheEntrySizeEstimator<string>().EstimateBytes(new CacheKey(CacheName, Key), small, false));
+    }
+
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 
