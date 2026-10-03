@@ -74,10 +74,12 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
                 },
                 cancellationToken));
 
-        var winner = await Task.WhenAny(mutationTask, Task.Delay(TimeSpan.FromMilliseconds(250), TimeProvider.System, cancellationToken));
-        _ = await Assert.That(winner).IsSameReferenceAs(mutationTask);
-        _ = await Assert.That(await mutationTask).IsEqualTo(42);
+        // The cut build stays parked on its gate until after this await, so the mutation can complete here only if the build does not
+        // block it; the bound only stops a regression from hanging the run, it does not race the scheduler.
+        var mutation = await mutationTask.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(mutation).IsEqualTo(42);
         _ = await Assert.That(mutationEntered.Task.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(snapshotTask.IsCompleted).IsFalse();
 
         releaseBuild.SetResult();
         _ = await Assert.That(await snapshotTask.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken)).IsEqualTo(1);
