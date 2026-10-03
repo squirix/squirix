@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster;
@@ -25,6 +26,7 @@ internal static class RuntimeServiceRegistration
             var nodeIds = GetPeerNodeIds(cluster);
             _ = services.AddSingleton(new ConsistentHashNodeLocator(nodeIds, cluster.VirtualNodes));
             _ = services.AddSingleton(RingFingerprint.Create(cluster.ClusterId, nodeIds, cluster.VirtualNodes));
+            _ = services.AddSingleton(static sp => new RingAgreement(sp.GetRequiredService<RingFingerprint>(), sp.GetRequiredService<ILogger<RingAgreement>>()));
             _ = services.AddSingleton<INodeLocator>(static sp => sp.GetRequiredService<ConsistentHashNodeLocator>());
             _ = services.AddSingleton<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(
                 sp.GetRequiredService<INodeLocator>(),
