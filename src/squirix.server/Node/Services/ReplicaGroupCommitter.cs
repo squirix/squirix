@@ -139,11 +139,14 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             return;
 
         // Drain in-flight committer operations holding _gate so their AsyncLockHolder can release
-        // the gate before it is disposed of. New admissions fail closed via ThrowIfDisposed.
+        // the gate before it is disposed of. New admissions fail closed via ThrowIfDisposed. The drain stays held until the
+        // coordinator and the gate are disposed, so no caller queued behind it runs a body against a coordinator being torn down:
+        // disposing the gate faults every queued caller with ObjectDisposedException.
         // Work after a durable majority ignores cancellation and can outlast a stalled disk, so the
         // drain is bounded: on expiry the coordinator and the gate stay with the in-flight commit and
         // are leaked loudly instead of being torn down under it. Not throwing keeps the host disposing
-        // the services behind this one (the group logs and the journal).
+        // the services behind this one (the group logs and the journal). Callers queued behind the stuck holder are still faulted,
+        // by disposing the gate: the holder keeps exclusion and can still release.
         AsyncLockHolder drain;
         using (var budget = new CancellationTokenSource(ShutdownBudget))
         {
@@ -154,15 +157,17 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             catch (OperationCanceledException)
             {
                 ServerLog.ReplicaCommitterLeakedOnShutdownTimeout(Log, ShutdownBudget);
+                _gate.Dispose();
                 return;
             }
         }
 
-        drain.Dispose();
-
-        if (_coordinator != null)
-            await _coordinator.DisposeAsync().ConfigureAwait(false);
-        _gate.Dispose();
+        using (drain)
+        {
+            if (_coordinator != null)
+                await _coordinator.DisposeAsync().ConfigureAwait(false);
+            _gate.Dispose();
+        }
     }
 
     /// <summary>Commits one write under the commit gate: prepares it at the next log index, commits it, and decodes its outcome.</summary>
@@ -279,6 +284,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
 
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        ThrowIfDisposed();
         return _started && _coordinator is { } coordinator
             ? await ReplicaLogCompactionStep.RunAsync(log, coordinator, eligibility, Applier.AppliedIndex, durability, Clock, cancellationToken).ConfigureAwait(false)
             : ReplicaLogCompactionOutcome.NotReady;
@@ -307,6 +313,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             return verdict;
 
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        ThrowIfDisposed();
         return await AdmitVerifiedAsync(log, snapshot, cancellationToken).ConfigureAwait(false);
     }
 
