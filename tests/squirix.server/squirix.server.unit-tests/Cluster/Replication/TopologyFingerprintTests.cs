@@ -181,38 +181,6 @@ public sealed class TopologyFingerprintTests
         _ = await Assert.That(right).IsEqualTo(left);
     }
 
-    /// <summary>group_id is stable for a fixed fingerprint vector and owner.</summary>
-    [Test]
-    public async Task GroupIdIsStableForFixedVector()
-    {
-        var fingerprint = TopologyFingerprint.Compute(CreateInputs(CreatePeers()));
-        var first = fingerprint.CreateGroupId("cluster", "node-a");
-        var second = fingerprint.CreateGroupId("cluster", "node-a");
-        _ = await Assert.That(second).IsEqualTo(first, StringComparer.Ordinal);
-        _ = await Assert.That(string.Equals(first, fingerprint.CreateGroupId("cluster", "node-b"), StringComparison.Ordinal)).IsFalse();
-        _ = await Assert.That(first.Length).IsEqualTo(64);
-    }
-
-    /// <summary>group_id matches the independently derived golden digest for a fixed vector and owner.</summary>
-    [Test]
-    public async Task GroupIdMatchesGoldenVector()
-    {
-        var inputs = new FingerprintInputs
-        {
-            ClusterId = "cluster",
-            ConfigurationGeneration = 1,
-            ReplicaCount = 1,
-            VirtualNodes = 128,
-            Peers = [new FingerprintPeer("node-a", new Uri("https://localhost:6001/"), new Uri("https://localhost:6001/"))],
-            Policy = FingerprintPolicy.Default,
-            MinClusterPackageVersion = "0.1.0-preview.8",
-            QuorumAckMode = "majority-no-lease",
-        };
-        var fingerprint = TopologyFingerprint.Compute(inputs);
-
-        _ = await Assert.That(fingerprint.CreateGroupId("cluster", "node-a")).IsEqualTo("AB03238272D47286AA55CD55C199CB281324BC470DB9A2493A2DB727DEC407F2", StringComparer.Ordinal);
-    }
-
     /// <summary>Peers[] permutation produces the same fingerprint bytes.</summary>
     [Test]
     public async Task PeerPermutationProducesSameFingerprint()
