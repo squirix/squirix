@@ -282,7 +282,7 @@ jobs:
             fail-fast: false
             matrix:
                 # One entry per shard in SquirixAnalysisShards (Directory.Build.props); a shard missing here is never analyzed.
-                shard: [ default, server, server-unit-tests, server-tests ]
+                shard: [ default, server, server-unit-tests-1, server-unit-tests-2, server-tests ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -315,8 +315,9 @@ jobs:
                     analysis-shard: ${{ matrix.shard }}
                     upload-outputs: "false"
 
-            # Together the shards analyze every project exactly once. The checks read the shard listing the build of a shard other
-            # than `default` wrote (see .github/actions/build-release), so they cost no further MSBuild run.
+            # Together the shards analyze every project exactly once; Squirix.Server.UnitTests is in two shards, each running half of
+            # its analyzers. The checks read the shard listing the build of a shard other than `default` wrote (see
+            # .github/actions/build-release), so they cost no further MSBuild run.
             #  - The build fails on a shard name Directory.Build.props does not declare, so an equal count means the matrix above
             #    and the declared shards are the same set and no declared shard is left without a job.
             #  - Every project of the repository is in squirix.slnx, which the shard listing is taken from.

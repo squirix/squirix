@@ -71,10 +71,11 @@ runs:
           echo "path=squirix.test-outputs.slnx" >> "$GITHUB_OUTPUT"
         elif [ -n "$shard" ]; then
           # Written to a file first: a failing msbuild then fails the step instead of leaving a partial list. The listing must
-          # also name every project of the solution, so a project that printed nothing cannot drop out unnoticed.
+          # also name every project of the solution, so a project that printed nothing cannot drop out unnoticed. A project
+          # in several shards prints one line per shard.
           listing="$RUNNER_TEMP/analysis-shards.txt"
           dotnet msbuild squirix.slnx -t:SquirixPrintAnalysisShard -nologo -v:m > "$listing"
-          listed="$(grep -c 'squirix-analysis-shard|' "$listing" || true)"
+          listed="$(sed -n 's/^ *squirix-analysis-shard|[^|]*|//p' "$listing" | sort -u | wc -l)"
           projects="$(grep -c '<Project Path=' squirix.slnx || true)"
           if [ "$listed" -ne "$projects" ]; then
             cat "$listing"
