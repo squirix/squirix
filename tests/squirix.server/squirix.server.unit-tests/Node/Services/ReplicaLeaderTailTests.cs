@@ -42,6 +42,28 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(["k1"], cache.Applied.ToArray(), StringComparer.Ordinal);
     }
 
+    /// <summary>A recovered tail is pinned even when the idempotency store is full, so the group still starts and the tail commits.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TailPinnedPastFullStore(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-owner-tail-full-store");
+        await SeedAsync(dir, cancellationToken);
+        await SeedTailAsync(dir, 1, cancellationToken, "k1");
+        var cache = new StubCache();
+        await using var registry = await OpenRegistryAsync(dir, new FollowerLogOptions { IdempotencyCapacity = 1 }, cancellationToken);
+        _ = registry.TryGetLog("n1", out var log);
+        _ = log!.Idempotency.Reserve("cache", "filler", [1], GroupRecordKind.UserMutation, 99, 1);
+        _ = log.Idempotency.TryResolve("cache", "filler", [1], 99, 1);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache);
+
+        var outcome = await committer.VerifyReplicasAsync(cancellationToken);
+
+        _ = await Assert.That(outcome).IsEqualTo(ReplicaVerification.AllReady);
+        _ = await Assert.That((await StatusAsync(registry, cancellationToken)).CommitIndex).IsEqualTo(2UL);
+        await SequenceAssert.EqualAsync(["k1"], cache.Applied.ToArray(), StringComparer.Ordinal);
+    }
+
     /// <summary>Followers that hold the commit position but not the tail are re-sent the tail, verified, and the tail commits.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

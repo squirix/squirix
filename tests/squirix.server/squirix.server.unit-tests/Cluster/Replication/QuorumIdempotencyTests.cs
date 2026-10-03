@@ -42,6 +42,21 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
         _ = await Assert.That(state.Lookup("client", "op-a", [9], out _)).IsEqualTo(GroupIdempotencyLookup.Mismatch);
     }
 
+    /// <summary>A full store refuses a new operation but still pins an entry the log already holds.</summary>
+    [Test]
+    public async Task FullStorePinsLoggedEntry()
+    {
+        var state = new GroupIdempotencyState(1, TimeSpan.MaxValue);
+        _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+
+        var fresh = state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 2, 1);
+        var logged = state.Reserve("client", "op-c", [3], GroupRecordKind.UserMutation, 3, 1, true);
+
+        _ = await Assert.That(fresh).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
+        _ = await Assert.That(logged).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(state.Lookup("client", "op-c", [3], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
+    }
+
     /// <summary>An unresolved reservation survives expiration and blocks new capacity.</summary>
     [Test]
     public async Task UnresolvedOutcomeSurvivesRetention()
