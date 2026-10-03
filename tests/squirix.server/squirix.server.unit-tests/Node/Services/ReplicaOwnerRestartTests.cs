@@ -122,6 +122,34 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         await committer.CommitSetAsync(NewOperationId(), "cache", "k2", new NodeCacheEntry<object?> { Value = "v2", Version = 1 }, cancellationToken);
     }
 
+    /// <summary>A retry of a committed write replays its outcome while the group has no write majority; a new write is still refused.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CommittedRetryReplaysWithoutMajority(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-owner-replay-no-majority");
+        await SeedAsync(dir, cancellationToken);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var gateway = new ScriptedGateway();
+        await using var committer = CreateCommitter(registry, gateway);
+        var operationId = NewOperationId();
+        var entry = new NodeCacheEntry<object?> { Value = "v1", Version = 1 };
+        var added = await committer.CommitTryAddAsync(operationId, "cache", "k1", entry, cancellationToken);
+
+        // Both followers go down and lose their verified state: no write majority remains.
+        gateway.Set("n2", FollowerMode.Down);
+        gateway.Set("n3", FollowerMode.Down);
+        var eligibility = registry.EligibilityFor("n1");
+        _ = eligibility.TryMarkCatchingUp(1, default);
+        _ = eligibility.TryMarkCatchingUp(2, default);
+        var retried = await committer.CommitTryAddAsync(operationId, "cache", "k1", entry, cancellationToken);
+        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitTryAddAsync(NewOperationId(), "cache", "k2", entry, cancellationToken));
+
+        _ = await Assert.That(added).IsTrue();
+        _ = await Assert.That(retried).IsTrue();
+        _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
+    }
+
     /// <summary>A write that cannot reach a majority is refused retryably before the local append, so it leaves no uncommitted tail behind.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
