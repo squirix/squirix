@@ -25,7 +25,7 @@ internal static class FollowerSnapshotScenario
     /// <exception cref="InvalidOperationException">Thrown when the compaction does not complete or publishes no snapshot.</exception>
     internal static async Task<GroupSnapshot> CompactThroughAsync(FollowerLog log, string persistenceRoot, ulong index, CancellationToken cancellationToken)
     {
-        _ = await log.AdvanceAppliedAsync(index, cancellationToken);
+        await AdvanceAppliedAsync(log, index, cancellationToken);
         var outcome = await log.CompactThroughAsync(index, cancellationToken);
         var published = outcome == GroupCompactionOutcome.Compacted ? await new GroupSnapshotStore(persistenceRoot, log.GroupId).ReadPublishedAsync(cancellationToken) : null;
         return published ?? ThrowHelper.Throw<GroupSnapshot>(new InvalidOperationException($"Compaction through index {index} ended with '{outcome}' and no published snapshot."));
@@ -40,8 +40,15 @@ internal static class FollowerSnapshotScenario
     /// <remarks>The log fails readiness afterwards and must be disposed and reopened, like after a crash.</remarks>
     internal static async Task PublishWithoutCompactionAsync(FollowerLog log, ArmableFlushFaultHooks faults, ulong index, CancellationToken cancellationToken)
     {
-        _ = await log.AdvanceAppliedAsync(index, cancellationToken);
+        await AdvanceAppliedAsync(log, index, cancellationToken);
         faults.Arm();
         _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(index, cancellationToken));
+    }
+
+    private static async Task AdvanceAppliedAsync(FollowerLog log, ulong index, CancellationToken cancellationToken)
+    {
+        var applied = await log.AdvanceAppliedAsync(index, cancellationToken);
+        if (!applied.Success)
+            throw new InvalidOperationException($"Marking index {index} applied was refused: '{applied.RefusalCode}'.");
     }
 }

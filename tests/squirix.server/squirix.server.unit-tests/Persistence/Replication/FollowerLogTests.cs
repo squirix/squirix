@@ -296,6 +296,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await Assert.That(log.SnapshotPath).IsNotNull();
+        _ = await Assert.That(FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId)) > GroupLogCodec.LogFileHeader.Length).IsTrue();
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastAppliedIndex).IsEqualTo(1UL);
 
         var retransmission = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
 
@@ -465,7 +467,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
     /// <summary>
     /// A leader retransmission of the committed base frame passes the exact payload comparison while the frame
-    /// is still retained in memory, and stays acknowledged through application and baseline installation.
+    /// is still retained in memory; the log then stays ready and keeps its last index through application and compaction.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -821,6 +823,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
         _ = await Assert.That(log.SnapshotPath).IsNotNull();
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastAppliedIndex).IsEqualTo(0UL);
 
         // The leader re-sends the snapshot base entry at index 2 with the same term but a different payload while the
         // local basis entry is still resident; the exact payload comparison must reject the conflict instead of the

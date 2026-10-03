@@ -91,16 +91,16 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
     public async Task InstallKeepsAppliedBelowBoundary(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-install-applied-watermark");
-        using var dir2 = new TempDirectory("squirix-install-applied-watermark-source");
+        using var sourceDir = new TempDirectory("squirix-install-applied-watermark-source");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var source = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var source = new FollowerLog(sourceDir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await source.OpenAsync(cancellationToken);
         _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await source.AppendAsync(Append(3UL, "c"), cancellationToken);
         _ = await source.AdvanceCommitAsync(3UL, cancellationToken);
-        var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, dir2, 3UL, cancellationToken);
+        var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, sourceDir, 3UL, cancellationToken);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);

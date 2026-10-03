@@ -79,7 +79,6 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await log.AdvanceCommitAsync(8UL, cancellationToken);
             _ = log.Idempotency.Reserve("client", "op-1", [1], GroupRecordKind.UserMutation, 1UL, 1UL);
             _ = log.Idempotency.TryResolve("client", "op-1", [9], 1UL, 1UL);
-            _ = await log.AdvanceAppliedAsync(8UL, cancellationToken);
             _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 8UL, cancellationToken);
             _ = await Assert.That(log.SnapshotPath).IsNotNull();
         }
@@ -739,7 +738,6 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await log.AppendAsync(Append(4UL, "d"), cancellationToken);
             _ = await log.AppendAsync(Append(5UL, "e"), cancellationToken);
             _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
-            _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
             _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 3UL, cancellationToken);
         }
 
@@ -784,7 +782,6 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
             _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
             _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
-            _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
             _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 3UL, cancellationToken);
 
             // Append and commit past the boundary so the durable commit watermark exceeds the
