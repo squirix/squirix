@@ -123,8 +123,8 @@ internal static class ReplicaReadinessProbe
     /// <remarks>
     /// Each follower gets the tail from the commit index on, as the ordinary append protocol: identical entries are acknowledged
     /// without a second write, a divergent entry above the follower's commit is truncated and replaced, and a conflict at or below its
-    /// commit fails that follower's readiness. Requests carry one entry each, like the commit fan-out, so none exceeds the message size
-    /// the original append fit in; a follower whose log does not hold the commit position stays mismatched for general catch-up.
+    /// commit fails that follower's readiness. Requests carry one entry each, so none exceeds the message size
+    /// the original append fit in, which a batched commit fan-out request is also held to; a follower whose log does not hold the commit position stays mismatched for general catch-up.
     /// </remarks>
     internal static async Task<ReplicaProbeResult[]> RedriveTailAsync(
         IReplicaRpcGateway gateway,

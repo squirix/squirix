@@ -166,6 +166,11 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         {
             try
             {
+                // The senders close first: their pending and in-flight follower appends end at once, so the coordinator's teardown
+                // does not wait for a follower that is slow or gone.
+                if (_pipeline != null)
+                    await _pipeline.CloseAsync().ConfigureAwait(false);
+
                 if (_coordinator != null)
                     await _coordinator.DisposeAsync().ConfigureAwait(false);
             }
@@ -513,7 +518,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             : [];
 
         // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
-        var pipeline = new ReplicaGroupCommitPipeline(Applier, log, _gateway, members, GroupId, in status, in header);
+        var pipeline = new ReplicaGroupCommitPipeline(Applier, log, CreateSenders(members, in status, in header), GroupId, in status);
         var factory = new ReplicaMutationFactory(_local, GroupId, term, Clock, Log);
         _coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(_locator.ReplicaCount, status.LastLogIndex, status.CommitIndex, MaxInFlight),
@@ -532,7 +537,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // Before a restart the outcomes of the committed entries above the snapshot lived only in memory; their records carry them, so
         // a retry of an operation committed before the restart replays its outcome. The recovered tail is pinned first and keeps its pins.
         if (!log.Idempotency.OutcomesRebuilt)
-            await RestoreOutcomesAsync(log, cancellationToken).ConfigureAwait(false);
+            await RestoreOutcomesAsync(log, pipeline, cancellationToken).ConfigureAwait(false);
 
         // Verified slots are admitted at the leader's last index before they count, so they cover the recovered tail.
         ReplicaReadinessProbe.ApplyAll(eligibility, results, in status, _topologyFingerprint, _generation, _coordinator);
@@ -541,15 +546,31 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _started = true;
     }
 
+    /// <summary>Creates the sender of every follower slot, seeded with the last entry of the leader log.</summary>
+    /// <param name="members">Ordered group members; index zero is this node.</param>
+    /// <param name="status">Durable log status of the leader.</param>
+    /// <param name="header">Replication envelope identity for follower calls.</param>
+    /// <returns>The senders of slots one and up, in slot order.</returns>
+    /// <remarks>The commit budget bounds one request, and the shutdown budget bounds waiting for one that ignores its cancellation on dispose.</remarks>
+    private ReplicaFollowerSender[] CreateSenders(string[] members, in FollowerLogStatus status, in ReplicaRpcHeader header)
+    {
+        var senders = new ReplicaFollowerSender[members.Length - 1];
+        for (var i = 0; i < senders.Length; i++)
+            senders[i] = new ReplicaFollowerSender(_gateway, members[i + 1], in header, status.LastLogIndex, status.LastLogTerm, CommitBudget) { ShutdownBudget = ShutdownBudget };
+
+        return senders;
+    }
+
     /// <summary>Rebuilds the outcomes of the committed log entries once, after the coordinator of the first start pinned the recovered tail.</summary>
     /// <param name="log">The owned group log.</param>
+    /// <param name="pipeline">The pipeline of the new coordinator, closed together with it on failure.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>An asynchronous operation.</returns>
     /// <remarks>
-    /// A failure drops the new coordinator before it serves anything: it would keep the recovered tail with no follower progress recorded,
-    /// refusing the next writes. Its tail is durable, so the next start pins it again and retries the rebuild.
+    /// A failure drops the new coordinator and closes its pipeline before it serves anything: it would keep the recovered tail with no
+    /// follower progress recorded, refusing the next writes. Its tail is durable, so the next start pins it again and retries the rebuild.
     /// </remarks>
-    private async Task RestoreOutcomesAsync(IFollowerLog log, CancellationToken cancellationToken)
+    private async Task RestoreOutcomesAsync(IFollowerLog log, ReplicaGroupCommitPipeline pipeline, CancellationToken cancellationToken)
     {
         try
         {
@@ -560,6 +581,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         {
             var coordinator = _coordinator;
             _coordinator = null;
+            await pipeline.CloseAsync().ConfigureAwait(false);
             if (coordinator != null)
                 await coordinator.DisposeAsync().ConfigureAwait(false);
             throw;
@@ -580,6 +602,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // keep the old coordinator, whose late-majority path and the next attempt can still apply them.
         if (!await TryApplyPendingAsync().ConfigureAwait(false))
             throw ServerOpContract.TooManyRequests(PendingApplyRefusalReason);
+
+        // The pipeline of the old coordinator closes first, so its follower appends cannot reach a follower after the new pipeline's.
+        if (_pipeline != null)
+            await _pipeline.CloseAsync().ConfigureAwait(false);
 
         await _coordinator.DisposeAsync().ConfigureAwait(false);
     }
@@ -626,16 +652,16 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// drives one commit at a time, so the fan-out for mutation N always runs between the local appending
     /// of N and N+1: the fan-out snapshot below always describes the batch it accompanies. Only the commit
     /// watermark is shared across the background path and stays monotonic; every other field is written
-    /// solely by the serialized body.
+    /// solely by the serialized body. Each follower slot has a <see cref="ReplicaFollowerSender" /> that owns the order of its
+    /// appends: the fan-out of N+1 only queues the entry, and the sender never sends it before the request that carries N has been
+    /// answered, so a slow follower is never handed N+1 ahead of N.
     /// </remarks>
     private sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     {
         private readonly ReplicaLeaderApplier _applier;
-        private readonly ReplicaRpcHeader _header;
         private readonly IFollowerLog _log;
-        private readonly string[] _members;
-        private readonly IReplicaRpcGateway _rpc;
         private readonly string _selfId;
+        private readonly ReplicaFollowerSender[] _senders;
         private ulong _commitIndex;
         private ulong _fanoutPrevIndex;
         private ulong _fanoutPrevTerm;
@@ -645,34 +671,25 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitPipeline" /> class.</summary>
         /// <param name="applier">The committer's applier, which applies committed entries to memory in log order.</param>
         /// <param name="log">Owned group log for local durable appending.</param>
-        /// <param name="rpc">Follower replication RPCs.</param>
-        /// <param name="members">Ordered group members; index zero is this node.</param>
-        /// <param name="selfId">This node identifier, matching <paramref name="members" /> index zero.</param>
+        /// <param name="senders">The senders of follower slots one and up, in slot order; the pipeline owns them and closes them.</param>
+        /// <param name="selfId">This node identifier.</param>
         /// <param name="status">Durable log status seeding previous and commit positions.</param>
-        /// <param name="header">Replication envelope identity for follower calls.</param>
         internal ReplicaGroupCommitPipeline(
             ReplicaLeaderApplier applier,
             IFollowerLog log,
-            IReplicaRpcGateway rpc,
-            string[] members,
+            ReplicaFollowerSender[] senders,
             string selfId,
-            in FollowerLogStatus status,
-            in ReplicaRpcHeader header)
+            in FollowerLogStatus status)
         {
             ArgumentNullException.ThrowIfNull(applier);
             ArgumentNullException.ThrowIfNull(log);
-            ArgumentNullException.ThrowIfNull(rpc);
-            ArgumentNullException.ThrowIfNull(members);
+            ArgumentNullException.ThrowIfNull(senders);
             ArgumentException.ThrowIfNullOrWhiteSpace(selfId);
-            if (members.Length == 0 || !string.Equals(members[0], selfId, StringComparison.Ordinal))
-                throw new ArgumentException("Group members must start with this node.", nameof(members));
 
             _applier = applier;
             _log = log;
-            _rpc = rpc;
-            _members = members;
             _selfId = selfId;
-            _header = header;
+            _senders = senders;
             _prevLogIndex = status.LastLogIndex;
             _prevLogTerm = status.LastLogTerm;
             _commitIndex = status.CommitIndex;
@@ -693,17 +710,16 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
 
         /// <inheritdoc />
-        public async ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        /// <remarks>
+        /// The entry is queued on the follower's sender and the cancellation token is deliberately ignored: a locally appended entry must
+        /// always be queued, and a late acknowledgement must still reach the observation of the remaining followers. The commit itself
+        /// stops at its budget while it waits for the majority.
+        /// </remarks>
+        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            var nodeId = _members[replicaIndex];
-            var decoded = ReplicaLogCodec.Decode(mutation.CanonicalPayload);
-            if (decoded is not { } append)
-                throw new InvalidOperationException("Prepared mutation carries an undecodable canonical payload.");
-
-            var batch = new FollowerBatch(new[] { append }, _selfId, mutation.Term, _fanoutPrevIndex, _fanoutPrevTerm, _commitIndex);
-            var result = await _rpc.AppendEntriesAsync(nodeId, _header, batch, cancellationToken).ConfigureAwait(false);
-            var follr = new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true);
-            return !result.Success ? throw new InvalidOperationException($"Follower '{nodeId}' refused append: {result.RefusalCode}.") : follr;
+            return ReplicaLogCodec.Decode(mutation.CanonicalPayload) is not { } append
+                ? ValueTask.FromException<ReplicaDurableAcknowledgement>(new InvalidOperationException("Prepared mutation carries an undecodable canonical payload."))
+                : new ValueTask<ReplicaDurableAcknowledgement>(_senders[replicaIndex - 1].EnqueueAsync(mutation, in append, _fanoutPrevIndex, _fanoutPrevTerm, _commitIndex));
         }
 
         /// <inheritdoc />
@@ -734,6 +750,17 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         {
             // Repair driving lands in a later milestone; the coordinator already observes stragglers
             // in the background, and a lagging replica simply stops counting toward the majority.
+        }
+
+        /// <summary>Closes every follower sender: waiting entries fail and the requests in flight are canceled.</summary>
+        /// <returns>A task that completes when the senders are closed, or gave up on a request that ignores cancellation.</returns>
+        internal async ValueTask CloseAsync()
+        {
+            var closing = new Task[_senders.Length];
+            for (var i = 0; i < closing.Length; i++)
+                closing[i] = _senders[i].DisposeAsync().AsTask();
+
+            await Task.WhenAll(closing).ConfigureAwait(false);
         }
     }
 }
