@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Frozen;
-using System.Collections.Generic;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Storage.Replication;
@@ -19,9 +18,6 @@ internal sealed class GroupComposition
     {
         _groups = groups;
     }
-
-    /// <summary>Gets the group identifiers in this composition.</summary>
-    internal IEnumerable<string> GroupIds => _groups;
 
     // If a variable-length composition is ever required, add an overload accepting IReadOnlyList<string> (e.g., a List<string>)
     // and build the frozen set in one pass.
