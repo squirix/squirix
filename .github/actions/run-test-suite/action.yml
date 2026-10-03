@@ -1,5 +1,5 @@
 name: Run Test Suite
-description: Download the build outputs and run one CI test suite or suite group, with coverage when asked.
+description: Download or build the outputs and run one CI test suite or suite group, with coverage when asked.
 
 inputs:
   os:
@@ -20,6 +20,12 @@ inputs:
     description: >-
       When true, the job started with the workflow rather than after the build: it prepares the runner and then waits
       until the build job has uploaded its outputs. The job needs the actions read permission.
+    required: false
+    default: "false"
+  build:
+    description: >-
+      When true, the job builds the projects of its suite itself instead of downloading the outputs of the build job, which
+      takes less time than waiting for the whole build and its upload.
     required: false
     default: "false"
 
@@ -53,12 +59,40 @@ runs:
 
     # Every runner kind tests the outputs of the one ubuntu build. They are portable: the assemblies are the same whatever
     # system compiles them, and the output folders carry the native assets of every test platform. A test assembly needs only
-    # the .NET 10 runtime, which every runner image ships, so no job installs the SDK pinned in global.json.
+    # the .NET 10 runtime, which every runner image ships, so no job installs the SDK pinned in global.json. A job that builds its
+    # suite itself (input build) sets the SDK up for that build instead.
     - name: Download Build Outputs
+      if: inputs.build != 'true'
       uses: ./.github/actions/download-build-outputs
       with:
         framework: ${{ inputs.framework }}
         wait-for-build: ${{ inputs.wait-for-build }}
+
+    - name: List Suite Projects
+      id: projects
+      if: inputs.build == 'true'
+      shell: bash
+      env:
+        RUNS: ${{ steps.select.outputs.runs }}
+      run: |
+        list="$(cut -f2 <<< "$RUNS" | sed '/^$/d' | sort -u | paste -sd ' ')"
+        if [ -z "$list" ]; then
+          echo "Suite '${{ inputs.suite }}' names no project to build." >&2
+          exit 1
+        fi
+        echo "list=$list" >> "$GITHUB_OUTPUT"
+
+    - name: Build Suite Projects
+      if: inputs.build == 'true'
+      uses: ./.github/actions/build-release
+      with:
+        artifact-os: ${{ inputs.os }}
+        framework: ${{ inputs.framework }}
+        analyzers: "false"
+        upload-outputs: "false"
+        projects: ${{ steps.projects.outputs.list }}
+        # The SDK goes on the path, so the test hosts below start from its folder.
+        net10-runtime: "true"
 
     # A suite id selects one test host run, or for a group several runs back to back. Every run keeps its own name for the
     # log, the TRX file and the coverage directory, so a single suite produces the same files whether it runs alone or in a group.

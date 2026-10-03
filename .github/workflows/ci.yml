@@ -178,11 +178,13 @@ jobs:
     # workflow, classifies the change set itself with the same action and skips the build when no code changed. A build
     # that had nothing to do still ends as a success, so the jobs that wait for it check the `built` output; test-ubuntu
     # starts with the workflow and makes the same decision itself, NDepend makes it from the Detect Changes job. Its name
-    # is referenced by the wait in .github/actions/download-build-outputs.
+    # is referenced by the wait in .github/actions/download-build-outputs. A pull request into develop runs only the ubuntu
+    # tests, whose jobs build their suites themselves, so nothing there needs this build.
     build-ubuntu:
         name: Build (ubuntu-latest / net10.0)
         runs-on: ubuntu-latest
         timeout-minutes: 45
+        if: github.event_name != 'pull_request' || github.base_ref == 'main'
         outputs:
             built: ${{ steps.gate.outputs.build }}
         env:
@@ -218,8 +220,8 @@ jobs:
                     analyzers: "false"
                     # Nothing downloads the benchmark or sample outputs: the guard and package smoke jobs build their own.
                     test-outputs-only: "true"
-                    # Pull requests into develop run only the ubuntu tests; every other run also tests on ARM, Windows and macOS.
-                    runtime-assets: ${{ github.event_name == 'pull_request' && github.base_ref != 'main' && 'host' || 'test-runners' }}
+                    # Every run that builds here also tests on ARM, Windows or macOS.
+                    runtime-assets: test-runners
 
     # Packs the client and server packages and runs the sample against them. It has a runner of its own so the jobs
     # that wait for the build outputs of build-ubuntu do not wait for it too.
@@ -490,9 +492,10 @@ jobs:
                     # of build-ubuntu, so nothing is uploaded here.
                     upload-outputs: "false"
 
-    # Per-OS test matrices; ubuntu also runs the smoke suite. The ubuntu tests end a pull request run, so they start with
-    # the workflow like build-ubuntu: runner, checkout, change detection and certificate are ready during the build, and
-    # the job waits for the build outputs in a step. The other matrices start once their build has finished.
+    # Per-OS test matrices; ubuntu also runs the smoke suite. The ubuntu tests start with the workflow like build-ubuntu:
+    # runner, checkout, change detection and certificate are ready during the build, and the job waits for the build
+    # outputs in a step. On a pull request, which they end, they build their suite themselves instead. The other matrices
+    # start once their build has finished.
     test-ubuntu:
         name: Test (ubuntu-latest / net10.0 / ${{ matrix.suite }})
         runs-on: ubuntu-latest
@@ -529,7 +532,8 @@ jobs:
                 with:
                     persist-credentials: false
 
-            # The same decision build-ubuntu makes: there are build outputs to test exactly when it builds.
+            # The same decision build-ubuntu makes: there is something to test exactly when it builds (or would build, on a
+            # pull request into develop).
             -   name: Detect Changes
                 id: changes
                 uses: ./.github/actions/detect-changes
@@ -547,7 +551,9 @@ jobs:
                     suite: ${{ matrix.suite }}
                     # PR fast path: no coverage on pull_request.
                     collect-coverage: ${{ github.event_name != 'pull_request' }}
-                    wait-for-build: "true"
+                    # On a pull request each job builds its own suite: that ends sooner than the whole build and its upload.
+                    wait-for-build: ${{ github.event_name != 'pull_request' }}
+                    build: ${{ github.event_name == 'pull_request' }}
 
     test-windows:
         name: Test (windows-latest / net10.0 / ${{ matrix.suite }})
@@ -1841,7 +1847,12 @@ jobs:
                     assert_success "verify-line-endings" "$require_line_endings" "$RESULT_LINE_ENDINGS"
                     assert_success "docker-build" "$require_docker" "$RESULT_DOCKER"
 
-                    assert_success "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
+                    # PR fast path: skipped on pull_request into develop, required otherwise.
+                    if [[ "$EVENT_NAME" == "pull_request" && "$GITHUB_BASE_REF" != "main" ]]; then
+                      assert_success_or_skipped "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
+                    else
+                      assert_success "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
+                    fi
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "package-smoke" "$require_code" "$RESULT_PACKAGE_SMOKE"
                     # The test artifacts are built without analyzers, so the analyzed build is required on every event.
