@@ -34,7 +34,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
 
     /// <summary>
     /// Executions in flight for Started reservations acquired in this process, keyed like the records. A retry joins the execution
-    /// instead of reporting an unknown outcome; intents rebuilt from the journal never have an entry here.
+    /// instead of reporting an unknown outcome; intents restored from the journal or a snapshot never have an entry here.
     /// </summary>
     private readonly Dictionary<string, TaskCompletionSource> _executions = [with(StringComparer.Ordinal)];
     private readonly IdempotencyMetrics _metrics;
@@ -74,7 +74,34 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         }
     }
 
-    void IIdempotencySnapshotExporter.ExportSnapshot(List<PersistedIdempotencyRecord> destination, DateTime utcNow) => ExportSnapshotCore(destination, utcNow);
+    void IIdempotencySnapshotExporter.ExportSnapshot(List<PersistedIdempotencyRecord> destination, DateTime utcNow)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        destination.Clear();
+
+        lock (_capacityGate)
+        {
+            SweepExpiredLocked(utcNow, _timeProvider.GetTimestamp());
+
+            // In insertion order, not dictionary order: a restore re-inserts in this order, and capacity eviction follows it.
+            var ordered = new List<StoredRecord>(_records.Count);
+            foreach (var pair in _records)
+                ordered.Add(pair.Value);
+
+            ordered.Sort(static (left, right) => left.Sequence.CompareTo(right.Sequence));
+
+            // A reservation whose outcome frame is already enqueued exports that outcome: the frame is at or below the cut. A live
+            // reservation that stamped no mutation frame has no write-ahead intent in the journal (a replicated write keeps its
+            // outcome in the group log), so it is not exported as Started; restored records always are.
+            foreach (var stored in CollectionsMarshal.AsSpan(ordered))
+            {
+                if (stored.Appended == null && stored.Record.State == IdempotencyRecordState.Started && stored.CreatedTimestamp != null && !stored.Stamped)
+                    continue;
+
+                destination.Add(stored.Appended ?? stored.Record);
+            }
+        }
+    }
 
     /// <summary>Records the outcome of the attempt that holds the reservation of <paramref name="operationId" />.</summary>
     /// <param name="operationId">The operation identifier.</param>
@@ -229,15 +256,32 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             if (existing.Record.State != IdempotencyRecordState.Started || !ReferenceEquals(existing.Reservation, reservation))
                 return;
 
-            // Reservations reconstructed from journal mutation frames carry no fingerprint and must outlive the
-            // failed attempt: their mutation may already be durably committed.
-            if (existing.Record.Fingerprint == null)
+            // A record restored from the journal or a snapshot has no monotonic origin and must outlive the failed attempt: its
+            // mutation may already be durably committed.
+            if (existing.CreatedTimestamp == null)
                 return;
 
             if (!string.Equals(existing.Record.Fingerprint, fingerprint, StringComparison.Ordinal))
                 return;
 
             _ = _records.Remove(operationId);
+        }
+    }
+
+    /// <summary>Marks the live reservation of <paramref name="reservation" /> as write-ahead stamped, so a snapshot exports its Started record.</summary>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="reservation">The completion the reservation was acquired with.</param>
+    /// <remarks>Called under the journal mutation gate right after the stamped frame was enqueued, so a snapshot cut never sees the frame without the mark.</remarks>
+    internal void MarkStamped(string operationId, TaskCompletionSource? reservation)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+
+        lock (_capacityGate)
+        {
+            if (_records.TryGetValue(operationId, out var existing)
+                && existing.Record.State == IdempotencyRecordState.Started
+                && ReferenceEquals(existing.Reservation, reservation))
+                _records[operationId] = existing with { Stamped = true };
         }
     }
 
@@ -376,28 +420,6 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         _metrics.RecordEviction(_nodeId);
     }
 
-    private void ExportSnapshotCore(List<PersistedIdempotencyRecord> destination, DateTime utcNow)
-    {
-        ArgumentNullException.ThrowIfNull(destination);
-        destination.Clear();
-
-        lock (_capacityGate)
-        {
-            SweepExpiredLocked(utcNow, _timeProvider.GetTimestamp());
-
-            // In insertion order, not dictionary order: a restore re-inserts in this order, and capacity eviction follows it.
-            var ordered = new List<StoredRecord>(_records.Count);
-            foreach (var pair in _records)
-                ordered.Add(pair.Value);
-
-            ordered.Sort(static (left, right) => left.Sequence.CompareTo(right.Sequence));
-
-            // A reservation whose outcome frame is already enqueued exports that outcome: the frame is at or below the cut.
-            foreach (var stored in CollectionsMarshal.AsSpan(ordered))
-                destination.Add(stored.Appended ?? stored.Record);
-        }
-    }
-
     /// <summary>Decides whether a record is older than <paramref name="age" /> at <paramref name="utcNow" /> and <paramref name="timestamp" />.</summary>
     /// <param name="stored">The record.</param>
     /// <param name="age">The age.</param>
@@ -469,10 +491,12 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     /// <param name="Sequence">The insertion sequence capacity eviction orders by.</param>
     /// <param name="Reservation">The completion of the attempt that acquired a Started record; only that attempt settles it.</param>
     /// <param name="Appended">The outcome of a Started record whose outcome frame is enqueued but not yet durable; a snapshot exports it.</param>
+    /// <param name="Stamped">Whether a mutation frame stamped with the operation id was enqueued for this live reservation.</param>
     private readonly record struct StoredRecord(
         PersistedIdempotencyRecord Record,
         long? CreatedTimestamp,
         long Sequence,
         TaskCompletionSource? Reservation,
-        PersistedIdempotencyRecord? Appended);
+        PersistedIdempotencyRecord? Appended,
+        bool Stamped = false);
 }

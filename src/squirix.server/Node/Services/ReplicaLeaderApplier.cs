@@ -95,15 +95,8 @@ internal sealed class ReplicaLeaderApplier
 
         // The group log is the durable source of a replicated write: its cache journal frame must not become an RPC write-ahead
         // intent, or a restart would rebuild a Started record that hides the group outcome the committer replays.
-        var stamping = RpcMutationIdempotencyExecutionAmbient.SuspendStamping();
-        try
-        {
+        using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
             await ReplicaCacheApplier.ExecuteAsync(_local, record, effect, entry, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            RpcMutationIdempotencyExecutionAmbient.ResumeStamping(stamping);
-        }
 
         Volatile.Write(ref _appliedIndex, logIndex);
     }
@@ -155,8 +148,9 @@ internal sealed class ReplicaLeaderApplier
     /// Called under the committer gate, while no coordinator runs. After a restart memory holds at most what the cache journal kept,
     /// which may miss the entries above the durable applied index: they are applied again, in log order. The applied index is seeded
     /// only once, so a resync in this process keeps the in-memory index and applies nothing twice. The entries belong to no caller of
-    /// the current execution, which can carry the idempotency scope of the write that started the committer; that scope would stamp their
-    /// cache journal frames with a foreign operation, so they are applied on a pool thread started without the execution context.
+    /// the current execution, which can carry the idempotency scope of the write that started the committer; that scope would defer their
+    /// durability to a foreign RPC's outcome and count them as that RPC's effect, so they are applied on a pool thread started without the
+    /// execution context.
     /// </remarks>
     internal async Task CatchUpAsync(IFollowerLog log, ulong durableAppliedIndex, ulong commitIndex, CancellationToken cancellationToken)
     {

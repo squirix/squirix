@@ -22,28 +22,22 @@ internal static class RpcMutationIdempotencyExecutionAmbient
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
-        Current.Value = new ScopeFrame(scope, operationId, fingerprint, Current.Value, false);
+        Current.Value = new ScopeFrame(scope, operationId, fingerprint, Current.Value, false, new ScopeState());
     }
 
-    /// <summary>Stops stamping mutation frames with the active operation id until <see cref="ResumeStamping" /> is called with the returned token.</summary>
-    /// <returns>The token to pass to <see cref="ResumeStamping" />.</returns>
-    /// <remarks>Durability stays deferred; only the write-ahead stamp is dropped, for writes whose durable source is not the cache journal.</remarks>
-    internal static object? SuspendStamping()
+    /// <summary>Stops stamping mutation frames with the active operation id until the returned value is disposed.</summary>
+    /// <returns>The value that restores the previous stamping state when disposed.</returns>
+    /// <remarks>
+    /// Durability stays deferred and mutations still count as having taken effect; only the write-ahead stamp is dropped, for writes whose
+    /// durable source is not the cache journal.
+    /// </remarks>
+    internal static SuspendedStamping SuspendStamping()
     {
         var previous = Current.Value;
-        if (previous == null)
-            return null;
+        if (previous != null)
+            Current.Value = new ScopeFrame(previous.Scope, previous.OperationId, previous.Fingerprint, previous, true, previous.State);
 
-        Current.Value = new ScopeFrame(previous.Scope, previous.OperationId, previous.Fingerprint, previous, true);
-        return previous;
-    }
-
-    /// <summary>Restores the stamping state captured by <see cref="SuspendStamping" />.</summary>
-    /// <param name="token">The token returned by <see cref="SuspendStamping" />.</param>
-    internal static void ResumeStamping(object? token)
-    {
-        if (token is ScopeFrame previous)
-            Current.Value = previous;
+        return new SuspendedStamping(previous);
     }
 
     internal static void Deactivate(object scope)
@@ -56,34 +50,81 @@ internal static class RpcMutationIdempotencyExecutionAmbient
     /// <summary>Determines whether the given scope stamped any mutation while it was active.</summary>
     /// <param name="scope">The scope to inspect.</param>
     /// <returns><see langword="true" /> when the scope stamped at least one mutation frame.</returns>
-    internal static bool HasStampedMutations(object scope)
-    {
-        for (var frame = Current.Value; frame != null; frame = frame.Parent)
-        {
-            if (ReferenceEquals(frame.Scope, scope) && frame.MutationStamped)
-                return true;
-        }
+    internal static bool HasStampedMutations(object scope) => FindState(scope)?.Stamped ?? false;
 
-        return false;
+    /// <summary>Determines whether a mutation appended under the given scope, stamped or not, may have taken effect.</summary>
+    /// <param name="scope">The scope to inspect.</param>
+    /// <returns><see langword="true" /> when the scope appended at least one cache mutation frame.</returns>
+    internal static bool HasTakenEffect(object scope) => FindState(scope)?.TakenEffect ?? false;
+
+    /// <summary>Marks the active scope as having appended a mutation frame that was not stamped.</summary>
+    internal static void NotifyMutationApplied()
+    {
+        if (Current.Value is { } frame)
+            frame.State.TakenEffect = true;
     }
 
     /// <summary>Marks the active scope as having stamped at least one durable mutation frame.</summary>
-    internal static void NotifyMutationStamped() => Current.Value?.MarkStamped();
-
-    private sealed class ScopeFrame
+    internal static void NotifyMutationStamped()
     {
-        internal ScopeFrame(object scope, string operationId, string fingerprint, ScopeFrame? parent, bool stampingSuspended)
+        if (Current.Value is not { } frame)
+            return;
+
+        frame.State.TakenEffect = true;
+        frame.State.Stamped = true;
+        (frame.Scope as IRpcMutationStampListener)?.OnMutationStamped();
+    }
+
+    private static ScopeState? FindState(object scope)
+    {
+        for (var frame = Current.Value; frame != null; frame = frame.Parent)
+        {
+            if (ReferenceEquals(frame.Scope, scope))
+                return frame.State;
+        }
+
+        return null;
+    }
+
+    /// <summary>Restores the stamping state that was active before <see cref="SuspendStamping" />.</summary>
+    internal readonly struct SuspendedStamping : IDisposable
+    {
+        private readonly ScopeFrame? _previous;
+
+        internal SuspendedStamping(ScopeFrame? previous)
+        {
+            _previous = previous;
+        }
+
+        /// <inheritdoc />
+        public void Dispose()
+        {
+            if (_previous != null)
+                Current.Value = _previous;
+        }
+    }
+
+    /// <summary>Scope state shared by the frame of a scope and the frames that suspend its stamping.</summary>
+    internal sealed class ScopeState
+    {
+        internal bool Stamped { get; set; }
+
+        internal bool TakenEffect { get; set; }
+    }
+
+    internal sealed class ScopeFrame
+    {
+        internal ScopeFrame(object scope, string operationId, string fingerprint, ScopeFrame? parent, bool stampingSuspended, ScopeState state)
         {
             Scope = scope;
             OperationId = operationId;
             Fingerprint = fingerprint;
             Parent = parent;
             StampingSuspended = stampingSuspended;
+            State = state;
         }
 
         internal string Fingerprint { get; }
-
-        internal bool MutationStamped { get; private set; }
 
         internal string OperationId { get; }
 
@@ -91,8 +132,8 @@ internal static class RpcMutationIdempotencyExecutionAmbient
 
         internal object Scope { get; }
 
-        internal bool StampingSuspended { get; }
+        internal ScopeState State { get; }
 
-        internal void MarkStamped() => MutationStamped = true;
+        internal bool StampingSuspended { get; }
     }
 }

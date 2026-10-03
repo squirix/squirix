@@ -514,6 +514,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         internal async ValueTask AppendRecordCoreAsync(JournalRecord record, CancellationToken cancellationToken)
         {
             var idempotencyStamped = StampIdempotencyOperationId(record);
+            var cacheMutation = record.Operation is JournalOperationKind.Put or JournalOperationKind.Remove;
             _owner.DurabilityPipeline.ThrowIfJournalThreadFailed();
             await _owner.StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
@@ -537,7 +538,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 }
 
                 var startedMs = Environment.TickCount64;
-                await EnqueueAppendAsync(frameBytes, frameLen, idempotencyStamped, cancellationToken).ConfigureAwait(false);
+                await EnqueueAppendAsync(frameBytes, frameLen, idempotencyStamped, cacheMutation, cancellationToken).ConfigureAwait(false);
                 _owner.RecordAppendMetrics(frameLen, startedMs);
             }
             finally
@@ -595,7 +596,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             }
         }
 
-        private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, bool idempotencyStamped, CancellationToken cancellationToken)
+        private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, bool idempotencyStamped, bool cacheMutation, CancellationToken cancellationToken)
         {
             var appendAck = _owner.Options.IsJournalGroupCommitEnabled ? new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) : null;
             var item = JournalWorkItem.Append(frameBytes, frameLength, appendAck);
@@ -605,6 +606,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             // write reached the file), so the stamp is reported before that wait: the idempotency intent must survive such a fault.
             if (idempotencyStamped)
                 RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
+            else if (cacheMutation)
+                RpcMutationIdempotencyExecutionAmbient.NotifyMutationApplied();
 
             // The durability wait stays outside the gate: the gate covers only the publishing, so a
             // slow journal thread never blocks shutdown drain on fsync latency.

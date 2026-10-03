@@ -181,21 +181,24 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(), DateTime.UtcNow, cancellationToken));
     }
 
-    /// <summary>A segment written with the previous file format version fails recovery loudly and is left untouched.</summary>
+    /// <summary>A segment written with an earlier file format version fails recovery loudly and is left untouched.</summary>
+    /// <param name="version">The file format version of the segment header.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task OldFormatVersionFailsRecovery(CancellationToken cancellationToken)
+    [Arguments(1)]
+    [Arguments(2)]
+    public async Task OldFormatVersionFailsRecovery(int version, CancellationToken cancellationToken)
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-old-version");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "a", "v"));
         var path = BinaryJournalTestSegmentWriter.SegmentPath(scenario.DataDir, 1);
-        BinaryJournalTestSegmentWriter.SetHeaderVersion(path, 1);
+        BinaryJournalTestSegmentWriter.SetHeaderVersion(path, Convert.ToByte(version));
         var lengthBefore = new FileInfo(path).Length;
         await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
 
         var failure = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
 
-        _ = await Assert.That(failure.Message).Contains("version 1");
+        _ = await Assert.That(failure.Message).Contains($"version {version}", StringComparison.Ordinal);
         _ = await Assert.That(new FileInfo(path).Length).IsEqualTo(lengthBefore);
     }
 
