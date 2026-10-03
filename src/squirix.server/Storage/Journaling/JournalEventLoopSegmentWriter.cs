@@ -501,6 +501,16 @@ internal sealed class JournalEventLoopSegmentWriter
             }
         }
 
+        private static void WriteRollTargetHeaderFile(string tmpPath)
+        {
+            using var writer = JournalSegmentWriterFactory.Create();
+            writer.OpenSegment(tmpPath, false);
+            Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
+            JournalFraming.WriteFileHeader(header);
+            writer.Write(header, 0);
+            writer.FlushToDisk();
+        }
+
         /// <summary>Gets the current length of the roll target segment file.</summary>
         /// <returns>File length in bytes, or <see langword="null" /> when the target does not exist or cannot be stated.</returns>
         private long? GetRollTargetExistingLength()
@@ -526,16 +536,6 @@ internal sealed class JournalEventLoopSegmentWriter
             var tmpPath = JournalReadPath.BuildRollTempPath(_owner.Options.DataDir, targetSegmentIndex);
             WriteRollTargetHeaderFile(tmpPath);
             _ = FileEx.PublishFile(tmpPath, targetPath);
-        }
-
-        private void WriteRollTargetHeaderFile(string tmpPath)
-        {
-            using var writer = JournalSegmentWriterFactory.Create(_owner.Options.JournalPlatformBackend);
-            writer.OpenSegment(tmpPath, false);
-            Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
-            JournalFraming.WriteFileHeader(header);
-            writer.Write(header, 0);
-            writer.FlushToDisk();
         }
     }
 

@@ -55,7 +55,6 @@ public class JournalTracingBenchmarks
     {
         var options = new PersistenceOptions
         {
-            JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
             JournalMaxSegmentMb = 64,
         };
         _host = await JournalBenchmarkHost.CreateAsync("journal-tracing-bench", options, CancellationToken.None).ConfigureAwait(false);

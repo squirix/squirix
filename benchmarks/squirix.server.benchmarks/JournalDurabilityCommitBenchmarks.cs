@@ -92,7 +92,6 @@ public class JournalDurabilityCommitBenchmarks
     {
         var options = new PersistenceOptions
         {
-            JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
             JournalGroupCommitMaxWait = GroupCommitMaxWait,
             JournalGroupCommitMaxBatch = 32,
             JournalMaxSegmentMb = 64,

@@ -30,7 +30,6 @@ public sealed class OptionsTests
         _ = await Assert.That(o.JournalMaxSegmentMb).IsEqualTo(64);
         _ = await Assert.That(o.JournalMaxSegmentCount).IsEqualTo(32);
         _ = await Assert.That(o.JournalMaxTotalBytesMb).IsEqualTo(2048);
-        _ = await Assert.That(o.JournalPlatformBackend).IsEqualTo(JournalPlatformBackend.Auto);
         _ = await Assert.That(o.ManifestRetentionCount).IsEqualTo(3);
         _ = await Assert.That(o.JournalGroupCommitMaxWait).IsEqualTo(TimeSpan.Zero);
         _ = await Assert.That(o.JournalGroupCommitMaxBatch).IsEqualTo(32);

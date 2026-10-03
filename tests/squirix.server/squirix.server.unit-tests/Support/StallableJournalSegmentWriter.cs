@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.UnitTests.Support;
@@ -19,7 +18,7 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
 
     /// <summary>Initializes a new instance of the <see cref="StallableJournalSegmentWriter" /> class over the default file writer.</summary>
     internal StallableJournalSegmentWriter()
-        : this(JournalSegmentWriterFactory.Create(JournalPlatformBackend.Auto))
+        : this(JournalSegmentWriterFactory.Create())
     {
     }
 

@@ -95,7 +95,7 @@ internal static class JournalRecoveryScan
         if (!File.Exists(path))
             return;
 
-        using var writer = JournalSegmentWriterFactory.Create(options.JournalPlatformBackend);
+        using var writer = JournalSegmentWriterFactory.Create();
         writer.OpenSegment(path, true);
         if (writer.Length == 0)
             return;

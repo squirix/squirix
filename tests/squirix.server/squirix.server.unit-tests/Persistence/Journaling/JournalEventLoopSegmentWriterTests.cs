@@ -246,7 +246,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         var registry = new PendingAppendRegistry();
         var counter = new MutableInt32();
         var host = new FakeEventLoopHost(registry, counter);
-        using var segmentWriter = JournalSegmentWriterFactory.Create(options.JournalPlatformBackend);
+        using var segmentWriter = JournalSegmentWriterFactory.Create();
         using var state = new FakeEventLoopState(host, options, new JournalWriteBatchBuffer(), 0, segmentWriter);
         var writer = new JournalEventLoopSegmentWriter(state, new FakeEventLoopRollState());
         var buffer = ArrayPool<byte>.Shared.Rent(64);
@@ -330,7 +330,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         var counter = new MutableInt32();
         var host = new FakeEventLoopHost(registry, counter);
         using var ring = new BoundedJournalRing(4);
-        using var segmentWriter = JournalSegmentWriterFactory.Create(options.JournalPlatformBackend);
+        using var segmentWriter = JournalSegmentWriterFactory.Create();
         var startup = new JournalEventLoopStartup(1, JournalFraming.FileHeaderSize, 1, JournalSegmentProbe.Probe(Dir, 1));
         var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, startup, NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
         var rollsPublished = 0;

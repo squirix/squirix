@@ -152,8 +152,5 @@ T:Squirix.Server.Storage.Journaling.Abstractions.JournalPostEnqueueFaultExceptio
 M:Squirix.Server.Storage.Journaling.Abstractions.JournalPostEnqueueFaultException::.ctor()
 M:Squirix.Server.Storage.Journaling.Abstractions.JournalPostEnqueueFaultException::.ctor(System.String)
 M:Squirix.Server.Storage.Journaling.Abstractions.JournalPostEnqueueFaultException::.ctor(System.String,System.Exception)
-F:Squirix.Server.Storage.JournalPlatformBackend::Auto
-F:Squirix.Server.Storage.JournalPlatformBackend::RandomAccess
-T:Squirix.Server.Storage.JournalPlatformBackend
 T:Squirix.Transport.Grpc.RpcOperationIdentity
 M:Squirix.Transport.Grpc.RpcOperationIdentity::New()
