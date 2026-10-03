@@ -64,13 +64,20 @@ internal static class ReplicaCommitterDoubles
     {
         private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _heldReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _armed;
+
+        /// <summary>Gets the node whose appends that carry entries park, ignoring cancellation, until <see cref="ReleaseHeld" />; none unless set.</summary>
+        internal string? HeldNode { get; init; }
 
         /// <summary>Gets a task that completes when a call parked.</summary>
         internal Task Entered => _entered.Task;
 
         public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
+            if (string.Equals(nodeId, HeldNode, StringComparison.Ordinal) && batch.Records.Count > 0)
+                await new ValueTask(_heldReleased.Task).ConfigureAwait(false);
+
             if (Interlocked.Exchange(ref _armed, 0) != 0)
             {
                 _ = _entered.TrySetResult();
@@ -80,6 +87,9 @@ internal static class ReplicaCommitterDoubles
             var last = batch.Records.Count == 0 ? batch.PrevLogIndex : batch.Records[^1].LogIndex;
             return new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last);
         }
+
+        /// <summary>Lets the parked appends of the held node, and every later one, answer.</summary>
+        internal void ReleaseHeld() => _ = _heldReleased.TrySetResult();
 
         /// <summary>Makes the next call park.</summary>
         internal void Arm() => Volatile.Write(ref _armed, 1);
@@ -151,7 +161,7 @@ internal static class ReplicaCommitterDoubles
 
         private async Task FailAfterReleaseAsync()
         {
-            await _applyReleased.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            await new ValueTask(_applyReleased.Task).ConfigureAwait(false);
             throw new InvalidOperationException("Injected memory apply failure after the majority.");
         }
     }

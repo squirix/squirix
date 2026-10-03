@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -34,12 +35,14 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
     public async Task QueuedVerifyDoesNotApplyAfterDispose(CancellationToken cancellationToken)
     {
         var local = new ScriptedApplyCache(ApplyMode.StallThenFail);
-        var gateway = new ParkingGateway();
-        await using var registry = await OpenRegistryAsync(cancellationToken);
-        var committer = CreateCommitter(registry, local, gateway);
+        var gateway = new ParkingGateway { HeldNode = "n3" };
+        await using var registry = await OpenRegistryAsync(3, cancellationToken);
+        var committer = CreateCommitter(registry, local, gateway, null, new ThreeNodeLocator());
         try
         {
-            // The write holds the gate while its first apply stalls; the entry is committed and stays pending when the apply fails.
+            // The write holds the gate while its first apply stalls; the entry is committed and stays pending when the apply fails. The
+            // second follower never answers, so a background observer stays owned by the coordinator and its disposal keeps waiting
+            // for it: a disposal that released the gate first would let the queued verification apply meanwhile.
             var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), CancellationToken.None);
             await local.ApplyEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
@@ -64,6 +67,7 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
         finally
         {
             gateway.Release();
+            gateway.ReleaseHeld();
             local.ReleaseApply();
             await committer.DisposeAsync();
         }
@@ -102,8 +106,13 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
         }
     }
 
-    private static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, ScriptedApplyCache local, ParkingGateway gateway, TimeSpan? shutdownBudget = null) =>
-        new(registry, new TwoNodeLocator(), gateway, local, OwnedGroup, new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+    private static ReplicaGroupCommitter CreateCommitter(
+        ReplicaGroupRegistry registry,
+        ScriptedApplyCache local,
+        ParkingGateway gateway,
+        TimeSpan? shutdownBudget = null,
+        IReplicaGroupLocator? locator = null) =>
+        new(registry, locator ?? new TwoNodeLocator(), gateway, local, OwnedGroup, new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             ShutdownBudget = shutdownBudget ?? StallTimeout,
         };
@@ -112,9 +121,11 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
 
     private static string NewOperationId() => Guid.NewGuid().ToString("N");
 
-    private async Task<ReplicaGroupRegistry> OpenRegistryAsync(CancellationToken cancellationToken)
+    private Task<ReplicaGroupRegistry> OpenRegistryAsync(CancellationToken cancellationToken) => OpenRegistryAsync(2, cancellationToken);
+
+    private async Task<ReplicaGroupRegistry> OpenRegistryAsync(int replicaCount, CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(Dir, [OwnedGroup], 2, Fingerprint, 1, NullLoggerFactory.Instance);
+        var registry = new ReplicaGroupRegistry(Dir, [OwnedGroup], replicaCount, Fingerprint, 1, NullLoggerFactory.Instance);
         try
         {
             await registry.OpenAsync(cancellationToken);
@@ -126,5 +137,18 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
         }
 
         return registry;
+    }
+
+    [Immutable]
+    private sealed class ThreeNodeLocator : IReplicaGroupLocator
+    {
+        public int ReplicaCount => 3;
+
+        public void GetReplicaGroup(string originalOwnerNodeId, Span<string> destination)
+        {
+            destination[0] = "n1";
+            destination[1] = "n2";
+            destination[2] = "n3";
+        }
     }
 }
