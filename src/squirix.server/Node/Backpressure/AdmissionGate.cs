@@ -16,6 +16,9 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     private readonly RateLimiter? _nodeRateLimiter;
     private readonly IDisposable _observerRegistration;
     private readonly AdmissionOptions _options;
+
+    /// <summary>The one client entry all callers share while no per-client limit is set, so admission keeps no per-client state.</summary>
+    private readonly ClientState? _sharedClient;
     private readonly AsyncSemaphore _slots;
     private readonly TimeProvider _timeProvider;
     private int _disposed;
@@ -30,6 +33,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _options.Validate();
         _slots = new AsyncSemaphore(_options.MaxInFlight);
         _nodeRateLimiter = RateLimiter.Create(_options.NodeRateLimitPerSecond, _options.NodeRateLimitBurst, _timeProvider);
+        _sharedClient = _options.HasPerClientLimits ? null : new ClientState(_options, _timeProvider);
         _observerRegistration = _metrics.RegisterObservers(ObserveInFlight, ObserveQueueDepth, ObserveTrackedClients);
     }
 
@@ -45,7 +49,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             return disabledResult.Value;
 
         cancellationToken.ThrowIfCancellationRequested();
-        var client = _clients.GetOrAdd(clientId, static (_, gate) => new ClientState(gate._options, gate._timeProvider), this);
+        var client = _sharedClient ?? _clients.GetOrAdd(clientId, static (_, gate) => new ClientState(gate._options, gate._timeProvider), this);
 
         var nodeRateLimitReject = RejectByNodeRateLimitIfLimited(transport, operation);
         if (nodeRateLimitReject != null)
@@ -190,7 +194,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private void RemoveIdleClient(string clientId, ClientState client)
     {
-        if (client.InFlight != 0 || client.QueueDepth != 0 || client.HasRecentActivity == true)
+        if (_sharedClient != null || client.InFlight != 0 || client.QueueDepth != 0 || client.HasRecentActivity == true)
             return;
 
         _ = _clients.TryRemove(new KeyValuePair<string, ClientState>(clientId, client));

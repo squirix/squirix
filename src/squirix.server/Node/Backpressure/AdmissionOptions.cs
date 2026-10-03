@@ -9,6 +9,9 @@ internal sealed record AdmissionOptions
 {
     internal bool Enabled { get; init; } = true;
 
+    /// <summary>Gets a value indicating whether a per-client concurrency or rate limit is set, so admission must tell callers apart.</summary>
+    internal bool HasPerClientLimits => PerClientMaxInFlight != null || PerClientRateLimitPerSecond != null;
+
     internal int MaxInFlight { get; init; } = 256;
 
     internal int MaxQueue { get; init; } = 128;

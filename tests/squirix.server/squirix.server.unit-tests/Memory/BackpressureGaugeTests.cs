@@ -50,6 +50,7 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
             RejectThreshold = 1,
             MaxSlowdownDelay = TimeSpan.Zero,
             MaxQueueWait = TimeSpan.FromMilliseconds(200),
+            PerClientMaxInFlight = 1,
         };
         using var gate = new AdmissionGate(backpressureOptions, new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
         var first = (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease;
@@ -86,6 +87,7 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
             RejectThreshold = 1,
             MaxSlowdownDelay = TimeSpan.Zero,
             MaxQueueWait = TimeSpan.FromMilliseconds(200),
+            PerClientMaxInFlight = 1,
         };
 
         using var gateA = new AdmissionGate(options, new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
@@ -102,6 +104,47 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
 
         var (_, secondA) = await queuedA;
         secondA.Dispose();
+    }
+
+    /// <summary>Verifies a gate without per-client limits keeps no client entries while callers with different ids hold leases.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GateWithoutClientLimitsTracksNoClients(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter(MeterName);
+        var inFlight = new List<int>();
+        var trackedClients = new List<int>();
+        var measurements = new Dictionary<string, List<int>>(StringComparer.Ordinal)
+        {
+            [BackpressureInFlightInstrumentName] = inFlight,
+            [BackpressureTrackedClientsInstrumentName] = trackedClients,
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
+        // Other tests publish the same gauges under the same meter name in parallel; listen to this meter only.
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, l) =>
+            {
+                if (ReferenceEquals(instrument.Meter, meter) && measurements.ContainsKey(instrument.Name))
+                    l.EnableMeasurementEvents(instrument, measurements);
+            },
+        };
+        listener.SetMeasurementEventCallback<int>(static (instrument, measurement, _, state) =>
+        {
+            if (state is FrozenDictionary<string, List<int>> map)
+                map[instrument.Name].Add(measurement);
+        });
+        listener.Start();
+        using var gate = new AdmissionGate(new AdmissionOptions(), new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
+        var (_, first) = await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken);
+        var (_, second) = await gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken);
+        listener.RecordObservableInstruments();
+        first.Dispose();
+        second.Dispose();
+
+        _ = await Assert.That(inFlight).Contains(2);
+        _ = await Assert.That(trackedClients).IsNotEmpty();
+        _ = await Assert.That(trackedClients.TrueForAll(static count => count == 0)).IsTrue();
     }
 
     private static MeterListener CreateBackpressureGaugeListener(FrozenDictionary<string, List<int>> measurements)
