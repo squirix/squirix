@@ -18,6 +18,8 @@ namespace Squirix.Server.Cluster.Replication;
     Justification = "Test-only activation seam until failover activation wires election timers in a follow-up milestone.")]
 internal sealed class ElectionTimer : IDisposable
 {
+    /// <summary>Held by a tick for the whole callback; only <see cref="Dispose" /> waits on it, so re-arming never waits for a callback.</summary>
+    private readonly Lock _callbackGate = new();
     private readonly Lock _sync = new();
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _timeout;
@@ -37,21 +39,28 @@ internal sealed class ElectionTimer : IDisposable
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    /// <inheritdoc />
+    /// <summary>Stops the timer; once this returns the callback never starts again.</summary>
+    /// <remarks>
+    /// Every dispose waits out a callback already running on another thread, so the callback must not wait for a thread that disposes
+    /// this timer, and the timer must not be disposed under a lock the callback takes. Disposing from inside the callback returns at once.
+    /// </remarks>
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
-            return;
-
-        ITimer? timer;
-        lock (_sync)
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
-            timer = _timer;
-            _timer = null;
-            _elapsed = null;
+            ITimer? timer;
+            lock (_sync)
+            {
+                timer = _timer;
+                _timer = null;
+                _elapsed = null;
+            }
+
+            timer?.Dispose();
         }
 
-        timer?.Dispose();
+        _callbackGate.Enter();
+        _callbackGate.Exit();
     }
 
     /// <summary>Creates an election timer for a multi-node group, or <see langword="null" /> for RF=1.</summary>
@@ -65,7 +74,7 @@ internal sealed class ElectionTimer : IDisposable
         return count <= 1 ? null : new ElectionTimer(electionTimerOptions.ElectionTimeout, timeProvider);
     }
 
-    /// <summary>Re-arms the one-shot timeout; a no-op before <see cref="Start" />.</summary>
+    /// <summary>Re-arms the one-shot timeout; a no-op before <see cref="Start" />. Never waits for a running callback.</summary>
     internal void Reset()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
@@ -90,14 +99,21 @@ internal sealed class ElectionTimer : IDisposable
         }
     }
 
-    /// <summary>Invokes the armed callback outside the gate so re-arming from the callback cannot deadlock.</summary>
+    /// <summary>Invokes the armed callback under the callback gate, so a dispose either prevents it or waits for it to finish.</summary>
     /// <param name="state">Unused timer state.</param>
+    /// <remarks>
+    /// The callback is read under the state gate and run outside it, so <see cref="Reset" /> and <see cref="Start" /> never wait for it.
+    /// The callback gate is reentrant: the callback may reset, restart or dispose this timer.
+    /// </remarks>
     private void OnTick(object? state)
     {
-        Action? elapsed;
-        lock (_sync)
-            elapsed = _elapsed;
+        lock (_callbackGate)
+        {
+            Action? elapsed;
+            lock (_sync)
+                elapsed = Volatile.Read(ref _disposed) == 0 ? _elapsed : null;
 
-        elapsed?.Invoke();
+            elapsed?.Invoke();
+        }
     }
 }
