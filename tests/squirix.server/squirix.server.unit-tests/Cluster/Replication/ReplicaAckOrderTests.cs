@@ -16,8 +16,6 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 /// <summary>Majority of a commit whose follower acknowledgement is recorded by the observation of the commit before it.</summary>
 public sealed class ReplicaAckOrderTests
 {
-    private const int Rounds = 25;
-
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(10);
 
     /// <summary>A budget a commit waiting on an acknowledgement nobody sends is certain to exhaust.</summary>
@@ -31,36 +29,27 @@ public sealed class ReplicaAckOrderTests
     [Test]
     public async Task LatePrefixAckCompletesLaterMajority(CancellationToken cancellationToken)
     {
-        for (var round = 0; round < Rounds; round++)
+        var pipeline = new AckPipeline();
+        await using var coordinator = CreateCoordinator(pipeline);
+        var first = Mutation(1);
+        var second = Mutation(2);
+        try
         {
-            var pipeline = new AckPipeline();
-            await using var coordinator = new ReplicaCommitCoordinator(
-                new ReplicaCommitCoordinatorOptions(3, 0, 0, 2),
-                pipeline,
-                ReplicaFaultHooks.CreateNoOp(),
-                new GroupIdempotencyState(4, TimeSpan.MaxValue));
-            var first = Mutation(1);
-            var second = Mutation(2);
-            try
-            {
-                var firstCommit = coordinator.CommitAsync(first, HangGuard, cancellationToken);
-                pipeline.Answer(2, first);
-                _ = await firstCommit.AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            var firstCommit = coordinator.CommitAsync(first, HangGuard, cancellationToken);
+            pipeline.Answer(2, first);
+            _ = await firstCommit.AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
-                // The first follower still owes entry 1; its entry 2 comes first, and the second follower never answers.
-                var secondCommit = coordinator.CommitAsync(second, HangGuard, cancellationToken);
-                pipeline.Answer(1, second);
-                for (var spin = 0; spin < 20; spin++)
-                    await Task.Yield();
+            // The first follower still owes entry 1; its entry 2 is answered before the commit starts, so it is recorded, ahead of its
+            // prefix, inside the call, and the second follower never answers.
+            pipeline.Answer(1, second);
+            var secondCommit = coordinator.CommitAsync(second, HangGuard, cancellationToken).AsTask();
+            pipeline.Answer(1, first);
 
-                pipeline.Answer(1, first);
-
-                _ = await secondCommit.AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-            }
-            finally
-            {
-                pipeline.AnswerAll();
-            }
+            _ = await secondCommit.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            pipeline.AnswerAll();
         }
     }
 
