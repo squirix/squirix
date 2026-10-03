@@ -85,6 +85,8 @@ runs:
         analyzers: "false"
         upload-outputs: "false"
         projects: ${{ steps.projects.outputs.list }}
+        # The SDK goes on the path, so the test hosts below start from its folder.
+        net10-runtime: "true"
 
     # A suite id selects one test host run, or for a group several runs back to back. Every run keeps its own name for the
     # log, the TRX file and the coverage directory, so a single suite produces the same files whether it runs alone or in a group.

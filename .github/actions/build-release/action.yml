@@ -29,6 +29,10 @@ inputs:
     description: When set, build only these projects (space-separated paths) and the projects they reference, for a job that runs their outputs itself.
     required: false
     default: ""
+  net10-runtime:
+    description: When true, the SDK folder also holds the .NET 10 runtimes, for a job that runs the outputs it builds (see .github/actions/setup-sdk).
+    required: false
+    default: "false"
   runtime-assets:
     description: Which runtime-specific assets (runtimes/<rid>/) the artifact keeps. `all` keeps every one; `host` keeps the runner's own platform, for an artifact only the runner kind that built it consumes; `test-runners` keeps the platforms of the test runner kinds (Linux x64 and ARM64, Windows x64, macOS ARM64).
     required: false
@@ -37,9 +41,11 @@ inputs:
 runs:
   using: composite
   steps:
-    # Every job of this action only builds, so the SDK can come from the cache of the installed SDK; see .github/actions/setup-sdk.
+    # The SDK comes from the cache of the installed SDK; see .github/actions/setup-sdk.
     - name: Setup .NET
       uses: ./.github/actions/setup-sdk
+      with:
+        net10-runtime: ${{ inputs.net10-runtime }}
 
     # The build keeps its own package cache. The key other jobs share is also written by jobs that restore tools and scanners and
     # it falls back to older caches, so it grows to more than twice what a build restores. Every package version is pinned in
