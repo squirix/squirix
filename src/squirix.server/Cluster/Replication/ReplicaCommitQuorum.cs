@@ -58,6 +58,24 @@ internal sealed class ReplicaCommitQuorum
         }
     }
 
+    /// <summary>Checks whether an acknowledgement at or below an index is buffered behind a missing prefix.</summary>
+    /// <param name="logIndex">The highest index of interest.</param>
+    /// <returns><see langword="true" /> when some slot holds a buffered acknowledgement that the arrival of its prefix would count.</returns>
+    internal bool HasBufferedThrough(ulong logIndex)
+    {
+        lock (_sync)
+        {
+            foreach (var buffered in _futureAcks.Values)
+                foreach (var index in buffered)
+                {
+                    if (index <= logIndex)
+                        return true;
+                }
+
+            return false;
+        }
+    }
+
     /// <summary>Waits until the progress version moves past a value read earlier.</summary>
     /// <param name="seenVersion">The version read before the check that found no majority.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

@@ -298,8 +298,19 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             {
                 // Read before the majority check, so an acknowledgement recorded after the check completes it and wakes the wait below.
                 var progress = _quorum.ProgressVersion;
-                if (_quorum.FindCommitIndex(_commitIndex, mutation.LogIndex) >= mutation.LogIndex || pending.Count == 0)
+                if (_quorum.FindCommitIndex(_commitIndex, mutation.LogIndex) >= mutation.LogIndex)
                     break;
+
+                if (pending.Count == 0)
+                {
+                    // No follower of this entry is left to answer, but an acknowledgement buffered behind a prefix that an earlier entry's
+                    // observation still records can complete the majority: wait for that progress, within the budget, before giving up.
+                    if (!_quorum.HasBufferedThrough(mutation.LogIndex))
+                        break;
+
+                    await _quorum.WaitForProgressAsync(progress, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
 
                 await RecordNextAcknowledgementAsync(pending, pendingReplicaIndexes, mutation, progress, cancellationToken).ConfigureAwait(false);
             }
@@ -504,7 +515,9 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
             // A late acknowledgement can complete the majority of an entry whose commit already gave up (an unknown outcome):
             // commit and apply it here instead of leaving it for a later commit that may never come.
-            if (!_pendingApply.Covers(_quorum.FindCommitIndex(Volatile.Read(ref _commitIndex), mutation.LogIndex)))
+            // The prefix this acknowledgement completes can carry a buffered acknowledgement of a later retained entry, so the search
+            // reaches the highest retained index, as the apply does.
+            if (!_pendingApply.Covers(_quorum.FindCommitIndex(Volatile.Read(ref _commitIndex), Math.Max(mutation.LogIndex, _pendingApply.LastIndex))))
                 continue;
 
             // Closed for applies: the entry stays retained and is recovered from the durable log at the next start. Any other failure
