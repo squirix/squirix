@@ -382,17 +382,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         };
     }
 
-    /// <summary>Compacts the journal prefix covered by the published snapshot, retaining the installable state.</summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The compaction outcome.</returns>
-    internal async Task<GroupCompactionResult> CompactAsync(CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-
-        return IsDisposed || Readiness != FollowerLogReadiness.Ready ? new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady)
-            : await FollowerLogSnapshot.CompactAsync(_journal, this, cancellationToken).ConfigureAwait(false);
-    }
-
     internal async Task<FollowerLogReconcileResult> ReconcileTailAsync(ulong fromIndex, ulong prevLogTerm, ulong leaderTerm, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
