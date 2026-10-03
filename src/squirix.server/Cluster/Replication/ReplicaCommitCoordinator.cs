@@ -219,19 +219,36 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// idempotency record of each applied entry. An entry no recorded majority covers stays retained, and so does a recovered entry
     /// of an older term that no current-term entry reaches yet. Prepared outcomes are computed from live memory, so callers that
     /// prepare mutations must not prepare while this returns <see langword="false" />.
-    /// </remarks>
-    /// <exception cref="ObjectDisposedException">Disposal has closed the coordinator to applies and an entry is still to be applied.</exception>
-    /// <remarks>
     /// A call that runs counts as running work: dispose does not tear the gates and the sequencer down under it, and reports the leak
     /// when the call outlasts the shutdown budget. While dispose drains the owned follower observation, which can apply a late majority,
     /// calls still run; once the drain is over, no new call runs.
     /// </remarks>
+    /// <exception cref="ObjectDisposedException">Disposal has closed the coordinator to applies and an entry is still to be applied.</exception>
     internal async Task<bool> ApplyCommittedAsync()
+    {
+        var applied = await ApplyUnlessClosedAsync().ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(applied == null, this);
+        return applied ?? false;
+    }
+
+    /// <summary>Returns the highest contiguous durable index recorded for one replica.</summary>
+    /// <param name="replicaIndex">Zero-based replica slot.</param>
+    /// <returns>The replica match index.</returns>
+    /// <remarks>
+    /// Observes <see cref="ReplicaCommitQuorum.TryRecord" /> progress. The owner's log compaction reads it under the commit gate to keep
+    /// every entry a ready follower has not durably acknowledged yet.
+    /// </remarks>
+    internal ulong MatchIndexFor(int replicaIndex) => _quorum.MatchIndexFor(replicaIndex);
+
+    /// <summary>Drives the committed entries like <see cref="ApplyCommittedAsync" />, reporting a coordinator closed to applies as a result.</summary>
+    /// <returns><see langword="null" /> when disposal closed the coordinator to applies and an entry is still to be applied; otherwise whether none is left unapplied.</returns>
+    private async Task<bool?> ApplyUnlessClosedAsync()
     {
         if (_pendingApply.IsEmpty)
             return true;
 
-        ObjectDisposedException.ThrowIf(!_pendingApply.TryBeginApply(), this);
+        if (!_pendingApply.TryBeginApply())
+            return null;
 
         try
         {
@@ -251,15 +268,6 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             _pendingApply.EndApply();
         }
     }
-
-    /// <summary>Returns the highest contiguous durable index recorded for one replica.</summary>
-    /// <param name="replicaIndex">Zero-based replica slot.</param>
-    /// <returns>The replica match index.</returns>
-    /// <remarks>
-    /// Observes <see cref="ReplicaCommitQuorum.TryRecord" /> progress. The owner's log compaction reads it under the commit gate to keep
-    /// every entry a ready follower has not durably acknowledged yet.
-    /// </remarks>
-    internal ulong MatchIndexFor(int replicaIndex) => _quorum.MatchIndexFor(replicaIndex);
 
     private async Task CollectMajorityAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
     {
@@ -463,7 +471,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             {
                 try
                 {
-                    completed = await ReplicaFollowerObservation.TakeNextCompletedAsync(pending, ObserveTimeout, ObserveTimeProvider, AbandonedWorkFaultReporter).ConfigureAwait(false);
+                    completed = await ReplicaFollowerObservation.TakeNextCompletedAsync(pending, ObserveTimeout, ObserveTimeProvider, null).ConfigureAwait(false);
                 }
                 catch (TimeoutException)
                 {
@@ -489,15 +497,10 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             if (!_pendingApply.Covers(_quorum.FindCommitIndex(Volatile.Read(ref _commitIndex), mutation.LogIndex)))
                 continue;
 
-            try
-            {
-                _ = await ApplyCommittedAsync().ConfigureAwait(false);
-            }
-            catch (ObjectDisposedException) when (_disposing.Task.IsCompleted)
-            {
-                // Disposal started first: the entry stays retained and is recovered from the durable log at the next start.
+            // Closed for applies: the entry stays retained and is recovered from the durable log at the next start. Any other failure
+            // faults this task, which dispose observes or, once it abandoned the task, reports to the owner.
+            if (await ApplyUnlessClosedAsync().ConfigureAwait(false) == null)
                 return;
-            }
         }
     }
 

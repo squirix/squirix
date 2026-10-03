@@ -120,6 +120,42 @@ public sealed class ReplicaCommitDisposeTests
     }
 
     /// <summary>
+    /// A late majority applied by the background follower observation that is still stuck when dispose gives up is reported as a leak, and
+    /// its failure afterwards, even an <see cref="ObjectDisposedException" /> from a resource the host disposed, reaches the owner's fault reporter.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AbandonedObserverFaultIsReported(CancellationToken cancellationToken)
+    {
+        var pipeline = new StallingApplyPipeline(false, true);
+        var leaks = new LeakRecorder();
+        var faults = new FaultRecorder();
+        var coordinator = CreateCoordinator(pipeline, leaks, faults.Report);
+        try
+        {
+            // The commit gives up before the follower answers; the late answer completes the majority in the background.
+            var commit = StartCommitAsync(coordinator, ReplicaMutationTestKit.CreateMutation(), QueuedBudget);
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            pipeline.ReleaseFollower();
+            await pipeline.ApplyEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+            await coordinator.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(leaks.Count).IsEqualTo(1);
+
+            pipeline.FailApply(new ObjectDisposedException("log"));
+
+            var reported = await faults.Reported.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(reported.GetBaseException()).IsTypeOf<ObjectDisposedException>();
+        }
+        finally
+        {
+            pipeline.ReleaseFollower();
+            pipeline.ReleaseApply();
+            await coordinator.DisposeAsync();
+        }
+    }
+
+    /// <summary>
     /// A commit queued for admission behind a stuck one still ends at its own budget after dispose gave up, instead of waiting forever on
     /// a semaphore disposed under it; the stuck commit then completes once the apply recovers.
     /// </summary>
@@ -212,14 +248,19 @@ public sealed class ReplicaCommitDisposeTests
     private sealed class StallingApplyPipeline : IReplicaCommitPipeline
     {
         private readonly bool _failFirstApply;
+        private readonly TaskCompletionSource _followerReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly bool _holdFollower;
         private readonly TaskCompletionSource _applyEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _applyReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         private int _applyCalls;
 
-        internal StallingApplyPipeline(bool failFirstApply = false)
+        internal StallingApplyPipeline(bool failFirstApply = false, bool holdFollower = false)
         {
             _failFirstApply = failFirstApply;
+            _holdFollower = holdFollower;
+            if (!holdFollower)
+                _ = _followerReleased.TrySetResult();
         }
 
         /// <summary>Gets a task that completes when an apply stalled.</summary>
@@ -227,8 +268,14 @@ public sealed class ReplicaCommitDisposeTests
 
         public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
-        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true));
+        public async ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        {
+            // A held follower ignores the commit budget, as a slow peer does: its acknowledgement arrives only once released.
+            if (_holdFollower)
+                await _followerReleased.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+
+            return new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true);
+        }
 
         public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
@@ -246,6 +293,8 @@ public sealed class ReplicaCommitDisposeTests
         }
 
         internal void FailApply(Exception error) => _ = _applyReleased.TrySetException(error);
+
+        internal void ReleaseFollower() => _ = _followerReleased.TrySetResult();
 
         internal void ReleaseApply() => _ = _applyReleased.TrySetResult();
     }
