@@ -268,7 +268,7 @@
   <!-- Observability must stay transport-agnostic (metrics/tracing decorators live above adapters). -->
   <Disallowed From="Squirix.Server.Node.Observability.*" To="Squirix.Server.Adapters.*" />
 
-  <!-- Cache decorator pipeline must not depend on DI option bags in Hosting (today: DeadlineCacheDecorator → CachePipelineDeadlineOptions). -->
+  <!-- Cache decorator pipeline must not depend on DI option bags in Hosting. -->
   <Disallowed From="Squirix.Server.Node.App.*" To="Squirix.Server.Node.Hosting.*" />
 
   <!-- Decorators must not call transport adapters directly. -->

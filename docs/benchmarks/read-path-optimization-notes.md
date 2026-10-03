@@ -331,7 +331,6 @@ Read-path decorators under `src/squirix.server/Node/App/Decorators/`:
 - `TracingCacheDecorator`
 - `MetricsCacheDecorator`
 - `BackpressureCacheDecorator` (`GetValueAsync` lease/dispose fast-path only)
-- `DeadlineCacheDecorator`
 - `DomainErrorMappingCacheDecorator`
 
 Profile here only if `SquirixServerPipelineReadBatchedAsync` regresses or if a low-latency in-process/local-owner mode becomes a product goal.
@@ -404,7 +403,7 @@ Profile here only if `SquirixServerPipelineReadBatchedAsync` regresses or if a l
 
 6. **Only then tune decorators**
     - Server pipeline was previously around **2.5 µs**.
-    - Optimize `TracingCacheDecorator`, `MetricsCacheDecorator`, `DomainErrorMappingCacheDecorator`, and `DeadlineCacheDecorator` only if breakdown shows they matter after
+    - Optimize `TracingCacheDecorator`, `MetricsCacheDecorator`, and `DomainErrorMappingCacheDecorator` only if breakdown shows they matter after
       transport/payload work.
 
 7. **Optional remote-owner benchmark**

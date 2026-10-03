@@ -2,7 +2,6 @@ using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.LocalCache;
@@ -25,7 +24,6 @@ internal static class CachePipelineRegistration
 
     internal static IServiceCollection AddSquirixCachePipeline(this IServiceCollection services, ExtensionOptions? extensions = null, bool persistenceEnabled = false)
     {
-        _ = services.AddOptions<CachePipelineDeadlineOptions>();
         _ = services.AddSingleton(static sp => new ClientCache<object?>(
             sp.GetRequiredService<ILocalCacheReadOperations<object?>>(),
             sp.GetRequiredService<ILocalCacheMutationOperations<object?>>()));
@@ -38,10 +36,8 @@ internal static class CachePipelineRegistration
     }
 
     /// <summary>
-    /// Outermost decorator runs first: Tracing → DomainError → Validation → OwnershipGuard → Backpressure → Deadline → Metrics → Memory.
+    /// Outermost decorator runs first: Tracing → DomainError → Validation → OwnershipGuard → Backpressure → Metrics → Memory.
     /// The ownership guard sits above admission and everything that commits, journals or takes key gates, so a remote key is refused before any of them.
-    /// Backpressure stays outside Deadline on purpose: admission shaping (slowdown plus queue wait) must not
-    /// consume the operation execution budget, otherwise a saturated node times out work that never ran.
     /// Validation stays outside Backpressure so invalid requests are rejected before taking an admission slot.
     /// </summary>
     /// <param name="services">Service collection receiving the decorator chain registrations.</param>
@@ -56,11 +52,8 @@ internal static class CachePipelineRegistration
         _ = services.AddSingleton(static sp => new MetricsCacheDecorator<object?>(
             sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>(),
             sp.GetRequiredService<CacheMetrics>()));
-        _ = services.AddSingleton(static sp => new DeadlineCacheDecorator<object?>(
-            sp.GetRequiredService<MetricsCacheDecorator<object?>>(),
-            sp.GetRequiredService<IOptions<CachePipelineDeadlineOptions>>()));
         _ = services.AddSingleton(static sp => new BackpressureCacheDecorator<object?>(
-            sp.GetRequiredService<DeadlineCacheDecorator<object?>>(),
+            sp.GetRequiredService<MetricsCacheDecorator<object?>>(),
             sp.GetRequiredService<IBackpressureGate>(),
             sp.GetRequiredService<IBackpressureClientIdResolver>()));
         _ = services.AddSingleton(static sp => new OwnershipGuardCacheDecorator<object?>(
