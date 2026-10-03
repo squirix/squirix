@@ -1,5 +1,5 @@
 name: Run Test Suite
-description: Download the build outputs and run one CI test suite or suite group, with coverage when asked.
+description: Download or build the outputs and run one CI test suite or suite group, with coverage when asked.
 
 inputs:
   os:
@@ -74,7 +74,13 @@ runs:
       shell: bash
       env:
         RUNS: ${{ steps.select.outputs.runs }}
-      run: echo "list=$(cut -f2 <<< "$RUNS" | sed '/^$/d' | sort -u | paste -sd ' ')" >> "$GITHUB_OUTPUT"
+      run: |
+        list="$(cut -f2 <<< "$RUNS" | sed '/^$/d' | sort -u | paste -sd ' ')"
+        if [ -z "$list" ]; then
+          echo "Suite '${{ inputs.suite }}' names no project to build." >&2
+          exit 1
+        fi
+        echo "list=$list" >> "$GITHUB_OUTPUT"
 
     - name: Build Suite Projects
       if: inputs.build == 'true'

@@ -492,9 +492,10 @@ jobs:
                     # of build-ubuntu, so nothing is uploaded here.
                     upload-outputs: "false"
 
-    # Per-OS test matrices; ubuntu also runs the smoke suite. The ubuntu tests end a pull request run, so they start with
-    # the workflow like build-ubuntu: runner, checkout, change detection and certificate are ready during the build, and
-    # the job waits for the build outputs in a step. The other matrices start once their build has finished.
+    # Per-OS test matrices; ubuntu also runs the smoke suite. The ubuntu tests start with the workflow like build-ubuntu:
+    # runner, checkout, change detection and certificate are ready during the build, and the job waits for the build
+    # outputs in a step. On a pull request, which they end, they build their suite themselves instead. The other matrices
+    # start once their build has finished.
     test-ubuntu:
         name: Test (ubuntu-latest / net10.0 / ${{ matrix.suite }})
         runs-on: ubuntu-latest
@@ -531,7 +532,8 @@ jobs:
                 with:
                     persist-credentials: false
 
-            # The same decision build-ubuntu makes: there are build outputs to test exactly when it builds.
+            # The same decision build-ubuntu makes: there is something to test exactly when it builds (or would build, on a
+            # pull request into develop).
             -   name: Detect Changes
                 id: changes
                 uses: ./.github/actions/detect-changes
@@ -1846,7 +1848,11 @@ jobs:
                     assert_success "docker-build" "$require_docker" "$RESULT_DOCKER"
 
                     # PR fast path: skipped on pull_request into develop, required otherwise.
-                    assert_success_or_skipped "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
+                    if [[ "$EVENT_NAME" == "pull_request" && "$GITHUB_BASE_REF" != "main" ]]; then
+                      assert_success_or_skipped "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
+                    else
+                      assert_success "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
+                    fi
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "package-smoke" "$require_code" "$RESULT_PACKAGE_SMOKE"
                     # The test artifacts are built without analyzers, so the analyzed build is required on every event.

@@ -81,8 +81,8 @@ runs:
           grep -vE '<Project Path="(benchmarks|samples)/' squirix.slnx > squirix.test-outputs.slnx
           echo "path=squirix.test-outputs.slnx" >> "$GITHUB_OUTPUT"
         elif [ -n "${{ inputs.projects }}" ]; then
-          if [ -n "$shard" ] || [ "${{ inputs.upload-outputs }}" = "true" ]; then
-            echo "projects builds outputs for the job itself, so it cannot be combined with an analysis shard or an upload." >&2
+          if [ -n "$shard" ] || [ "${{ inputs.upload-outputs }}" = "true" ] || [ "${{ inputs.test-outputs-only }}" = "true" ]; then
+            echo "projects builds outputs for the job itself, so it cannot be combined with an analysis shard, an upload or test-outputs-only." >&2
             exit 1
           fi
           {
