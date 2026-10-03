@@ -177,7 +177,8 @@ jobs:
     # The ubuntu build heads the longest job chain, so it does not wait for the Detect Changes job: it starts with the
     # workflow, classifies the change set itself with the same action and skips the build when no code changed. A build
     # that had nothing to do still ends as a success, so the jobs that wait for it check the `built` output; test-ubuntu
-    # starts with the workflow and makes the same decision itself. The name is referenced by the wait in run-test-suite.
+    # starts with the workflow and makes the same decision itself, NDepend makes it from the Detect Changes job. Its name
+    # is referenced by the wait in .github/actions/download-build-outputs.
     build-ubuntu:
         name: Build (ubuntu-latest / net10.0)
         runs-on: ubuntu-latest
@@ -1182,9 +1183,13 @@ jobs:
                       dotnet tool update dotnet-sonarscanner --tool-path .sonar/scanner
                     fi
 
-            # SquirixSonarAnalysis leaves only the Sonar analyzers in this build; see Directory.Build.props.
+            # SquirixSonarAnalysis leaves only the Sonar analyzers in this build; see Directory.Build.props. Sonar excludes
+            # benchmarks/ and samples/ from the analysis (sonar.exclusions below), so the build leaves them out too, as the
+            # test outputs of build-release do: every project entry of squirix.slnx is a single line.
             -   name: Restore
-                run: dotnet restore squirix.slnx -p:SquirixSonarAnalysis=true
+                run: |
+                    grep -vE '<Project Path="(benchmarks|samples)/' squirix.slnx > squirix.sonar.slnx
+                    dotnet restore squirix.sonar.slnx -p:SquirixSonarAnalysis=true
 
             -   name: Begin Analysis And Build
                 shell: bash
@@ -1228,7 +1233,8 @@ jobs:
                     fi
 
                     .sonar/scanner/dotnet-sonarscanner "${begin_args[@]}"
-                    dotnet build squirix.slnx --configuration Release --no-restore -p:SquirixSonarAnalysis=true
+                    dotnet build squirix.sonar.slnx --configuration Release --no-restore -p:SquirixSonarAnalysis=true \
+                      -p:ShouldUnsetParentConfigurationAndPlatform=false
 
             # The build above does not need the tests, so it runs while they do. The analysis is published only after the
             # ubuntu test jobs of this run have all succeeded, because it imports their coverage.
@@ -1572,8 +1578,31 @@ jobs:
                     path: ~/.nuget/packages
                     key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
 
-            # NDepend reads the compiled assemblies; the analysis shards run the Roslyn analyzers. The build restores in the same process.
+            # NDepend reads the compiled assemblies; the analysis shards run the Roslyn analyzers. Whenever build-ubuntu builds
+            # (the same condition), its artifact already holds most of them: this job compiles only what the artifact leaves
+            # out (the benchmarks, the sample and the two test kits) while build-ubuntu runs, then downloads the rest, which
+            # replaces its own copies of the shared projects with identical ones. Otherwise, for example when only the NDepend
+            # rules changed, it builds the whole solution. The builds restore in the same process.
+            -   name: Decide Whether To Reuse The Build Outputs
+                id: reuse
+                run: echo "reuse=${{ needs.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
+
+            -   name: Build What The Build Outputs Leave Out
+                if: steps.reuse.outputs.reuse == 'true'
+                run: |
+                    { echo '<Solution>'; grep -E '<Project Path="(benchmarks|samples)/|testkit/' squirix.slnx; echo '</Solution>'; } > squirix.ndepend-extra.slnx
+                    cat squirix.ndepend-extra.slnx
+                    dotnet build squirix.ndepend-extra.slnx --configuration Release -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false \
+                      -p:ShouldUnsetParentConfigurationAndPlatform=false
+
+            -   name: Download Build Outputs
+                if: steps.reuse.outputs.reuse == 'true'
+                uses: ./.github/actions/download-build-outputs
+                with:
+                    wait-for-build: "true"
+
             -   name: Restore And Build
+                if: steps.reuse.outputs.reuse != 'true'
                 run: dotnet build squirix.slnx --configuration Release -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
 
             -   name: Synchronize NDepend project

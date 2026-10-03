@@ -51,63 +51,14 @@ runs:
       working-directory: ${{ runner.temp }}
       run: bash "${{ github.workspace }}/tools/ci/ensure-dev-https-cert.sh"
 
-    # The build takes longer than the steps above, so the first look is after 20 s. Then the artifact listing is read every
-    # 2 s (one request), every 10 s after the first minute and every 20 s after three, and the build job every 10th time,
-    # to stop when it failed: a job makes at most about 70 requests, as the GITHUB_TOKEN limit of about 1000 requests an
-    # hour is shared by all jobs and runs of the repository. A failed request counts as "not ready yet"; the deadline stays
-    # below the timeout of the job. BUILD_JOB is the name of build-ubuntu.
-    - name: Wait For Build Outputs
-      if: inputs.wait-for-build == 'true'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-        ARTIFACT: build-output-ubuntu-latest-${{ inputs.framework }}
-        BUILD_JOB: Build (ubuntu-latest / ${{ inputs.framework }})
-      run: |
-        set -uo pipefail
-        run="repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-        deadline=$((SECONDS + 600))
-        polls=0
-        sleep 20
-        while true; do
-          # Expired artifacts of an earlier attempt are listed too, but cannot be downloaded.
-          count=$(gh api "${run}/artifacts?name=${ARTIFACT}" --jq '[.artifacts[] | select(.expired | not)] | length') || count=0
-          if (( count > 0 )); then
-            echo "The build outputs are ready after ${SECONDS} s."
-            break
-          fi
-          polls=$((polls + 1))
-          if (( polls % 10 == 0 )); then
-            # filter=latest lists the build job also when only the test jobs are re-run.
-            conclusion=$(gh api "${run}/jobs?filter=latest&per_page=100" \
-                --jq '[.jobs[] | select(.name == env.BUILD_JOB) | .conclusion // ""] | first // ""') || conclusion=""
-            # A build that succeeded uploaded the outputs; the listing may lag behind it for a few polls.
-            if [[ -n "${conclusion}" && "${conclusion}" != "success" ]]; then
-              echo "::error::${BUILD_JOB} finished with '${conclusion}'; there are no build outputs to test." >&2
-              exit 1
-            fi
-          fi
-          if (( SECONDS > deadline )); then
-            echo "::error::The build outputs were not uploaded within 10 minutes." >&2
-            exit 1
-          fi
-          if (( SECONDS < 80 )); then
-            sleep 2
-          elif (( SECONDS < 200 )); then
-            sleep 10
-          else
-            sleep 20
-          fi
-        done
-
     # Every runner kind tests the outputs of the one ubuntu build. They are portable: the assemblies are the same whatever
     # system compiles them, and the output folders carry the native assets of every test platform. A test assembly needs only
     # the .NET 10 runtime, which every runner image ships, so no job installs the SDK pinned in global.json.
     - name: Download Build Outputs
-      uses: actions/download-artifact@v8
+      uses: ./.github/actions/download-build-outputs
       with:
-        name: build-output-ubuntu-latest-${{ inputs.framework }}
-        path: .
+        framework: ${{ inputs.framework }}
+        wait-for-build: ${{ inputs.wait-for-build }}
 
     # A suite id selects one test host run, or for a group several runs back to back. Every run keeps its own name for the
     # log, the TRX file and the coverage directory, so a single suite produces the same files whether it runs alone or in a group.
