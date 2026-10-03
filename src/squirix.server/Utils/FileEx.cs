@@ -145,7 +145,7 @@ internal static class FileEx
         {
             var descriptor = NativeMethods.OpenDirectoryDescriptor(pathBytes, CloseOnExecFlag());
             if (descriptor >= 0)
-                return new SafeFileHandle(new IntPtr(descriptor), true);
+                return new SafeFileHandle(new nint(descriptor), true);
 
             // A system call interrupted by a signal must be retried; any other failure is surfaced as-is via the existing IOException below.
             if (Marshal.GetLastPInvokeError() != eintr)
