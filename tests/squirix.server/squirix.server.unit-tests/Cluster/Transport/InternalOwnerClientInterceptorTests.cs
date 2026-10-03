@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.UnitTests.Support;
@@ -19,12 +20,50 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 [Immutable]
 public sealed class InternalOwnerClientInterceptorTests : ServerUnitTestBase
 {
+    private static readonly RingFingerprint Fingerprint = RingFingerprint.Create("cluster", ["n1", "n2"], 128);
+
+    /// <summary>Ensures the interceptor sends the ring fingerprint next to the internal owner header.</summary>
+    [Test]
+    public async Task InterceptorAttachesRingFingerprint()
+    {
+        var capture = new HeaderCapture();
+        var interceptor = new InternalOwnerClientInterceptor(Fingerprint);
+
+        using var call = interceptor.AsyncUnaryCall(
+            "req",
+            new ClientInterceptorContext<string, string>(CreateUnaryStringMethod(), "localhost", default),
+            capture.OnContinueAsync);
+
+        var values = CollectHeaderValues(capture.Headers!, RemoteInvocationContract.RingFingerprintHeaderName);
+        _ = await Assert.That(values).HasSingleItem();
+        _ = await Assert.That(values[0]).IsEqualTo(Fingerprint.Value);
+    }
+
+    /// <summary>Ensures a caller-supplied ring fingerprint header is replaced and the caller headers stay unchanged.</summary>
+    [Test]
+    public async Task InterceptorReplacesCallerRingHeader()
+    {
+        var capture = new HeaderCapture();
+        var interceptor = new InternalOwnerClientInterceptor(Fingerprint);
+        var callerHeaders = new Metadata { { RemoteInvocationContract.RingFingerprintHeaderName, "spoofed" } };
+
+        using var call = interceptor.AsyncUnaryCall(
+            "req",
+            new ClientInterceptorContext<string, string>(CreateUnaryStringMethod(), "localhost", new CallOptions(callerHeaders)),
+            capture.OnContinueAsync);
+
+        var values = CollectHeaderValues(capture.Headers!, RemoteInvocationContract.RingFingerprintHeaderName);
+        _ = await Assert.That(values).HasSingleItem();
+        _ = await Assert.That(values[0]).IsEqualTo(Fingerprint.Value);
+        await AssertEntriesEqualAsync([RemoteInvocationContract.RingFingerprintHeaderName + "=spoofed"], SnapshotEntries(callerHeaders));
+    }
+
     /// <summary>Ensures the interceptor clones caller headers instead of mutating them.</summary>
     [Test]
     public async Task InterceptorLeavesCallerHeadersUnmodified()
     {
         var capture = new HeaderCapture();
-        var interceptor = new InternalOwnerClientInterceptor();
+        var interceptor = new InternalOwnerClientInterceptor(Fingerprint);
         var method = CreateUnaryStringMethod();
         var callerHeaders = new Metadata { { "x-shared", "yes" }, { "x-binary-bin", [1, 2, 3] } };
         var before = SnapshotEntries(callerHeaders);
@@ -53,7 +92,7 @@ public sealed class InternalOwnerClientInterceptorTests : ServerUnitTestBase
     [Test]
     public async Task SharedMetadataCallsDoNotBleedAsync(CancellationToken cancellationToken)
     {
-        var interceptor = new InternalOwnerClientInterceptor();
+        var interceptor = new InternalOwnerClientInterceptor(Fingerprint);
         var method = CreateUnaryStringMethod();
         var sharedHeaders = new Metadata { { "x-shared", "yes" } };
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

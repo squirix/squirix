@@ -161,7 +161,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                 MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
             });
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
+        var headers = CreateOwnerHeaders(cluster["node-a"].GetRequiredService<RingFingerprint>().Value);
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             client.SetEntryAsync(
@@ -177,6 +177,28 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         _ = await Assert.That(ex.Status.Detail).Contains("owned by 'node-b'", StringComparison.Ordinal);
         _ = await Assert.That(ex.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
+    }
+
+    /// <summary>Verifies a trusted internode owner call without a ring fingerprint is refused before it executes and fences the receiver.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the peer internode URL is missing.</exception>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OwnerRpcWithoutRingFingerprintIsRefused(CancellationToken cancellationToken)
+    {
+        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
+
+        await AssertOwnerRpcRefusedAsync(cluster, CreateOwnerHeaders(null), "no-ring-fingerprint", cancellationToken);
+    }
+
+    /// <summary>Verifies a trusted internode owner call with a different ring fingerprint is refused before it executes and fences the receiver.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the peer internode URL is missing.</exception>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OwnerRpcWithWrongRingFingerprintRefused(CancellationToken cancellationToken)
+    {
+        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
+
+        await AssertOwnerRpcRefusedAsync(cluster, CreateOwnerHeaders(new string('0', 64)), "wrong-ring-fingerprint", cancellationToken);
     }
 
     /// <summary>Verifies trusted internode reads with internal owner-routing metadata are rejected when the key is not owned locally.</summary>
@@ -202,7 +224,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                 MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
             });
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var options = new CallOptions(new Metadata { { "squirix-internal-owner-rpc", "true" } }, cancellationToken: cancellationToken);
+        var options = new CallOptions(CreateOwnerHeaders(cluster["node-a"].GetRequiredService<RingFingerprint>().Value), cancellationToken: cancellationToken);
 
         var value = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, options).ResponseAsync);
         var entry = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, options).ResponseAsync);
@@ -250,6 +272,15 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
 
+    private static Metadata CreateOwnerHeaders(string? ringFingerprint)
+    {
+        var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
+        if (ringFingerprint != null)
+            headers.Add("squirix-ring-fingerprint", ringFingerprint);
+
+        return headers;
+    }
+
     private static ServerPeer FindPeer(IReadOnlyList<ServerPeer> peers, string nodeId)
     {
         foreach (var peer in peers)
@@ -259,5 +290,37 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         }
 
         throw new InvalidOperationException("Expected peer was not found.");
+    }
+
+    private async Task AssertOwnerRpcRefusedAsync(TestCluster<IntegrationStartOptions> cluster, Metadata headers, string keySeed, CancellationToken cancellationToken)
+    {
+        var peers = cluster.Peers;
+        var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-a", keySeed);
+        var interNodeUrlA = ThrowHelper.Required(FindPeer(peers, "node-a").InterNodeUri, "Expected internode URL for node-a.");
+
+        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", FindPeer(peers, "node-b").Uri, "node-a", peers, cancellationToken);
+        using var channel = GrpcChannel.ForAddress(
+            interNodeUrlA,
+            new GrpcChannelOptions
+            {
+                HttpHandler = handler,
+                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
+            });
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            client.SetEntryAsync(
+                new SetEntryAsyncRequest
+                {
+                    OperationId = RpcOperationIdentity.New(),
+                    CacheName = "default",
+                    Key = key,
+                    Entry = new NodeCacheEntry<object?> { Value = "must-not-run", Version = 1 }.MapToProto(),
+                },
+                new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync);
+
+        _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(refused.Trailers.GetValue("squirix-error-code")).IsEqualTo("ring-mismatch");
     }
 }
