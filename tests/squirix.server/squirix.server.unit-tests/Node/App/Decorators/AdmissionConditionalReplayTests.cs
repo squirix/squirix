@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -29,6 +30,9 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     private const string CacheName = "orders";
     private const string Key = "k";
     private const string Self = "node-a";
+
+    private static readonly NodeCacheEntry<string> Large = new() { Value = new string('x', 4096), Version = 1 };
+    private static readonly NodeCacheEntry<string> Small = new() { Value = "s", Version = 2 };
 
     private readonly Meter _testMeter = new("test");
 
@@ -173,8 +177,114 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         _ = await Assert.That(addAccounting.ReadRejectedWriteCount()).IsEqualTo(0L);
     }
 
+    /// <summary>A retried set replayed after a smaller entry replaced the key accounts the stored entry, not the larger one it sent.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplayedSetAccountsStoredEntry(CancellationToken cancellationToken)
+    {
+        var store = new ReplayingStore();
+        var accounting = new MemoryUsageAccounting();
+        var cache = Create(store.CreateInner(), accounting, static (_, _) => false);
+
+        await cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
+        await cache.SetEntryAsync("op-2", CacheName, Key, Small, cancellationToken);
+        await cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
+
+        _ = await Assert.That(store.Stored).IsSameReferenceAs(Small);
+        _ = await Assert.That((accounting.ReadEntryCount(), accounting.ReadEstimatedBytes())).IsEqualTo((1L, EstimateBytes(Small)));
+    }
+
+    /// <summary>A retried set replayed after a remove accounts nothing, since the key holds nothing.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplayedSetAfterRemoveAccountsNothing(CancellationToken cancellationToken)
+    {
+        var store = new ReplayingStore();
+        var accounting = new MemoryUsageAccounting();
+        var cache = Create(store.CreateInner(), accounting, static (_, _) => false);
+
+        await cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
+        _ = await cache.RemoveAsync("op-2", CacheName, Key, cancellationToken);
+        await cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
+
+        _ = await Assert.That(store.Stored).IsNull();
+        _ = await Assert.That((accounting.ReadEntryCount(), accounting.ReadEstimatedBytes())).IsEqualTo((0L, 0L));
+    }
+
+    /// <summary>A retried remove replayed after another write stored the key again keeps that entry accounted.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplayedRemoveKeepsStoredEntry(CancellationToken cancellationToken)
+    {
+        var store = new ReplayingStore();
+        var accounting = new MemoryUsageAccounting();
+        var cache = Create(store.CreateInner(), accounting, static (_, _) => false);
+        await cache.SetEntryAsync("op-0", CacheName, Key, Large, cancellationToken);
+
+        var removed = await cache.RemoveAsync("op-1", CacheName, Key, cancellationToken);
+        await cache.SetEntryAsync("op-2", CacheName, Key, Small, cancellationToken);
+        var replayed = await cache.RemoveAsync("op-1", CacheName, Key, cancellationToken);
+
+        _ = await Assert.That((removed.Removed, replayed.Removed)).IsEqualTo((true, true));
+        _ = await Assert.That((accounting.ReadEntryCount(), accounting.ReadEstimatedBytes())).IsEqualTo((1L, EstimateBytes(Small)));
+    }
+
+    /// <summary>A retried add replayed after a remove accounts nothing, since the key holds nothing.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplayedAddAfterRemoveAccountsNothing(CancellationToken cancellationToken)
+    {
+        var store = new ReplayingStore();
+        var accounting = new MemoryUsageAccounting();
+        var cache = Create(store.CreateInner(), accounting, static (_, _) => false);
+
+        var added = await cache.TryAddEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
+        _ = await cache.RemoveAsync("op-2", CacheName, Key, cancellationToken);
+        var replayed = await cache.TryAddEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
+
+        _ = await Assert.That((added, replayed)).IsEqualTo((true, true));
+        _ = await Assert.That((accounting.ReadEntryCount(), accounting.ReadEstimatedBytes())).IsEqualTo((0L, 0L));
+    }
+
+    /// <summary>A retried update replayed after a smaller entry replaced the key accounts the stored entry.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplayedUpdateAccountsStoredEntry(CancellationToken cancellationToken)
+    {
+        var store = new ReplayingStore();
+        var accounting = new MemoryUsageAccounting();
+        var cache = Create(store.CreateInner(), accounting, static (_, _) => false);
+        await cache.SetEntryAsync("op-0", CacheName, Key, Small, cancellationToken);
+
+        _ = await cache.UpdateAsync("op-1", CacheName, Key, Large.Value, cancellationToken);
+        await cache.SetEntryAsync("op-2", CacheName, Key, Small, cancellationToken);
+        var replayed = await cache.UpdateAsync("op-1", CacheName, Key, Large.Value, cancellationToken);
+
+        _ = await Assert.That(replayed).IsTrue();
+        _ = await Assert.That((accounting.ReadEntryCount(), accounting.ReadEstimatedBytes())).IsEqualTo((1L, EstimateBytes(Small)));
+    }
+
+    /// <summary>Without a recording inner pipeline a set accounts the entry it wrote without reading the key again.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SingleCopySetReadsOnce(CancellationToken cancellationToken)
+    {
+        var store = new ReplayingStore();
+        var accounting = new MemoryUsageAccounting();
+        var cache = Create(store.CreateInner(), accounting, null);
+        await cache.SetEntryAsync("op-0", CacheName, Key, Small, cancellationToken);
+        var reads = store.Reads;
+
+        await cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
+
+        _ = await Assert.That(store.Reads - reads).IsEqualTo(1);
+        _ = await Assert.That((accounting.ReadEntryCount(), accounting.ReadEstimatedBytes())).IsEqualTo((1L, EstimateBytes(Large)));
+    }
+
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
+
+    private static long EstimateBytes(NodeCacheEntry<string> entry) => new CacheEntrySizeEstimator<string>().EstimateBytes(new CacheKey(CacheName, Key), entry, false);
 
     private MemoryAdmissionCacheDecorator<string> Create(
         ILogicalNamespacedCache<string> inner,
@@ -185,5 +295,72 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = maxEstimatedCacheBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
         var gate = new PressureGate(new StateEvaluator(options), accounting, Self, _testMeter);
         return new MemoryAdmissionCacheDecorator<string>(inner, gate, new CacheEntrySizeEstimator<string>(), accounting, hasRecordedOutcome);
+    }
+
+    /// <summary>
+    /// One key of an inner pipeline that records outcomes by operation id: the first attempt of an operation applies, a retry replays the
+    /// recorded answer and writes nothing.
+    /// </summary>
+    [Mutable]
+    private sealed class ReplayingStore
+    {
+        private readonly Dictionary<string, object> _outcomes = [with(StringComparer.Ordinal)];
+
+        internal int Reads { get; private set; }
+
+        internal NodeCacheEntry<string>? Stored { get; private set; }
+
+        internal ILogicalNamespacedCache<string> CreateInner()
+        {
+            var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
+            _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).Callback((_, _, _) =>
+            {
+                Reads++;
+                return ValueTask.FromResult(Stored);
+            });
+            _ = inner.Setups.SetEntryAsync(Arg.Any<string>(), CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                     .Callback((operationId, _, _, entry, _) =>
+                     {
+                         _ = Decide(operationId, () => Stored = entry);
+                         return ValueTask.CompletedTask;
+                     });
+            _ = inner.Setups.RemoveAsync(Arg.Any<string>(), CacheName, Key, Arg.Any<CancellationToken>())
+                     .Callback((operationId, _, _, _) => ValueTask.FromResult(Decide(operationId, () =>
+                     {
+                         var result = new CacheRemoveResult<string>(Stored != null, Stored?.Value);
+                         Stored = null;
+                         return result;
+                     })));
+            _ = inner.Setups.TryAddEntryAsync(Arg.Any<string>(), CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                     .Callback((operationId, _, _, entry, _) => ValueTask.FromResult(Decide(operationId, () =>
+                     {
+                         if (Stored != null)
+                             return false;
+
+                         Stored = entry;
+                         return true;
+                     })));
+            _ = inner.Setups.UpdateAsync(Arg.Any<string>(), CacheName, Key, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                     .Callback((operationId, _, _, value, _) => ValueTask.FromResult(Decide(operationId, () =>
+                     {
+                         if (Stored == null)
+                             return false;
+
+                         Stored = new NodeCacheEntry<string> { Value = value, Version = Stored.Version, ExpiresUtc = Stored.ExpiresUtc, Expiration = Stored.Expiration };
+                         return true;
+                     })));
+            return inner.Instance();
+        }
+
+        private TOutcome Decide<TOutcome>(string operationId, Func<TOutcome> apply)
+            where TOutcome : notnull
+        {
+            if (_outcomes.TryGetValue(operationId, out var recorded) && recorded is TOutcome replayed)
+                return replayed;
+
+            var outcome = apply();
+            _outcomes[operationId] = outcome;
+            return outcome;
+        }
     }
 }
