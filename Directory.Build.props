@@ -48,14 +48,14 @@
     </PropertyGroup>
     <!-- The halves of the Squirix.Server.UnitTests analyzers. SquirixDroppedAnalyzerPackages names the analyzer packages a shard
          leaves to the other one (see SquirixDropAnalyzerPackages); an analyzer neither half drops runs in both, so a new
-         analyzer package is never skipped. -->
-    <PropertyGroup Label="AnalysisShardFirstHalf" Condition="'$(SquirixAnalysisShard)' == 'server-unit-tests-1'">
+         analyzer package is never skipped. A project in only one of the two shards keeps all its analyzers. -->
+    <PropertyGroup Label="AnalysisShardFirstHalf" Condition="'$(SquirixAnalysisShard)' == 'server-unit-tests-1' And $([System.String]::Copy(';$(SquirixProjectAnalysisShard);').Contains(';server-unit-tests-1;server-unit-tests-2;'))">
         <EnableNETAnalyzers>false</EnableNETAnalyzers>
         <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
         <SquirixDroppedAnalyzerPackages>Microsoft.CodeAnalysis.NetAnalyzers;StyleCop.Analyzers.Unstable;Roslynator.Analyzers;ErrorProne.NET.CoreAnalyzers;Microsoft.VisualStudio.Threading.Analyzers;AsyncFixer;ZeroAlloc.Analyzers;Microsoft.CodeAnalysis.BannedApiAnalyzers</SquirixDroppedAnalyzerPackages>
     </PropertyGroup>
     <!-- Meziantou stays with its rules off: its suppressors silence IDE0058, which this half reports. -->
-    <PropertyGroup Label="AnalysisShardSecondHalf" Condition="'$(SquirixAnalysisShard)' == 'server-unit-tests-2'">
+    <PropertyGroup Label="AnalysisShardSecondHalf" Condition="'$(SquirixAnalysisShard)' == 'server-unit-tests-2' And $([System.String]::Copy(';$(SquirixProjectAnalysisShard);').Contains(';server-unit-tests-1;server-unit-tests-2;'))">
         <MeziantouAnalysisMode>None</MeziantouAnalysisMode>
         <SquirixDroppedAnalyzerPackages>SonarAnalyzer.CSharp;Microsoft.NET.ILLink.Tasks;NsDepCop;squirix.analyzers</SquirixDroppedAnalyzerPackages>
     </PropertyGroup>
