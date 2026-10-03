@@ -87,20 +87,14 @@ internal static class RpcMutationIdempotencyExecutionAmbient
     }
 
     /// <summary>Restores the stamping state that was active before <see cref="SuspendStamping" />.</summary>
-    internal readonly struct SuspendedStamping : IDisposable
+    /// <param name="Previous">The frame active before the suspension; <see langword="null" /> when no scope was active.</param>
+    internal readonly record struct SuspendedStamping(ScopeFrame? Previous) : IDisposable
     {
-        private readonly ScopeFrame? _previous;
-
-        internal SuspendedStamping(ScopeFrame? previous)
-        {
-            _previous = previous;
-        }
-
         /// <inheritdoc />
         public void Dispose()
         {
-            if (_previous != null)
-                Current.Value = _previous;
+            if (Previous != null)
+                Current.Value = Previous;
         }
     }
 
