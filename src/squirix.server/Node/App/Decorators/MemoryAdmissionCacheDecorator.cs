@@ -68,8 +68,14 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         var keyValue = new CacheKey(cacheName, key);
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
         var result = await _inner.RemoveAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (result.Removed)
+        if (!result.Removed)
+            return result;
+
+        // A replayed remove may answer for an attempt made before another write stored the key again.
+        if (_hasRecordedOutcome == null)
             AccountRemove(keyValue);
+        else
+            await AccountStoredAsync(keyValue).ConfigureAwait(false);
 
         return result;
     }
@@ -88,7 +94,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
         var removed = await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
         if (removed)
-            AccountReplaceOrInsert(keyValue, replacement);
+            await AccountWrittenAsync(keyValue, replacement).ConfigureAwait(false);
 
         return removed;
     }
@@ -101,8 +107,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         if (AdmitReplaceOrInsert(keyValue, existing, entry, AdmissionOperations.Set, operationId))
         {
             await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-            if (await _inner.GetEntryAsync(cacheName, key, CancellationToken.None).ConfigureAwait(false) is { } current)
-                AccountReplaceOrInsert(keyValue, current);
+            await AccountStoredAsync(keyValue).ConfigureAwait(false);
             return;
         }
 
@@ -121,16 +126,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         }
 
         await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-        if (_hasRecordedOutcome == null)
-        {
-            AccountReplaceOrInsert(keyValue, entry);
-            return;
-        }
-
-        // A recording pipeline may replay the outcome of an earlier attempt without writing, after another write replaced the key: account
-        // what the inner cache holds, read uncancelled since the write already happened.
-        if (await _inner.GetEntryAsync(cacheName, key, CancellationToken.None).ConfigureAwait(false) is { } stored)
-            AccountReplaceOrInsert(keyValue, stored);
+        await AccountWrittenAsync(keyValue, entry).ConfigureAwait(false);
     }
 
     public async ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
@@ -147,7 +143,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
         var touched = await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
         if (touched)
-            AccountReplaceOrInsert(keyValue, replacement);
+            await AccountWrittenAsync(keyValue, replacement).ConfigureAwait(false);
 
         return touched;
     }
@@ -166,7 +162,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         if (!await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false))
             return false;
 
-        AccountReplaceOrInsert(keyValue, entry);
+        await AccountWrittenAsync(keyValue, entry).ConfigureAwait(false);
         return true;
     }
 
@@ -189,11 +185,15 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             return await AccountAnsweredAsync(keyValue, _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken)).ConfigureAwait(false);
 
         var updated = await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
-        if (!updated || EqualityComparer<T?>.Default.Equals(existing.Value, value))
-            return updated;
+        if (!updated)
+            return false;
 
-        AccountReplaceOrInsert(keyValue, replacement);
-        return updated;
+        if (_hasRecordedOutcome != null)
+            await AccountStoredAsync(keyValue).ConfigureAwait(false);
+        else if (!EqualityComparer<T?>.Default.Equals(existing.Value, value))
+            AccountReplaceOrInsert(keyValue, replacement);
+
+        return true;
     }
 
     private static AsyncLock[] CreateKeyGates()
@@ -263,9 +263,37 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         if (!await write.ConfigureAwait(false))
             return false;
 
-        if (await _inner.GetEntryAsync(key.Namespace, key.Key, CancellationToken.None).ConfigureAwait(false) is { } current)
-            AccountReplaceOrInsert(key, current);
+        await AccountStoredAsync(key).ConfigureAwait(false);
         return true;
+    }
+
+    /// <summary>Accounts what the inner cache holds under a key after a write that a recording pipeline may have answered by replay.</summary>
+    /// <param name="key">The written key, whose write gate the caller holds.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <remarks>
+    /// A replayed outcome writes nothing, so the key may hold what a later write stored, or nothing. The read is uncancelled since the
+    /// write already happened; a key the read finds absent, removed meanwhile or dropped as expired by the read, leaves the accounting.
+    /// </remarks>
+    private async ValueTask AccountStoredAsync(CacheKey key)
+    {
+        var stored = await _inner.GetEntryAsync(key.Namespace, key.Key, CancellationToken.None).ConfigureAwait(false);
+        if (stored == null)
+            AccountRemove(key);
+        else
+            AccountReplaceOrInsert(key, stored);
+    }
+
+    /// <summary>Accounts a write the inner pipeline applied: the written entry on a single-copy host, the stored one on a recording pipeline.</summary>
+    /// <param name="key">The written key, whose write gate the caller holds.</param>
+    /// <param name="written">The entry the write stores when it is not answered by replay.</param>
+    /// <returns>An asynchronous operation.</returns>
+    private ValueTask AccountWrittenAsync(CacheKey key, NodeCacheEntry<T> written)
+    {
+        if (_hasRecordedOutcome != null)
+            return AccountStoredAsync(key);
+
+        AccountReplaceOrInsert(key, written);
+        return ValueTask.CompletedTask;
     }
 
     /// <summary>Admits a memory-growing write, unless it is a retry of an operation whose outcome the inner pipeline recorded.</summary>
