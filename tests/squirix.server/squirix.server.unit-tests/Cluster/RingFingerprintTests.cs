@@ -34,6 +34,22 @@ public sealed class RingFingerprintTests : ServerUnitTestBase
         _ = await Assert.That(Fingerprint(["n1", "n2", "n1", "n2"])).IsEqualTo(baseline);
     }
 
+    /// <summary>Whitespace around a node id does not change the fingerprint, because the ring trims ids.</summary>
+    [Test]
+    public async Task WhitespaceDoesNotChangeFingerprint()
+    {
+        var trimmed = Fingerprint(["n1", "n2"]);
+        _ = await Assert.That(Fingerprint(["n1", " n2"])).IsEqualTo(trimmed);
+    }
+
+    /// <summary>The fingerprint of a fixed input is pinned, so an accidental change of the encoding is caught.</summary>
+    [Test]
+    public async Task FingerprintMatchesGoldenVector()
+    {
+        var value = Fingerprint(["n2", "n1"]);
+        _ = await Assert.That(value).IsEqualTo("F34273F8A8A6F585B9BAB884F36960B2C23792823F97CADAA89DC57FEC5A3583");
+    }
+
     /// <summary>Equal fingerprints assign sample keys to the same owners.</summary>
     [Test]
     public async Task EqualFingerprintsYieldEqualOwners()

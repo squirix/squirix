@@ -75,6 +75,30 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         await AssertNotReadyAsync(cluster["n2"], cancellationToken);
     }
 
+    /// <summary>A forwarded get-or-add between nodes with different rings is refused and nothing executes on the owner.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GetOrAddForwardIsRefused(CancellationToken cancellationToken)
+    {
+        await using var cluster = await StartDivergentClusterAsync(cancellationToken);
+        var key = FindKeyBothRingsAssign("n2");
+
+        using var channel = CreateGrpcChannel(cluster["n1"].Uri);
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var request = new GetOrAddAsyncRequest
+        {
+            OperationId = RpcOperationIdentity.New(),
+            CacheName = CacheName,
+            Key = key,
+            Entry = new NodeCacheEntry<object?> { Value = "must-not-run", Version = 1 }.MapToProto(),
+        };
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetOrAddAsync(request, cancellationToken: cancellationToken).ResponseAsync);
+
+        _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(refused.Trailers.GetValue("squirix-error-code")).IsEqualTo(RingMismatchCode);
+        await AssertNothingExecutedAsync(cluster["n2"], key, cancellationToken);
+    }
+
     /// <summary>Nodes with identical peer lists forward as before and stay ready.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
