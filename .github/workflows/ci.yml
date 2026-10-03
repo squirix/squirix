@@ -178,11 +178,13 @@ jobs:
     # workflow, classifies the change set itself with the same action and skips the build when no code changed. A build
     # that had nothing to do still ends as a success, so the jobs that wait for it check the `built` output; test-ubuntu
     # starts with the workflow and makes the same decision itself, NDepend makes it from the Detect Changes job. Its name
-    # is referenced by the wait in .github/actions/download-build-outputs.
+    # is referenced by the wait in .github/actions/download-build-outputs. A pull request into develop runs only the ubuntu
+    # tests, whose jobs build their suites themselves, so nothing there needs this build.
     build-ubuntu:
         name: Build (ubuntu-latest / net10.0)
         runs-on: ubuntu-latest
         timeout-minutes: 45
+        if: github.event_name != 'pull_request' || github.base_ref == 'main'
         outputs:
             built: ${{ steps.gate.outputs.build }}
         env:
@@ -218,8 +220,8 @@ jobs:
                     analyzers: "false"
                     # Nothing downloads the benchmark or sample outputs: the guard and package smoke jobs build their own.
                     test-outputs-only: "true"
-                    # Pull requests into develop run only the ubuntu tests; every other run also tests on ARM, Windows and macOS.
-                    runtime-assets: ${{ github.event_name == 'pull_request' && github.base_ref != 'main' && 'host' || 'test-runners' }}
+                    # Every run that builds here also tests on ARM, Windows or macOS.
+                    runtime-assets: test-runners
 
     # Packs the client and server packages and runs the sample against them. It has a runner of its own so the jobs
     # that wait for the build outputs of build-ubuntu do not wait for it too.
@@ -1843,7 +1845,8 @@ jobs:
                     assert_success "verify-line-endings" "$require_line_endings" "$RESULT_LINE_ENDINGS"
                     assert_success "docker-build" "$require_docker" "$RESULT_DOCKER"
 
-                    assert_success "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
+                    # PR fast path: skipped on pull_request into develop, required otherwise.
+                    assert_success_or_skipped "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "package-smoke" "$require_code" "$RESULT_PACKAGE_SMOKE"
                     # The test artifacts are built without analyzers, so the analyzed build is required on every event.
