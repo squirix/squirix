@@ -38,6 +38,9 @@ internal sealed class FollowerLogRoutingGateway : IReplicaRpcGateway
     /// <summary>Gets the node and refusal code of every batch a follower log refused.</summary>
     internal ConcurrentQueue<(string Node, string Refusal)> Refusals { get; } = new();
 
+    /// <summary>Gets a value indicating whether canceling a parked call throws from a cancellation callback; <see langword="false" /> unless set.</summary>
+    internal bool FailsOnCancel { get; init; }
+
     /// <summary>Gets a task that completes when the parked call observed its cancellation.</summary>
     internal Task ParkCanceled => _parkCanceled.Task;
 
@@ -53,6 +56,7 @@ internal sealed class FollowerLogRoutingGateway : IReplicaRpcGateway
         if (records.Count > 0 && TakePark(nodeId))
         {
             _ = _parked.TrySetResult();
+            await using var failing = FailsOnCancel ? cancellationToken.Register(static () => throw new InvalidOperationException("Injected cancellation callback failure.")) : default;
             try
             {
                 await _release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);

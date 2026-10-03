@@ -169,7 +169,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
                 // The senders close first: their pending and in-flight follower appends end at once, so the coordinator's teardown
                 // does not wait for a follower that is slow or gone.
                 if (_pipeline != null)
-                    await _pipeline.CloseAsync().ConfigureAwait(false);
+                    await CloseSendersAsync(_pipeline).ConfigureAwait(false);
 
                 if (_coordinator != null)
                     await _coordinator.DisposeAsync().ConfigureAwait(false);
@@ -520,6 +520,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
         var pipeline = new ReplicaGroupCommitPipeline(Applier, log, CreateSenders(members, in status, in header), GroupId, in status);
         var factory = new ReplicaMutationFactory(_local, GroupId, term, Clock, Log);
+        _pipeline = pipeline;
         _coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(_locator.ReplicaCount, status.LastLogIndex, status.CommitIndex, MaxInFlight),
             pipeline,
@@ -542,7 +543,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // Verified slots are admitted at the leader's last index before they count, so they cover the recovered tail.
         ReplicaReadinessProbe.ApplyAll(eligibility, results, in status, _topologyFingerprint, _generation, _coordinator);
         _factory = factory;
-        _pipeline = pipeline;
         _started = true;
     }
 
@@ -555,10 +555,32 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private ReplicaFollowerSender[] CreateSenders(string[] members, in FollowerLogStatus status, in ReplicaRpcHeader header)
     {
         var senders = new ReplicaFollowerSender[members.Length - 1];
+        var shutdownBudget = ShutdownBudget < ReplicaCommitCoordinator.DefaultShutdownBudget ? ShutdownBudget : ReplicaCommitCoordinator.DefaultShutdownBudget;
+        void Report(TimeSpan budget)
+        {
+            ServerLog.ReplicaFollowerSenderLeakedOnShutdown(Log, budget);
+        }
+
         for (var i = 0; i < senders.Length; i++)
-            senders[i] = new ReplicaFollowerSender(_gateway, members[i + 1], in header, status.LastLogIndex, status.LastLogTerm, CommitBudget) { ShutdownBudget = ShutdownBudget };
+        {
+            senders[i] = new ReplicaFollowerSender(_gateway, members[i + 1], in header, status.LastLogIndex, status.LastLogTerm, CommitBudget)
+            {
+                // The senders' teardown is part of this committer's dispose, so it never waits longer than this committer's budget.
+                ShutdownBudget = shutdownBudget,
+                ShutdownLeakReporter = Report,
+            };
+        }
 
         return senders;
+    }
+
+    /// <summary>Closes the senders of a pipeline and logs a failure instead of throwing it, so the teardown that follows always runs.</summary>
+    /// <param name="pipeline">The pipeline to close.</param>
+    /// <returns>An asynchronous operation.</returns>
+    private async ValueTask CloseSendersAsync(ReplicaGroupCommitPipeline pipeline)
+    {
+        if (await pipeline.CloseAsync().ConfigureAwait(false) is { } failure)
+            ServerLog.ReplicaFollowerSenderCloseFailed(Log, failure);
     }
 
     /// <summary>Rebuilds the outcomes of the committed log entries once, after the coordinator of the first start pinned the recovered tail.</summary>
@@ -581,7 +603,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         {
             var coordinator = _coordinator;
             _coordinator = null;
-            await pipeline.CloseAsync().ConfigureAwait(false);
+            _pipeline = null;
+            await CloseSendersAsync(pipeline).ConfigureAwait(false);
             if (coordinator != null)
                 await coordinator.DisposeAsync().ConfigureAwait(false);
             throw;
@@ -609,7 +632,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (_pipeline != null)
         {
             await _pipeline.DrainAsync(CommitBudget).ConfigureAwait(false);
-            await _pipeline.CloseAsync().ConfigureAwait(false);
+            await CloseSendersAsync(_pipeline).ConfigureAwait(false);
         }
 
         await _coordinator.DisposeAsync().ConfigureAwait(false);
@@ -770,14 +793,21 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
 
         /// <summary>Closes every follower sender: waiting entries fail and the requests in flight are canceled.</summary>
-        /// <returns>A task that completes when the senders are closed, or gave up on a request that ignores cancellation.</returns>
-        internal async ValueTask CloseAsync()
+        /// <returns>The first failure of a sender close, or <see langword="null" />; this call never throws.</returns>
+        internal async ValueTask<Exception?> CloseAsync()
         {
-            var closing = new Task[_senders.Length];
+            var closing = new Task<Exception?>[_senders.Length];
             for (var i = 0; i < closing.Length; i++)
-                closing[i] = _senders[i].DisposeAsync().AsTask();
+                closing[i] = _senders[i].CaptureFailureAsync().AsTask();
 
-            await Task.WhenAll(closing).ConfigureAwait(false);
+            var failures = await Task.WhenAll(closing).ConfigureAwait(false);
+            foreach (var failure in failures)
+            {
+                if (failure != null)
+                    return failure;
+            }
+
+            return null;
         }
     }
 }

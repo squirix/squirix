@@ -98,4 +98,13 @@ internal static partial class ServerLog
         Level = LogLevel.Error,
         Message = "Replica commit coordinator work abandoned at shutdown failed after the shutdown budget expired")]
     internal static partial void ReplicaCoordinatorAbandonedWorkFaulted(ILogger logger, Exception exception);
+
+    [LoggerMessage(
+        EventId = 4018,
+        Level = LogLevel.Error,
+        Message = "Replica follower sender did not finish its in-flight request within the shutdown budget of {Budget}; the request ignored cancellation and is abandoned")]
+    internal static partial void ReplicaFollowerSenderLeakedOnShutdown(ILogger logger, TimeSpan budget);
+
+    [LoggerMessage(EventId = 4019, Level = LogLevel.Warning, Message = "Replica follower sender failed to close; the shutdown continues")]
+    internal static partial void ReplicaFollowerSenderCloseFailed(ILogger logger, Exception exception);
 }

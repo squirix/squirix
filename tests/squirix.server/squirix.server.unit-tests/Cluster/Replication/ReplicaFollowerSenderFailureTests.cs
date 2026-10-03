@@ -128,13 +128,18 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>A gateway that ignores cancellation does not hold dispose past the shutdown budget, and dispose does not throw.</summary>
+    /// <summary>A gateway that ignores cancellation does not hold dispose past the shutdown budget, dispose does not throw, and the leak is reported.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task DisposeBoundedWhenCancelIgnored(CancellationToken cancellationToken)
     {
         var gateway = new ParkingFollowerGateway();
-        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { ShutdownBudget = TimeSpan.FromMilliseconds(100) };
+        var reported = TimeSpan.Zero;
+        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard)
+        {
+            ShutdownBudget = TimeSpan.FromMilliseconds(100),
+            ShutdownLeakReporter = budget => reported = budget,
+        };
         try
         {
             var inFlight = EnqueueAsync(sender, 1);
@@ -143,6 +148,7 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
             await sender.DisposeAsync().AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(inFlight.IsCompleted).IsFalse();
+            _ = await Assert.That(reported).IsEqualTo(TimeSpan.FromMilliseconds(100));
         }
         finally
         {

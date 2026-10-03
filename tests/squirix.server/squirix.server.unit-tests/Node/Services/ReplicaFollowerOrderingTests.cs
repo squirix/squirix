@@ -161,6 +161,32 @@ public sealed class ReplicaFollowerOrderingTests : IsolatedStorageTestBase
         }
     }
 
+    /// <summary>A failure while closing a follower sender does not stop the owner from disposing the rest of its pipeline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeSurvivesSenderCloseFailure(CancellationToken cancellationToken)
+    {
+        await using var followers = await OpenFollowersAsync(cancellationToken);
+        var gateway = new FollowerLogRoutingGateway(followers.Logs) { FailsOnCancel = true };
+        await using var registry = await OpenRegistryAsync(Path.Join(Dir, "owner"), cancellationToken);
+        var committer = CreateCommitter(registry, gateway);
+        try
+        {
+            gateway.ParkNext("n3");
+            await committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            await gateway.Parked.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+            await committer.DisposeAsync().AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+            await gateway.ParkCanceled.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            gateway.Release();
+            await committer.DisposeAsync();
+        }
+    }
+
     private async Task<Followers> OpenFollowersAsync(CancellationToken cancellationToken)
     {
         var followers = new Followers();

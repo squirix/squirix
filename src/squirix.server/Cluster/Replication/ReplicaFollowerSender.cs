@@ -121,6 +121,9 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
+    /// <summary>Initializes the owner callback that reports, with the shutdown budget, a dispose that gave up on a request that ignored cancellation.</summary>
+    internal Action<TimeSpan>? ShutdownLeakReporter { private get; init; }
+
     /// <summary>Initializes the time source of the append timeout; the system clock unless set.</summary>
     internal TimeProvider TimeProvider { private get; init; } = TimeProvider.System;
 
@@ -163,6 +166,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         catch (TimeoutException)
         {
             // The gateway ignored cancellation: the loop is abandoned and ends on its own once the call returns.
+            ShutdownLeakReporter?.Invoke(ShutdownBudget);
         }
     }
 
