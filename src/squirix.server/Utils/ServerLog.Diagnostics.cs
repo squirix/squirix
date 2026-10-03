@@ -15,9 +15,6 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 3027, Level = LogLevel.Debug, Message = "Journal segment metric probe failed for {File}")]
     internal static partial void JournalMetricFileProbeFailed(ILogger logger, Exception exception, string file);
 
-    [LoggerMessage(EventId = 3022, Level = LogLevel.Debug, Message = "Backpressure observer probe failed; skipping source")]
-    internal static partial void BackpressureObservationFailed(ILogger logger, Exception exception);
-
     [LoggerMessage(EventId = 3024, Level = LogLevel.Debug, Message = "Journal I/O thread exited on background cancellation")]
     internal static partial void JournalThreadExitOnCancel(ILogger logger);
 

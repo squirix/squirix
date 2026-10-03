@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
@@ -39,7 +38,7 @@ public sealed class BackpressureRateLimitingTests : DisposableServerUnitTestBase
                 NodeRateLimitPerSecond = 1,
                 NodeRateLimitBurst = 1,
             },
-            new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
+            new BackpressureMetrics(meter));
 
         using var first = (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease;
 
@@ -70,7 +69,7 @@ public sealed class BackpressureRateLimitingTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(100),
             },
-            new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
+            new BackpressureMetrics(meter));
 
         using var first = (await gate.AcquireAsync("grpc", "get", "grpc:client-a", cancellationToken)).Lease;
 
@@ -101,7 +100,7 @@ public sealed class BackpressureRateLimitingTests : DisposableServerUnitTestBase
                 PerClientRateLimitPerSecond = 1,
                 PerClientRateLimitBurst = 1,
             },
-            new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
+            new BackpressureMetrics(meter));
 
         using var first = (await gate.AcquireAsync("grpc", "get", "grpc:client-a", cancellationToken)).Lease;
 
@@ -134,7 +133,7 @@ public sealed class BackpressureRateLimitingTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.FromMilliseconds(5),
                 MaxQueueWait = TimeSpan.FromMilliseconds(100),
             },
-            new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
+            new BackpressureMetrics(meter));
 
         using var first = (await gate.AcquireAsync("rest", "put", "rest:client-a", cancellationToken)).Lease;
         using var second = (await gate.AcquireAsync("rest", "put", "rest:client-b", cancellationToken)).Lease;

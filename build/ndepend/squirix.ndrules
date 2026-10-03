@@ -84,12 +84,11 @@ from m in Methods
 where m.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch())
 select m]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard MutableInt holder fields from JustMyCode</Name>
-// MutableInt32/MutableInt64._value is mutated via Interlocked through ref; marking it readonly is invalid C#.
+// MutableInt32._value is mutated via Interlocked through ref; marking it readonly is invalid C#.
 notmycode
 from f in Fields
 where f.ParentType != null &&
-      (f.ParentType.FullName == "Squirix.Server.Utils.MutableInt32" ||
-       f.ParentType.FullName == "Squirix.Server.Utils.MutableInt64")
+      f.ParentType.FullName == "Squirix.Server.Utils.MutableInt32"
 select f]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude durability dedicated threads from ND2500</Name>
 // JournalCoordinator owns a long-lived WAL I/O thread by design.

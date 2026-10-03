@@ -111,7 +111,7 @@ internal static class RuntimeServiceRegistration
             // The per-host Meter instance is owned by the host composition, which registers it through the factory
             // overload (so the DI container disposes it on shutdown) before AddSquirixRuntimeServices runs. This
             // method only registers the metrics types against that shared meter.
-            _ = services.AddSingleton(static sp => new BackpressureMetrics(sp.GetRequiredService<Meter>(), sp.GetRequiredService<ILogger<BackpressureMetrics>>()));
+            _ = services.AddSingleton(static sp => new BackpressureMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new CacheMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new CompactionMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new IdempotencyMetrics(sp.GetRequiredService<Meter>()));

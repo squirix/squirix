@@ -3,7 +3,6 @@ using System.Diagnostics.Metrics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
@@ -40,7 +39,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(200),
             },
-            new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
+            new BackpressureMetrics(meter));
 
         var (decision, lease) = await gate.AcquireAsync("rest", "insert", "rest:client-a", cancellationToken);
         lease.Dispose();
@@ -64,7 +63,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(200),
             },
-            new BackpressureMetrics(_testMeter, NullLogger<BackpressureMetrics>.Instance));
+            new BackpressureMetrics(_testMeter));
 
         var (decision, lease) = await gate.AcquireAsync("grpc", "get", "grpc:client-a", cancellationToken);
         using (lease)
@@ -89,7 +88,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(200),
             },
-            new BackpressureMetrics(_testMeter, NullLogger<BackpressureMetrics>.Instance));
+            new BackpressureMetrics(_testMeter));
         var (decision, lease) = await gate.AcquireAsync("grpc", "get", "grpc:client-a", cancellationToken);
         _ = await Assert.That(decision.IsAccepted).IsTrue();
 
@@ -115,7 +114,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMinutes(5),
             },
-            new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
+            new BackpressureMetrics(meter));
         var (_, held) = await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken);
         var queued = gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken).AsTask();
         _ = await Assert.That(queued.IsCompleted).IsFalse();
@@ -146,7 +145,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
             MaxSlowdownDelay = TimeSpan.Zero,
             MaxQueueWait = TimeSpan.FromSeconds(2),
         };
-        using var gate = new AdmissionGate(backpressureOptions, new BackpressureMetrics(_testMeter, NullLogger<BackpressureMetrics>.Instance));
+        using var gate = new AdmissionGate(backpressureOptions, new BackpressureMetrics(_testMeter));
         IBackpressureGate gateForClients = gate;
         var current = new int[1];
         var observedMax = new int[1];
@@ -176,7 +175,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(200),
             },
-            new BackpressureMetrics(_testMeter, NullLogger<BackpressureMetrics>.Instance));
+            new BackpressureMetrics(_testMeter));
 
         var lease = (await gate.AcquireAsync("grpc", "get", "grpc:client-a", cancellationToken)).Lease;
         lease.Dispose();
@@ -204,7 +203,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxQueueWait = TimeSpan.FromSeconds(10),
                 PerClientMaxInFlight = 2,
             },
-            new BackpressureMetrics(_testMeter, NullLogger<BackpressureMetrics>.Instance),
+            new BackpressureMetrics(_testMeter),
             time);
 
         var first = (await gate.AcquireAsync("grpc", "get", "grpc:x", cancellationToken)).Lease;
@@ -252,7 +251,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(200),
             },
-            new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
+            new BackpressureMetrics(meter));
 
         var first = (await gate.AcquireAsync("grpc", "insert", "grpc:client-a", cancellationToken)).Lease;
         using var secondCts = new CancellationTokenSource();
@@ -294,7 +293,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(40),
             },
-            new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
+            new BackpressureMetrics(meter));
 
         using var lease = (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease;
 
@@ -322,7 +321,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(500),
             },
-            new BackpressureMetrics(_testMeter, NullLogger<BackpressureMetrics>.Instance));
+            new BackpressureMetrics(_testMeter));
 
         var first = (await gate.AcquireAsync("grpc", "insert", "grpc:client-a", cancellationToken)).Lease;
         var queuedTask = gate.AcquireAsync("grpc", "insert", "grpc:client-b", cancellationToken).AsTask();
@@ -352,7 +351,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromSeconds(2),
             },
-            new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
+            new BackpressureMetrics(meter));
 
         using var heldLease = (await gate.AcquireAsync("rest", "remove", "rest:client-a", cancellationToken)).Lease;
         using var cts = new CancellationTokenSource();
