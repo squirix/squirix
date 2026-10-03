@@ -21,6 +21,9 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// <summary>Message prefix of the refusal of a new operation identity while the group idempotency state is full.</summary>
     internal const string IdempotencyCapacityCode = "replica_idempotency_capacity";
 
+    /// <summary>The default <see cref="ShutdownBudget" />.</summary>
+    internal static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(5);
+
     private static readonly TimeSpan ObserveTimeout = TimeSpan.FromSeconds(5);
 
     private readonly ReplicaMutationGate _admission;
@@ -99,7 +102,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         _turn = new ReplicaLogTurn(options.InitialLogIndex);
         _admission = new ReplicaMutationGate(options.MaxInFlight);
         _commitIndex = options.InitialCommitIndex;
-        ShutdownBudget = ObserveTimeout;
+        ShutdownBudget = DefaultShutdownBudget;
     }
 
     /// <summary>Gets a value indicating whether some locally appended entry is not applied to memory yet.</summary>
@@ -126,6 +129,10 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// <summary>Gets the owner callback that reports, with the shutdown budget, a dispose that leaked the gates to a running commit.</summary>
     /// <remarks>This namespace does not log; the owner turns the report into an error log. Unset, the leak is not reported.</remarks>
     internal Action<TimeSpan>? ShutdownLeakReporter { private get; init; }
+
+    /// <summary>Gets the owner callback that reports a fault of owned work that dispose abandoned after the shutdown budget and that failed later.</summary>
+    /// <remarks>This namespace does not log; the owner turns the report into an error log. Unset, the fault is only observed.</remarks>
+    internal Action<Exception>? AbandonedWorkFaultReporter { private get; init; }
 
     /// <summary>Observes all owned post-appending work before releasing resources.</summary>
     /// <returns>An asynchronous operation.</returns>
@@ -215,23 +222,16 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// idempotency record of each applied entry. An entry no recorded majority covers stays retained, and so does a recovered entry
     /// of an older term that no current-term entry reaches yet. Prepared outcomes are computed from live memory, so callers that
     /// prepare mutations must not prepare while this returns <see langword="false" />.
+    /// A call that runs counts as running work: dispose does not tear the gates and the sequencer down under it, and reports the leak
+    /// when the call outlasts the shutdown budget. While dispose drains the owned follower observation, which can apply a late majority,
+    /// calls still run; once the drain is over, no new call runs.
     /// </remarks>
-    /// <exception cref="ObjectDisposedException">The coordinator is disposed.</exception>
+    /// <exception cref="ObjectDisposedException">Disposal has closed the coordinator to applies and an entry is still to be applied.</exception>
     internal async Task<bool> ApplyCommittedAsync()
     {
-        if (_pendingApply.IsEmpty)
-            return true;
-
-        using var commitGuard = await _commitGate.LockAsync(CancellationToken.None).ConfigureAwait(false);
-        var commitIndex = _pendingApply.CommittableIndex(_commitIndex, _quorum.FindCommitIndex(_commitIndex, _pendingApply.LastIndex));
-        if (commitIndex > _commitIndex)
-        {
-            await _pipeline.AdvanceCommitIndexAsync(commitIndex, CancellationToken.None).ConfigureAwait(false);
-            Volatile.Write(ref _commitIndex, commitIndex);
-        }
-
-        await _pendingApply.ApplyThroughAsync(commitIndex, null).ConfigureAwait(false);
-        return _pendingApply.IsEmpty;
+        var applied = await ApplyUnlessClosedAsync().ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(applied == null, this);
+        return applied ?? false;
     }
 
     /// <summary>Returns the highest contiguous durable index recorded for one replica.</summary>
@@ -242,6 +242,35 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// every entry a ready follower has not durably acknowledged yet.
     /// </remarks>
     internal ulong MatchIndexFor(int replicaIndex) => _quorum.MatchIndexFor(replicaIndex);
+
+    /// <summary>Drives the committed entries like <see cref="ApplyCommittedAsync" />, reporting a coordinator closed to applies as a result.</summary>
+    /// <returns><see langword="null" /> when disposal closed the coordinator to applies and an entry is still to be applied; otherwise whether none is left unapplied.</returns>
+    private async Task<bool?> ApplyUnlessClosedAsync()
+    {
+        if (_pendingApply.IsEmpty)
+            return true;
+
+        if (!_pendingApply.TryBeginApply())
+            return null;
+
+        try
+        {
+            using var commitGuard = await _commitGate.LockAsync(CancellationToken.None).ConfigureAwait(false);
+            var commitIndex = _pendingApply.CommittableIndex(_commitIndex, _quorum.FindCommitIndex(_commitIndex, _pendingApply.LastIndex));
+            if (commitIndex > _commitIndex)
+            {
+                await _pipeline.AdvanceCommitIndexAsync(commitIndex, CancellationToken.None).ConfigureAwait(false);
+                Volatile.Write(ref _commitIndex, commitIndex);
+            }
+
+            await _pendingApply.ApplyThroughAsync(commitIndex, null).ConfigureAwait(false);
+            return _pendingApply.IsEmpty;
+        }
+        finally
+        {
+            _pendingApply.EndApply();
+        }
+    }
 
     private async Task CollectMajorityAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
     {
@@ -306,7 +335,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
                     {
                         // Always the system clock, not ObserveTimeProvider: a test clock nobody advances would park disposal forever
                         // behind a follower that never finishes, and the budget exists to bound exactly that wait.
-                        completed = await ReplicaFollowerObservation.TakeNextCompletedAsync(tasks, ShutdownBudget, TimeProvider.System).ConfigureAwait(false);
+                        completed = await ReplicaFollowerObservation.TakeNextCompletedAsync(tasks, ShutdownBudget, TimeProvider.System, AbandonedWorkFaultReporter).ConfigureAwait(false);
                     }
                     catch (TimeoutException)
                     {
@@ -319,10 +348,11 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         }
         finally
         {
-            // A commit still running here made no progress within the budget and, past its majority, ignores cancellation. It holds or
-            // waits on the admission gate, the commit gate, and the sequencer, so they stay with it and are leaked loudly instead of
-            // being disposed under it (a disposed semaphore strands its waiters). No new commit can start once admission is closed.
-            var running = false;
+            // A commit or an apply of committed entries still running here made no progress within the budget and, past its majority,
+            // ignores cancellation. It holds or waits on the admission gate, the commit gate, and the sequencer, so they stay with it and
+            // are leaked loudly instead of being disposed under it (a disposed semaphore strands its waiters). No new commit or apply can
+            // start once admission is closed.
+            var running = _pendingApply.CloseForApplies();
             lock (_ownedSync)
             {
                 foreach (var operation in _operations.Values)
@@ -444,7 +474,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             {
                 try
                 {
-                    completed = await ReplicaFollowerObservation.TakeNextCompletedAsync(pending, ObserveTimeout, ObserveTimeProvider).ConfigureAwait(false);
+                    completed = await ReplicaFollowerObservation.TakeNextCompletedAsync(pending, ObserveTimeout, ObserveTimeProvider, null).ConfigureAwait(false);
                 }
                 catch (TimeoutException)
                 {
@@ -467,8 +497,13 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
             // A late acknowledgement can complete the majority of an entry whose commit already gave up (an unknown outcome):
             // commit and apply it here instead of leaving it for a later commit that may never come.
-            if (_pendingApply.Covers(_quorum.FindCommitIndex(Volatile.Read(ref _commitIndex), mutation.LogIndex)))
-                _ = await ApplyCommittedAsync().ConfigureAwait(false);
+            if (!_pendingApply.Covers(_quorum.FindCommitIndex(Volatile.Read(ref _commitIndex), mutation.LogIndex)))
+                continue;
+
+            // Closed for applies: the entry stays retained and is recovered from the durable log at the next start. Any other failure
+            // faults this task, which dispose observes or, once it abandoned the task, reports to the owner.
+            if (await ApplyUnlessClosedAsync().ConfigureAwait(false) == null)
+                return;
         }
     }
 
@@ -584,12 +619,13 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         /// <param name="pending">Remaining tasks to observe.</param>
         /// <param name="timeout">The longest wait for any task to complete.</param>
         /// <param name="timeProvider">The time source bounding the wait.</param>
+        /// <param name="faultReporter">Receives the fault of an abandoned task that fails later, or <see langword="null" /> to only observe it.</param>
         /// <returns>The completed task.</returns>
         /// <exception cref="TimeoutException">
         /// The bound expired before any task completed; every remaining task got a fault-only exception
         /// observer, so abandoned follower work never surfaces unobserved exceptions.
         /// </exception>
-        internal static async Task<Task> TakeNextCompletedAsync(List<Task> pending, TimeSpan timeout, TimeProvider timeProvider)
+        internal static async Task<Task> TakeNextCompletedAsync(List<Task> pending, TimeSpan timeout, TimeProvider timeProvider, Action<Exception>? faultReporter)
         {
             try
             {
@@ -599,7 +635,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             }
             catch (TimeoutException)
             {
-                ObserveAbandoned(pending);
+                ObserveAbandoned(pending, faultReporter);
                 throw;
             }
         }
@@ -608,12 +644,17 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         /// <param name="pending">Remaining follower tasks to observe.</param>
         /// <param name="timeout">The longest wait for any task to complete.</param>
         /// <param name="timeProvider">The time source bounding the wait.</param>
+        /// <param name="faultReporter">Receives the fault of an abandoned task that fails later, or <see langword="null" /> to only observe it.</param>
         /// <returns>The completed follower task.</returns>
         /// <exception cref="TimeoutException">
         /// The bound expired before any task completed; every remaining task got a fault-only exception
         /// observer, so abandoned follower work never surfaces unobserved exceptions.
         /// </exception>
-        internal static async Task<Task<FollowerCompletion>> TakeNextCompletedAsync(List<Task<FollowerCompletion>> pending, TimeSpan timeout, TimeProvider timeProvider)
+        internal static async Task<Task<FollowerCompletion>> TakeNextCompletedAsync(
+            List<Task<FollowerCompletion>> pending,
+            TimeSpan timeout,
+            TimeProvider timeProvider,
+            Action<Exception>? faultReporter)
         {
             try
             {
@@ -623,17 +664,23 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             }
             catch (TimeoutException)
             {
-                ObserveAbandoned(pending);
+                ObserveAbandoned(pending, faultReporter);
                 throw;
             }
         }
 
-        private static void ObserveAbandoned(IReadOnlyList<Task> remaining)
+        private static void ObserveAbandoned(IReadOnlyList<Task> remaining, Action<Exception>? faultReporter)
         {
             foreach (var task in remaining)
             {
                 _ = task.ContinueWith(
-                    static t => _ = t.Exception,
+                    static (t, state) =>
+                    {
+                        // Only a faulted task runs this continuation, so the exception is never null.
+                        if (t.Exception is { } fault)
+                            (state as Action<Exception>)?.Invoke(fault);
+                    },
+                    faultReporter,
                     CancellationToken.None,
                     TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
                     TaskScheduler.Default);
@@ -718,6 +765,8 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         private readonly ReplicaRecoveredTail? _recovered;
         private readonly Action<PreparedReplicaMutation> _resolved;
         private readonly Lock _sync = new();
+        private int _activeApplies;
+        private bool _closed;
 
         /// <summary>Initializes a new instance of the <see cref="ReplicaPendingApplies" /> class.</summary>
         /// <param name="pipeline">Pipeline that applies committed entries to memory.</param>
@@ -826,6 +875,38 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         {
             lock (_sync)
                 return _entries.Count > 0 && _entries.Keys[0] <= commitIndex;
+        }
+
+        /// <summary>Counts a drive of the committed entries that starts running, unless applies are closed.</summary>
+        /// <returns><see langword="false" /> when <see cref="CloseForApplies" /> already ran and no drive may start.</returns>
+        internal bool TryBeginApply()
+        {
+            lock (_sync)
+            {
+                if (_closed)
+                    return false;
+
+                _activeApplies++;
+                return true;
+            }
+        }
+
+        /// <summary>Refuses every later drive of the committed entries.</summary>
+        /// <returns><see langword="true" /> when a drive that started earlier is still running.</returns>
+        internal bool CloseForApplies()
+        {
+            lock (_sync)
+            {
+                _closed = true;
+                return _activeApplies > 0;
+            }
+        }
+
+        /// <summary>Counts a drive of the committed entries that stopped running.</summary>
+        internal void EndApply()
+        {
+            lock (_sync)
+                _activeApplies--;
         }
 
         /// <summary>Retains a locally appended entry until a commit covers it.</summary>

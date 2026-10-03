@@ -22,6 +22,9 @@ internal static class ReplicaCommitterDoubles
 
         /// <summary>The apply stalls, ignoring cancellation, until released.</summary>
         Stall = 1,
+
+        /// <summary>The first apply stalls, ignoring cancellation, until released and then fails; every later apply fails at once.</summary>
+        StallThenFail = 2,
     }
 
     [Immutable]
@@ -55,6 +58,46 @@ internal static class ReplicaCommitterDoubles
         }
     }
 
+    /// <summary>Follower double that always holds the leader batch; once armed, the next call parks, ignoring cancellation, until released.</summary>
+    [ThreadSafe]
+    internal sealed class ParkingGateway : IReplicaRpcGateway
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _heldReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _armed;
+
+        /// <summary>Gets the node whose appends that carry entries park, ignoring cancellation, until <see cref="ReleaseHeld" />; none unless set.</summary>
+        internal string? HeldNode { get; init; }
+
+        /// <summary>Gets a task that completes when a call parked.</summary>
+        internal Task Entered => _entered.Task;
+
+        public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
+        {
+            if (string.Equals(nodeId, HeldNode, StringComparison.Ordinal) && batch.Records.Count > 0)
+                await new ValueTask(_heldReleased.Task).ConfigureAwait(false);
+
+            if (Interlocked.Exchange(ref _armed, 0) != 0)
+            {
+                _ = _entered.TrySetResult();
+                await new ValueTask(_released.Task).ConfigureAwait(false);
+            }
+
+            var last = batch.Records.Count == 0 ? batch.PrevLogIndex : batch.Records[^1].LogIndex;
+            return new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last);
+        }
+
+        /// <summary>Lets the parked appends of the held node, and every later one, answer.</summary>
+        internal void ReleaseHeld() => _ = _heldReleased.TrySetResult();
+
+        /// <summary>Makes the next call park.</summary>
+        internal void Arm() => Volatile.Write(ref _armed, 1);
+
+        /// <summary>Lets the parked call, and every later one, answer.</summary>
+        internal void Release() => _ = _released.TrySetResult();
+    }
+
     /// <summary>
     /// Local cache double whose memory apply of a replicated write fails until recovered, or stalls ignoring cancellation until released;
     /// it records the keys of the writes applied after recovery.
@@ -66,6 +109,7 @@ internal static class ReplicaCommitterDoubles
         private readonly TaskCompletionSource _applyReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly ApplyMode _mode;
         private readonly VolatileBool _recovered = new();
+        private int _applyAttempts;
 
         internal ScriptedApplyCache(ApplyMode mode)
         {
@@ -73,6 +117,9 @@ internal static class ReplicaCommitterDoubles
         }
 
         internal ConcurrentQueue<string> Applied { get; } = new();
+
+        /// <summary>Gets the number of memory applies started, whether they stalled, failed, or succeeded.</summary>
+        internal int ApplyAttempts => Volatile.Read(ref _applyAttempts);
 
         internal Task ApplyEntered => _applyEntered.Task;
 
@@ -88,9 +135,12 @@ internal static class ReplicaCommitterDoubles
 
         public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
         {
+            var attempt = Interlocked.Increment(ref _applyAttempts);
             _ = _applyEntered.TrySetResult();
             if (_mode == ApplyMode.Stall)
                 return new ValueTask(_applyReleased.Task);
+            if (_mode == ApplyMode.StallThenFail && attempt == 1)
+                return new ValueTask(FailAfterReleaseAsync());
             if (!_recovered.Read())
                 return ValueTask.FromException(new InvalidOperationException("Injected memory apply failure after the majority."));
 
@@ -108,5 +158,11 @@ internal static class ReplicaCommitterDoubles
         internal void Recover() => _recovered.Write(true);
 
         internal void ReleaseApply() => _ = _applyReleased.TrySetResult();
+
+        private async Task FailAfterReleaseAsync()
+        {
+            await new ValueTask(_applyReleased.Task).ConfigureAwait(false);
+            throw new InvalidOperationException("Injected memory apply failure after the majority.");
+        }
     }
 }
