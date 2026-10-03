@@ -52,7 +52,7 @@
     <PropertyGroup Label="AnalysisShardFirstHalf" Condition="'$(SquirixAnalysisShard)' == 'server-unit-tests-1' And $([System.String]::Copy(';$(SquirixProjectAnalysisShard);').Contains(';server-unit-tests-1;server-unit-tests-2;'))">
         <EnableNETAnalyzers>false</EnableNETAnalyzers>
         <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
-        <SquirixDroppedAnalyzerPackages>Microsoft.CodeAnalysis.NetAnalyzers;StyleCop.Analyzers.Unstable;Roslynator.Analyzers;ErrorProne.NET.CoreAnalyzers;Microsoft.VisualStudio.Threading.Analyzers;AsyncFixer;ZeroAlloc.Analyzers;Microsoft.CodeAnalysis.BannedApiAnalyzers</SquirixDroppedAnalyzerPackages>
+        <SquirixDroppedAnalyzerPackages>Microsoft.CodeAnalysis.NetAnalyzers;StyleCopNext.Analyzers;Roslynator.Analyzers;ErrorProne.NET.CoreAnalyzers;Microsoft.VisualStudio.Threading.Analyzers;AsyncFixer;ZeroAlloc.Analyzers;Microsoft.CodeAnalysis.BannedApiAnalyzers</SquirixDroppedAnalyzerPackages>
     </PropertyGroup>
     <!-- Meziantou stays with its rules off: its suppressors silence IDE0058, which this half reports. -->
     <PropertyGroup Label="AnalysisShardSecondHalf" Condition="'$(SquirixAnalysisShard)' == 'server-unit-tests-2' And $([System.String]::Copy(';$(SquirixProjectAnalysisShard);').Contains(';server-unit-tests-1;server-unit-tests-2;'))">
@@ -132,7 +132,7 @@
         <PackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" PrivateAssets="all"/>
         <PackageReference Include="Roslynator.Analyzers" PrivateAssets="all"/>
         <PackageReference Include="SonarAnalyzer.CSharp" PrivateAssets="all"/>
-        <PackageReference Include="StyleCop.Analyzers" PrivateAssets="all"/>
+        <PackageReference Include="StyleCopNext.Analyzers" PrivateAssets="all"/>
         <PackageReference Include="ZeroAlloc.Analyzers" PrivateAssets="all"/>
     </ItemGroup>
 

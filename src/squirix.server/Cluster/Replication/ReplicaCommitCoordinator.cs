@@ -109,11 +109,11 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// <remarks>The owner reads it under its commit gate, where no commit body runs, so only background follower observation can change it.</remarks>
     internal bool HasPendingApply => !_pendingApply.IsEmpty;
 
-    /// <summary>Gets the time source bounding the first wait of background follower observation; the system clock unless set.</summary>
+    /// <summary>Initializes the time source bounding the first wait of background follower observation; the system clock unless set.</summary>
     /// <remarks>Test seam: production coordinators keep the system clock.</remarks>
     internal TimeProvider ObserveTimeProvider { private get; init; } = TimeProvider.System;
 
-    /// <summary>Gets the longest dispose wait for owned work to make progress before it is abandoned; 5 seconds unless set.</summary>
+    /// <summary>Initializes the longest dispose wait for owned work to make progress before it is abandoned; 5 seconds unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
     internal TimeSpan ShutdownBudget
     {
@@ -126,11 +126,11 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         }
     }
 
-    /// <summary>Gets the owner callback that reports, with the shutdown budget, a dispose that leaked the gates to a running commit.</summary>
+    /// <summary>Initializes the owner callback that reports, with the shutdown budget, a dispose that leaked the gates to a running commit.</summary>
     /// <remarks>This namespace does not log; the owner turns the report into an error log. Unset, the leak is not reported.</remarks>
     internal Action<TimeSpan>? ShutdownLeakReporter { private get; init; }
 
-    /// <summary>Gets the owner callback that reports a fault of owned work that dispose abandoned after the shutdown budget and that failed later.</summary>
+    /// <summary>Initializes the owner callback that reports a fault of owned work that dispose abandoned after the shutdown budget and that failed later.</summary>
     /// <remarks>This namespace does not log; the owner turns the report into an error log. Unset, the fault is only observed.</remarks>
     internal Action<Exception>? AbandonedWorkFaultReporter { private get; init; }
 

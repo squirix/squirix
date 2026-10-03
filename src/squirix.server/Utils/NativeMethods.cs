@@ -28,14 +28,14 @@ internal static partial class NativeMethods
     /// <param name="libraryName">The library name requested by the P/Invoke declaration.</param>
     /// <param name="assembly">The assembly requesting the import.</param>
     /// <param name="searchPath">The default search path policy.</param>
-    /// <returns>The loaded library handle, or <see cref="IntPtr.Zero" /> to fall back to default probing.</returns>
-    private static IntPtr ResolveLibc(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
+    /// <returns>The loaded library handle, or <see cref="nint.Zero" /> to fall back to default probing.</returns>
+    private static nint ResolveLibc(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
     {
         // macOS and Mac Catalyst ship no libc dylib to probe; Linux and FreeBSD keep their default libc probing.
         return string.Equals(libraryName, LibcLibraryName, StringComparison.Ordinal) switch
         {
-            false => IntPtr.Zero,
-            true => NativeLibrary.TryLoad(DarwinSystemLibraryName, assembly, searchPath, out var handle) ? handle : IntPtr.Zero,
+            false => nint.Zero,
+            true => NativeLibrary.TryLoad(DarwinSystemLibraryName, assembly, searchPath, out var handle) ? handle : nint.Zero,
         };
     }
 }

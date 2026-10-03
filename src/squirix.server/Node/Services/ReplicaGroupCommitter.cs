@@ -102,17 +102,17 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
     }
 
-    /// <summary>Gets the time source that pins the expiration deadlines of prepared records; the system clock unless set.</summary>
+    /// <summary>Initializes the time source that pins the expiration deadlines of prepared records; the system clock unless set.</summary>
     /// <remarks>Only the prepare of a mutation reads it. Applying a record never does.</remarks>
     internal TimeProvider Clock { private get; init; } = TimeProvider.System;
 
     /// <summary>Gets the identifier of the owned replica group, which is this node's identifier.</summary>
     internal string GroupId { get; }
 
-    /// <summary>Gets the replication metrics counting the inconsistent log records the committer refuses to apply; none are counted unless set.</summary>
+    /// <summary>Initializes the replication metrics counting the inconsistent log records the committer refuses to apply; none are counted unless set.</summary>
     internal ReplicationMetrics? Metrics { private get; init; }
 
-    /// <summary>Gets the longest wait for an in-flight commit on dispose, which also caps the coordinator's own teardown wait; 30 seconds unless set.</summary>
+    /// <summary>Initializes the longest wait for an in-flight commit on dispose, which also caps the coordinator's own teardown wait; 30 seconds unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
     internal TimeSpan ShutdownBudget
     {
