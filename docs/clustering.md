@@ -70,3 +70,38 @@ squirix-server validate-config --settings ./Squirix.settings.json --strict
 ```
 
 `Cluster.Uri` must match the local peer entry in each node's settings file.
+
+## Ring agreement
+
+Every node builds its consistent-hash ring from its own configuration. Two nodes agree on key ownership only when these inputs match:
+
+- `ClusterId`
+- `VirtualNodes`
+- the set of peer `NodeId` values (peer order, duplicates, URIs, configuration generation, and replica count do not matter)
+
+A node that finds a peer with a different ring stops serving cache operations instead of executing on inconsistent ownership:
+
+- Each internal owner call carries a fingerprint of the sender ring. The receiving node compares it with its own before any handler or idempotency store runs.
+- A mismatch refuses the call, so a forwarded operation is never executed by a node that disagrees with the sender about the owner.
+- Both nodes are fenced: the node that refused the call and the node whose forward was refused.
+- A fenced node refuses every cache operation until it is restarted.
+
+Symptoms:
+
+- Clients get `Unavailable` with the detail `Cluster ring mismatch: the forwarding node and the key owner were started with different peer lists; nothing was executed.`
+  for the first forwarded call, and `Cache operations are refused: this node detected a cluster ring mismatch with a peer; make the peer lists agree and restart the
+  affected nodes.` afterwards. Retrying does not help.
+- `/health/ready` answers `503` on a fenced node; the `ring_agreement` check names the peer and the side that detected the mismatch. `/health/live` is not affected.
+- The node logs one `Error` entry per peer with the local and peer ring fingerprints.
+
+Fix:
+
+1. Make `ClusterId`, `VirtualNodes`, and the peer `NodeId` list identical on every node.
+2. Restart the misconfigured nodes and every node that reports the mismatch.
+3. Change peer lists with a full stop and start of the cluster, not a rolling restart: a node on the old list and a node on the new list disagree until all nodes are restarted.
+
+Limitations:
+
+- Detection happens on the first forwarded call between the two nodes; nodes that never forward to each other are not compared.
+- Recovery needs a restart; a fenced node does not rejoin by itself when the configurations are corrected.
+- The check covers ownership inputs only. Replication topology agreement for RF>1 is verified separately by the topology fingerprint.

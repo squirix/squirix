@@ -86,6 +86,15 @@ Ownership mismatch signals:
 - The mutation fails before journal append, local memory mutation, memory accounting, and idempotency outcome updates.
 - Recovery replay bypasses this guard intentionally because it rebuilds trusted node-local persisted state.
 
+Ring mismatch signals:
+
+- A ring mismatch means two nodes were started with different `ClusterId`, `VirtualNodes`, or peer `NodeId` lists, so they disagree on key owners.
+- The first forwarded call between them is refused before it touches any idempotency store. Clients see `Unavailable` and the trailer `squirix-error-code`
+  with `ring-mismatch`; later operations on the fenced nodes see `ring-fenced`.
+- `/health/ready` answers `503` on every fenced node and the `ring_agreement` check names the peer. The node logs an `Error` with both ring fingerprints.
+- Align the configuration on all nodes and restart the misconfigured nodes and every node that reports the mismatch. A fenced node stays refused until restart.
+  See [clustering.md](clustering.md#ring-agreement).
+
 ## Memory pressure
 
 Use `/health/ready/details` (`memoryPressure`) and the `Squirix` meter instruments documented in
