@@ -136,7 +136,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private (Decision Decision, Lease Lease)? RejectByClientRateLimitIfLimited(string transport, string operation, ClientState client)
     {
-        if (!_options.Enabled || client.TryAcquire())
+        if (client.TryAcquire())
             return null;
 
         _metrics.AddRateLimitReject(transport, operation, "client");
