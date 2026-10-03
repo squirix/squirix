@@ -173,9 +173,12 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="cacheName">The cache name, the scope of client operations.</param>
     /// <param name="operationId">The operation identifier.</param>
-    /// <returns><see langword="true" /> when a commit of the operation would replay or wait for a recorded outcome instead of deciding.</returns>
+    /// <returns>
+    /// <see langword="true" /> when a commit of the operation would replay or wait for a recorded outcome instead of deciding, and also
+    /// while the outcomes of the log are not rebuilt since it was opened: the commit, which rebuilds them first, then decides.
+    /// </returns>
     internal bool HasRecordedOutcome(string groupId, string cacheName, string operationId) =>
-        TryGetLog(groupId, out var log) && log.Idempotency.Lookup(cacheName, operationId, [], out _) != GroupIdempotencyLookup.Miss;
+        TryGetLog(groupId, out var log) && (!log.Idempotency.OutcomesRebuilt || log.Idempotency.Lookup(cacheName, operationId, [], out _) != GroupIdempotencyLookup.Miss);
 
     private static void ValidateGroupIds(IReadOnlyList<string> groupIds)
     {

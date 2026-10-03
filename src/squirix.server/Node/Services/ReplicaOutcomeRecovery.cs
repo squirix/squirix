@@ -55,6 +55,7 @@ internal static class ReplicaOutcomeRecovery
                 cancellationToken)
             .ConfigureAwait(false);
 
+        idempotency.MarkOutcomesRebuilt();
         return restored;
     }
 

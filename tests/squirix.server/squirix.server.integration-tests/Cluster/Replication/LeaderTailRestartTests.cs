@@ -102,6 +102,36 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
         _ = await Assert.That(after.LastLogIndex).IsEqualTo(before.LastLogIndex);
     }
 
+    /// <summary>
+    /// A retry that reaches the restarted owner before anything started its committer still replays the recorded outcome: until the
+    /// outcomes of the log are rebuilt, admission hands the retry to the committer, which rebuilds them first, instead of answering from
+    /// the present key.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RetryBeforeFirstStartReplaysOutcome(CancellationToken cancellationToken)
+    {
+        const string scope = "leader-outcome-early-retry";
+        var operationId = Guid.NewGuid().ToString("N");
+        await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", Options(scope, true), cancellationToken);
+        var owner = cluster["node-a"];
+        var key = owner.FindKeyOwnedBy(TailCacheName, "node-a");
+        await VerifyAsync(owner, cancellationToken);
+        var added = await owner.GetCache<object?>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
+        await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, "node-a", [("node-b", cluster["node-b"]), ("node-c", cluster["node-c"])], cancellationToken);
+        await owner.GetRequiredService<ReplicaGroupCommitter>().FlushAppliedAsync(owner.GetRequiredService<IJournalCoordinator>(), cancellationToken);
+
+        await cluster.StopNodeAsync("node-a");
+        var restarted = await cluster.StartNodeAsync("node-a", Options(scope, false), cancellationToken);
+        var before = await OwnerStatusAsync(restarted, cancellationToken);
+        var retried = await restarted.GetCache<object?>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
+        var after = await OwnerStatusAsync(restarted, cancellationToken);
+
+        _ = await Assert.That(added).IsTrue();
+        _ = await Assert.That(retried).IsTrue();
+        _ = await Assert.That(after.LastLogIndex).IsEqualTo(before.LastLogIndex);
+    }
+
     private static IntegrationStartOptions Options(string scope, bool clean) =>
         new() { ReplicaCount = 3, UsePersistence = true, CleanTestDir = clean, ExtraScope = scope };
 
