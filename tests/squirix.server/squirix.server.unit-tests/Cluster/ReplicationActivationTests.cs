@@ -28,7 +28,6 @@ public sealed class ReplicationActivationTests : ServerUnitTestBase
         var featureState = node.GetRequiredService<FeatureState>();
         _ = await Assert.That(featureState.NetworkReplicationEnabled).IsFalse();
         _ = node.GetRequiredService<IReplicaGroupLocator>();
-        _ = node.GetRequiredService<PhysicalNodeRing>();
     }
 
     /// <summary>RF=2 with both prerequisites present activates networking with no failures.</summary>

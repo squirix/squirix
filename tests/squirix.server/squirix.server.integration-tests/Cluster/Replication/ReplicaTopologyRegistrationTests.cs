@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.IntegrationTests.Support;
@@ -24,12 +25,12 @@ public sealed class ReplicaTopologyRegistrationTests : NodeIntegrationTestBase
         await using var cluster = CreateCluster([nodeA, nodeB]);
 
         var hostAb = await cluster.StartNodeAsync("n1", cancellationToken: cancellationToken);
-        var fingerprintAb = hostAb.GetRequiredService<TopologyFingerprint>().ToString();
+        var fingerprintAb = FingerprintOf(hostAb);
         await cluster.StopNodeAsync("n1");
 
         // The same node restarted against the reversed peer order.
         var hostBa = await cluster.StartNodeAsync(nodeA, [nodeB, nodeA], cancellationToken: cancellationToken);
-        var fingerprintBa = hostBa.GetRequiredService<TopologyFingerprint>().ToString();
+        var fingerprintBa = FingerprintOf(hostBa);
 
         _ = await Assert.That(fingerprintBa).IsEqualTo(fingerprintAb);
     }
@@ -47,4 +48,7 @@ public sealed class ReplicaTopologyRegistrationTests : NodeIntegrationTestBase
         var material = host.GetRequiredService<MtlsCertificate>();
         _ = await Assert.That(material.Enabled).IsFalse();
     }
+
+    private static string FingerprintOf(ITestNodeHost host) =>
+        TopologyFingerprint.CreateFromTopology(host.GetRequiredService<TopologyOptions>(), host.GetRequiredService<MtlsOptions>()).ToString();
 }

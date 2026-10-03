@@ -33,7 +33,6 @@ internal static class PersistenceServiceRegistration
         _ = services.AddSingleton(options);
 
         var failureMetrics = new ManifestRetentionFailureMetrics(meter);
-        _ = services.AddSingleton(failureMetrics);
 
         // The runtime is created without I/O so the container owns it from the first resolve; OpenPersistenceAsync opens it after the host is built.
         _ = services.AddSingleton(sp => new PersistenceRuntime(options, failureMetrics, sp.GetRequiredService<ILoggerFactory>(), ResolveClock(sp)));
