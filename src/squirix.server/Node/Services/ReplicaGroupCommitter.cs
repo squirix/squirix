@@ -43,9 +43,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private ReplicaMutationFactory? _factory;
     private ReplicaGroupCommitPipeline? _pipeline;
 
-    /// <summary>Whether the outcomes of the committed log entries were rebuilt; set once, after a start that rebuilt them completes it.</summary>
-    private bool _outcomesRestored;
-
     private bool _started;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitter" /> class.</summary>
@@ -511,7 +508,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         // Before a restart the outcomes of the committed entries above the snapshot lived only in memory; their records carry them, so
         // a retry of an operation committed before the restart replays its outcome. The recovered tail is pinned first and keeps its pins.
-        if (!_outcomesRestored)
+        if (!log.Idempotency.OutcomesRebuilt)
             await RestoreOutcomesAsync(log, cancellationToken).ConfigureAwait(false);
 
         // Verified slots are admitted at the leader's last index before they count, so they cover the recovered tail.
@@ -534,7 +531,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         try
         {
             var restored = await ReplicaOutcomeRecovery.RestoreAsync(log, Clock, cancellationToken).ConfigureAwait(false);
-            _outcomesRestored = true;
             ServerLog.ReplicaOutcomesRestored(Log, GroupId, restored);
         }
         catch

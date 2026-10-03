@@ -38,6 +38,7 @@ internal sealed class GroupIdempotencyState
     private readonly TimeSpan _retention;
     private readonly Lock _sync = new();
     private readonly TimeProvider _timeProvider;
+    private int _outcomesRebuilt;
 
     /// <summary>Initializes a new instance of the <see cref="GroupIdempotencyState" /> class.</summary>
     /// <param name="capacity">The maximum number of retained records; new reservations are rejected at capacity.</param>
@@ -76,6 +77,12 @@ internal sealed class GroupIdempotencyState
     /// <summary>Gets the maximum number of retained idempotency records.</summary>
     internal int Capacity { get; }
 
+    /// <summary>
+    /// Gets a value indicating whether the outcomes of the committed log entries were rebuilt into this store since the log was opened.
+    /// Until then a miss may only mean the outcome is still on the log.
+    /// </summary>
+    internal bool OutcomesRebuilt => Volatile.Read(ref _outcomesRebuilt) != 0;
+
     /// <summary>Gets a value indicating whether the store holds <see cref="Capacity" /> records, so nothing more can be restored or reserved.</summary>
     internal bool IsFull
     {
@@ -85,6 +92,9 @@ internal sealed class GroupIdempotencyState
                 return _records.Count >= Capacity;
         }
     }
+
+    /// <summary>Records that the outcomes of the committed log entries are rebuilt, so a miss now means no outcome is retained.</summary>
+    internal void MarkOutcomesRebuilt() => Volatile.Write(ref _outcomesRebuilt, 1);
 
     /// <summary>Evicts resolved records whose retention window has elapsed; unresolved records are never evicted.</summary>
     /// <remarks>The eviction relies on the injected time source, so tests advance virtual time deterministically.</remarks>

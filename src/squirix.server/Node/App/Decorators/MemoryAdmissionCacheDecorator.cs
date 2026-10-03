@@ -37,6 +37,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     /// replicated committer does; <see langword="null" /> when it records none. A conditional write that admission would refuse from the
     /// current state is handed to <paramref name="inner" /> when its outcome is recorded, so a retry of a committed write replays it.
     /// Any other such write is refused here, without a log record: its first attempt changed nothing, so nothing needs replaying.
+    /// Until the replicated committer has rebuilt its outcomes after a restart, every such write counts as recorded and is decided there.
     /// </param>
     internal MemoryAdmissionCacheDecorator(
         ILogicalNamespacedCache<T> inner,
@@ -268,7 +269,8 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     /// <see langword="true" /> when pressure would refuse the write but its outcome is recorded: the caller hands it to the inner pipeline,
     /// which replays the outcome and grows nothing, and accounts what the inner cache then holds. The recorded outcome is looked up only
     /// when the write would be refused. Should the outcome age out between this lookup and the replay, the write runs once more past
-    /// admission: a single write, still accounted from what the inner cache holds.
+    /// admission: a single write, still accounted from what the inner cache holds. Until the committer has rebuilt its outcomes after a
+    /// restart, every write under pressure counts as recorded and passes; the first start closes that short window.
     /// </returns>
     /// <exception cref="Squirix.Server.Errors.ResourceExhaustedException">Pressure refuses the write and no outcome is recorded for it.</exception>
     private bool AdmitReplaceOrInsert(CacheKey key, NodeCacheEntry<T>? existing, NodeCacheEntry<T> proposed, string operation, string operationId)
