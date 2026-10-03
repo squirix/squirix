@@ -112,6 +112,26 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
         _ = await Assert.That(state.Lookup("client", "pin", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
     }
 
+    /// <summary>The final trim orders the outcomes the rebuild admitted after its first eviction too.</summary>
+    [Test]
+    public async Task TrimSeesOutcomesAddedMidRebuild()
+    {
+        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1));
+        state.RestoreFromSnapshot([Outcome("one", 1UL)], DateTime.UnixEpoch, []);
+        _ = state.Reserve("client", "pin-a", [1], GroupRecordKind.UserMutation, 20UL, 1UL, true);
+        _ = state.Reserve("client", "pin-b", [1], GroupRecordKind.UserMutation, 21UL, 1UL, true);
+        state.BeginOutcomeRebuild();
+
+        var restored = state.RestoreOutcome(Outcome("ten", 10UL), TimeSpan.Zero);
+        state.MarkOutcomesRebuilt();
+
+        _ = await Assert.That(restored).IsEqualTo(GroupOutcomeRestoreResult.Restored);
+        _ = await Assert.That(state.Lookup("client", "one", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(state.Lookup("client", "ten", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(state.Lookup("client", "pin-a", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
+        _ = await Assert.That(state.Lookup("client", "pin-b", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
+    }
+
     private static GroupIdempotencyRecord Outcome(string operationId, ulong logIndex, byte outcome = 200) =>
         new("client", operationId, new byte[] { 1 }, new byte[] { outcome }, GroupRecordKind.UserMutation, DateTime.UnixEpoch, DateTime.UnixEpoch, logIndex, 1UL);
 }

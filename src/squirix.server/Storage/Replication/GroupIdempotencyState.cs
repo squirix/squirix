@@ -642,6 +642,8 @@ internal sealed class GroupIdempotencyState
         /// <param name="capacity">The number of records to keep at most.</param>
         internal void TrimTo(Dictionary<GroupOperationKey, StoredRecord> records, int capacity)
         {
+            // Outcomes admitted after the first eviction are not in the queue built then: order the whole store afresh.
+            _queue = null;
             var evicted = true;
             while (evicted && records.Count > capacity)
                 evicted = TryEvictOlderThan(records, ulong.MaxValue);
