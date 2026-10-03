@@ -22,7 +22,9 @@ internal static class RuntimeServiceRegistration
         /// <returns><paramref name="services" /> for chaining.</returns>
         internal IServiceCollection AddSquirixClusterLocator(TopologyOptions cluster)
         {
-            _ = services.AddSingleton(new ConsistentHashNodeLocator(GetPeerNodeIds(cluster), cluster.VirtualNodes));
+            var nodeIds = GetPeerNodeIds(cluster);
+            _ = services.AddSingleton(new ConsistentHashNodeLocator(nodeIds, cluster.VirtualNodes));
+            _ = services.AddSingleton(RingFingerprint.Create(cluster.ClusterId, nodeIds, cluster.VirtualNodes));
             _ = services.AddSingleton<INodeLocator>(static sp => sp.GetRequiredService<ConsistentHashNodeLocator>());
             _ = services.AddSingleton<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(
                 sp.GetRequiredService<INodeLocator>(),
