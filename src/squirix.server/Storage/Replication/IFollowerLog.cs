@@ -60,6 +60,25 @@ internal interface IFollowerLog : IAsyncDisposable
     Task<FollowerLogAppendResult> AppendAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Appends an ordered batch of entries after checking the leader topology, with the check and the append under one log gate
+    /// acquisition.
+    /// </summary>
+    /// <param name="request">The appending request.</param>
+    /// <param name="topologyFingerprint">Leader topology fingerprint.</param>
+    /// <param name="configurationGeneration">Leader configuration generation.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The outcome of the appending attempt; a topology disagreement is refused before anything else.</returns>
+    /// <remarks>
+    /// Taking the gate once keeps the arrival order of concurrent appends: a separate status read followed by an append would let two
+    /// queued appends swap between the two acquisitions.
+    /// </remarks>
+    Task<FollowerLogAppendResult> AppendAsync(
+        FollowerLogAppendRequest request,
+        ReadOnlyMemory<byte> topologyFingerprint,
+        ulong configurationGeneration,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Returns the committed entries in the exclusive <c language="csharp">LastAppliedIndex</c> to inclusive <c language="csharp">CommitIndex</c>
     /// range, rather than the full committed prefix, because applied payloads are released from memory.
     /// </summary>
