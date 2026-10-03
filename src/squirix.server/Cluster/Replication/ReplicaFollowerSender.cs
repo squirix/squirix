@@ -224,7 +224,10 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                 return Task.FromException<ReplicaDurableAcknowledgement>(new ObjectDisposedException(nameof(ReplicaFollowerSender)));
 
             if (record.LogIndex <= _lastEnqueuedIndex || record.Term < _lastEnqueuedTerm)
-                return Task.FromException<ReplicaDurableAcknowledgement>(new InvalidOperationException($"Follower '{_nodeId}' append out of order: index {record.LogIndex} after {_lastEnqueuedIndex}."));
+            {
+                return Task.FromException<ReplicaDurableAcknowledgement>(
+                    new InvalidOperationException($"Follower '{_nodeId}' append out of order: index {record.LogIndex} after {_lastEnqueuedIndex}."));
+            }
 
             if (_pending.Count >= MaxPendingEntries || (_pending.Count > 0 && _pendingBytes + item.Bytes > MaxPendingBytes))
                 return Task.FromException<ReplicaDurableAcknowledgement>(new InvalidOperationException(BacklogFullMessage));

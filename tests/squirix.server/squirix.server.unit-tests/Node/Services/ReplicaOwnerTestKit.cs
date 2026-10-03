@@ -56,7 +56,10 @@ internal static class ReplicaOwnerTestKit
         new(registry, new ThreeNodeLocator(), gateway, cache, "n1", new ReplicaTopologyStamp(Fingerprint, 1), log ?? NullLogger<ReplicaGroupCommitter>.Instance);
 
     internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, TimeSpan commitBudget) =>
-        new(registry, new ThreeNodeLocator(), gateway, new StubCache(), "n1", new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance) { CommitBudget = commitBudget };
+        new(registry, new ThreeNodeLocator(), gateway, new StubCache(), "n1", new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+        {
+            CommitBudget = commitBudget,
+        };
 
     internal static ReplicaGroupCommitter CreateCommitter(
         ReplicaGroupRegistry registry,
