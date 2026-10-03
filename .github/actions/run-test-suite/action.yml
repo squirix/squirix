@@ -22,6 +22,12 @@ inputs:
       until the build job has uploaded its outputs. The job needs the actions read permission.
     required: false
     default: "false"
+  build:
+    description: >-
+      When true, the job builds the projects of its suite itself instead of downloading the outputs of the build job, which
+      takes less time than waiting for the whole build and its upload.
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -53,12 +59,32 @@ runs:
 
     # Every runner kind tests the outputs of the one ubuntu build. They are portable: the assemblies are the same whatever
     # system compiles them, and the output folders carry the native assets of every test platform. A test assembly needs only
-    # the .NET 10 runtime, which every runner image ships, so no job installs the SDK pinned in global.json.
+    # the .NET 10 runtime, which every runner image ships, so no job installs the SDK pinned in global.json. A job that builds its
+    # suite itself (input build) sets the SDK up for that build instead.
     - name: Download Build Outputs
+      if: inputs.build != 'true'
       uses: ./.github/actions/download-build-outputs
       with:
         framework: ${{ inputs.framework }}
         wait-for-build: ${{ inputs.wait-for-build }}
+
+    - name: List Suite Projects
+      id: projects
+      if: inputs.build == 'true'
+      shell: bash
+      env:
+        RUNS: ${{ steps.select.outputs.runs }}
+      run: echo "list=$(cut -f2 <<< "$RUNS" | sed '/^$/d' | sort -u | paste -sd ' ')" >> "$GITHUB_OUTPUT"
+
+    - name: Build Suite Projects
+      if: inputs.build == 'true'
+      uses: ./.github/actions/build-release
+      with:
+        artifact-os: ${{ inputs.os }}
+        framework: ${{ inputs.framework }}
+        analyzers: "false"
+        upload-outputs: "false"
+        projects: ${{ steps.projects.outputs.list }}
 
     # A suite id selects one test host run, or for a group several runs back to back. Every run keeps its own name for the
     # log, the TRX file and the coverage directory, so a single suite produces the same files whether it runs alone or in a group.

@@ -547,7 +547,9 @@ jobs:
                     suite: ${{ matrix.suite }}
                     # PR fast path: no coverage on pull_request.
                     collect-coverage: ${{ github.event_name != 'pull_request' }}
-                    wait-for-build: "true"
+                    # On a pull request each job builds its own suite: that ends sooner than the whole build and its upload.
+                    wait-for-build: ${{ github.event_name != 'pull_request' }}
+                    build: ${{ github.event_name == 'pull_request' }}
 
     test-windows:
         name: Test (windows-latest / net10.0 / ${{ matrix.suite }})

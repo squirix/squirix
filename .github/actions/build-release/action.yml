@@ -25,6 +25,10 @@ inputs:
     description: When true, build only the projects under src/ and tests/, whose outputs the artifact carries; the benchmarks and samples are built by the jobs that run them. Otherwise the whole solution builds.
     required: false
     default: "false"
+  projects:
+    description: When set, build only these projects (space-separated paths) and the projects they reference, for a job that runs their outputs itself.
+    required: false
+    default: ""
   runtime-assets:
     description: Which runtime-specific assets (runtimes/<rid>/) the artifact keeps. `all` keeps every one; `host` keeps the runner's own platform, for an artifact only the runner kind that built it consumes; `test-runners` keeps the platforms of the test runner kinds (Linux x64 and ARM64, Windows x64, macOS ARM64).
     required: false
@@ -56,7 +60,8 @@ runs:
     #  - test outputs: every project entry of squirix.slnx is a single line, so dropping those of benchmarks/ and samples/
     #    leaves valid XML;
     #  - an analysis shard: its projects, as SquirixPrintAnalysisShard (Directory.Build.props) reports them; the projects they
-    #    reference build with them. The `default` shard owns every unclaimed project, so a new project lands in its list.
+    #    reference build with them. The `default` shard owns every unclaimed project, so a new project lands in its list;
+    #  - given projects: those projects; the projects they reference build with them.
     - name: Select Solution
       id: solution
       shell: bash
@@ -69,6 +74,20 @@ runs:
           fi
           grep -vE '<Project Path="(benchmarks|samples)/' squirix.slnx > squirix.test-outputs.slnx
           echo "path=squirix.test-outputs.slnx" >> "$GITHUB_OUTPUT"
+        elif [ -n "${{ inputs.projects }}" ]; then
+          if [ -n "$shard" ] || [ "${{ inputs.upload-outputs }}" = "true" ]; then
+            echo "projects builds outputs for the job itself, so it cannot be combined with an analysis shard or an upload." >&2
+            exit 1
+          fi
+          {
+            echo '<Solution>'
+            for project in ${{ inputs.projects }}; do
+              echo "    <Project Path=\"$project\"/>"
+            done
+            echo '</Solution>'
+          } > squirix.projects.slnx
+          cat squirix.projects.slnx
+          echo "path=squirix.projects.slnx" >> "$GITHUB_OUTPUT"
         elif [ -n "$shard" ]; then
           # Written to a file first: a failing msbuild then fails the step instead of leaving a partial list. The listing must
           # also name every project of the solution, so a project that printed nothing cannot drop out unnoticed. A project
