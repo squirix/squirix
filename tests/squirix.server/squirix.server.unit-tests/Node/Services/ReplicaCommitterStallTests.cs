@@ -102,20 +102,22 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         };
         try
         {
-            var started = Stopwatch.GetTimestamp();
             var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken);
 
             // On a busy machine the short budget can expire before the committer reaches the follower; the outcome contract asserted
             // below is the same either way, so wait for whichever comes first instead of hanging until the stall timeout.
             _ = await Task.WhenAny(gateway.Entered, write).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
+            // Timed from the stalled follower call, not from the call: the committer's first start opens and recovers the group logs
+            // before the budget runs, and that work depends on the machine, not on the budget. Only the budget remains after this point.
+            var stalled = Stopwatch.GetTimestamp();
             var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            var elapsed = Stopwatch.GetElapsedTime(started);
+            var elapsed = Stopwatch.GetElapsedTime(stalled);
 
             _ = await Assert.That(defaults.CommitBudget).IsEqualTo(TimeSpan.FromSeconds(5));
             _ = await Assert.That(committer.CommitBudget).IsEqualTo(ShortCommitBudget);
             _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
-            _ = await Assert.That(elapsed < ShortCommitBudget + TimeSpan.FromSeconds(2)).IsTrue().Because($"the shortened budget ended the commit in {elapsed}");
+            _ = await Assert.That(elapsed < ShortCommitBudget + TimeSpan.FromSeconds(2)).IsTrue().Because($"the shortened budget ended the stalled commit {elapsed} after it reached the follower");
             _ = await Assert.That(log.UnknownLevel).IsEqualTo(LogLevel.Warning);
             _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(1UL);
             _ = await Assert.That(local.Applied.IsEmpty).IsTrue();
