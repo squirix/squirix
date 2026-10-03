@@ -382,39 +382,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         };
     }
 
-    /// <summary>Compacts the journal prefix covered by the published snapshot, retaining the installable state.</summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The compaction outcome.</returns>
-    internal async Task<GroupCompactionResult> CompactAsync(CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-
-        return IsDisposed || Readiness != FollowerLogReadiness.Ready ? new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady)
-            : await FollowerLogSnapshot.CompactAsync(_journal, this, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Creates and durably publishes a snapshot covering the committed prefix up to <paramref name="lastIncludedIndex" />.</summary>
-    /// <param name="lastIncludedIndex">The highest committed journal index the snapshot covers.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The published snapshot.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when the log is not ready or the snapshot would include uncommitted entries.</exception>
-    internal async Task<GroupSnapshot> CreateSnapshotAsync(ulong lastIncludedIndex, CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-            throw new InvalidOperationException($"Replica group '{GroupId}' cannot create a snapshot; the log is {(IsDisposed ? "disposed" : "not ready")}.");
-
-        FollowerLogSnapshot.ValidateSnapshotRequest(_journal, this, lastIncludedIndex);
-        var snapshot = FollowerLogSnapshot.BuildSnapshot(_journal, this, lastIncludedIndex);
-        await _journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
-
-        // The covered prefix stays readable in memory until the applied watermark releases it,
-        // so publication records the baseline alone instead of pruning the indexes.
-        _journal.RestoreBaseline(new SnapshotBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm));
-        return snapshot;
-    }
-
     internal async Task<FollowerLogReconcileResult> ReconcileTailAsync(ulong fromIndex, ulong prevLogTerm, ulong leaderTerm, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
@@ -2296,30 +2263,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             var memory = owner.Meta.TopologyFingerprint;
             return (!memory.IsEmpty && !memory.Span.SequenceEqual(snapshot.TopologyFingerprint.Span)) || snapshot.ConfigurationGeneration < owner.Meta.ConfigurationGeneration
                 ? FollowerLogRefusal.TopologyMismatch : null;
-        }
-
-        internal static void ValidateSnapshotRequest(FollowerLogJournal journal, IFollowerLogContext owner, ulong lastIncludedIndex)
-        {
-            if (owner.Readiness != FollowerLogReadiness.Ready)
-                throw new InvalidOperationException($"Replica group '{owner.GroupId}' is not ready to create a snapshot.");
-
-            if (lastIncludedIndex == 0UL)
-                throw new InvalidOperationException($"Replica group '{owner.GroupId}' cannot snapshot at index zero.");
-
-            if (lastIncludedIndex > owner.Meta.CommitIndex)
-            {
-                throw new InvalidOperationException(
-                    $"Replica group '{owner.GroupId}' cannot snapshot an uncommitted index '{lastIncludedIndex}' (commit index is '{owner.Meta.CommitIndex}').");
-            }
-
-            if (lastIncludedIndex > owner.LastLogIndex)
-                throw new InvalidOperationException($"Replica group '{owner.GroupId}' cannot snapshot beyond the durable last index '{owner.LastLogIndex}'.");
-
-            if (lastIncludedIndex < journal.SnapshotBaseline.LastIncludedIndex)
-            {
-                throw new InvalidOperationException(
-                    $"Replica group '{owner.GroupId}' cannot snapshot below the published baseline '{journal.SnapshotBaseline.LastIncludedIndex}'.");
-            }
         }
 
         /// <summary>Atomically rewrites the durable log from the header plus the retained tail.</summary>

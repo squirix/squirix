@@ -74,7 +74,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await source.AppendAsync(Append(3UL, "c"), cancellationToken);
         _ = await source.AdvanceCommitAsync(3UL, cancellationToken);
-        var snapshot = await source.CreateSnapshotAsync(3UL, cancellationToken);
+        var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 3UL, cancellationToken);
 
         await using var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await target.OpenAsync(cancellationToken);
@@ -91,7 +91,16 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
     public async Task InstallKeepsAppliedBelowBoundary(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-install-applied-watermark");
+        using var sourceDir = new TempDirectory("squirix-install-applied-watermark-source");
         var composition = GroupComposition.Create(GroupId);
+
+        await using var source = new FollowerLog(sourceDir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await source.OpenAsync(cancellationToken);
+        _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
+        _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
+        _ = await source.AppendAsync(Append(3UL, "c"), cancellationToken);
+        _ = await source.AdvanceCommitAsync(3UL, cancellationToken);
+        var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, sourceDir, 3UL, cancellationToken);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
@@ -100,12 +109,43 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
         _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
 
-        var snapshot = await log.CreateSnapshotAsync(3UL, cancellationToken);
         var result = await log.InstallSnapshotAsync(snapshot, 1UL, cancellationToken);
 
         _ = await Assert.That(result.Success).IsTrue();
         var status = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That(status.LastAppliedIndex).IsEqualTo(0UL);
+    }
+
+    /// <summary>Installing a snapshot releases an unresolved reservation it did not export from the covered prefix, and keeps the resolved outcome.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InstallReleasesPrefixReservation(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-replica-idempotency-install");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await log.OpenAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+        _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
+        _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
+        _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+
+        _ = await Assert.That(log.Idempotency.Reserve("client", "orphan", [1], GroupRecordKind.UserMutation, 2UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(log.Idempotency.Reserve("client", "kept", [2], GroupRecordKind.UserMutation, 1UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(log.Idempotency.TryResolve("client", "kept", [3], 1UL, 1UL)).IsTrue();
+
+        // Compaction refuses a prefix with an unresolved outcome, so only an installed snapshot can drop one; this one exports just the resolved outcome.
+        var now = DateTime.UtcNow;
+        var kept = new GroupIdempotencyRecord("client", "kept", new byte[] { 2 }, new byte[] { 3 }, GroupRecordKind.UserMutation, now, now, 1UL, 1UL);
+        var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 2UL, 2UL, [kept], now);
+        var install = await log.InstallSnapshotAsync(snapshot, 1UL, cancellationToken);
+        _ = await Assert.That(install.Success).IsTrue();
+
+        _ = await Assert.That(log.Idempotency.Lookup("client", "orphan", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(log.Idempotency.Lookup("client", "kept", [2], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(record.IsResolved).IsTrue();
+        _ = await Assert.That(log.Idempotency.Reserve("client", "orphan", [1], GroupRecordKind.UserMutation, 3UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
     }
 
     /// <summary>Install durably persists a higher leader term before publishing the snapshot.</summary>

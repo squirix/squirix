@@ -46,7 +46,7 @@ internal static class RemoteClientSessionFactory
             var failover = new EndpointFailover(pool.BootstrapNodeIds, primaryNodeId, CallPolicyDefaults.OperationDeadline, TimeProvider.System);
             var connected = pool;
             pool = null;
-            return new RemoteClientSession(connected, failover, SerializationProvider.Create(serializer));
+            return new RemoteClientSession(connected, failover, CreateSerializer(serializer));
         }
         finally
         {

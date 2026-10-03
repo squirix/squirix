@@ -132,34 +132,6 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
             });
     }
 
-    /// <summary>Derives a deterministic group id for an original owner under this fingerprint.</summary>
-    /// <param name="clusterId">Cluster identifier.</param>
-    /// <param name="originalOwnerNodeId">Original owner node identifier.</param>
-    /// <returns>Uppercase hex group identifier.</returns>
-    /// <exception cref="ArgumentException">Thrown when identifiers are empty.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when the digest cannot be materialized.</exception>
-    internal string CreateGroupId(string clusterId, string originalOwnerNodeId)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(clusterId);
-        ArgumentException.ThrowIfNullOrEmpty(originalOwnerNodeId);
-
-        using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        AppendString(hasher, "group-id-v1");
-        AppendString(hasher, clusterId);
-        AppendBytes(hasher, Bytes);
-        AppendString(hasher, originalOwnerNodeId);
-        Span<byte> span = stackalloc byte[32];
-        return hasher.TryGetHashAndReset(span, out var w) && w == 32 ? Convert.ToHexString(span) : throw new InvalidOperationException("Failed to compute group id digest.");
-    }
-
-    private static void AppendBytes(IncrementalHash hasher, ReadOnlySpan<byte> value)
-    {
-        Span<byte> length = stackalloc byte[4];
-        BinaryPrimitives.WriteInt32LittleEndian(length, value.Length);
-        hasher.AppendData(length);
-        hasher.AppendData(value);
-    }
-
     private static void AppendInt32(IncrementalHash hasher, int value)
     {
         Span<byte> buffer = stackalloc byte[4];
