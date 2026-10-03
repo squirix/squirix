@@ -33,8 +33,10 @@
          anywhere. Without the property (local builds, the IDE, packaging) every project is analyzed.
          The shard names are listed in SquirixAnalysisShards and in the CI job that runs one build per shard. -->
     <PropertyGroup Label="AnalysisShards">
-        <SquirixAnalysisShards>default;server-unit-tests;server-tests</SquirixAnalysisShards>
+        <SquirixAnalysisShards>default;server;server-unit-tests;server-tests</SquirixAnalysisShards>
         <SquirixProjectAnalysisShard>default</SquirixProjectAnalysisShard>
+        <!-- Squirix.Server alone: in `default` its analysis delayed every project there that references it. -->
+        <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server'">server</SquirixProjectAnalysisShard>
         <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server.UnitTests'">server-unit-tests</SquirixProjectAnalysisShard>
         <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server.TestKit' Or '$(MSBuildProjectName)' == 'Squirix.Server.IntegrationTests' Or '$(MSBuildProjectName)' == 'Squirix.Server.SmokeTests' Or '$(MSBuildProjectName)' == 'Squirix.E2ETests'">server-tests</SquirixProjectAnalysisShard>
     </PropertyGroup>
