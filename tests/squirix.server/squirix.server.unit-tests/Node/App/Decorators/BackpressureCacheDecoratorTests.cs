@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -42,7 +41,7 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(50),
             },
-            new BackpressureMetrics(_testMeter, NullLogger<BackpressureMetrics>.Instance));
+            new BackpressureMetrics(_testMeter));
 
         using var held = (await gate.AcquireAsync("cache", CacheOperationNames.Get, "jwt:client-a", cancellationToken)).Lease;
 
@@ -83,7 +82,7 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(50),
             },
-            new BackpressureMetrics(_testMeter, NullLogger<BackpressureMetrics>.Instance));
+            new BackpressureMetrics(_testMeter));
 
         using var held = (await gate.AcquireAsync("cache", CacheOperationNames.Set, "jwt:client-a", cancellationToken)).Lease;
 

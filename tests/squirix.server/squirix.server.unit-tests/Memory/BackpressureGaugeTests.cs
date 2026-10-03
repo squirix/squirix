@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
@@ -52,7 +51,7 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
             MaxQueueWait = TimeSpan.FromMilliseconds(200),
             PerClientMaxInFlight = 1,
         };
-        using var gate = new AdmissionGate(backpressureOptions, new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
+        using var gate = new AdmissionGate(backpressureOptions, new BackpressureMetrics(meter));
         var first = (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease;
         var secondAcquire = gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken).AsTask();
         await WaitForGaugeSnapshotAsync(listener, inFlight, queueDepth, trackedClients, cancellationToken);
@@ -90,12 +89,12 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
             PerClientMaxInFlight = 1,
         };
 
-        using var gateA = new AdmissionGate(options, new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
+        using var gateA = new AdmissionGate(options, new BackpressureMetrics(meter));
 
         var firstA = (await gateA.AcquireAsync("rest", "get", "rest:gateA:client-a", cancellationToken)).Lease;
         var queuedA = gateA.AcquireAsync("rest", "get", "rest:gateA:client-b", cancellationToken).AsTask();
 
-        var gateB = new AdmissionGate(options, new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
+        var gateB = new AdmissionGate(options, new BackpressureMetrics(meter));
         gateB.Dispose();
 
         await WaitForGaugeSnapshotAsync(listener, inFlight, queueDepth, trackedClients, cancellationToken);
@@ -135,7 +134,7 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
                 map[instrument.Name].Add(measurement);
         });
         listener.Start();
-        using var gate = new AdmissionGate(new AdmissionOptions(), new BackpressureMetrics(meter, NullLogger<BackpressureMetrics>.Instance));
+        using var gate = new AdmissionGate(new AdmissionOptions(), new BackpressureMetrics(meter));
         var (_, first) = await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken);
         var (_, second) = await gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken);
         listener.RecordObservableInstruments();
@@ -145,6 +144,21 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
         _ = await Assert.That(inFlight).Contains(2);
         _ = await Assert.That(trackedClients).IsNotEmpty();
         _ = await Assert.That(trackedClients.TrueForAll(static count => count == 0)).IsTrue();
+    }
+
+    /// <summary>Verifies the gauges read one gate at a time: a second gate is refused until the first one is disposed.</summary>
+    [Test]
+    public async Task MetricsObserveOneGateAtATime()
+    {
+        using var meter = new Meter(MeterName);
+        var metrics = new BackpressureMetrics(meter);
+        var first = new AdmissionGate(new AdmissionOptions(), metrics);
+
+        var refused = NodeExceptionAssert.For<InvalidOperationException>().Throws(metrics, static m => _ = new AdmissionGate(new AdmissionOptions(), m));
+        first.Dispose();
+        using var next = new AdmissionGate(new AdmissionOptions(), metrics);
+
+        _ = await Assert.That(refused.Message).Contains("already observe", StringComparison.Ordinal);
     }
 
     private static MeterListener CreateBackpressureGaugeListener(FrozenDictionary<string, List<int>> measurements)

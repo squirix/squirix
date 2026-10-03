@@ -31,10 +31,12 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _options = options;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _options.Validate();
+
+        // Registered before the semaphore is created, so a refused registration leaves nothing to dispose.
+        _observerRegistration = _metrics.RegisterObservers(ObserveInFlight, ObserveQueueDepth, ObserveTrackedClients);
         _slots = new AsyncSemaphore(_options.MaxInFlight);
         _nodeRateLimiter = RateLimiter.Create(_options.NodeRateLimitPerSecond, _options.NodeRateLimitBurst, _timeProvider);
         _sharedClient = _options.HasPerClientLimits ? null : new ClientState(_options, _timeProvider);
-        _observerRegistration = _metrics.RegisterObservers(ObserveInFlight, ObserveQueueDepth, ObserveTrackedClients);
     }
 
     public async ValueTask<(Decision Decision, Lease Lease)> AcquireAsync(string transport, string operation, string clientId, CancellationToken cancellationToken)
