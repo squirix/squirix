@@ -193,7 +193,6 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
         {
             DataDir = " ",
             JournalMaxSegmentMb = 1,
-            FlushInterval = 5,
             ManifestRetentionCount = 1,
             SnapshotRetentionCount = 1,
         };

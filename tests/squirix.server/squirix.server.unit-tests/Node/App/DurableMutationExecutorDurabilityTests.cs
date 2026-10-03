@@ -31,7 +31,6 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
             JournalGroupCommitMaxBatch = 8,
@@ -78,7 +77,6 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 5,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(5) : TimeSpan.Zero,
         };
@@ -120,7 +118,6 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
 

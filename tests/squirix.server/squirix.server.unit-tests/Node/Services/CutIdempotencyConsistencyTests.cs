@@ -45,7 +45,6 @@ public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBas
         {
             DataDir = dir,
             JournalMaxSegmentMb = 16,
-            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };

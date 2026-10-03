@@ -229,7 +229,6 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
     {
         DataDir = dataDir,
         JournalMaxSegmentMb = 1,
-        FlushInterval = 600_000,
         ManifestRetentionCount = 3,
     };
 

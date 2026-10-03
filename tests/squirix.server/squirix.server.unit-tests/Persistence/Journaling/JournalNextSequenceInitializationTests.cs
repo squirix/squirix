@@ -296,7 +296,6 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
     {
         DataDir = dataDir,
         JournalMaxSegmentMb = 16,
-        FlushInterval = 5,
         ManifestRetentionCount = 1,
     };
 }

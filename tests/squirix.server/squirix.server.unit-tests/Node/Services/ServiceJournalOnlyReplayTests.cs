@@ -46,7 +46,7 @@ public sealed class ServiceJournalOnlyReplayTests : DisposableServerUnitTestBase
             cancellationToken);
 
         var gate = new AsyncManualResetEvent(true);
-        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
         var recovery = new RecoveryService<object?>(
             new RecoveryOptions { BlockOnStart = true },
             NullLogger<RecoveryService<object?>>.Instance,

@@ -53,7 +53,6 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
         {
             DataDir = dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };

@@ -42,7 +42,6 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
 
@@ -108,7 +107,6 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
 
@@ -171,7 +169,6 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
 

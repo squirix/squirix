@@ -12,11 +12,6 @@ internal sealed record PersistenceOptions
     [JsonInclude]
     internal string DataDir { get; init; } = string.Empty;
 
-    /// <summary>Gets the persistence flush interval in milliseconds.</summary>
-    [JsonPropertyName("flushInterval")]
-    [JsonInclude]
-    internal int FlushInterval { get; init; } = PersistenceOptionsDefaults.FlushInterval;
-
     /// <summary>Gets a value indicating whether a journal group commit is enabled.</summary>
     internal bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWait > TimeSpan.Zero;
 
@@ -107,7 +102,6 @@ internal sealed record PersistenceOptions
     /// <exception cref="InvalidOperationException">Thrown when a scalar is out of range.</exception>
     internal void Validate()
     {
-        RequirePositive(FlushInterval, nameof(FlushInterval));
         RequirePositive(JournalGroupCommitMaxBatch, nameof(JournalGroupCommitMaxBatch));
         if (JournalGroupCommitMaxWait < TimeSpan.Zero)
             throw new InvalidOperationException("Persistence JournalGroupCommitMaxWait cannot be negative.");
@@ -150,9 +144,6 @@ internal sealed record PersistenceOptions
 
     private static class PersistenceOptionsDefaults
     {
-        /// <summary>Default flush interval in milliseconds for the persistence pipeline.</summary>
-        internal const int FlushInterval = 10;
-
         /// <summary>Default maximum number of concurrent durable mutations sharing one durability flush.</summary>
         internal const int JournalGroupCommitMaxBatch = 32;
 

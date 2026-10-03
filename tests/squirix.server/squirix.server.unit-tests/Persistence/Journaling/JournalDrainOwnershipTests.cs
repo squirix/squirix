@@ -224,7 +224,6 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
     {
         DataDir = Dir,
         JournalMaxSegmentMb = 1,
-        FlushInterval = 600_000,
         ManifestRetentionCount = 3,
     };
 
