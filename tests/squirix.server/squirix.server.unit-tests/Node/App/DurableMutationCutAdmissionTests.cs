@@ -64,7 +64,7 @@ public sealed class DurableMutationCutAdmissionTests : IsolatedStorageTestBase
         var sequences = journal.ReadPutSequences(cancellationToken);
 
         _ = await Assert.That(lateWriterPending).IsTrue();
-        _ = await Assert.That(cut.Watermark).IsLessThanOrEqualTo(cut.LastAllocated);
+        _ = await Assert.That(cut.Watermark).IsLessThanOrEqualTo(sequences[KeyA]);
         _ = await Assert.That(cut.LastAllocated).IsEqualTo(sequences[KeyA]);
         _ = await Assert.That(sequences[KeyB]).IsGreaterThan(cut.LastAllocated);
         _ = await Assert.That(cut.AppliedAtCapture).IsEqualTo(KeyA);
@@ -140,6 +140,52 @@ public sealed class DurableMutationCutAdmissionTests : IsolatedStorageTestBase
         _ = await Assert.That(watermark).IsGreaterThan(0UL);
         _ = await Assert.That(admitted).IsTrue();
         _ = await Assert.That(journal.Journal.InFlightApplyGate.HasPending).IsFalse();
+    }
+
+    /// <summary>
+    /// Shutdown while a cut drains an in-flight writer and another writer waits for admission: the cut fails and reopens admission, the
+    /// waiting writer fails without appending, and no in-flight apply or key lock is left behind.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ShutdownFailsCutAndWaitingWriters(CancellationToken cancellationToken)
+    {
+        await using var journal = await StallableJournal.CreateAsync(Dir, true, TimeSpan.FromMilliseconds(250), NullLogger.Instance, cancellationToken);
+        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("w"), JournalEntryPayloadKit.EncodePut("w"), cancellationToken);
+        await journal.Journal.AwaitDurabilityCommitAsync(cancellationToken);
+        var memory = new AppliedKeys();
+        var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
+        journal.Writer.Flush.Arm();
+        Exception cutError;
+        Exception waitingError;
+        try
+        {
+            var first = memory.PutAsync(executor, journal.Journal, "a", cancellationToken);
+            await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            var cutTask = journal.Journal.ExecuteSnapshotCutAsync(
+                0,
+                static (_, sequence, _) => new ValueTask<ulong>(sequence),
+                static (_, _, barrier, _) => new ValueTask<ulong>(barrier),
+                cancellationToken).AsTask();
+            var second = memory.PutAsync(executor, journal.Journal, "b", cancellationToken);
+            _ = await Assert.That(await IsStillPendingAsync(second, cancellationToken)).IsTrue();
+
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(first.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            cutError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(cutTask.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            waitingError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(second.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        }
+        finally
+        {
+            await journal.ReclaimLeakedAsync(StallTimeout);
+        }
+
+        _ = await Assert.That(cutError).IsTypeOf<ObjectDisposedException>().Because(cutError.ToString());
+        _ = await Assert.That(waitingError).IsNotTypeOf<OperationCanceledException>().Because(waitingError.ToString());
+        _ = await Assert.That(journal.Journal.InFlightApplyGate.HasPending).IsFalse();
+        _ = await Assert.That(executor.HeldKeyCount).IsEqualTo(0);
+        _ = await Assert.That(journal.ReadStampedPuts(cancellationToken)).IsEqualTo(StallableJournal.Describe([KeyA, CacheKey.Default("w").ToString()]));
+        _ = await Assert.That(memory.Snapshot).IsEmpty();
     }
 
     private static async Task<bool> IsStillPendingAsync(Task operation, CancellationToken cancellationToken)

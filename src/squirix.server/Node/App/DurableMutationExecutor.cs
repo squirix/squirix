@@ -29,6 +29,9 @@ internal sealed class DurableMutationExecutor
         _logger = logger;
     }
 
+    /// <summary>Gets the number of keys currently held or awaited by grouped mutations.</summary>
+    internal int HeldKeyCount => _keyLocks.Count;
+
     internal async ValueTask<TResult> ExecuteAsync<TState, TResult>(
         CacheKey? conflictKey,
         Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
