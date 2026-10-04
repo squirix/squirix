@@ -37,19 +37,17 @@ See [configuration](configuration.md#journal) for the settings format and bounds
 
 ## Durability guarantee
 
-Group commit never lets a caller see success before its journal bytes are fsynced, but when memory is applied depends on
-whether the mutation carries an operation id:
+Group commit never lets a caller or a reader see a value before its journal bytes are fsynced:
 
-- **Response after fsync (always).** The caller's response waits for a durability flush that covers its append. Every
-  mutation of the v0.1 client carries an operation id, and its outcome is recorded durably before the response is sent
+- **Apply after fsync.** A mutation appends, waits for the shared flush, and applies to memory only afterwards, with or
+  without an operation id. A reader never sees a value that a crash right now would lose, and a failed fsync never leaves
+  the value in memory.
+- **Response after a second fsync (with an operation id).** Every mutation of the v0.1 client carries an operation id, and
+  its outcome is recorded durably before the response is sent
   (`RpcMutationIdempotencyCoordinator.RecordOutcomeDurablyAsync`).
-- **Apply after fsync (only without an operation id).** A mutation without an operation id appends, waits for the shared
-  flush, and applies to memory under the mutation gate only afterwards.
-- **Apply before fsync (with an operation id).** Durability is deferred: memory is applied right after the append, so
-  other readers can observe the value before it is durable. Only the caller's response waits for the fsync.
 
-A response is therefore never sent before its bytes are covered by a completed durability flush (same guarantee as
-per-mutation `FlushAsync`), while a concurrent reader can see a value that a crash right now would lose.
+Replicated applies are the exception: their durable source is the group log, so they do not wait for the node journal
+before applying.
 
 ## Scope and failure behaviour
 
@@ -59,16 +57,18 @@ per-mutation `FlushAsync`), while a concurrent reader can see a value that a cra
 - **Cancellation.** After the append the durability wait cannot be cancelled by the caller. A client deadline shorter than
   `GroupCommitMaxWait` ends the call with `DeadlineExceeded` while the write still commits; a retry with the same
   operation id replays the recorded outcome.
-- **Shutdown and flush failure.** A graceful stop completes pending grouped writes successfully: the final flush of the
-  shutdown marker covers their frames. A write ends with `COMMIT_OUTCOME_UNKNOWN` (gRPC `Unavailable`) only when the stop
-  times out, the final flush fails, or a failure was latched before the marker; the write may or may not be durable, so
-  retry with the same operation id.
+- **Shutdown and flush failure.** A graceful stop completes pending grouped writes without an operation id successfully:
+  the final flush of the shutdown marker covers their frames. A write with an operation id parked in the durability wait is
+  made durable and applied, but its outcome can no longer be appended, so it ends with `COMMIT_OUTCOME_UNKNOWN` (gRPC
+  `Unavailable`); retry with the same operation id after restart. Any write also ends with `COMMIT_OUTCOME_UNKNOWN` when
+  the stop times out, the final flush fails, or a failure was latched before the marker; the write may or may not be
+  durable.
 
 ## When to enable group commit
 
 Enable group commit only when **all** of the following apply:
 
-- You have **many concurrent durable mutations** (on different keys or on a hot key).
+- You have **many concurrent durable mutations** (on different keys).
 - Throughput matters more than minimizing commit tail latency.
 - You can benchmark on **your** storage and OS and accept the latency trade-off.
 
@@ -79,8 +79,8 @@ Leave the default (`MaxWait = 0`) when:
 - You have not measured fsync cost and concurrent writer count on target hardware.
 
 Group commit batches waiters that reach `AwaitDurabilityCommitAsync` at roughly the same time. Mutations on the **same
-cache key** are serialized per key in arrival order and none is refused. A same-key mutation releases the key before its
-fsync, and the outcome waits of consecutive same-key mutations share batches, so a hot key also benefits.
+cache key** are serialized per key in arrival order and none is refused. The key stays held across the fsync, so a hot key
+completes about one write per fsync (per `MaxWait` plus fsync); distinct keys still share batches.
 
 ## Tuning guide (operator / integrator)
 
