@@ -122,7 +122,7 @@ internal static class JournalFlushTailMeasurement
         foreach (var samples in perWriter)
             endToEnd.AddRange(samples);
 
-        return new TailResult(scenario, elapsed, endToEnd, host.Writer.Flushes, host.Writer.Writes, probe.MaxAge);
+        return new TailResult(scenario, elapsed, endToEnd, host.Writer.Flushes, host.Writer.Writes, probe.ReadMaxAge());
     }
 
     private static void PrintTables(List<TailResult> results)

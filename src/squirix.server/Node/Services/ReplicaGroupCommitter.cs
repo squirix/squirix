@@ -342,30 +342,11 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         ReplicaVerificationSnapshot snapshot,
         CancellationToken cancellationToken)
     {
-        var status = snapshot.Status;
-        var probed = snapshot.Probed;
-
         // A coordinator that still retains entries is never replaced (its restart refuses): the verified slots are admitted into it,
         // and its resolver commits and applies what they now cover. Otherwise the coordinator starts here, recovering the log tail.
         var coordinator = !await TryApplyPendingAsync().ConfigureAwait(false) && _coordinator is { } retained ? retained
             : (await EnsureStartedAsync(false, cancellationToken).ConfigureAwait(false)).Coordinator;
-        var current = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-
-        // A commit may have moved the tail between the unguarded probe and the gate: the verdicts then describe
-        // an older tail, so the slots that answered are probed again against the current one.
-        if (current.LastLogIndex != status.LastLogIndex || current.LastLogTerm != status.LastLogTerm)
-            probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, snapshot.Answered, snapshot.Members, snapshot.Header, current, ReplicaVerificationProbe.ProbeTimeout, cancellationToken).ConfigureAwait(false);
-
-        // StartAsync may have verified some of these slots while this call waited for the gate: an older verdict
-        // must not demote them.
-        var eligibility = _registry.EligibilityFor(GroupId);
-        for (var i = 1; i < probed.Length; i++)
-        {
-            if (eligibility.CanCountInWriteQuorum(i))
-                probed[i] = default;
-        }
-
-        ReplicaReadinessProbe.ApplyAll(eligibility, probed, in current, _topologyFingerprint, _generation, coordinator);
+        var eligibility = await Probe.AdmitVerifiedSlotsAsync(log, snapshot, coordinator, cancellationToken).ConfigureAwait(false);
         var applied = await TryApplyPendingAsync().ConfigureAwait(false);
         return applied && eligibility.AllCanCountInWriteQuorum() ? ReplicaVerification.AllReady : ReplicaVerification.Pending;
     }
@@ -403,7 +384,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
             // The log may still hold the entry (its frames were durable when the write behind them failed): the next start recovers and
             // pins it as the tail, and a majority may commit it, so the caller must not be told the write was refused.
-            if (await HoldsEntryAsync(_registry, GroupId, mutation).ConfigureAwait(false))
+            if (await _registry.HoldsEntryAsync(GroupId, mutation).ConfigureAwait(false))
             {
                 ServerLog.ReplicaCommitOutcomeUnknown(Log, error);
                 throw ServerOpContract.CommitOutcomeUnknown();
@@ -413,23 +394,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             if (error is OperationCanceledException)
                 throw ServerOpContract.TooManyRequests(CommitBudgetRefusalReason);
             throw;
-        }
-
-        static async ValueTask<bool> HoldsEntryAsync(ReplicaGroupRegistry registry, string groupId, PreparedReplicaMutation mutation)
-        {
-            if (!registry.TryGetLog(groupId, out var log))
-                return false;
-
-            try
-            {
-                var status = await log.GetStatusAsync(CancellationToken.None).ConfigureAwait(false);
-                return status.LastLogIndex >= mutation.LogIndex && await log.GetTermAtAsync(mutation.LogIndex, CancellationToken.None).ConfigureAwait(false) == mutation.Term;
-            }
-            catch (ObjectDisposedException)
-            {
-                // A closed log cannot tell; the original failure is reported as it is.
-                return false;
-            }
         }
     }
 
@@ -554,24 +518,14 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <remarks>The commit budget bounds one request, and the shutdown budget bounds waiting for one that ignores its cancellation on dispose.</remarks>
     private ReplicaFollowerSender[] CreateSenders(string[] members, in FollowerLogStatus status, in ReplicaRpcHeader header)
     {
-        var senders = new ReplicaFollowerSender[members.Length - 1];
-        var shutdownBudget = ShutdownBudget < ReplicaCommitCoordinator.DefaultShutdownBudget ? ShutdownBudget : ReplicaCommitCoordinator.DefaultShutdownBudget;
-        void Report(TimeSpan budget)
-        {
-            ServerLog.ReplicaFollowerSenderLeakedOnShutdown(Log, budget);
-        }
-
-        for (var i = 0; i < senders.Length; i++)
-        {
-            senders[i] = new ReplicaFollowerSender(_gateway, members[i + 1], in header, status.LastLogIndex, status.LastLogTerm, CommitBudget)
-            {
-                // The senders' teardown is part of this committer's dispose, so it never waits longer than this committer's budget.
-                ShutdownBudget = shutdownBudget,
-                ShutdownLeakReporter = Report,
-            };
-        }
-
-        return senders;
+        return ReplicaFollowerSenders.Create(
+            _gateway,
+            members,
+            in status,
+            in header,
+            CommitBudget,
+            ShutdownBudget,
+            budget => ServerLog.ReplicaFollowerSenderLeakedOnShutdown(Log, budget));
     }
 
     /// <summary>Closes the senders of a pipeline and logs a failure instead of throwing it, so the teardown that follows always runs.</summary>

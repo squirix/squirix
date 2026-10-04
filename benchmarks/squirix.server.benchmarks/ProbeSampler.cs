@@ -21,8 +21,9 @@ internal sealed class ProbeSampler
         _probe = probe;
     }
 
-    /// <summary>Gets the longest age of an in-progress journal I/O call observed so far.</summary>
-    internal TimeSpan MaxAge => TimeSpan.FromTicks(Interlocked.Read(ref _maxAgeTicks));
+    /// <summary>Reads the longest age of an in-progress journal I/O call observed so far.</summary>
+    /// <returns>The longest observed age.</returns>
+    internal TimeSpan ReadMaxAge() => TimeSpan.FromTicks(Interlocked.Read(ref _maxAgeTicks));
 
     /// <summary>Starts polling about every millisecond.</summary>
     internal void Start() => _timer = TimeProvider.System.CreateTimer(_ => Poll(), null, TimeSpan.Zero, TimeSpan.FromMilliseconds(1));

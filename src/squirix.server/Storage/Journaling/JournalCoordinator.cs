@@ -575,19 +575,20 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             if (record.MutationOperationId != null)
                 return false;
 
-            var stampedOperationId = record.Operation switch
-            {
-                JournalOperationKind.Put or JournalOperationKind.Remove => RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue,
-                JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.MaintenanceExclusive or JournalOperationKind.SnapshotCut
-                    or JournalOperationKind.UnderSnapshotBarrier or JournalOperationKind.IdempotencyOutcome
-                    or JournalOperationKind.IdempotencyStarted => record.MutationOperationId,
-                _ => record.MutationOperationId,
-            };
+            var stampedOperationId = ResolveAmbientOperationId(record);
 
             record.MutationOperationId = stampedOperationId;
             record.MutationFingerprint = stampedOperationId != null ? RpcMutationIdempotencyExecutionAmbient.ActiveFingerprintValue : null;
             return stampedOperationId != null;
         }
+
+        /// <summary>Resolves the ambient operation id for record kinds that carry client mutations; other kinds keep their existing id.</summary>
+        /// <param name="record">The record about to be stamped.</param>
+        /// <returns>The operation id to stamp, or the record's current id for kinds that are never stamped from the ambient scope.</returns>
+        private static string? ResolveAmbientOperationId(JournalRecord record) =>
+            record.Operation is JournalOperationKind.Put or JournalOperationKind.Remove
+                ? RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue
+                : record.MutationOperationId;
 
         /// <summary>Waits for the journal thread's write ack of a frame already on the ring.</summary>
         /// <param name="appendAck">Write ack of the enqueued frame.</param>
