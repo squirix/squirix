@@ -17,6 +17,7 @@ namespace Squirix.Server.Storage.Snapshot;
 /// Concurrency: ensures at most one snapshot runs at a time using an interlocked flag, and that no journal compaction runs while a snapshot is in flight.
 /// Ordering guarantee vs writes: under the journal mutation gate we enqueue a journal checkpoint and record seqAtFlush = journal.NextSequence - 1; the checkpoint ack
 /// is awaited after the gate is released and before the snapshot is written.
+/// NextSequence is the next sequence to allocate, so seqAtFlush is the last allocated frame, already applied to memory at capture.
 /// The snapshot reflects all effects of operations with Seq less or equal to seqAtFlush. Recovery will replay only operations with Seq > seqAtFlush.
 /// Snapshot cut is two-phase: a brief barrier captures a consistent in-memory view under the journal mutation gate, then the checkpoint wait, serialization and
 /// manifest I/O run outside the gate so a slow disk or a large snapshot does not stop-the-world block durable memory applies.
