@@ -26,6 +26,10 @@ namespace Squirix.Server.Node.Services;
 /// evict the completed outcome inserted first, or exceed the capacity when every record is a reservation; a store over capacity evicts
 /// one outcome per new operation and drains as records expire.
 /// </para>
+/// <para>
+/// Expiry and eviction follow <see cref="IdempotencyExpiryOrder" /> instead of scanning the records: a call pops the expired, evicted
+/// and stale entries at the heads of its queues and heaps, each entry once, and compaction bounds the stale entries by the record count.
+/// </para>
 /// </remarks>
 [Mutable]
 internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
@@ -39,6 +43,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     private readonly Dictionary<string, TaskCompletionSource> _executions = [with(StringComparer.Ordinal)];
     private readonly IdempotencyMetrics _metrics;
     private readonly string _nodeId;
+    private readonly IdempotencyExpiryOrder _order;
     private readonly IdempotencyOptions _options;
     private readonly Dictionary<string, StoredRecord> _records = [with(StringComparer.Ordinal)];
     private readonly TimeProvider _timeProvider;
@@ -54,6 +59,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         _nodeId = nodeId;
         _metrics = metrics;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _order = new IdempotencyExpiryOrder(_timeProvider, TryGetLive);
     }
 
     internal int ExecutionCount
@@ -62,6 +68,16 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         {
             lock (_capacityGate)
                 return _executions.Count;
+        }
+    }
+
+    /// <summary>Gets the number of entries, live and stale, held by the expiry order.</summary>
+    internal int OrderEntryCount
+    {
+        get
+        {
+            lock (_capacityGate)
+                return _order.EntryCount;
         }
     }
 
@@ -209,7 +225,9 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             }
 
             MakeRoomForNewOperationLocked(utcNow, timestamp);
-            _records[operationId] = new StoredRecord(new PersistedIdempotencyRecord(operationId, fingerprint, utcNow), timestamp, ++_nextSequence, execution, null);
+            var reserved = new StoredRecord(new PersistedIdempotencyRecord(operationId, fingerprint, utcNow), timestamp, ++_nextSequence, execution, null);
+            _records[operationId] = reserved;
+            _order.Add(operationId, reserved.Sequence, timestamp, utcNow, false);
             if (execution != null)
                 _executions[operationId] = execution;
 
@@ -398,6 +416,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         }
 
         _records[operationId] = stored;
+        _order.Add(operationId, stored.Sequence, stored.CreatedTimestamp, stored.Record.CreatedUtc, stored.Record.State == IdempotencyRecordState.Completed);
     }
 
     /// <summary>Makes room for a new reservation, evicting only completed outcomes older than the minimum retention.</summary>
@@ -420,37 +439,28 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         _metrics.RecordEviction(_nodeId);
     }
 
-    /// <summary>Decides whether a record is older than <paramref name="age" /> at <paramref name="utcNow" /> and <paramref name="timestamp" />.</summary>
-    /// <param name="stored">The record.</param>
-    /// <param name="age">The age.</param>
-    /// <param name="utcNow">The server clock wall time.</param>
-    /// <param name="timestamp">The server clock monotonic timestamp.</param>
-    /// <returns><see langword="true" /> when the record is older.</returns>
-    /// <remarks>A record created in this process must also be older on monotonic time, so a forward wall step cannot age it early.</remarks>
-    private bool IsOlderThan(in StoredRecord stored, TimeSpan age, DateTime utcNow, long timestamp) =>
-        utcNow - stored.Record.CreatedUtc > age && (stored.CreatedTimestamp is not { } created || _timeProvider.GetElapsedTime(created, timestamp) > age);
+    private bool TryGetLive(string key, long sequence, out DateTime createdUtc)
+    {
+        if (_records.TryGetValue(key, out var live) && live.Sequence == sequence)
+        {
+            createdUtc = live.Record.CreatedUtc;
+            return true;
+        }
+
+        createdUtc = default;
+        return false;
+    }
 
     private void SweepExpiredLocked(DateTime utcNow, long timestamp)
     {
-        // Collect first: Dictionary forbids removal during enumeration.
-        List<string>? expired = null;
-        foreach (var (key, value) in _records)
+        while (_order.TryTakeExpired(_options.Retention, utcNow, timestamp, out var key))
         {
-            if (!IsOlderThan(in value, _options.Retention, utcNow, timestamp))
-                continue;
-            expired ??= [];
-            expired.Add(key);
-        }
-
-        if (expired == null)
-            return;
-
-        // An expired reservation can no longer be joined; its owner still signals the retries already joined to it.
-        foreach (var key in CollectionsMarshal.AsSpan(expired))
-        {
+            // An expired reservation can no longer be joined; its owner still signals the retries already joined to it.
             _ = _records.Remove(key);
             _ = _executions.Remove(key);
         }
+
+        _order.Compact(_records.Count);
     }
 
     /// <summary>Evicts the completed outcome inserted first among those older than <paramref name="minAge" />.</summary>
@@ -460,25 +470,9 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     /// <returns><see langword="true" /> when an outcome was evicted.</returns>
     private bool TryEvictOldestCompletedLocked(TimeSpan? minAge, DateTime utcNow, long timestamp)
     {
-        // Insertion order, not wall time: after a backward clock step the newest records carry the earliest wall times. A reservation
-        // in flight is never evicted: a retry would run alongside its first attempt.
-        string? oldestKey = null;
-        var oldestSequence = long.MaxValue;
-        foreach (var pair in _records)
-        {
-            if (pair.Value.Sequence >= oldestSequence || pair.Value.Record.State != IdempotencyRecordState.Completed)
-                continue;
-
-            // Monotonic age for a record created in this process, so a backward wall step cannot make every outcome too young.
-            var lived = pair.Value.CreatedTimestamp is { } created ? _timeProvider.GetElapsedTime(created, timestamp) : utcNow - pair.Value.Record.CreatedUtc;
-            if (minAge is { } age && lived <= age)
-                continue;
-
-            oldestSequence = pair.Value.Sequence;
-            oldestKey = pair.Key;
-        }
-
-        if (oldestKey == null || !_records.Remove(oldestKey))
+        // Insertion order, not wall time: after a backward clock step the newest records carry the earliest wall times. Only completed
+        // outcomes are ordered for eviction: a reservation in flight is never evicted, a retry would run alongside its first attempt.
+        if (!_order.TryFindOldestCompleted(minAge, utcNow, timestamp, out var oldestKey) || !_records.Remove(oldestKey))
             return false;
 
         _ = _executions.Remove(oldestKey);
