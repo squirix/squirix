@@ -116,10 +116,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
             // An Internal or AlreadyExists status from any call surfaces here as an RpcException.
             await Task.WhenAll(mutations).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
-            // The burst leaves an arbitrary state, so a final Set pins a known value that the restart must recover.
-            _ = await client.SetEntryAsync(CreateSet(key, "final"), cancellationToken: cancellationToken);
             before = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
-            _ = await Assert.That(before.Found).IsTrue();
         }
 
         var (restarted, restartedUri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
@@ -130,7 +127,8 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
 
             var after = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
 
-            _ = await Assert.That(after.Found).IsTrue();
+            // Whatever state the burst left, Set, Remove or Touch last, the restart replays the journal to exactly that state.
+            _ = await Assert.That(after.Found).IsEqualTo(before.Found);
             _ = await Assert.That(after.Value).IsEqualTo(before.Value);
         }
     }
