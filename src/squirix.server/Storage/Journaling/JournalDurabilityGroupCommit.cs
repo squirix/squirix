@@ -25,6 +25,7 @@ internal sealed class JournalDurabilityGroupCommit
     private List<TaskCompletionSource> _acksSpare;
     private Exception? _failure;
     private int _largestBatch;
+    private bool _sealed;
     private List<TaskCompletionSource>? _inFlight;
 
     internal JournalDurabilityGroupCommit(Action journalThreadFlush, Action notifyJournalThread, PersistenceOptions opt, TimeProvider? timeProvider = null, Action<string>? onWaitCanceled = null)
@@ -68,6 +69,11 @@ internal sealed class JournalDurabilityGroupCommit
             var signalJournal = false;
             lock (_sync)
             {
+                // Sealed after the final shutdown flush: every frame a waiter can still have appended was written before
+                // that flush, so the wait is already satisfied and wins over a failure recorded by the later teardown.
+                if (_sealed)
+                    return;
+
                 // Admitting after CancelPending would park the waiter on a batch nobody will ever
                 // drain (journal thread exiting or pipeline failed): fail fast with the recorded
                 // reason instead of hanging.
@@ -116,6 +122,28 @@ internal sealed class JournalDurabilityGroupCommit
             // The batch taken by the journal thread stays reachable until the thread writes its outcome:
             // fault it without clearing, because the thread owns that list and swaps it back as the spare.
             return _inFlight?.FaultPending(reason) ?? 0;
+        }
+    }
+
+    /// <summary>
+    /// Completes every registered ack successfully and answers later waits at once. Called on the journal thread right after the
+    /// final successful flush of the shutdown marker, which covers every frame written before it.
+    /// </summary>
+    /// <returns>Number of acks completed, or zero when a failure was already recorded and the group commit stays unsealed.</returns>
+    internal int SealAfterFinalFlush()
+    {
+        lock (_sync)
+        {
+            // A recorded failure keeps the commit outcome unknown: the fault path already owns those acks.
+            if (_failure != null)
+                return 0;
+
+            _sealed = true;
+            _batchDeadline.Clear();
+            var completed = _acks.Count;
+            _acks.CompleteAll();
+            _acks.Clear();
+            return completed;
         }
     }
 

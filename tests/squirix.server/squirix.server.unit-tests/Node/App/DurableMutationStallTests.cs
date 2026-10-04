@@ -83,12 +83,12 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
     }
 
     /// <summary>
-    /// Journal disposal faults a durability wait the caller already canceled instead of leaving it parked; the frame is on the ring, so the
-    /// caller gets commit-unknown.
+    /// Graceful journal disposal completes a durability wait the caller already canceled instead of leaving it parked: the final flush
+    /// covers the frame, so the mutation applies and succeeds.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DisposeFaultsUncancellableWaitInBudget(CancellationToken cancellationToken)
+    public async Task DisposeCompletesUncancellableWait(CancellationToken cancellationToken)
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, UnreachedBatchDeadline, 64, cancellationToken);
         var memory = new AppliedKeys();
@@ -100,10 +100,10 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
         // The batch deadline is never reached, so only a wait that honored the canceled caller would complete here.
         var completedAfterCancel = await Task.WhenAny(put, Task.Delay(CancelObservationWindow, TimeProvider.System, cancellationToken)) == put;
         await journal.ShutdownAsync();
-        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(completedAfterCancel).IsFalse();
-        _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
+        _ = await Assert.That(memory.Snapshot).IsNotEmpty();
     }
 
     /// <summary>A journal pipeline failure faults a durability wait the caller already canceled; the frame is on the ring, so the caller gets commit-unknown.</summary>

@@ -248,8 +248,14 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
     {
         DurabilityPipeline.ThrowIfJournalThreadFailed();
+
+        // No shutdown refusal for a grouped waiter: its frame is already ahead of the shutdown marker, whose final flush seals the
+        // group commit and completes the wait. Without that flush the stop faults the wait as commit-unknown.
+        if (GroupCommit is { } groupCommit)
+            return groupCommit.AwaitCommitAsync(cancellationToken);
+
         _producerGate.ThrowIfShutdownInitiated();
-        return GroupCommit?.AwaitCommitAsync(cancellationToken) ?? DurabilityPipeline.EnqueueFlushAsync(cancellationToken);
+        return DurabilityPipeline.EnqueueFlushAsync(cancellationToken);
     }
 
     public ValueTask DisposeAsync() => Interlocked.Exchange(ref _disposed, 1) == 1 ? ValueTask.CompletedTask : _stopper.StopOnDisposeAsync();

@@ -95,6 +95,9 @@ internal sealed class JournalEventLoopSegmentWriter
         {
             FlushWriteBatch();
             _owner.FlushToDisk();
+
+            // The final flush covered every frame written before the marker, so grouped waiters of those frames are durable.
+            _ = _owner.GroupCommit?.SealAfterFinalFlush();
             return true;
         }
 
