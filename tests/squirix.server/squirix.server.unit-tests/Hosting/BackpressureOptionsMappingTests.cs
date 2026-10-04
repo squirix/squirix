@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -7,6 +8,7 @@ using Squirix.Server.Node.Backpressure;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -132,7 +134,7 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
     [Test]
     public async Task ValidateReportsNullBackpressure()
     {
-        var options = new SquirixServerOptions { Backpressure = null! };
+        var options = WithNullBackpressure();
 
         var valid = options.TryValidate(out var errors);
 
@@ -168,7 +170,7 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
     [Test]
     public void CopyOptionsRejectsNullBackpressure()
     {
-        var source = new SquirixServerOptions { Backpressure = null! };
+        var source = WithNullBackpressure();
         var target = new SquirixServerOptions();
 
         _ = NodeExceptionAssert.For<ArgumentNullException>().Throws((source, target), static state => Configurator.CopyOptions(state.source, state.target));
@@ -286,4 +288,11 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
         _ = await Assert.That(target.Backpressure).IsNotSameReferenceAs(source.Backpressure);
         _ = await Assert.That(target.Backpressure.ToAdmissionOptions()).IsEqualTo(source.Backpressure.ToAdmissionOptions());
     }
+
+    /// <summary>Builds options whose backpressure section is null the way a settings file with <c language="json">"Backpressure": null</c> does.</summary>
+    /// <returns>The deserialized options.</returns>
+    private static SquirixServerOptions WithNullBackpressure() =>
+        ThrowHelper.Required(
+            JsonSerializer.Deserialize("""{ "Backpressure": null }""", SquirixServerHostingJsonContext.Default.SquirixServerOptions),
+            "The settings JSON did not produce options.");
 }
