@@ -90,34 +90,7 @@ public sealed class SquirixServerOptions
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        var peerOptions = options.Peers;
-        var uri = options.Uri;
-        if (peerOptions == null)
-            throw new ArgumentNullException(nameof(options), "Peers cannot be null.");
-
-        if (uri == null)
-            throw new ArgumentNullException(nameof(options), "Uri cannot be null.");
-
-        var peers = new ServerPeer[peerOptions.Count == 0 ? 1 : peerOptions.Count];
-        if (peerOptions.Count == 0)
-        {
-            peers[0] = new ServerPeer { NodeId = options.NodeId, Uri = uri };
-        }
-        else
-        {
-            for (var i = 0; i < peerOptions.Count; i++)
-                peers[i] = new ServerPeer { NodeId = peerOptions[i].NodeId, Uri = peerOptions[i].Uri };
-        }
-
-        var topology = new TopologyOptions(peers)
-        {
-            ClusterId = options.ClusterId,
-            NodeId = options.NodeId,
-            Uri = uri,
-            VirtualNodes = options.VirtualNodes,
-            ReplicaCount = options.ReplicaCount,
-            ConfigurationGeneration = options.ConfigurationGeneration,
-        };
+        var topology = BuildTopology(options);
 
         if (!TopologyValidator.TryValidate(topology, options.PersistenceEnabled, options.DataDirectory, out errors))
             return false;
@@ -138,6 +111,38 @@ public sealed class SquirixServerOptions
 
         errors = activationFailures;
         return false;
+    }
+
+    private static TopologyOptions BuildTopology(SquirixServerOptions options)
+    {
+        var peerOptions = options.Peers;
+        var uri = options.Uri;
+        if (peerOptions == null)
+            throw new ArgumentNullException(nameof(options), "Peers cannot be null.");
+
+        if (uri == null)
+            throw new ArgumentNullException(nameof(options), "Uri cannot be null.");
+
+        var peers = new ServerPeer[peerOptions.Count == 0 ? 1 : peerOptions.Count];
+        if (peerOptions.Count == 0)
+        {
+            peers[0] = new ServerPeer { NodeId = options.NodeId, Uri = uri };
+        }
+        else
+        {
+            for (var i = 0; i < peerOptions.Count; i++)
+                peers[i] = new ServerPeer { NodeId = peerOptions[i].NodeId, Uri = peerOptions[i].Uri };
+        }
+
+        return new TopologyOptions(peers)
+        {
+            ClusterId = options.ClusterId,
+            NodeId = options.NodeId,
+            Uri = uri,
+            VirtualNodes = options.VirtualNodes,
+            ReplicaCount = options.ReplicaCount,
+            ConfigurationGeneration = options.ConfigurationGeneration,
+        };
     }
 
     private static string? ValidateSections(SquirixServerOptions options)
