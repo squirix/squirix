@@ -97,13 +97,21 @@ internal sealed class DurableMutationExecutor
         // Same-key mutations run one after another, as under the single mutation gate of the ungrouped path: the next precondition sees the
         // previous mutation applied. The key lock is taken before the gate and never under it, and is held until the apply, skip or rollback.
         using var keyLease = await _keyLocks.LockAsync(conflictKey, cancellationToken).ConfigureAwait(false);
-        var state = new GroupCommitExecutionState();
-        var plan = await _journal.ExecuteUnderSnapshotBarrierAsync(
-            new GroupCommitPrepareWithPipelineState<TState, TResult>(this, state, precondition, pipeline.State, pipeline.AppendJournal),
-            static (s, ownership, ct) => s.Mutator.PrepareGroupCommitPlanCoreAsync(s.ExecutionState, s.Precondition, s.State, s.AppendJournal, ownership, ct),
-            cancellationToken).ConfigureAwait(false);
+        while (true)
+        {
+            var state = new GroupCommitExecutionState();
+            var plan = await _journal.ExecuteUnderSnapshotBarrierAsync(
+                new GroupCommitPrepareWithPipelineState<TState, TResult>(this, state, precondition, pipeline.State, pipeline.AppendJournal),
+                static (s, ownership, ct) => s.Mutator.PrepareGroupCommitPlanCoreAsync(s.ExecutionState, s.Precondition, s.State, s.AppendJournal, ownership, ct),
+                cancellationToken).ConfigureAwait(false);
 
-        return await ApplyGroupCommitPlanAsync(plan, state, pipeline.State, pipeline.ApplyMemory).ConfigureAwait(false);
+            if (!plan.IsCutPending)
+                return await ApplyGroupCommitPlanAsync(plan, state, pipeline.State, pipeline.ApplyMemory).ConfigureAwait(false);
+
+            // A snapshot cut closed admission: nothing was run or appended, so waiting is cancellable and a cancellation is a definite failure.
+            // The gate is released while waiting, which lets the cut take it; the key lock stays held, and the cut takes no key lock.
+            await _journal.InFlightApplyGate.WaitOpenAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private ValueTask<TResult> ExecuteMonolithicAsync<TState, TResult>(
@@ -188,14 +196,30 @@ internal sealed class DurableMutationExecutor
         AsyncLockOwnership ownership,
         CancellationToken cancellationToken)
     {
+        // Admission is decided first, under the gate: a pending snapshot cut refuses new writers so it can drain the admitted ones.
+        if (!_journal.InFlightApplyGate.TryEnter())
+            return DurableMutationPlan<TResult>.CutPending();
+
+        state.PendingMemoryApply = true;
+        DurableMutationCondition<TResult> decision;
         try
         {
-            var decision = await precondition(mutationState, cancellationToken).ConfigureAwait(false);
-            if (!decision.ShouldApply)
-                return DurableMutationPlan<TResult>.Skip(decision.SkipResult ?? ThrowHelper.Throw<TResult>(new InvalidOperationException(SkipResultRequiresShouldApplyFalse)));
+            decision = await precondition(mutationState, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            RollbackGroupCommitBarrierState(state);
+            throw;
+        }
 
-            _journal.InFlightApplyGate.Enter();
-            state.PendingMemoryApply = true;
+        if (!decision.ShouldApply)
+        {
+            RollbackGroupCommitBarrierState(state);
+            return DurableMutationPlan<TResult>.Skip(decision.SkipResult ?? ThrowHelper.Throw<TResult>(new InvalidOperationException(SkipResultRequiresShouldApplyFalse)));
+        }
+
+        try
+        {
             await appendJournal(mutationState, ownership, cancellationToken).ConfigureAwait(false);
             return DurableMutationPlan<TResult>.Apply();
         }
@@ -216,8 +240,11 @@ internal sealed class DurableMutationExecutor
 
     private void RollbackGroupCommitBarrierState(GroupCommitExecutionState state)
     {
-        if (state.PendingMemoryApply)
-            _journal.InFlightApplyGate.Exit();
+        if (!state.PendingMemoryApply)
+            return;
+
+        state.PendingMemoryApply = false;
+        _journal.InFlightApplyGate.Exit();
     }
 
     /// <summary>Result of the journal append phase of a durable mutation.</summary>
@@ -225,11 +252,15 @@ internal sealed class DurableMutationExecutor
     [Immutable]
     private sealed record DurableMutationPlan<TResult>
     {
-        private DurableMutationPlan(bool shouldApply, TResult? skipResult)
+        private DurableMutationPlan(bool shouldApply, TResult? skipResult, bool isCutPending = false)
         {
             ShouldApply = shouldApply;
             SkipResult = skipResult;
+            IsCutPending = isCutPending;
         }
+
+        /// <summary>Gets a value indicating whether a snapshot cut refused admission, so nothing ran and the caller must wait for the cut and retry.</summary>
+        internal bool IsCutPending { get; }
 
         /// <summary>Gets a value indicating whether the mutation should continue to durability commit and memory apply.</summary>
         internal bool ShouldApply { get; }
@@ -240,6 +271,10 @@ internal sealed class DurableMutationExecutor
         /// <summary>Creates a plan that continues to durability commit and memory apply.</summary>
         /// <returns>An apply plan.</returns>
         internal static DurableMutationPlan<TResult> Apply() => new(true, default);
+
+        /// <summary>Creates a plan for a mutation a pending snapshot cut refused to admit.</summary>
+        /// <returns>A cut-pending plan.</returns>
+        internal static DurableMutationPlan<TResult> CutPending() => new(false, default, true);
 
         /// <summary>Creates a plan that skips durability commit and memory apply.</summary>
         /// <param name="result">Result to return to the caller.</param>
