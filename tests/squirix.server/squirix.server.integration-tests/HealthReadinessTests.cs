@@ -2,9 +2,13 @@ using System;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -22,7 +26,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
     /// Ensures the <c language="csharp">/health/ready/details</c> endpoint reports all core signals:
     /// <list type="bullet">
     ///     <item>
-    ///         <description>journal backlog size is non-zero after writes.</description>
+    ///         <description>journal backlog size is a number; the periodic snapshot may already cover the write.</description>
     ///     </item>
     ///     <item>
     ///         <description>Snapshot in-flight flag is present and boolean.</description>
@@ -58,6 +62,26 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         await AssertMemoryPressureReadinessAsync(json);
         await AssertJournalDiskReadinessAsync(json);
         await AssertRetentionCleanupReadinessAsync(json);
+    }
+
+    /// <summary>A snapshot cut covers every applied frame, so the journal backlog reported afterwards is zero.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BacklogIsZeroAfterSnapshot(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var cluster = await StartClusterAsync("node_health_backlog", new IntegrationStartOptions { UsePersistence = true, TimeProvider = clock }, cancellationToken);
+        var node = cluster["node_health_backlog"];
+        var snapshot = node.GetRequiredService<Coordinator>();
+        var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        snapshot.SnapshotCompleted += (_, _) => published.TrySetResult();
+        await GetCache(node).SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, "health:backlog", BuildEntry("v", version: 1), cancellationToken);
+
+        await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken);
+        await published.Task.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var json = await FetchReadyDetailsAsync(node.Uri, cancellationToken);
+
+        _ = await Assert.That(json.GetProperty("journalBacklogOps").GetUInt64()).IsEqualTo(0UL);
     }
 
     private static async Task AssertClientPoolReadinessAsync(JsonElement json)
@@ -118,7 +142,6 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
     {
         _ = await Assert.That(json.TryGetProperty("journalBacklogOps", out var journalBacklogProp)).IsTrue();
         _ = await Assert.That(journalBacklogProp.ValueKind is JsonValueKind.Number).IsTrue();
-        _ = await Assert.That(journalBacklogProp.GetUInt64() >= 1).IsTrue();
     }
 
     private static async Task AssertMemoryPressureReadinessAsync(JsonElement json)

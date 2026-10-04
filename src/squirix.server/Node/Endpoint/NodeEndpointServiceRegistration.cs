@@ -204,10 +204,11 @@ internal static class NodeEndpointServiceRegistration
             var manifest = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
             var lastApplied = manifest.LastSnapshot?.LastAppliedSequence ?? 0UL;
             var nextSeq = _journal.NextSequence;
+            var lastAllocated = nextSeq > 0UL ? nextSeq - 1UL : 0UL;
 
             ulong journalBacklogOps = 0;
-            if (nextSeq > lastApplied)
-                journalBacklogOps = nextSeq - lastApplied;
+            if (lastAllocated > lastApplied)
+                journalBacklogOps = lastAllocated - lastApplied;
 
             double? snapshotAgeSeconds = null;
             if (manifest.LastSnapshot?.Path != null)

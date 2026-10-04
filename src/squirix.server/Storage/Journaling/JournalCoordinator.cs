@@ -201,10 +201,10 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
         while (true)
         {
+            // _nextSequence is the next sequence to allocate: hand out the current value and advance the counter past it.
             var current = Volatile.Read(ref _nextSequence);
-            var next = current + 1UL;
-            if (Interlocked.CompareExchange(ref _nextSequence, next, current) == current)
-                return next;
+            if (Interlocked.CompareExchange(ref _nextSequence, current + 1UL, current) == current)
+                return current;
         }
     }
 

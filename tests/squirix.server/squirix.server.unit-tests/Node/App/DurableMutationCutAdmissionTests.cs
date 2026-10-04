@@ -45,7 +45,7 @@ public sealed class DurableMutationCutAdmissionTests : IsolatedStorageTestBase
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             var cutTask = journal.Journal.ExecuteSnapshotCutAsync(
                 (Memory: memory, journal.Journal),
-                static (s, sequence, _) => new ValueTask<(ulong, ulong, string, bool)>((sequence, s.Journal.NextSequence, s.Memory.Snapshot, s.Journal.InFlightApplyGate.HasPending)),
+                static (s, sequence, _) => new ValueTask<(ulong, ulong, string, bool)>((sequence, s.Journal.NextSequence - 1UL, s.Memory.Snapshot, s.Journal.InFlightApplyGate.HasPending)),
                 static (_, _, barrier, _) => new ValueTask<(ulong Watermark, ulong LastAllocated, string AppliedAtCapture, bool Pending)>(barrier),
                 cancellationToken).AsTask();
             var second = memory.PutAsync(executor, journal.Journal, "b", cancellationToken);
@@ -64,7 +64,7 @@ public sealed class DurableMutationCutAdmissionTests : IsolatedStorageTestBase
         var sequences = journal.ReadPutSequences(cancellationToken);
 
         _ = await Assert.That(lateWriterPending).IsTrue();
-        _ = await Assert.That(cut.Watermark).IsLessThanOrEqualTo(sequences[KeyA]);
+        _ = await Assert.That(cut.Watermark).IsEqualTo(sequences[KeyA]);
         _ = await Assert.That(cut.LastAllocated).IsEqualTo(sequences[KeyA]);
         _ = await Assert.That(sequences[KeyB]).IsGreaterThan(cut.LastAllocated);
         _ = await Assert.That(cut.AppliedAtCapture).IsEqualTo(KeyA);
