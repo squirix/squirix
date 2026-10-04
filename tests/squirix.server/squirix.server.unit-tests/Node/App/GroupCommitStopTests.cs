@@ -100,6 +100,7 @@ public sealed class GroupCommitStopTests : IsolatedStorageTestBase
         // Armed before the commit: a batch of one is due at once, so a commit issued first could reach the disk before the stall.
         stallable.Writer.Flush.Arm();
         var parked = CommitAsync(journal);
+        await stallable.Writer.Flush.Entered.WaitAsync(Bound, TimeProvider.System, cancellationToken);
 
         // The fsync blocks; the stop gives up, faults the reachable waiters and reports the stuck thread.
         await journal.DisposeAsync();
