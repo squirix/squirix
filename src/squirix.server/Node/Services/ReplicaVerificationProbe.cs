@@ -113,6 +113,41 @@ internal sealed class ReplicaVerificationProbe
             : new ReplicaVerificationSnapshot(in status, probed, answered, members, in header);
     }
 
+    /// <summary>Re-probes the verified slots when the leader tail moved, admits the verdicts into the eligibility, and applies them to the coordinator.</summary>
+    /// <param name="log">The owned group log.</param>
+    /// <param name="snapshot">The follower probing taken outside the commit gate.</param>
+    /// <param name="coordinator">The running coordinator the verified slots are admitted into.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The eligibility of the owned group after the verdicts were applied.</returns>
+    /// <remarks>Runs under the commit gate of the committer.</remarks>
+    internal async Task<ReplicaEligibility> AdmitVerifiedSlotsAsync(
+        IFollowerLog log,
+        ReplicaVerificationSnapshot snapshot,
+        ReplicaCommitCoordinator coordinator,
+        CancellationToken cancellationToken)
+    {
+        var status = snapshot.Status;
+        var probed = snapshot.Probed;
+        var current = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+
+        // A commit may have moved the tail between the unguarded probe and the gate: the verdicts then describe
+        // an older tail, so the slots that answered are probed again against the current one.
+        if (current.LastLogIndex != status.LastLogIndex || current.LastLogTerm != status.LastLogTerm)
+            probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, snapshot.Answered, snapshot.Members, snapshot.Header, current, ProbeTimeout, cancellationToken).ConfigureAwait(false);
+
+        // StartAsync may have verified some of these slots while this call waited for the gate: an older verdict
+        // must not demote them.
+        var eligibility = _registry.EligibilityFor(_groupId);
+        for (var i = 1; i < probed.Length; i++)
+        {
+            if (eligibility.CanCountInWriteQuorum(i))
+                probed[i] = default;
+        }
+
+        ReplicaReadinessProbe.ApplyAll(eligibility, probed, in current, _topologyFingerprint, _generation, coordinator);
+        return eligibility;
+    }
+
     private bool ReportBlockedTail(BlockedTail? blocked)
     {
         lock (_reportSync)
