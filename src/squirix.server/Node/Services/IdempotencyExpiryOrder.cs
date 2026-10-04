@@ -23,6 +23,8 @@ internal sealed class IdempotencyExpiryOrder
 
     private readonly Queue<Entry> _completedCreated = new();
     private readonly Queue<Entry> _completedRestored = new();
+    private readonly PriorityQueue<Entry, long> _restoredMatured = new();
+    private readonly PriorityQueue<Entry, long> _restoredYoung = new();
     private readonly Queue<Entry> _createdOrder = new();
     private readonly LiveLookup _lookup;
     private readonly TimeProvider _timeProvider;
@@ -44,7 +46,7 @@ internal sealed class IdempotencyExpiryOrder
     internal delegate bool LiveLookup(string key, long sequence, out DateTime createdUtc);
 
     /// <summary>Gets the number of entries, live and stale.</summary>
-    internal int EntryCount => _createdOrder.Count + _completedCreated.Count + _completedRestored.Count + _wallOrder.Count;
+    internal int EntryCount => _createdOrder.Count + _completedCreated.Count + _completedRestored.Count + _restoredYoung.Count + _restoredMatured.Count + _wallOrder.Count;
 
     /// <summary>Registers a record that starts aging, which makes any earlier entry of the same key stale.</summary>
     /// <param name="key">The operation identifier.</param>
@@ -66,8 +68,11 @@ internal sealed class IdempotencyExpiryOrder
 
         var restored = new Entry(key, sequence, 0);
         _wallOrder.Enqueue(restored, createdUtc.Ticks);
-        if (completed)
-            _completedRestored.Enqueue(restored);
+        if (!completed)
+            return;
+
+        _completedRestored.Enqueue(restored);
+        _restoredYoung.Enqueue(restored, createdUtc.Ticks);
     }
 
     /// <summary>Takes the next record whose retention passed, in expiry order.</summary>
@@ -144,21 +149,10 @@ internal sealed class IdempotencyExpiryOrder
             break;
         }
 
-        while (_completedRestored.TryPeek(out var restoredHead) && !_lookup(restoredHead.Key, restoredHead.Sequence, out _))
-            _ = _completedRestored.Dequeue();
-
-        // Restored from disk: aged by wall time, which is not ordered along the queue, so take the first qualifying live entry.
-        foreach (var entry in _completedRestored)
+        if (TryPeekRestored(minAge, utcNow, out var restored) && restored.Sequence < oldestSequence)
         {
-            if (entry.Sequence >= oldestSequence)
-                break;
-
-            if (!_lookup(entry.Key, entry.Sequence, out var createdUtc) || (minAge is { } restoredAge && utcNow - createdUtc <= restoredAge))
-                continue;
-
             found = true;
-            key = entry.Key;
-            break;
+            key = restored.Key;
         }
 
         return found;
@@ -178,8 +172,67 @@ internal sealed class IdempotencyExpiryOrder
         if (_completedRestored.Count > limit)
             CompactQueue(_completedRestored);
 
-        if (_wallOrder.Count > limit)
-            CompactHeap(liveRecordCount);
+        CompactHeap(_wallOrder, limit, liveRecordCount);
+        CompactHeap(_restoredYoung, limit, liveRecordCount);
+        CompactHeap(_restoredMatured, limit, liveRecordCount);
+    }
+
+    /// <summary>Peeks the live restored completed outcome with the lowest sequence among those older than <paramref name="minAge" />.</summary>
+    /// <param name="minAge">The age the outcome must pass; <see langword="null" /> accepts any age.</param>
+    /// <param name="utcNow">The server clock wall time.</param>
+    /// <param name="entry">The entry of the outcome.</param>
+    /// <returns><see langword="true" /> when an outcome qualifies.</returns>
+    /// <remarks>
+    /// Wall age is not ordered along the sequence, so eligible outcomes are kept apart: a heap by wall creation time holds the ones not
+    /// yet old enough and a heap by sequence holds the ones that were. A call moves the newly old enough outcomes across and, when the
+    /// wall clock stepped back, moves the ineligible top of the sequence heap back, so every entry is touched once per transition
+    /// instead of once per call. Without an age limit the first live entry in insertion order is the answer.
+    /// </remarks>
+    private bool TryPeekRestored(TimeSpan? minAge, DateTime utcNow, out Entry entry)
+    {
+        if (minAge is not { } age)
+        {
+            while (_completedRestored.TryPeek(out entry))
+            {
+                if (_lookup(entry.Key, entry.Sequence, out _))
+                    return true;
+
+                _ = _completedRestored.Dequeue();
+            }
+
+            return false;
+        }
+
+        MatureRestored(age, utcNow);
+        while (_restoredMatured.TryPeek(out entry, out _))
+        {
+            if (!_lookup(entry.Key, entry.Sequence, out var createdUtc))
+            {
+                _ = _restoredMatured.Dequeue();
+                continue;
+            }
+
+            if (utcNow - createdUtc > age)
+                return true;
+
+            _ = _restoredMatured.Dequeue();
+            _restoredYoung.Enqueue(entry, createdUtc.Ticks);
+        }
+
+        return false;
+    }
+
+    private void MatureRestored(TimeSpan age, DateTime utcNow)
+    {
+        while (_restoredYoung.TryPeek(out var young, out _))
+        {
+            if (_lookup(young.Key, young.Sequence, out var createdUtc) && utcNow - createdUtc <= age)
+                break;
+
+            _ = _restoredYoung.Dequeue();
+            if (_lookup(young.Key, young.Sequence, out _))
+                _restoredMatured.Enqueue(young, young.Sequence);
+        }
     }
 
     private void CompactQueue(Queue<Entry> queue)
@@ -192,17 +245,20 @@ internal sealed class IdempotencyExpiryOrder
         }
     }
 
-    private void CompactHeap(int liveRecordCount)
+    private void CompactHeap(PriorityQueue<Entry, long> heap, int limit, int liveRecordCount)
     {
+        if (heap.Count <= limit)
+            return;
+
         var survivors = new List<(Entry Element, long Priority)>(liveRecordCount);
-        foreach (var (entry, ticks) in _wallOrder.UnorderedItems)
+        foreach (var (entry, ticks) in heap.UnorderedItems)
         {
             if (_lookup(entry.Key, entry.Sequence, out _))
                 survivors.Add((entry, ticks));
         }
 
-        _wallOrder.Clear();
-        _wallOrder.EnqueueRange(survivors);
+        heap.Clear();
+        heap.EnqueueRange(survivors);
     }
 
     /// <summary>An order entry: the key, the sequence identifying the record generation it was made for, and the monotonic creation timestamp.</summary>

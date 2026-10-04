@@ -3,6 +3,7 @@ using System.Diagnostics.Metrics;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
@@ -252,6 +253,61 @@ public sealed class RpcMutationIdempotencyExpiryTests : DisposableServerUnitTest
 
         _ = await Assert.That(store.RecordCount).IsEqualTo(1);
         _ = await Assert.That(store.OrderEntryCount).IsLessThanOrEqualTo(70);
+    }
+
+    /// <summary>A future-dated restored head neither blocks nor slows the eviction of the older restored outcomes behind it.</summary>
+    [Test]
+    public async Task FutureDatedHeadDoesNotBlockEviction()
+    {
+        const int old = 300;
+        var clock = new FakeTimeProvider();
+        var store = CreateStore(clock, old + 1);
+        var now = clock.GetUtcNow().UtcDateTime;
+        store.RestoreRecord("op-future", "fp-future", ResponseBytes, now.AddMinutes(5));
+        for (var i = 0; i < old; i++)
+        {
+            var id = $"op-{NodeInvariantIndexStrings.FormatD4(i)}";
+            store.RestoreRecord(id, "fp", ResponseBytes, now.AddMinutes(-5));
+        }
+
+        for (var i = 0; i < old; i++)
+        {
+            _ = store.ReserveIntent($"new-{NodeInvariantIndexStrings.FormatD4(i)}", "fp", null, out _);
+
+            // Evictions follow insertion order: after i + 1 reservations exactly the first i + 1 old outcomes are gone.
+            _ = await Assert.That(store.TryReplay($"op-{NodeInvariantIndexStrings.FormatD4(i)}", "fp", TryAddAsyncResponse.Parser, out _)).IsFalse();
+            if (i + 1 < old)
+                _ = await Assert.That(store.TryReplay($"op-{NodeInvariantIndexStrings.FormatD4(i + 1)}", "fp", TryAddAsyncResponse.Parser, out _)).IsTrue();
+        }
+
+        _ = await Assert.That(store.RecordCount).IsEqualTo(old + 1);
+        _ = await Assert.That(store.TryReplay("op-future", "fp-future", TryAddAsyncResponse.Parser, out _)).IsTrue();
+        _ = await Assert.That(store.OrderEntryCount).IsLessThanOrEqualTo(5 * ((2 * (old + 1)) + 64));
+    }
+
+    /// <summary>A refused reservation leaves young restored outcomes in place and costs no scan of them on the next call.</summary>
+    [Test]
+    public async Task YoungRestoredOutcomesRefuseWithoutScan()
+    {
+        const int count = 500;
+        var clock = new FakeTimeProvider();
+        var store = CreateStore(clock, count);
+        var now = clock.GetUtcNow().UtcDateTime;
+        for (var i = 0; i < count; i++)
+            store.RestoreRecord($"op-{NodeInvariantIndexStrings.FormatD4(i)}", "fp", ResponseBytes, now.AddSeconds(-10));
+
+        for (var i = 0; i < 3; i++)
+        {
+            var refused = NodeExceptionAssert.For<SquirixException>().Throws(store, static s => s.ReserveIntent("new", "fp", null, out _));
+            _ = await Assert.That(refused.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
+        }
+
+        clock.Advance(MinRetention);
+        var reserved = store.ReserveIntent("new", "fp", null, out _);
+
+        _ = await Assert.That(reserved).IsEqualTo(IdempotencyReserveResult.Acquired);
+        _ = await Assert.That(store.TryReplay("op-0000", "fp", TryAddAsyncResponse.Parser, out _)).IsFalse();
+        _ = await Assert.That(store.TryReplay("op-0001", "fp", TryAddAsyncResponse.Parser, out _)).IsTrue();
     }
 
     /// <inheritdoc />

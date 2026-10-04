@@ -27,8 +27,8 @@ namespace Squirix.Server.Node.Services;
 /// one outcome per new operation and drains as records expire.
 /// </para>
 /// <para>
-/// Expiry and eviction follow <see cref="IdempotencyExpiryOrder" /> instead of scanning the records: a call touches only the expired
-/// or evicted entries at the heads of its queues.
+/// Expiry and eviction follow <see cref="IdempotencyExpiryOrder" /> instead of scanning the records: a call pops the expired, evicted
+/// and stale entries at the heads of its queues and heaps, each entry once, and compaction bounds the stale entries by the record count.
 /// </para>
 /// </remarks>
 [Mutable]
