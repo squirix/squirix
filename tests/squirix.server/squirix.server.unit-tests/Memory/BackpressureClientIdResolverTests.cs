@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -101,6 +102,20 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
         var resolver = new HttpContextClientIdResolver(noSubExpectations.Instance());
 
         _ = await Assert.That(resolver.Resolve()).IsEqualTo("conn:conn-no-sub");
+    }
+
+    /// <summary>An owner-routed call from another node resolves to the internal id, not to its forwarding connection.</summary>
+    [Test]
+    public async Task ResolverMarksInternalOwnerCalls()
+    {
+        var expectations = new IHttpContextAccessorCreateExpectations();
+        _ = expectations.Setups.HttpContext.Gets().ReturnValue(CreateContext("forwarder-conn"));
+        _ = expectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
+        var resolver = new HttpContextClientIdResolver(expectations.Instance());
+
+        using var scope = RemoteInvocationContext.EnterRemoteInvocation(true);
+
+        _ = await Assert.That(resolver.Resolve()).IsEqualTo(HttpContextClientIdResolver.InternalOwnerClientId);
     }
 
     private static ClaimsPrincipal Authenticated(params Claim[] claims) => new(new ClaimsIdentity(claims, "Bearer"));

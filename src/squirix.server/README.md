@@ -56,7 +56,9 @@ await builder.AddSquirixServerAsync(
 ## Tests and samples
 
 `SquirixServer.StartAsync` uses `Configurator.LoadOrCreateDefaultAsync` (discovered settings file, else an ephemeral
-free HTTPS port). The returned handle does **not** expose the listen URI — connect with the same origin configured in
+free HTTPS port). A discovered settings file that cannot be loaded or fails validation (unparsable JSON, no
+`Squirix.Cluster` section, invalid values) throws instead of falling back to defaults.
+The returned handle does **not** expose the listen URI — connect with the same origin configured in
 `Cluster.Uri` (or the known local default):
 
 ```csharp

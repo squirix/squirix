@@ -90,7 +90,8 @@ await builder.AddSquirixServerAsync(
 ## Tests and samples
 
 `SquirixServer.StartAsync` loads discovered `Squirix.settings.json` / `squirix.settings.json`, or creates ephemeral
-defaults with a **free HTTPS port**. The returned handle does **not** expose the listen URI, so do **not** assume
+defaults with a **free HTTPS port** when no such file exists. A discovered file that cannot be loaded or fails validation
+(unparsable JSON, no `Squirix.Cluster` section, invalid values) makes `StartAsync` throw. The returned handle does **not** expose the listen URI, so do **not** assume
 `https://localhost:5001` unless that origin is set as `Cluster.Uri` in an explicit settings file. Prefer
 `AddSquirixServerAsync` when the client must know the listen URI:
 

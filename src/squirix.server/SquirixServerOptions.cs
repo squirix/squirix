@@ -7,6 +7,10 @@ namespace Squirix.Server;
 /// <summary>Configures a Squirix node hosted by an ASP.NET Core application.</summary>
 public sealed class SquirixServerOptions
 {
+    /// <summary>Gets or sets the node-level admission control (backpressure) options.</summary>
+    /// <remarks>Must not be <see langword="null" />. Changes apply on the next host start.</remarks>
+    public SquirixServerBackpressureOptions Backpressure { get; set; } = new();
+
     /// <summary>Gets or sets the cluster identifier.</summary>
     public string ClusterId { get; set; } = "cluster";
 
@@ -113,6 +117,22 @@ public sealed class SquirixServerOptions
 
         if (!TopologyValidator.TryValidate(topology, options.PersistenceEnabled, options.DataDirectory, out errors))
             return false;
+
+        if (options.Backpressure == null)
+        {
+            errors = ["Backpressure cannot be null."];
+            return false;
+        }
+
+        try
+        {
+            options.Backpressure.ToAdmissionOptions().Validate();
+        }
+        catch (InvalidOperationException ex)
+        {
+            errors = [ex.Message];
+            return false;
+        }
 
         // Public options path does not carry mTLS material and does not enforce the replication opt-in:
         // the opt-in is a hosting activation concern evaluated by ReplicationActivationGuard at startup.

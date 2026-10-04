@@ -88,6 +88,28 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
         _ = await Assert.That(trackedClients.TrueForAll(static count => count == 0)).IsTrue();
     }
 
+    /// <summary>Verifies internal owner-routed calls are not counted as tracked clients.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InternalClientIsNotTracked(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter(MeterName);
+        var trackedClients = new List<int>();
+        var measurements = new Dictionary<string, List<int>>(StringComparer.Ordinal)
+        {
+            [BackpressureTrackedClientsInstrumentName] = trackedClients,
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
+        using var listener = CreateListenerFor(meter, measurements);
+        using var gate = new AdmissionGate(new AdmissionOptions { PerClientMaxInFlight = 4 }, new BackpressureMetrics(meter));
+        var (_, lease) = await gate.AcquireAsync("grpc", "get", HttpContextClientIdResolver.InternalOwnerClientId, cancellationToken);
+        listener.RecordObservableInstruments();
+        lease.Dispose();
+
+        _ = await Assert.That(trackedClients).IsNotEmpty();
+        _ = await Assert.That(trackedClients.TrueForAll(static count => count == 0)).IsTrue();
+    }
+
     /// <summary>Verifies the gauges read one gate at a time: a second gate is refused until the first one is disposed, then the gauges read it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

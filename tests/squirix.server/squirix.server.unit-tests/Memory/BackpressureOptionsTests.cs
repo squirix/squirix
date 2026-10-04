@@ -58,6 +58,48 @@ public sealed class BackpressureOptionsTests
         _ = await Assert.That(ex.Message).Contains("RejectThreshold", StringComparison.Ordinal);
     }
 
+    /// <summary>Ensures a queue wait above the operational cap is rejected.</summary>
+    [Test]
+    public async Task ThrowsForExcessiveQueueWait()
+    {
+        var options = new AdmissionOptions { MaxQueueWait = TimeSpan.FromMinutes(1) + TimeSpan.FromMilliseconds(1) };
+
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
+
+        _ = await Assert.That(ex.Message).Contains("MaxQueueWait cannot exceed 00:01:00", StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures a slowdown delay above the operational cap is rejected.</summary>
+    [Test]
+    public async Task ThrowsForExcessiveSlowdownDelay()
+    {
+        var options = new AdmissionOptions { MaxSlowdownDelay = TimeSpan.FromSeconds(5) + TimeSpan.FromMilliseconds(1) };
+
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
+
+        _ = await Assert.That(ex.Message).Contains("MaxSlowdownDelay cannot exceed 00:00:05", StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures the operational caps themselves are accepted.</summary>
+    [Test]
+    public void ValidateAcceptsDelayCaps()
+    {
+        var options = new AdmissionOptions { MaxQueueWait = AdmissionOptions.MaxQueueWaitLimit, MaxSlowdownDelay = AdmissionOptions.MaxSlowdownDelayLimit };
+
+        options.Validate();
+    }
+
+    /// <summary>Ensures a burst without a rate names the missing rate.</summary>
+    [Test]
+    public async Task ThrowsForBurstWithoutRate()
+    {
+        var options = new AdmissionOptions { PerClientRateLimitBurst = 5 };
+
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
+
+        _ = await Assert.That(ex.Message).IsEqualTo("Backpressure PerClientRateLimitBurst requires PerClientRateLimitPerSecond.");
+    }
+
     /// <summary>Ensures rate limiting requires both refill rate and burst capacity.</summary>
     [Test]
     public async Task ValidateThrowsForIncompleteRateLimit()

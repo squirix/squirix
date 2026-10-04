@@ -113,6 +113,7 @@ standalone host, `AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()`.
 | `Peers`                   | array  | runtime local-peer fallback when empty | When non-empty: must include local `NodeId`; peer ids and URIs must be unique; local peer `Uri` must match `Uri`; maximum 1024 peers                              |
 | `Peers[].NodeId`          | string | none                                   | Required, non-empty, maximum 128 characters                                                                                                                       |
 | `Peers[].Uri`             | URI    | none                                   | Same validation as `Uri`                                                                                                                                          |
+| `Backpressure`            | object | see below                              | Optional; keys and validation are listed in [Backpressure](#backpressure)                                                                                         |
 
 CLI validation:
 
@@ -162,6 +163,7 @@ section in settings (mapped into the same options model).
 | `VirtualNodes`            | int     | `128`                    | `1..16384`                                                                                                                                                        |
 | `ReplicaCount`            | int     | `1`                      | `1..5`, at most the peer count; RF>1 needs persistence, cluster mTLS, and `ReplicationEnabled`; see the [topology stamp](#activated-topology-stamp-topologystamp) |
 | `ConfigurationGeneration` | ulong   | `1`                      | `> 0`; recorded in the [activated topology stamp](#activated-topology-stamp-topologystamp) on the first RF>1 start                                                |
+| `Backpressure`            | options | see below                | `SquirixServerBackpressureOptions`; see [Backpressure](#backpressure)                                                                                             |
 | `PersistenceEnabled`      | bool    | `false`                  | Any boolean                                                                                                                                                       |
 | `ReplicationEnabled`      | bool    | `false`                  | Opt-in for RF>1 replication; RF>1 without it refuses startup                                                                                                      |
 | `WaitForRecovery`         | bool    | `true`                   | Any boolean; applies when persistence is enabled                                                                                                                  |
@@ -262,8 +264,9 @@ during startup.
 
 ## Node settings file (`Squirix.settings.json`)
 
-Optional sections below are **not** properties on `SquirixServerOptions`. In v0.1 public hosting, only some of them are
-merged from the settings file at startup:
+Except for `Squirix:Cluster:Backpressure`, which is a property of `SquirixServerOptions`, the optional sections below are
+**not** properties on `SquirixServerOptions`. In v0.1 public hosting, only some of them are merged from the settings file
+at startup:
 
 | Section | Loaded from `Squirix.settings.json`? | Notes |
 | --- | --- | --- |
@@ -271,7 +274,7 @@ merged from the settings file at startup:
 | `Snapshot` | Yes | Merged when present |
 | `PrometheusMetrics` | Yes | Merged when present |
 | Persistence knobs (`PersistenceOptions`) | No | Host defaults when `--persist` / `UsePersistence()`; not a JSON section today |
-| Backpressure (`AdmissionOptions`) | No | Host defaults; not a JSON section today |
+| Backpressure | Yes, as `Squirix:Cluster:Backpressure` | A property of `SquirixServerOptions`, see [Backpressure](#backpressure) |
 | Idempotency store | Env only | `SQUIRIX_IDEMPOTENCY_*` overrides; not a JSON section |
 | Journal compaction / metrics exporter interval | No | Hardcoded in host composition |
 
@@ -330,37 +333,67 @@ uses the fields below (omit the section to keep host defaults).
 
 ### Backpressure
 
-Backpressure uses internal `AdmissionOptions` host defaults. There is **no** Backpressure JSON section merge in v0.1
-public hosting. Limits apply before logical reads and writes under load. gRPC transport adapters still enforce
-transport-level limits (auth, payload size, deadlines, cancellation). Memory pressure is a separate policy.
+Backpressure is configured through `SquirixServerOptions.Backpressure` (`SquirixServerBackpressureOptions`) or the
+`Squirix:Cluster:Backpressure` settings object; every key is optional and keeps the default listed below. Limits apply
+before logical reads and writes under load. gRPC transport adapters still enforce transport-level limits (auth, payload
+size, deadlines, cancellation). Memory pressure is a separate policy. Node-wide admission control is always on and
+cannot be switched off from public options.
 
-Per-client limits (`PerClientMaxInFlight`, `PerClientMaxQueue`, `PerClientRateLimit*`) key off a **backpressure client
+```json
+{
+    "Squirix": {
+        "Cluster": {
+            "Backpressure": {
+                "PerClientMaxInFlight": 32,
+                "PerClientRateLimitPerSecond": 200,
+                "PerClientRateLimitBurst": 400,
+                "MaxQueueWait": "00:00:00.250"
+            }
+        }
+    }
+}
+```
+
+Invalid values fail host startup, `validate-config`, and settings loading with the matching message from
+[Validation failures](#validation-failures). Unknown keys in the `Backpressure` object (for example a misspelled name)
+fail loading too. `TimeSpan` values are strings in `[d.]hh:mm:ss[.fffffff]` form, for example `"00:00:00.250"`.
+
+Per-client limits (`PerClientMaxInFlight`, `PerClientRateLimit*`) key off a **backpressure client
 id** resolved for each cache operation:
 
 | Source | Client id | When |
 | ------ | --------- | ---- |
 | JWT bearer principal | `jwt:{subject}` | Authenticated request with a non-empty `sub` / `NameIdentifier` claim |
-| ASP.NET Core connection | `conn:{connectionId}` | Request has an `HttpContext` but no usable principal id (anonymous loopback, internal owner RPCs without JWT, authenticated token missing `sub`) |
+| ASP.NET Core connection | `conn:{connectionId}` | Request has an `HttpContext` but no usable principal id (anonymous loopback, authenticated token missing `sub`) |
+| Internal owner RPC | `internal` | Trusted owner-routed call from another cluster node (peer mTLS on the internal listener). Exempt from per-client limits; node-wide limits apply |
 | In-process / missing context | `runtime` | No `HttpContext` (host bootstrap, some tests, non-HTTP callers). All such callers share one bucket |
 
-v0.1 external auth is JWT-only; there is no API-key principal. Internode cluster forwarding uses mTLS on the internal
-listener and typically lands in the `conn:` or `runtime` bucket rather than a shared external JWT subject.
+Setting `PerClientMaxInFlight` or `PerClientRateLimitPerSecond` turns on per-caller client ids; without either, all callers
+share one bucket and no caller identity is computed per request.
 
-| Field                         | Type            | Default        | Validation                                    |
-| ----------------------------- | --------------- | -------------- | --------------------------------------------- |
-| `Enabled`                     | bool            | `true`         | Any boolean                                   |
-| `MaxInFlight`                 | int             | `256`          | `> 0`                                         |
-| `PerClientMaxInFlight`        | int?            | `null`         | unset or `1..MaxInFlight`                     |
-| `MaxQueue`                    | int             | `128`          | `>= 0`                                        |
-| `PerClientMaxQueue`           | int?            | `null`         | unset or `>= 0`                               |
-| `SlowdownThreshold`           | int             | `192`          | `1..MaxInFlight`                              |
-| `RejectThreshold`             | int             | `256`          | `1..MaxInFlight`, `>= SlowdownThreshold`      |
-| `NodeRateLimitPerSecond`      | int?            | `null`         | unset or `> 0` with `NodeRateLimitBurst`      |
-| `NodeRateLimitBurst`          | int?            | `null`         | unset or `>= NodeRateLimitPerSecond`          |
-| `PerClientRateLimitPerSecond` | int?            | `null`         | unset or `> 0` with `PerClientRateLimitBurst` |
-| `PerClientRateLimitBurst`     | int?            | `null`         | unset or `>= PerClientRateLimitPerSecond`     |
-| `MaxSlowdownDelay`            | TimeSpan string | `00:00:00.025` | `>= 0`                                        |
-| `MaxQueueWait`                | TimeSpan string | `00:00:00.250` | `> 0`                                         |
+v0.1 external auth is JWT-only; there is no API-key principal. A request forwarded to its key owner is admitted on the
+entry node under the caller's own client id. The owner treats it as an internal owner call (mTLS on the internal
+listener) and skips per-client limits for it, so forwarded traffic is not pooled into one bucket per peer connection;
+node-wide concurrency, queue and node rate limits still apply to it.
+
+| Field                         | Type            | Default        | Validation                                       |
+| ----------------------------- | --------------- | -------------- | ------------------------------------------------ |
+| `MaxInFlight`                 | int             | `256`          | `> 0`                                            |
+| `PerClientMaxInFlight`        | int?            | `null`         | unset or `1..MaxInFlight`                        |
+| `MaxQueue`                    | int             | `128`          | `>= 0`                                           |
+| `SlowdownThreshold`           | int             | `192`          | `1..MaxInFlight`                                 |
+| `RejectThreshold`             | int             | `256`          | `1..MaxInFlight`, `>= SlowdownThreshold`         |
+| `NodeRateLimitPerSecond`      | int?            | `null`         | unset or `> 0` with `NodeRateLimitBurst`         |
+| `NodeRateLimitBurst`          | int?            | `null`         | needs `NodeRateLimitPerSecond`; `>=` that rate   |
+| `PerClientRateLimitPerSecond` | int?            | `null`         | unset or `> 0` with `PerClientRateLimitBurst`    |
+| `PerClientRateLimitBurst`     | int?            | `null`         | needs the rate; `>= PerClientRateLimitPerSecond` |
+| `MaxSlowdownDelay`            | TimeSpan string | `00:00:00.025` | `0` to `00:00:05`                                |
+| `MaxQueueWait`                | TimeSpan string | `00:00:00.250` | `> 0` and at most `00:01:00`                     |
+
+`RejectThreshold` rejects a new request only when in-flight has reached it **and** another request is already waiting in
+the queue; with an empty queue the request is admitted while a slot is free, or queued (up to `MaxQueue` and
+`MaxQueueWait`) once all `MaxInFlight` slots are taken. A burst is meaningless
+without a rate, so setting a burst alone is rejected.
 
 ### Journal compaction
 
@@ -562,13 +595,16 @@ startup; the process refuses to start without them.
 
 ## Validation failures
 
-Typical examples from options validators (host composition / `validate-config`). Backpressure and Persistence
-messages apply when those option objects are constructed or overridden in a custom host — they are **not** produced
-by merging JSON sections that v0.1 public hosting ignores:
+Typical examples from options validators (host composition / `validate-config`). Backpressure messages are also
+returned by `SquirixServerOptions.TryValidate` and settings loading. Persistence messages apply when that option object
+is constructed or overridden in a custom host — they are **not** produced by merging a JSON section that v0.1 public
+hosting ignores:
 
 - `Backpressure RejectThreshold must be greater than or equal to SlowdownThreshold.`
 - `Backpressure PerClientMaxInFlight cannot exceed MaxInFlight.`
 - `Backpressure NodeRateLimitBurst must be greater than zero when configured.`
+- `Backpressure NodeRateLimitBurst requires NodeRateLimitPerSecond.`
+- `Backpressure MaxQueueWait cannot exceed 00:01:00.`
 - `Persistence DataDir is required.`
 - `ReplicaCount greater than 1 requires the replication opt-in. Enable Squirix:Cluster:ReplicationEnabled (or pass --enable-replication).`
 - `Persistence JournalMaxSegmentMb must be at least 9: a journal segment must hold the largest journal frame.`

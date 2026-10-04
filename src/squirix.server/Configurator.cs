@@ -78,6 +78,21 @@ public static class Configurator
         target.PersistenceEnabled = source.PersistenceEnabled;
         target.ReplicationEnabled = source.ReplicationEnabled;
         target.DataDirectory = source.DataDirectory;
+        ArgumentNullException.ThrowIfNull(source.Backpressure);
+        target.Backpressure = new SquirixServerBackpressureOptions
+        {
+            MaxInFlight = source.Backpressure.MaxInFlight,
+            MaxQueue = source.Backpressure.MaxQueue,
+            MaxQueueWait = source.Backpressure.MaxQueueWait,
+            MaxSlowdownDelay = source.Backpressure.MaxSlowdownDelay,
+            NodeRateLimitBurst = source.Backpressure.NodeRateLimitBurst,
+            NodeRateLimitPerSecond = source.Backpressure.NodeRateLimitPerSecond,
+            PerClientMaxInFlight = source.Backpressure.PerClientMaxInFlight,
+            PerClientRateLimitBurst = source.Backpressure.PerClientRateLimitBurst,
+            PerClientRateLimitPerSecond = source.Backpressure.PerClientRateLimitPerSecond,
+            RejectThreshold = source.Backpressure.RejectThreshold,
+            SlowdownThreshold = source.Backpressure.SlowdownThreshold,
+        };
         var peers = new SquirixServerPeerOptions[source.Peers.Count];
         for (var i = 0; i < peers.Length; i++)
             peers[i] = new SquirixServerPeerOptions { NodeId = source.Peers[i].NodeId, Uri = source.Peers[i].Uri };
@@ -158,26 +173,12 @@ public static class Configurator
         return !success ? throw new InvalidOperationException(error) : ThrowHelper.Required(options, "Settings file did not produce cluster options.");
     }
 
-    /// <summary>Loads settings from the discovered settings file or creates ephemeral local defaults.</summary>
+    /// <summary>Loads settings from the discovered settings file or, when no settings file exists, creates ephemeral local defaults.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Validated server options.</returns>
-    public static async Task<SquirixServerOptions> LoadOrCreateDefaultAsync(CancellationToken cancellationToken = default)
-    {
-        var path = ResolveSettingsPath();
-        if (path != null)
-        {
-            var (success, options, _) = await LoadFromFileAsync(path, cancellationToken).ConfigureAwait(false);
-            if (success && options != null)
-                return options;
-        }
-
-        var port = NextFreePort();
-        return new SquirixServerOptions
-        {
-            NodeId = "node",
-            Uri = new Uri(InvariantDigitStrings.FormatHttpsOrigin("localhost", port)),
-        };
-    }
+    /// <exception cref="InvalidOperationException">Thrown when a settings file exists but cannot be loaded or fails validation.</exception>
+    public static Task<SquirixServerOptions> LoadOrCreateDefaultAsync(CancellationToken cancellationToken = default) =>
+        LoadOrCreateDefaultAsync(ResolveSettingsPath(), cancellationToken);
 
     /// <summary>Resolves the data directory hosting uses for <paramref name="options" /> when persistence is enabled.</summary>
     /// <param name="options">Server options carrying the optional data directory and the cluster and node identifiers.</param>
@@ -289,6 +290,24 @@ public static class Configurator
         await UnifiedSettings.ValidateOptionalSectionsAsync(settingsFilePath, failures, cancellationToken).ConfigureAwait(false);
 
         return failures.Count == 0 ? (true, null) : (false, string.Join(Environment.NewLine, failures));
+    }
+
+    /// <summary>Loads settings from <paramref name="discoveredPath" /> or, when it is <see langword="null" />, creates ephemeral local defaults.</summary>
+    /// <param name="discoveredPath">The discovered settings file path, or <see langword="null" /> when none exists.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Validated server options.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the settings file cannot be loaded or fails validation.</exception>
+    internal static async Task<SquirixServerOptions> LoadOrCreateDefaultAsync(string? discoveredPath, CancellationToken cancellationToken)
+    {
+        if (discoveredPath != null)
+            return await LoadAsync(discoveredPath, cancellationToken).ConfigureAwait(false);
+
+        var port = NextFreePort();
+        return new SquirixServerOptions
+        {
+            NodeId = "node",
+            Uri = new Uri(InvariantDigitStrings.FormatHttpsOrigin("localhost", port)),
+        };
     }
 
     /// <summary>Maps validated server options to internal cluster configuration.</summary>

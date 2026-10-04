@@ -125,6 +125,43 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
         _ = await Assert.That(error).Contains("local NodeId", StringComparison.Ordinal);
     }
 
+    /// <summary>A discovered settings file that fails validation makes the default loader throw instead of falling back.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LoadOrCreateThrowsForInvalidFile(CancellationToken cancellationToken)
+    {
+        var path = NodePathKit.Combine(Dir, "invalid-default.json");
+        await File.WriteAllTextAsync(path, """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","VirtualNodes":0}}}""", cancellationToken);
+
+        var operation = Configurator.LoadOrCreateDefaultAsync(path, cancellationToken);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(operation);
+    }
+
+    /// <summary>A discovered settings file without a cluster section makes the default loader throw.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LoadOrCreateThrowsWithoutClusterSection(CancellationToken cancellationToken)
+    {
+        var path = NodePathKit.Combine(Dir, "no-cluster.json");
+        await File.WriteAllTextAsync(path, """{"Squirix":{"MemoryPressure":{}}}""", cancellationToken);
+
+        var operation = Configurator.LoadOrCreateDefaultAsync(path, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(operation);
+
+        _ = await Assert.That(ex.Message).Contains("Squirix.Cluster", StringComparison.Ordinal);
+    }
+
+    /// <summary>Without a settings file the default loader creates ephemeral local options.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LoadOrCreateCreatesDefaultsWithoutFile(CancellationToken cancellationToken)
+    {
+        var options = await Configurator.LoadOrCreateDefaultAsync(null, cancellationToken);
+
+        _ = await Assert.That(options.NodeId).IsEqualTo("node");
+    }
+
     /// <summary>TryLoadFromFile reports a clear error when the settings file is missing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
