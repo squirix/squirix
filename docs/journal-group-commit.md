@@ -7,32 +7,31 @@ each mutation pays for its own durability flush (typically one fsync round-trip 
 
 The library uses **conservative defaults** suitable for unknown workloads (single writer, latency-first, no tuning required):
 
-| Setting                      | Default   | Meaning                                      |
-| ---------------------------- | --------- | -------------------------------------------- |
-| `JournalGroupCommitMaxWait`  | `0`       | Group commit **disabled**                    |
-| `JournalGroupCommitMaxBatch` | `32`      | Batch cap when group commit is enabled       |
+| Setting                       | Default    | Meaning                                |
+| ----------------------------- | ---------- | -------------------------------------- |
+| `Journal.GroupCommitMaxWait`  | `00:00:00` | Group commit **disabled**              |
+| `Journal.GroupCommitMaxBatch` | `32`       | Batch cap when group commit is enabled |
 
-Group commit is **opt-in**: set `JournalGroupCommitMaxWait` to a value greater than zero. `JournalGroupCommitMaxBatch`
-only applies when group commit is enabled.
+Group commit is **opt-in**: set `Journal.GroupCommitMaxWait` to a value greater than zero (1 to 100 whole milliseconds).
+`Journal.GroupCommitMaxBatch` (1 to 4096) only applies when group commit is enabled.
 
-These defaults are set on internal `PersistenceOptions`. v0.1 public hosting (`squirix-server` / `AddSquirixServerAsync`)
-does not merge a Persistence JSON section from `Squirix.settings.json`, so group commit stays disabled unless a custom
-host injects `PersistenceOptions` (for example tests).
+Both are public hosting settings: `SquirixServerOptions.Journal` or the `Squirix:Cluster:Journal` settings object, for
+example `"GroupCommitMaxWait": "00:00:00.002"`. A positive wait requires persistence. See
+[configuration](configuration.md#journal).
 
 ## Policy
 
-| Setting                      | Effect                                                                               |
-| ---------------------------- | ------------------------------------------------------------------------------------ |
-| `JournalGroupCommitMaxWait`  | When `> 0`, concurrent durable mutations can share one `FlushAsync` / fsync.         |
-| `JournalGroupCommitMaxBatch` | Upper bound on mutations batched into a single durability flush.                     |
+| Setting                       | Effect                                                                        |
+| ----------------------------- | ----------------------------------------------------------------------------- |
+| `Journal.GroupCommitMaxWait`  | When `> 0`, concurrent durable mutations can share one `FlushAsync` / fsync.  |
+| `Journal.GroupCommitMaxBatch` | Upper bound on mutations batched into a single durability flush.              |
 
 A batch ends when **either** limit is reached first:
 
 - **`MaxBatch`** — enough waiters joined → flush immediately.
 - **`MaxWait`** — timer expires before the batch is full → flush the partial batch.
 
-When constructing `PersistenceOptions` explicitly (tests / custom composition), the wait uses property
-`JournalGroupCommitMaxWait` (JSON name `groupCommitMaxWait`, milliseconds). See [configuration](configuration.md).
+See [configuration](configuration.md#journal) for the settings format and bounds.
 
 ## Durability guarantee
 
@@ -60,14 +59,15 @@ Leave the default (`MaxWait = 0`) when:
 - You have not measured fsync cost and concurrent writer count on target hardware.
 
 Group commit batches waiters that reach `AwaitDurabilityCommitAsync` at roughly the same time. Mutations on the **same
-cache key** are still serialized (one in-flight durable mutation per key), so a hot key does not benefit from batching.
+cache key** are serialized per key in arrival order (one in-flight durable mutation per key, none refused), so a hot key does
+not benefit from batching.
 
 ## Tuning guide (operator / integrator)
 
 There is no single pair of values that maximizes performance for every deployment. Treat tuning as a **workload-specific
 measurement exercise**, not a library default.
 
-### `JournalGroupCommitMaxWait`
+### `Journal.GroupCommitMaxWait`
 
 Maximum time to wait for additional waiters before flushing a batch that is not yet full.
 
@@ -77,7 +77,7 @@ Maximum time to wait for additional waiters before flushing a batch that is not 
 | Lower     | Usually down                                | Usually down                         |
 | `0`       | One fsync per mutation (group commit off)   | Lowest for isolated writers          |
 
-### `JournalGroupCommitMaxBatch`
+### `Journal.GroupCommitMaxBatch`
 
 Hard cap on how many durability waiters share one fsync.
 
@@ -92,6 +92,7 @@ large values if p99 commit latency is sensitive.
 
 ### Starting points (not defaults)
 
+Recommended values are pending measurement on the public hosting path; the numbers below are provisional.
 Use these only as **first experiments** after enabling group commit, then sweep on representative hardware:
 
 | Profile          | `MaxWait` (starting point) | `MaxBatch` (starting point)       |
@@ -127,18 +128,18 @@ JsonFramed write backend was removed in `8d2664c5`; numbers below are from pre-r
 | **DurableMutationExecutor** (production) | 256 B   | **~2× throughput**                   |
 | DurableMutationExecutor                  | 4096 B  | ~1.17× throughput                    |
 
-**Recommendations for production concurrent durable writes:**
+**Recommendations for production concurrent durable writes (pending measurement on the public hosting path):**
 
-- As a production starting point after enabling group commit, try **`JournalGroupCommitMaxWait = 1–5 ms`** with
-  **`JournalGroupCommitMaxBatch = 32`** (default batch cap). The library default remains `MaxWait = 0` (disabled).
+- As a production starting point after enabling group commit, try **`Journal.GroupCommitMaxWait = 1–5 ms`** with
+  **`Journal.GroupCommitMaxBatch = 32`** (default batch cap). The library default remains `MaxWait = 0` (disabled).
 - Prefer the **DurableMutationExecutor** group-commit path (conflict key + barrier) over calling `AppendPutAsync` and
   `AwaitDurabilityCommitAsync` separately on hot paths.
 
 ## Latency vs throughput (summary)
 
-| Mode                                       | Throughput under concurrent writers                               | Tail latency                                                                    |
-| ------------------------------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Disabled (`JournalGroupCommitMaxWait = 0`) | One fsync per mutation                                            | Lowest for a single writer                                                      |
-| Enabled                                    | Amortizes fsync across up to `JournalGroupCommitMaxBatch` writers | Adds up to `JournalGroupCommitMaxWait` wait before flush when batch is not full |
+| Mode                                        | Throughput under concurrent writers                                | Tail latency                                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| Disabled (`Journal.GroupCommitMaxWait = 0`) | One fsync per mutation                                             | Lowest for a single writer                                                       |
+| Enabled                                     | Amortizes fsync across up to `Journal.GroupCommitMaxBatch` writers | Adds up to `Journal.GroupCommitMaxWait` wait before flush when batch is not full |
 
 Benchmark journal persistence on representative hardware before enabling group commit in production.

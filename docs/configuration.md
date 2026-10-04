@@ -114,6 +114,7 @@ standalone host, `AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()`.
 | `Peers[].NodeId`          | string | none                                   | Required, non-empty, maximum 128 characters                                                                                                                       |
 | `Peers[].Uri`             | URI    | none                                   | Same validation as `Uri`                                                                                                                                          |
 | `Backpressure`            | object | see below                              | Optional; keys and validation are listed in [Backpressure](#backpressure)                                                                                         |
+| `Journal`                 | object | see below                              | Optional; keys and validation are listed in [Journal](#journal)                                                                                                   |
 
 CLI validation:
 
@@ -164,6 +165,7 @@ section in settings (mapped into the same options model).
 | `ReplicaCount`            | int     | `1`                      | `1..5`, at most the peer count; RF>1 needs persistence, cluster mTLS, and `ReplicationEnabled`; see the [topology stamp](#activated-topology-stamp-topologystamp) |
 | `ConfigurationGeneration` | ulong   | `1`                      | `> 0`; recorded in the [activated topology stamp](#activated-topology-stamp-topologystamp) on the first RF>1 start                                                |
 | `Backpressure`            | options | see below                | `SquirixServerBackpressureOptions`; see [Backpressure](#backpressure)                                                                                             |
+| `Journal`                 | options | see below                | `SquirixServerJournalOptions`; see [Journal](#journal)                                                                                                            |
 | `PersistenceEnabled`      | bool    | `false`                  | Any boolean                                                                                                                                                       |
 | `ReplicationEnabled`      | bool    | `false`                  | Opt-in for RF>1 replication; RF>1 without it refuses startup                                                                                                      |
 | `WaitForRecovery`         | bool    | `true`                   | Any boolean; applies when persistence is enabled                                                                                                                  |
@@ -264,7 +266,7 @@ during startup.
 
 ## Node settings file (`Squirix.settings.json`)
 
-Except for `Squirix:Cluster:Backpressure`, which is a property of `SquirixServerOptions`, the optional sections below are
+Except for `Squirix:Cluster:Backpressure` and `Squirix:Cluster:Journal`, which are properties of `SquirixServerOptions`, the optional sections below are
 **not** properties on `SquirixServerOptions`. In v0.1 public hosting, only some of them are merged from the settings file
 at startup:
 
@@ -275,6 +277,7 @@ at startup:
 | `PrometheusMetrics` | Yes | Merged when present |
 | Persistence knobs (`PersistenceOptions`) | No | Host defaults when `--persist` / `UsePersistence()`; not a JSON section today |
 | Backpressure | Yes, as `Squirix:Cluster:Backpressure` | A property of `SquirixServerOptions`, see [Backpressure](#backpressure) |
+| Journal group commit | Yes, as `Squirix:Cluster:Journal` | A property of `SquirixServerOptions`, see [Journal](#journal) |
 | Idempotency store | Env only | `SQUIRIX_IDEMPOTENCY_*` overrides; not a JSON section |
 | Journal compaction / metrics exporter interval | No | Hardcoded in host composition |
 
@@ -294,8 +297,8 @@ There is **no** `Squirix:Persistence` JSON merge in v0.1 public hosting — putt
 | `JournalMaxSegmentMb`         | int    | `64`                                                       | `>= 9`: a segment must hold the largest journal frame (an entry or a recorded reply of up to 8 MiB, plus framing)                          |
 | `ManifestRetentionCount`      | int    | `3`                                                        | `> 0`                                                                                                                                      |
 | `SnapshotRetentionCount`      | int    | `3`                                                        | `> 0`                                                                                                                                      |
-| `JournalGroupCommitMaxWait`   | ms     | `0` (disabled)                                             | `>= 0`; internal JSON name `groupCommitMaxWait` (tests / explicit `PersistenceOptions` only)                                               |
-| `JournalGroupCommitMaxBatch`  | int    | `32`                                                       | `> 0`; used only when group commit is enabled                                                                                              |
+| Journal group commit wait     | ms     | `0` (disabled)                                             | Set through `SquirixServerOptions.Journal`, see [Journal](#journal)                                                                        |
+| Journal group commit batch    | int    | `32`                                                       | Set through `SquirixServerOptions.Journal`, see [Journal](#journal)                                                                        |
 | `JournalMaxSegmentCount`      | int    | `32`                                                       | `> 0` (Pipelined journal segment count cap)                                                                                                |
 | `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | `>= 9` (Pipelined journal total on-disk size hard cap; must hold one segment with the largest journal frame)                               |
 | `ReplicaLogCompactionMb`      | int    | `64`                                                       | `> 0` (RF>1: `group.log` size of the owned replica group that triggers its compaction)                                                     |
@@ -314,7 +317,7 @@ Additional host defaults (also not merged from `Squirix.settings.json`):
 that would exceed the hard cap are rejected with `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`); readiness
 stays healthy. See [Journal disk quota](operational-runbook.md#journal-disk-quota) for operator guidance.
 
-See [journal group commit](journal-group-commit.md) for defaults, when to enable, and tuning guidance.
+Journal group commit is configured through the [Journal](#journal) section. See [journal group commit](journal-group-commit.md) for how it works.
 
 ### Snapshot
 
@@ -330,6 +333,38 @@ uses the fields below (omit the section to keep host defaults).
 | `JournalGrowthThrottleBytes` | long            | `0`                  | `>= 0`         |
 | `LatencySloMilliseconds`     | double          | `0`                  | finite, `>= 0` |
 | `LatencyThrottleDuration`    | TimeSpan string | `00:00:10`           | `>= 0`         |
+
+### Journal
+
+Journal group commit is configured through `SquirixServerOptions.Journal` (`SquirixServerJournalOptions`) or the
+`Squirix:Cluster:Journal` settings object; every key is optional and keeps the default listed below. Group commit lets
+concurrent durable mutations share one journal flush at the cost of up to `GroupCommitMaxWait` of extra commit latency.
+It is off by default and requires persistence (`PersistenceEnabled`, `UsePersistence()` or `--persist`). Changes apply on
+the next host start.
+
+```json
+{
+    "Squirix": {
+        "Cluster": {
+            "PersistenceEnabled": true,
+            "Journal": {
+                "GroupCommitMaxWait": "00:00:00.002",
+                "GroupCommitMaxBatch": 64
+            }
+        }
+    }
+}
+```
+
+| Field                 | Type     | Default    | Validation                                                                                         |
+| --------------------- | -------- | ---------- | -------------------------------------------------------------------------------------------------- |
+| `GroupCommitMaxWait`  | TimeSpan | `00:00:00` | `0` (group commit off) or `1..100` whole milliseconds; a positive value needs `PersistenceEnabled` |
+| `GroupCommitMaxBatch` | int      | `32`       | `1..4096`; used only when `GroupCommitMaxWait` is greater than zero                                |
+
+`TimeSpan` values are strings in `[d.]hh:mm:ss[.fffffff]` form; a number is rejected and the error names the field.
+Unknown keys in the `Journal` object fail loading, and `Journal` must not be `null`. Invalid values fail host startup,
+`validate-config`, and settings loading, for example with `Journal GroupCommitMaxWait must be zero or between 1 and 100
+whole milliseconds.`
 
 ### Backpressure
 
@@ -605,6 +640,8 @@ hosting ignores:
 - `Backpressure NodeRateLimitBurst must be greater than zero when configured.`
 - `Backpressure NodeRateLimitBurst requires NodeRateLimitPerSecond.`
 - `Backpressure MaxQueueWait cannot exceed 00:01:00.`
+- `Journal GroupCommitMaxBatch must be between 1 and 4096.`
+- `Journal GroupCommitMaxWait greater than zero requires persistence. Set PersistenceEnabled (call UsePersistence() or pass --persist).`
 - `Persistence DataDir is required.`
 - `ReplicaCount greater than 1 requires the replication opt-in. Enable Squirix:Cluster:ReplicationEnabled (or pass --enable-replication).`
 - `Persistence JournalMaxSegmentMb must be at least 9: a journal segment must hold the largest journal frame.`
