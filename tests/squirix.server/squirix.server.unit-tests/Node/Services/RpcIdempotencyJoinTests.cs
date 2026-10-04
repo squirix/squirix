@@ -191,7 +191,10 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         _ = await Assert.That(target.Executions).IsEqualTo(1);
     }
 
-    /// <summary>Disposal during the outcome durability wait faults the original after stamping, so a retry reports the unknown outcome.</summary>
+    /// <summary>
+    /// Disposal during the outcome durability wait, after the mutation frame was flushed and applied, faults the original after stamping:
+    /// the durable value stays in memory and a retry reports the unknown outcome.
+    /// </summary>
     /// <param name="groupCommit">Whether the stuck fsync belongs to a group commit batch instead of a plain checkpoint.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -200,8 +203,12 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
     public async Task OutcomeWaitShutdownKeepsIntent(bool groupCommit, CancellationToken cancellationToken)
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, ShutdownBudget, NullLogger.Instance, cancellationToken);
+
+        // The first write also writes the segment header: warm up so the one flush that passes is the mutation frame's.
+        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("w"), JournalEntryPayloadKit.EncodePut("w"), cancellationToken);
+        await journal.Journal.AwaitDurabilityCommitAsync(cancellationToken);
         var target = new PutTarget(journal.Journal, CreateStore());
-        journal.Writer.Flush.Arm();
+        journal.Writer.Flush.ArmAfter(1);
 
         var original = target.PutAsync(Fingerprint, cancellationToken);
         RpcException retryError;
@@ -218,6 +225,7 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         }
 
         _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Status.Detail)).IsTrue();
+        _ = await Assert.That(target.Memory.Snapshot).IsEqualTo(KeyA);
         _ = await Assert.That(target.Executions).IsEqualTo(1);
     }
 

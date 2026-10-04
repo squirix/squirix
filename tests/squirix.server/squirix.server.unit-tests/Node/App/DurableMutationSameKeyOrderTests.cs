@@ -153,12 +153,12 @@ public sealed class DurableMutationSameKeyOrderTests : IsolatedStorageTestBase
     }
 
     /// <summary>
-    /// Two idempotent calls with different operation ids on one key run in order while durability is deferred: the second waits for the
+    /// Two idempotent calls with different operation ids on one key run in order: the second waits for the
     /// first one's frame and apply, and both frames carry their own operation id.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DeferredSameKeyCallsRunInOrder(CancellationToken cancellationToken)
+    public async Task IdempotentSameKeyCallsRunInOrder(CancellationToken cancellationToken)
     {
         // Only the grouped append waits for its write ack, so only there the first call is still in flight when the second arrives.
         await using var journal = await CreateWarmJournalAsync(true, cancellationToken);

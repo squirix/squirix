@@ -82,7 +82,7 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
 
     /// <summary>
     /// One armable stall: while armed, every call blocks until <see cref="Release" />. <see cref="Entered" /> completes when the first
-    /// call blocks, so tests wait on it instead of sleeping.
+    /// call blocks, so tests wait on it instead of sleeping. <see cref="ArmAfter" /> lets a given number of calls through first.
     /// </summary>
     [ThreadSafe]
     internal sealed class Stall : IDisposable
@@ -92,6 +92,7 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
         private int _armed;
         private int _disposed;
         private Exception? _failure;
+        private int _passes;
 
         /// <summary>Gets a task that completes once a call has blocked on this armed stall.</summary>
         internal Task Entered => _entered.Task;
@@ -104,8 +105,14 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
         }
 
         /// <summary>Makes subsequent calls block until <see cref="Release" />.</summary>
-        internal void Arm()
+        internal void Arm() => ArmAfter(0);
+
+        /// <summary>Lets the next <paramref name="passes" /> calls through, then makes later calls block until <see cref="Release" />.</summary>
+        /// <param name="passes">Number of calls that pass before the stall blocks.</param>
+        internal void ArmAfter(int passes)
         {
+            ArgumentOutOfRangeException.ThrowIfNegative(passes);
+            Volatile.Write(ref _passes, passes);
             _released.Reset();
             Volatile.Write(ref _armed, 1);
         }
@@ -132,6 +139,9 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
         internal void BlockIfArmed()
         {
             if (Volatile.Read(ref _armed) == 0)
+                return;
+
+            if (Interlocked.Decrement(ref _passes) >= 0)
                 return;
 
             _ = _entered.TrySetResult();
