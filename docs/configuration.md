@@ -264,8 +264,9 @@ during startup.
 
 ## Node settings file (`Squirix.settings.json`)
 
-Optional sections below are **not** properties on `SquirixServerOptions`. In v0.1 public hosting, only some of them are
-merged from the settings file at startup:
+Except for `Squirix:Cluster:Backpressure`, which is a property of `SquirixServerOptions`, the optional sections below are
+**not** properties on `SquirixServerOptions`. In v0.1 public hosting, only some of them are merged from the settings file
+at startup:
 
 | Section | Loaded from `Squirix.settings.json`? | Notes |
 | --- | --- | --- |
@@ -354,9 +355,10 @@ cannot be switched off from public options.
 ```
 
 Invalid values fail host startup, `validate-config`, and settings loading with the matching message from
-[Validation failures](#validation-failures).
+[Validation failures](#validation-failures). Unknown keys in the `Backpressure` object (for example a misspelled name)
+fail loading too. `TimeSpan` values are strings in `[d.]hh:mm:ss[.fffffff]` form, for example `"00:00:00.250"`.
 
-Per-client limits (`PerClientMaxInFlight`, `PerClientMaxQueue`, `PerClientRateLimit*`) key off a **backpressure client
+Per-client limits (`PerClientMaxInFlight`, `PerClientRateLimit*`) key off a **backpressure client
 id** resolved for each cache operation:
 
 | Source | Client id | When |
@@ -368,23 +370,28 @@ id** resolved for each cache operation:
 Setting `PerClientMaxInFlight` or `PerClientRateLimitPerSecond` turns on per-caller client ids; without either, all callers
 share one bucket and no caller identity is computed per request.
 
-v0.1 external auth is JWT-only; there is no API-key principal. Internode cluster forwarding uses mTLS on the internal
-listener and typically lands in the `conn:` or `runtime` bucket rather than a shared external JWT subject.
+v0.1 external auth is JWT-only; there is no API-key principal. A request forwarded to its key owner is admitted on the
+entry node under the caller's own client id. The owner treats it as an internal owner call (mTLS on the internal
+listener) and skips per-client limits for it, so forwarded traffic is not pooled into one bucket per peer connection;
+node-wide concurrency, queue and node rate limits still apply to it.
 
-| Field                         | Type            | Default        | Validation                                    |
-| ----------------------------- | --------------- | -------------- | --------------------------------------------- |
-| `MaxInFlight`                 | int             | `256`          | `> 0`                                         |
-| `PerClientMaxInFlight`        | int?            | `null`         | unset or `1..MaxInFlight`                     |
-| `MaxQueue`                    | int             | `128`          | `>= 0`                                        |
-| `PerClientMaxQueue`           | int?            | `null`         | unset or `>= 0`                               |
-| `SlowdownThreshold`           | int             | `192`          | `1..MaxInFlight`                              |
-| `RejectThreshold`             | int             | `256`          | `1..MaxInFlight`, `>= SlowdownThreshold`      |
-| `NodeRateLimitPerSecond`      | int?            | `null`         | unset or `> 0` with `NodeRateLimitBurst`      |
-| `NodeRateLimitBurst`          | int?            | `null`         | unset or `>= NodeRateLimitPerSecond`          |
-| `PerClientRateLimitPerSecond` | int?            | `null`         | unset or `> 0` with `PerClientRateLimitBurst` |
-| `PerClientRateLimitBurst`     | int?            | `null`         | unset or `>= PerClientRateLimitPerSecond`     |
-| `MaxSlowdownDelay`            | TimeSpan string | `00:00:00.025` | `>= 0`                                        |
-| `MaxQueueWait`                | TimeSpan string | `00:00:00.250` | `> 0`                                         |
+| Field                         | Type            | Default        | Validation                                       |
+| ----------------------------- | --------------- | -------------- | ------------------------------------------------ |
+| `MaxInFlight`                 | int             | `256`          | `> 0`                                            |
+| `PerClientMaxInFlight`        | int?            | `null`         | unset or `1..MaxInFlight`                        |
+| `MaxQueue`                    | int             | `128`          | `>= 0`                                           |
+| `SlowdownThreshold`           | int             | `192`          | `1..MaxInFlight`                                 |
+| `RejectThreshold`             | int             | `256`          | `1..MaxInFlight`, `>= SlowdownThreshold`         |
+| `NodeRateLimitPerSecond`      | int?            | `null`         | unset or `> 0` with `NodeRateLimitBurst`         |
+| `NodeRateLimitBurst`          | int?            | `null`         | needs `NodeRateLimitPerSecond`; `>=` that rate   |
+| `PerClientRateLimitPerSecond` | int?            | `null`         | unset or `> 0` with `PerClientRateLimitBurst`    |
+| `PerClientRateLimitBurst`     | int?            | `null`         | needs the rate; `>= PerClientRateLimitPerSecond` |
+| `MaxSlowdownDelay`            | TimeSpan string | `00:00:00.025` | `0` to `00:00:05`                                |
+| `MaxQueueWait`                | TimeSpan string | `00:00:00.250` | `> 0` and at most `00:01:00`                     |
+
+`RejectThreshold` rejects a new request only when in-flight has reached it **and** another request is already waiting in
+the queue; with an empty queue the request still waits (up to `MaxQueue` and `MaxQueueWait`). A burst is meaningless
+without a rate, so setting a burst alone is rejected.
 
 ### Journal compaction
 
@@ -594,6 +601,8 @@ hosting ignores:
 - `Backpressure RejectThreshold must be greater than or equal to SlowdownThreshold.`
 - `Backpressure PerClientMaxInFlight cannot exceed MaxInFlight.`
 - `Backpressure NodeRateLimitBurst must be greater than zero when configured.`
+- `Backpressure NodeRateLimitBurst requires NodeRateLimitPerSecond.`
+- `Backpressure MaxQueueWait cannot exceed 00:01:00.`
 - `Persistence DataDir is required.`
 - `ReplicaCount greater than 1 requires the replication opt-in. Enable Squirix:Cluster:ReplicationEnabled (or pass --enable-replication).`
 - `Persistence JournalMaxSegmentMb must be at least 9: a journal segment must hold the largest journal frame.`

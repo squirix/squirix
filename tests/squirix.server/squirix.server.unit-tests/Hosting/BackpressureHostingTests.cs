@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.TestKit;
@@ -29,10 +30,8 @@ public sealed class BackpressureHostingTests : IsolatedStorageTestBase
                 backpressure.MaxInFlight = 8;
                 backpressure.SlowdownThreshold = 8;
                 backpressure.RejectThreshold = 8;
-                backpressure.MaxQueue = 0;
                 backpressure.MaxSlowdownDelay = TimeSpan.Zero;
                 backpressure.PerClientMaxInFlight = 1;
-                backpressure.PerClientMaxQueue = 1;
             },
             cancellationToken);
         var gate = app.Services.GetRequiredService<IBackpressureGate>();
@@ -76,6 +75,31 @@ public sealed class BackpressureHostingTests : IsolatedStorageTestBase
         _ = await Assert.That(firstDecision.IsAccepted).IsTrue();
         _ = await Assert.That(limitedDecision.RejectReason).IsEqualTo("client_rate_limit");
         _ = await Assert.That(otherDecision.IsAccepted).IsTrue();
+    }
+
+    /// <summary>A node rate limit set on the public options rejects requests once its burst is spent, for every client.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NodeRateLimitAppliesToHost(CancellationToken cancellationToken)
+    {
+        await using var app = await BuildAppAsync(
+            static backpressure =>
+            {
+                backpressure.MaxQueue = 0;
+                backpressure.MaxSlowdownDelay = TimeSpan.Zero;
+                backpressure.NodeRateLimitPerSecond = 1;
+                backpressure.NodeRateLimitBurst = 1;
+            },
+            cancellationToken);
+        var gate = app.Services.GetRequiredService<IBackpressureGate>();
+
+        var (firstDecision, firstLease) = await gate.AcquireAsync("grpc", "get", "jwt:client-a", cancellationToken);
+        firstLease.Dispose();
+        var (limitedDecision, limitedLease) = await gate.AcquireAsync("grpc", "get", "jwt:client-b", cancellationToken);
+        limitedLease.Dispose();
+
+        _ = await Assert.That(firstDecision.IsAccepted).IsTrue();
+        _ = await Assert.That(limitedDecision.RejectReason).IsEqualTo("node_rate_limit");
     }
 
     /// <summary>Without a per-client limit the host shares one client id.</summary>
@@ -143,6 +167,9 @@ public sealed class BackpressureHostingTests : IsolatedStorageTestBase
     private static async Task<WebApplication> BuildAppAsync(Action<SquirixServerBackpressureOptions> configure, CancellationToken cancellationToken)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+
+        // The frozen clock keeps rate-limit buckets from refilling during the test.
+        _ = builder.Services.AddSingleton<TimeProvider>(new FakeTimeProvider());
         _ = await builder.AddSquirixServerAsync(
             options =>
             {

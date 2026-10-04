@@ -8,6 +8,7 @@ namespace Squirix.Server;
 public sealed class SquirixServerOptions
 {
     /// <summary>Gets or sets the node-level admission control (backpressure) options.</summary>
+    /// <remarks>Must not be <see langword="null" />. Changes apply on the next host start.</remarks>
     public SquirixServerBackpressureOptions Backpressure { get; set; } = new();
 
     /// <summary>Gets or sets the cluster identifier.</summary>
@@ -118,7 +119,10 @@ public sealed class SquirixServerOptions
             return false;
 
         if (options.Backpressure == null)
-            throw new ArgumentNullException(nameof(options), "Backpressure cannot be null.");
+        {
+            errors = ["Backpressure cannot be null."];
+            return false;
+        }
 
         try
         {

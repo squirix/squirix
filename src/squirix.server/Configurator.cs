@@ -78,6 +78,7 @@ public static class Configurator
         target.PersistenceEnabled = source.PersistenceEnabled;
         target.ReplicationEnabled = source.ReplicationEnabled;
         target.DataDirectory = source.DataDirectory;
+        ArgumentNullException.ThrowIfNull(source.Backpressure);
         target.Backpressure = new SquirixServerBackpressureOptions
         {
             MaxInFlight = source.Backpressure.MaxInFlight,
@@ -87,7 +88,6 @@ public static class Configurator
             NodeRateLimitBurst = source.Backpressure.NodeRateLimitBurst,
             NodeRateLimitPerSecond = source.Backpressure.NodeRateLimitPerSecond,
             PerClientMaxInFlight = source.Backpressure.PerClientMaxInFlight,
-            PerClientMaxQueue = source.Backpressure.PerClientMaxQueue,
             PerClientRateLimitBurst = source.Backpressure.PerClientRateLimitBurst,
             PerClientRateLimitPerSecond = source.Backpressure.PerClientRateLimitPerSecond,
             RejectThreshold = source.Backpressure.RejectThreshold,
@@ -173,18 +173,15 @@ public static class Configurator
         return !success ? throw new InvalidOperationException(error) : ThrowHelper.Required(options, "Settings file did not produce cluster options.");
     }
 
-    /// <summary>Loads settings from the discovered settings file or creates ephemeral local defaults.</summary>
+    /// <summary>Loads settings from the discovered settings file or, when no settings file exists, creates ephemeral local defaults.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Validated server options.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when a settings file exists but cannot be loaded or fails validation.</exception>
     public static async Task<SquirixServerOptions> LoadOrCreateDefaultAsync(CancellationToken cancellationToken = default)
     {
         var path = ResolveSettingsPath();
         if (path != null)
-        {
-            var (success, options, _) = await LoadFromFileAsync(path, cancellationToken).ConfigureAwait(false);
-            if (success && options != null)
-                return options;
-        }
+            return await LoadAsync(path, cancellationToken).ConfigureAwait(false);
 
         var port = NextFreePort();
         return new SquirixServerOptions

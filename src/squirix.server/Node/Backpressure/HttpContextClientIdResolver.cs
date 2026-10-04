@@ -2,17 +2,23 @@ using System;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Squirix.Server.Attributes;
+using Squirix.Server.Runtime.Invocation;
 
 namespace Squirix.Server.Node.Backpressure;
 
 /// <summary>
 /// Derives backpressure client ids from the JWT subject when authenticated, otherwise from the
 /// ASP.NET Core connection id. In-process calls without an <see cref="HttpContext" /> share the
-/// <c language="csharp">runtime</c> bucket.
+/// <c language="csharp">runtime</c> bucket. Owner-routed calls from another cluster node resolve to
+/// <see cref="InternalOwnerClientId" />, which the gate exempts from per-client limits: the entry node already admitted
+/// the request under the caller's own client id, and the forwarding connection stands for many callers.
 /// </summary>
 [Immutable]
 internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolver
 {
+    /// <summary>Client id of an internal owner-routed call; per-client limits do not apply to it.</summary>
+    internal const string InternalOwnerClientId = "internal";
+
     internal const string MissingHttpContextClientId = "runtime";
 
     private const string CachedClientIdItemKey = "__squirix.backpressure.client_id";
@@ -30,6 +36,9 @@ internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolve
     /// <inheritdoc />
     public string Resolve()
     {
+        if (RemoteInvocationContext.IsInternalOwnerInvocation)
+            return InternalOwnerClientId;
+
         var context = _httpContextAccessor.HttpContext;
         if (context == null)
             return MissingHttpContextClientId;

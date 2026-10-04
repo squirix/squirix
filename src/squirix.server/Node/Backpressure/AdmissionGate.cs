@@ -21,6 +21,9 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     private readonly ClientState? _sharedClient;
     private readonly AsyncSemaphore _slots;
     private readonly TimeProvider _timeProvider;
+
+    /// <summary>The client entry of internal owner-routed calls: it carries no per-client limit, so only node-wide limits apply to them.</summary>
+    private readonly ClientState _unmeteredClient = new();
     private int _disposed;
     private int _inFlight;
     private int _queueDepth;
@@ -36,7 +39,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _observerRegistration = _metrics.RegisterObservers(ObserveInFlight, ObserveQueueDepth, ObserveTrackedClients);
         _slots = new AsyncSemaphore(_options.MaxInFlight);
         _nodeRateLimiter = RateLimiter.Create(_options.NodeRateLimitPerSecond, _options.NodeRateLimitBurst, _timeProvider);
-        _sharedClient = _options.HasPerClientLimits ? null : new ClientState(_options, _timeProvider);
+        _sharedClient = _options.HasPerClientLimits ? null : new ClientState(_options, _timeProvider, false);
     }
 
     public async ValueTask<(Decision Decision, Lease Lease)> AcquireAsync(string transport, string operation, string clientId, CancellationToken cancellationToken)
@@ -51,7 +54,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             return disabledResult.Value;
 
         cancellationToken.ThrowIfCancellationRequested();
-        var client = _sharedClient ?? _clients.GetOrAdd(clientId, static (_, gate) => new ClientState(gate._options, gate._timeProvider), this);
+        var client = ResolveClient(clientId);
 
         var nodeRateLimitReject = RejectByNodeRateLimitIfLimited(transport, operation);
         if (nodeRateLimitReject != null)
@@ -99,7 +102,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     private Lease AcquireLease(string clientId, ClientState client)
     {
         AdjustInFlight(1);
-        if (!ReferenceEquals(client, _sharedClient))
+        if (client.IsPerClient)
             _ = Interlocked.Increment(ref client.InFlightRef);
 
         return new Lease(this, clientId, client);
@@ -165,7 +168,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private (Decision Decision, Lease Lease)? RejectByPerClientConcurrencyIfLimited(string transport, string operation, string clientId, ClientState client)
     {
-        if (_options.PerClientMaxInFlight is not { } perClientMaxInFlight || client.InFlight < perClientMaxInFlight)
+        if (_options.PerClientMaxInFlight is not { } perClientMaxInFlight || !client.IsPerClient || client.InFlight < perClientMaxInFlight)
             return null;
 
         var queuedForClient = Interlocked.Increment(ref client.QueueDepthRef);
@@ -190,7 +193,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private void Release(string clientId, ClientState client)
     {
-        if (!ReferenceEquals(client, _sharedClient))
+        if (client.IsPerClient)
             _ = Interlocked.Decrement(ref client.InFlightRef);
 
         AdjustInFlight(-1);
@@ -200,11 +203,15 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private void RemoveIdleClient(string clientId, ClientState client)
     {
-        if (_sharedClient != null || client.InFlight != 0 || client.QueueDepth != 0 || client.HasRecentActivity == true)
+        if (_sharedClient != null || !client.IsPerClient || client.InFlight != 0 || client.QueueDepth != 0 || client.HasRecentActivity == true)
             return;
 
         _ = _clients.TryRemove(new KeyValuePair<string, ClientState>(clientId, client));
     }
+
+    private ClientState ResolveClient(string clientId) => _sharedClient ?? (string.Equals(clientId, HttpContextClientIdResolver.InternalOwnerClientId, StringComparison.Ordinal)
+        ? _unmeteredClient
+        : _clients.GetOrAdd(clientId, static (_, gate) => new ClientState(gate._options, gate._timeProvider), this));
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
@@ -268,10 +275,18 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         private int _inFlight;
         private int _queueDepth;
 
-        internal ClientState(AdmissionOptions options, TimeProvider timeProvider)
+        internal ClientState()
         {
+        }
+
+        internal ClientState(AdmissionOptions options, TimeProvider timeProvider, bool isPerClient = true)
+        {
+            IsPerClient = isPerClient;
             _rateLimiter = RateLimiter.Create(options.PerClientRateLimitPerSecond, options.PerClientRateLimitBurst, timeProvider);
         }
+
+        /// <summary>Gets a value indicating whether this entry belongs to one client and counts its in-flight requests; shared and unmetered entries do not.</summary>
+        internal bool IsPerClient { get; }
 
         internal bool? HasRecentActivity => _rateLimiter?.HasRecentActivity;
 

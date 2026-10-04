@@ -41,7 +41,6 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
             NodeRateLimitBurst = 40,
             NodeRateLimitPerSecond = 20,
             PerClientMaxInFlight = 3,
-            PerClientMaxQueue = 2,
             PerClientRateLimitBurst = 8,
             PerClientRateLimitPerSecond = 4,
             RejectThreshold = 9,
@@ -60,7 +59,6 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
                 NodeRateLimitBurst = 40,
                 NodeRateLimitPerSecond = 20,
                 PerClientMaxInFlight = 3,
-                PerClientMaxQueue = 2,
                 PerClientRateLimitBurst = 8,
                 PerClientRateLimitPerSecond = 4,
                 RejectThreshold = 9,
@@ -130,13 +128,50 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
         _ = await Assert.That(options.TryValidate(out _)).IsTrue();
     }
 
-    /// <summary>A null backpressure section is rejected instead of dereferenced.</summary>
+    /// <summary>A null backpressure section fails validation with a clear error.</summary>
     [Test]
-    public void ValidateRejectsNullBackpressure()
+    public async Task ValidateReportsNullBackpressure()
     {
         var options = new SquirixServerOptions { Backpressure = null! };
 
-        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(options, static value => value.TryValidate(out _));
+        var valid = options.TryValidate(out var errors);
+
+        _ = await Assert.That(valid).IsFalse();
+        _ = await Assert.That(errors[0]).IsEqualTo("Backpressure cannot be null.");
+    }
+
+    /// <summary>A queue wait above the cap fails validation.</summary>
+    [Test]
+    public async Task ValidateReportsExcessiveQueueWait()
+    {
+        var options = new SquirixServerOptions { Backpressure = new SquirixServerBackpressureOptions { MaxQueueWait = TimeSpan.FromMinutes(2) } };
+
+        var valid = options.TryValidate(out var errors);
+
+        _ = await Assert.That(valid).IsFalse();
+        _ = await Assert.That(errors[0]).Contains("MaxQueueWait", StringComparison.Ordinal);
+    }
+
+    /// <summary>A burst without a rate fails validation and names the rate.</summary>
+    [Test]
+    public async Task ValidateReportsBurstWithoutRate()
+    {
+        var options = new SquirixServerOptions { Backpressure = new SquirixServerBackpressureOptions { NodeRateLimitBurst = 5 } };
+
+        var valid = options.TryValidate(out var errors);
+
+        _ = await Assert.That(valid).IsFalse();
+        _ = await Assert.That(errors[0]).IsEqualTo("Backpressure NodeRateLimitBurst requires NodeRateLimitPerSecond.");
+    }
+
+    /// <summary>CopyOptions rejects a source whose backpressure section is null.</summary>
+    [Test]
+    public void CopyOptionsRejectsNullBackpressure()
+    {
+        var source = new SquirixServerOptions { Backpressure = null! };
+        var target = new SquirixServerOptions();
+
+        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws((source, target), static state => Configurator.CopyOptions(state.source, state.target));
     }
 
     /// <summary>The settings file binds the Backpressure section, including TimeSpan strings, and keeps defaults for absent keys.</summary>
@@ -159,6 +194,54 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
         _ = await Assert.That(options.Backpressure.NodeRateLimitPerSecond).IsNull();
     }
 
+    /// <summary>An empty Backpressure section keeps the defaults and a null one fails loading.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SettingsFileHandlesNullAndEmptySection(CancellationToken cancellationToken)
+    {
+        var nullPath = NodePathKit.Combine(Dir, "backpressure-null.json");
+        await File.WriteAllTextAsync(nullPath, """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Backpressure":null}}}""", cancellationToken);
+        var emptyPath = NodePathKit.Combine(Dir, "backpressure-empty.json");
+        await File.WriteAllTextAsync(emptyPath, """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Backpressure":{}}}}""", cancellationToken);
+
+        var (nullSuccess, _, nullError) = await Configurator.LoadFromFileAsync(nullPath, cancellationToken);
+        var emptyOptions = await Configurator.LoadAsync(emptyPath, cancellationToken);
+
+        _ = await Assert.That(emptyOptions.Backpressure.ToAdmissionOptions()).IsEqualTo(new AdmissionOptions());
+        _ = await Assert.That(nullSuccess).IsFalse();
+        _ = await Assert.That(nullError).IsEqualTo("Backpressure cannot be null.");
+    }
+
+    /// <summary>A misspelled Backpressure key fails loading and names the key.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SettingsFileRejectsUnknownKey(CancellationToken cancellationToken)
+    {
+        const string json = """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Backpressure":{"PerClientMaxInFlite":4}}}}""";
+        var path = NodePathKit.Combine(Dir, "unknown-backpressure.json");
+        await File.WriteAllTextAsync(path, json, cancellationToken);
+
+        var (success, _, error) = await Configurator.LoadFromFileAsync(path, cancellationToken);
+
+        _ = await Assert.That(success).IsFalse();
+        _ = await Assert.That(error).Contains("PerClientMaxInFlite", StringComparison.Ordinal);
+    }
+
+    /// <summary>A malformed TimeSpan string fails loading and names the setting path.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SettingsFileRejectsBadTimeSpan(CancellationToken cancellationToken)
+    {
+        const string json = """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Backpressure":{"MaxQueueWait":"soon"}}}}""";
+        var path = NodePathKit.Combine(Dir, "bad-timespan.json");
+        await File.WriteAllTextAsync(path, json, cancellationToken);
+
+        var (success, _, error) = await Configurator.LoadFromFileAsync(path, cancellationToken);
+
+        _ = await Assert.That(success).IsFalse();
+        _ = await Assert.That(error).Contains("MaxQueueWait", StringComparison.Ordinal);
+    }
+
     /// <summary>An invalid Backpressure section in the settings file fails loading with the admission error.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -179,7 +262,23 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
     [Test]
     public async Task CopyOptionsCopiesBackpressure()
     {
-        var source = new SquirixServerOptions { Backpressure = new SquirixServerBackpressureOptions { PerClientMaxInFlight = 6, MaxQueue = 9 } };
+        var source = new SquirixServerOptions
+        {
+            Backpressure = new SquirixServerBackpressureOptions
+            {
+                MaxInFlight = 10,
+                MaxQueue = 5,
+                MaxQueueWait = TimeSpan.FromSeconds(1),
+                MaxSlowdownDelay = TimeSpan.FromMilliseconds(5),
+                NodeRateLimitBurst = 40,
+                NodeRateLimitPerSecond = 20,
+                PerClientMaxInFlight = 3,
+                PerClientRateLimitBurst = 8,
+                PerClientRateLimitPerSecond = 4,
+                RejectThreshold = 9,
+                SlowdownThreshold = 7,
+            },
+        };
         var target = new SquirixServerOptions();
 
         Configurator.CopyOptions(source, target);

@@ -178,9 +178,20 @@ Treat runtime backpressure as overload protection; memory pressure remains capac
 working-set size.
 
 Tune limits through `Squirix:Cluster:Backpressure` or `SquirixServerOptions.Backpressure`; a restart applies the change.
-Per-client and rate limits are off by default. Rejections are counted per reason (`client_concurrency_limit`,
-`client_rate_limit`, `node_rate_limit`, `hard_threshold`); raise a limit only after checking that the node, not one
-noisy caller, is saturated.
+Per-client and rate limits are off by default. Every rejection increments `squirix_backpressure_reject_total` with a
+`reason` label (rate-limit rejections also increment `squirix_backpressure_rate_limit_reject_total`):
+
+- `queue_full`: the node queue (`MaxQueue`) is full.
+- `queue_wait_timeout`: the request waited `MaxQueueWait` without getting a slot.
+- `hard_threshold`: in-flight reached `RejectThreshold` while another request was already queued.
+- `node_rate_limit`: the node rate limit is spent.
+- `client_rate_limit`: the caller's rate limit is spent.
+- `client_concurrency_limit`: the caller is at `PerClientMaxInFlight`.
+- `client_queue_full`: the caller is at `PerClientMaxInFlight` and the node queue size is 0.
+- `gate_disposed`: the node was shutting down while the request waited.
+
+Raise a limit only after checking that the node, not one noisy caller, is saturated. A request forwarded between nodes is
+counted against the caller on the entry node only; the owner applies node-wide limits to it, not per-client ones.
 
 Per-client concurrency and rate limits isolate callers by backpressure client id: JWT `sub` / `NameIdentifier` when the
 request is authenticated (`jwt:{subject}`), otherwise the ASP.NET Core connection id (`conn:{id}`). Callers without an

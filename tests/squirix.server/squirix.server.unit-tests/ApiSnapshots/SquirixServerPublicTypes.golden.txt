@@ -131,8 +131,6 @@ P:Squirix.Server.SquirixServerBackpressureOptions::NodeRateLimitPerSecond:System
 P:Squirix.Server.SquirixServerBackpressureOptions::NodeRateLimitPerSecond:System.Nullable<System.Int32>.set
 P:Squirix.Server.SquirixServerBackpressureOptions::PerClientMaxInFlight:System.Nullable<System.Int32>.get
 P:Squirix.Server.SquirixServerBackpressureOptions::PerClientMaxInFlight:System.Nullable<System.Int32>.set
-P:Squirix.Server.SquirixServerBackpressureOptions::PerClientMaxQueue:System.Nullable<System.Int32>.get
-P:Squirix.Server.SquirixServerBackpressureOptions::PerClientMaxQueue:System.Nullable<System.Int32>.set
 P:Squirix.Server.SquirixServerBackpressureOptions::PerClientRateLimitBurst:System.Nullable<System.Int32>.get
 P:Squirix.Server.SquirixServerBackpressureOptions::PerClientRateLimitBurst:System.Nullable<System.Int32>.set
 P:Squirix.Server.SquirixServerBackpressureOptions::PerClientRateLimitPerSecond:System.Nullable<System.Int32>.get

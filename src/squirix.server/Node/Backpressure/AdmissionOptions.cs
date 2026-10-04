@@ -7,6 +7,12 @@ namespace Squirix.Server.Node.Backpressure;
 [Immutable]
 internal sealed record AdmissionOptions
 {
+    /// <summary>The longest accepted queue wait: a request held longer than a minute is already past any sensible client deadline.</summary>
+    internal static readonly TimeSpan MaxQueueWaitLimit = TimeSpan.FromMinutes(1);
+
+    /// <summary>The longest accepted slowdown delay: the delay is added to every slowed-down request, so it stays far below a request deadline.</summary>
+    internal static readonly TimeSpan MaxSlowdownDelayLimit = TimeSpan.FromSeconds(5);
+
     internal bool Enabled { get; init; } = true;
 
     /// <summary>Gets a value indicating whether a per-client concurrency or rate limit is set, so admission must tell callers apart.</summary>
@@ -44,7 +50,13 @@ internal sealed record AdmissionOptions
         ValidatePerClientRateLimit();
     }
 
-    private static void ValidateRateLimit(int? rate, int? burst, string rateRequiredMessage, string burstRequiredMessage, string burstGteRateMessage)
+    private static void ValidateRateLimit(
+        int? rate,
+        int? burst,
+        string rateRequiredMessage,
+        string burstRequiredMessage,
+        string burstGteRateMessage,
+        string burstWithoutRateMessage)
     {
         if (rate != null)
         {
@@ -63,7 +75,7 @@ internal sealed record AdmissionOptions
         }
         else if (burst != null)
         {
-            throw new InvalidOperationException(rateRequiredMessage);
+            throw new InvalidOperationException(burstWithoutRateMessage);
         }
     }
 
@@ -92,7 +104,8 @@ internal sealed record AdmissionOptions
             NodeRateLimitBurst,
             "Backpressure NodeRateLimitPerSecond must be greater than zero when configured.",
             "Backpressure NodeRateLimitBurst must be greater than zero when configured.",
-            "Backpressure NodeRateLimitBurst must be greater than or equal to NodeRateLimitPerSecond.");
+            "Backpressure NodeRateLimitBurst must be greater than or equal to NodeRateLimitPerSecond.",
+            "Backpressure NodeRateLimitBurst requires NodeRateLimitPerSecond.");
     }
 
     private void ValidatePerClientRateLimit()
@@ -102,7 +115,8 @@ internal sealed record AdmissionOptions
             PerClientRateLimitBurst,
             "Backpressure PerClientRateLimitPerSecond must be greater than zero when configured.",
             "Backpressure PerClientRateLimitBurst must be greater than zero when configured.",
-            "Backpressure PerClientRateLimitBurst must be greater than or equal to PerClientRateLimitPerSecond.");
+            "Backpressure PerClientRateLimitBurst must be greater than or equal to PerClientRateLimitPerSecond.",
+            "Backpressure PerClientRateLimitBurst requires PerClientRateLimitPerSecond.");
     }
 
     private void ValidateThresholdRange(int threshold, string name)
@@ -121,7 +135,13 @@ internal sealed record AdmissionOptions
         if (MaxSlowdownDelay < TimeSpan.Zero)
             throw new InvalidOperationException("Backpressure MaxSlowdownDelay cannot be negative.");
 
+        if (MaxSlowdownDelay > MaxSlowdownDelayLimit)
+            throw new InvalidOperationException("Backpressure MaxSlowdownDelay cannot exceed 00:00:05.");
+
         if (MaxQueueWait <= TimeSpan.Zero)
             throw new InvalidOperationException("Backpressure MaxQueueWait must be greater than zero.");
+
+        if (MaxQueueWait > MaxQueueWaitLimit)
+            throw new InvalidOperationException("Backpressure MaxQueueWait cannot exceed 00:01:00.");
     }
 }

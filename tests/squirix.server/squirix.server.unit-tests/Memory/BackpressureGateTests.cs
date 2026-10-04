@@ -48,6 +48,42 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
         _ = await Assert.That(sink.HasEvent("squirix_backpressure_bypass_total", ("transport", "rest"), ("op", "insert"))).IsTrue();
     }
 
+    /// <summary>Verifies internal owner-routed calls are exempt from per-client limits but still count against node capacity.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InternalClientSkipsPerClientLimits(CancellationToken cancellationToken)
+    {
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
+            {
+                MaxInFlight = 4,
+                MaxQueue = 0,
+                SlowdownThreshold = 4,
+                RejectThreshold = 4,
+                MaxSlowdownDelay = TimeSpan.Zero,
+                PerClientMaxInFlight = 1,
+                PerClientRateLimitPerSecond = 1,
+                PerClientRateLimitBurst = 1,
+            },
+            new BackpressureMetrics(_testMeter),
+            new FakeTimeProvider());
+        var decisions = new bool[5];
+        var leases = new Lease[5];
+
+        for (var i = 0; i < decisions.Length; i++)
+        {
+            var (decision, lease) = await gate.AcquireAsync("grpc", "get", HttpContextClientIdResolver.InternalOwnerClientId, cancellationToken);
+            decisions[i] = decision.IsAccepted;
+            leases[i] = lease;
+        }
+
+        foreach (var lease in leases)
+            lease.Dispose();
+
+        _ = await Assert.That(decisions[0] && decisions[1] && decisions[2] && decisions[3]).IsTrue();
+        _ = await Assert.That(decisions[4]).IsFalse();
+    }
+
     /// <summary>Verifies admission succeeds immediately while slots are available.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -112,7 +148,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 SlowdownThreshold = 1,
                 RejectThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
-                MaxQueueWait = TimeSpan.FromMinutes(5),
+                MaxQueueWait = TimeSpan.FromMinutes(1),
             },
             new BackpressureMetrics(meter));
         var (_, held) = await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken);
@@ -199,7 +235,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxQueue = 1,
                 SlowdownThreshold = 3,
                 RejectThreshold = 6,
-                MaxSlowdownDelay = TimeSpan.FromSeconds(10),
+                MaxSlowdownDelay = TimeSpan.FromSeconds(5),
                 MaxQueueWait = TimeSpan.FromSeconds(10),
                 PerClientMaxInFlight = 2,
             },
