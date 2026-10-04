@@ -149,7 +149,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public long UsedBytes => EventLoop.JournalTotalBytes;
 
-    /// <summary>Gets the number of durability flushes (fsync calls) completed so far.</summary>
+    /// <summary>Gets the number of durability flushes of pending appended data completed so far; segment-open and roll header flushes are not counted.</summary>
     internal long FlushCount => EventLoop.FlushCount;
 
     /// <summary>Gets the last join wait granted to the journal thread after the shutdown budget; 5 seconds unless set.</summary>

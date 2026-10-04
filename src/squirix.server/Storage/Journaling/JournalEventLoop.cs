@@ -73,7 +73,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     public IJournalEventLoopHost Host { get; }
 
-    /// <summary>Gets the number of durability flushes (fsync calls) the journal thread completed. Written by the journal thread; read cross-thread.</summary>
+    /// <summary>Gets the number of durability flushes of pending appended data the journal thread completed through <see cref="FlushToDisk" />. Segment-open and roll header flushes are not counted. Written by the journal thread; read cross-thread.</summary>
     public long FlushCount => Volatile.Read(ref _flushCount);
 
     /// <summary>Gets the on-disk journal segment count. Written only by the journal thread; read cross-thread.</summary>

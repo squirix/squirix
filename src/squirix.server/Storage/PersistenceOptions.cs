@@ -129,7 +129,7 @@ internal sealed record PersistenceOptions
             return;
 
         if (wait < MinGroupCommitWait || wait > MaxGroupCommitWait || wait.Ticks % TimeSpan.TicksPerMillisecond != 0)
-            throw new InvalidOperationException("Journal GroupCommitMaxWait must be zero or between 1 and 100 whole milliseconds.");
+            throw new InvalidOperationException($"Journal GroupCommitMaxWait must be zero or between {MinGroupCommitWait.TotalMilliseconds} and {MaxGroupCommitWait.TotalMilliseconds} whole milliseconds (for example \"00:00:00.005\").");
     }
 
     /// <summary>Refuses a journal size that cannot hold the largest frame, under which valid writes would be refused forever.</summary>

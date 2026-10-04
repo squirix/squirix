@@ -24,6 +24,7 @@ internal sealed class JournalDurabilityGroupCommit
     private List<TaskCompletionSource> _acks;
     private List<TaskCompletionSource> _acksSpare;
     private Exception? _failure;
+    private int _largestBatch;
     private List<TaskCompletionSource>? _inFlight;
 
     internal JournalDurabilityGroupCommit(Action journalThreadFlush, Action notifyJournalThread, PersistenceOptions opt, TimeProvider? timeProvider = null, Action<string>? onWaitCanceled = null)
@@ -40,6 +41,16 @@ internal sealed class JournalDurabilityGroupCommit
         var capacity = Math.Clamp(opt.JournalGroupCommitMaxBatch, 4, 64);
         _acks = [with(capacity)];
         _acksSpare = [with(capacity)];
+    }
+
+    /// <summary>Gets the largest number of waiters one flush has covered so far.</summary>
+    internal int LargestBatch
+    {
+        get
+        {
+            lock (_sync)
+                return _largestBatch;
+        }
     }
 
     /// <summary>Waits until appended journal bytes through the caller's append are covered by a durability flush.</summary>
@@ -207,6 +218,9 @@ internal sealed class JournalDurabilityGroupCommit
             _acks = _acksSpare;
             _acksSpare = batch;
             _inFlight = batch;
+            if (batch.Count > _largestBatch)
+                _largestBatch = batch.Count;
+
             _batchDeadline.Clear();
             return true;
         }

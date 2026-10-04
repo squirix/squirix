@@ -219,6 +219,41 @@ public sealed class GroupCommitOptionsTests : IsolatedStorageTestBase
         _ = await Assert.That(error).Contains("GroupCommitMaxWait", StringComparison.Ordinal);
     }
 
+    /// <summary>A bare number string is read as days, rejected by the range check, and the error shows a valid example.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SettingsFileRejectsBareNumberString(CancellationToken cancellationToken)
+    {
+        var (success, error) = await LoadResultAsync("""{"GroupCommitMaxWait":"5"}""", cancellationToken);
+
+        _ = await Assert.That(success).IsFalse();
+        _ = await Assert.That(error).Contains("Journal GroupCommitMaxWait", StringComparison.Ordinal);
+        _ = await Assert.That(error).Contains("00:00:00.005", StringComparison.Ordinal);
+    }
+
+    /// <summary>A zero string keeps group commit off.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SettingsFileAcceptsZeroString(CancellationToken cancellationToken)
+    {
+        var options = await LoadAsync("""{"GroupCommitMaxWait":"0"}""", cancellationToken);
+
+        _ = await Assert.That(options.Journal.GroupCommitMaxWait).IsEqualTo(TimeSpan.Zero);
+    }
+
+    /// <summary>Settings validation (validate-config) reports a Journal error.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ValidateSettingsFileReportsJournalError(CancellationToken cancellationToken)
+    {
+        var path = await WriteSettingsAsync(Settings("""{"GroupCommitMaxBatch":0}"""), cancellationToken);
+
+        var (success, error) = await Configurator.ValidateSettingsFileAsync(path, false, cancellationToken);
+
+        _ = await Assert.That(success).IsFalse();
+        _ = await Assert.That(error).Contains("Journal GroupCommitMaxBatch", StringComparison.Ordinal);
+    }
+
     /// <summary>A misspelled Journal key fails loading and names the key.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

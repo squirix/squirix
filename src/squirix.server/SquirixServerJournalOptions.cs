@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json.Serialization;
+using Squirix.Server.Storage;
 
 namespace Squirix.Server;
 
@@ -26,4 +27,10 @@ public sealed class SquirixServerJournalOptions
     /// <see cref="SquirixServerOptions.PersistenceEnabled" />.
     /// </remarks>
     public TimeSpan GroupCommitMaxWait { get; set; } = TimeSpan.Zero;
+
+    internal PersistenceOptions ToPersistenceOptions() => new()
+    {
+        JournalGroupCommitMaxBatch = GroupCommitMaxBatch,
+        JournalGroupCommitMaxWait = GroupCommitMaxWait,
+    };
 }

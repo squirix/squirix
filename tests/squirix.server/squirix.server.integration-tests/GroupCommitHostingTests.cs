@@ -40,6 +40,28 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         }
     }
 
+    /// <summary>A lone write waits out the group commit window, so the journal really holds writes back for grouping.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LoneWriteWaitsForTheWindow(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-group-commit-lone");
+        var (app, uri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
+        await using (app)
+        {
+            using var channel = CreateGrpcChannel(uri);
+            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+            _ = await client.SetEntryAsync(CreateSet("warm-up", "warm"), cancellationToken: cancellationToken);
+
+            var started = TimeProvider.System.GetTimestamp();
+            _ = await client.SetEntryAsync(CreateSet("lone", "value"), cancellationToken: cancellationToken);
+            var elapsed = TimeProvider.System.GetElapsedTime(started);
+
+            // The batch holds one write and is not full, so it flushes only once the 100 ms window ends; the bound leaves slack for clock rounding.
+            _ = await Assert.That(elapsed).IsGreaterThanOrEqualTo(TimeSpan.FromMilliseconds(90));
+        }
+    }
+
     /// <summary>Concurrent writes on distinct keys over gRPC share journal flushes.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -67,6 +89,9 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
             var flushes = GetJournal(app).FlushCount - flushesBefore;
             _ = await Assert.That(flushes).IsGreaterThan(0L);
             _ = await Assert.That(flushes).IsLessThan(Concurrency);
+
+            // Ungrouped checkpoints coalesce as well, so only the group commit batch size proves that writes were held and flushed together.
+            _ = await Assert.That(GetJournal(app).GroupCommit?.LargestBatch ?? 0).IsGreaterThanOrEqualTo(2);
         }
     }
 
@@ -90,7 +115,11 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
 
             // An Internal or AlreadyExists status from any call surfaces here as an RpcException.
             await Task.WhenAll(mutations).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+            // The burst leaves an arbitrary state, so a final Set pins a known value that the restart must recover.
+            _ = await client.SetEntryAsync(CreateSet(key, "final"), cancellationToken: cancellationToken);
             before = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
+            _ = await Assert.That(before.Found).IsTrue();
         }
 
         var (restarted, restartedUri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
@@ -101,7 +130,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
 
             var after = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
 
-            _ = await Assert.That(after.Found).IsEqualTo(before.Found);
+            _ = await Assert.That(after.Found).IsTrue();
             _ = await Assert.That(after.Value).IsEqualTo(before.Value);
         }
     }

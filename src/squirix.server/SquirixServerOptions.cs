@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Squirix.Server.Cluster;
-using Squirix.Server.Storage;
 
 namespace Squirix.Server;
 
@@ -87,15 +86,6 @@ public sealed class SquirixServerOptions
     /// <exception cref="ArgumentException">Thrown when a configuration value is invalid.</exception>
     public void Validate() => Validate(this);
 
-    /// <summary>Maps the public journal options to the internal persistence options without validating them.</summary>
-    /// <param name="journal">The public journal options.</param>
-    /// <returns>The persistence options carrying the journal group commit settings.</returns>
-    internal static PersistenceOptions ToPersistenceOptions(SquirixServerJournalOptions journal) => new()
-    {
-        JournalGroupCommitMaxBatch = journal.GroupCommitMaxBatch,
-        JournalGroupCommitMaxWait = journal.GroupCommitMaxWait,
-    };
-
     private static bool TryValidateOptions(SquirixServerOptions options, out IReadOnlyList<string> errors)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -169,7 +159,7 @@ public sealed class SquirixServerOptions
 
         try
         {
-            ToPersistenceOptions(options.Journal).Validate();
+            options.Journal.ToPersistenceOptions().Validate();
         }
         catch (InvalidOperationException ex)
         {
@@ -177,7 +167,7 @@ public sealed class SquirixServerOptions
         }
 
         return options.Journal.GroupCommitMaxWait > TimeSpan.Zero && !options.PersistenceEnabled
-            ? "Journal GroupCommitMaxWait greater than zero requires persistence. Set PersistenceEnabled (call UsePersistence() or pass --persist)."
+            ? "Journal GroupCommitMaxWait greater than zero requires persistence. Set PersistenceEnabled."
             : null;
     }
 
