@@ -2,6 +2,7 @@ using System;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
@@ -68,7 +69,8 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
     [Test]
     public async Task BacklogIsZeroAfterSnapshot(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartClusterAsync("node_health_backlog", new IntegrationStartOptions { UsePersistence = true }, cancellationToken);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var cluster = await StartClusterAsync("node_health_backlog", new IntegrationStartOptions { UsePersistence = true, TimeProvider = clock }, cancellationToken);
         var node = cluster["node_health_backlog"];
         var snapshot = node.GetRequiredService<Coordinator>();
         var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -69,41 +69,57 @@ public sealed class JournalSequenceTests : IsolatedStorageTestBase
         _ = await Assert.That(lastAllocated).IsEqualTo(watermark);
     }
 
-    /// <summary>Restarting from a snapshot taken after the last write leaves no frame above the watermark to replay.</summary>
+    /// <summary>
+    /// Restoring a snapshot at the cut watermark replays no frame: the snapshot deliberately lacks the key of the watermark frame, so any
+    /// replay of that frame would bring the key back.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RestartFromSnapshotReplaysNothing(CancellationToken cancellationToken)
+    public async Task RestoreAtWatermarkReplaysNothing(CancellationToken cancellationToken)
+    {
+        ulong watermark;
+        await using (var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken))
+        {
+            await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
+            await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("b"), JournalEntryPayloadKit.EncodePut("b"), cancellationToken);
+            await journal.Journal.AwaitDurabilityCommitAsync(cancellationToken);
+            watermark = await CutAsync(journal.Journal, cancellationToken);
+            await journal.ShutdownAsync();
+
+            var snapshot = StallableJournal.Describe([CacheKey.Default("a").ToString()]);
+            _ = await Assert.That(journal.Recover(snapshot, watermark, cancellationToken)).IsEqualTo(snapshot);
+            _ = await Assert.That(journal.Recover(snapshot, watermark - 1UL, cancellationToken)).IsEqualTo(StallableJournal.Describe([CacheKey.Default("a").ToString(), CacheKey.Default("b").ToString()]));
+        }
+
+        _ = await Assert.That(watermark).IsEqualTo(2UL);
+    }
+
+    /// <summary>A restart after a roll whose new segment is still empty continues above the highest frame on disk.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RestartAfterRollWithEmptySegment(CancellationToken cancellationToken)
     {
         var persistence = NewPersistence();
         using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
-        ulong watermark;
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(
+            Dir,
+            1,
+            [
+                BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "a", "v"),
+                BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "b", "v"),
+                BinaryJournalTestSegmentWriter.BuildPutRecord(3UL, "c", "v"),
+            ]);
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 2, []);
+        await ledger.WriteAsync(new State { Format = 1, CurrentJournal = 2, NextSequence = 4 }, cancellationToken);
+
         await using (var journal = CreateJournal(persistence, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger))
         {
-            await AppendAsync(journal, "a", cancellationToken);
-            await AppendAsync(journal, "b", cancellationToken);
-            watermark = await CutAsync(journal, cancellationToken);
-            await ledger.WriteAsync(
-                new State
-                {
-                    Format = 1,
-                    CurrentJournal = journal.CurrentSegmentIndex,
-                    NextSequence = journal.NextSequence,
-                    LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow, LastAppliedSequence = watermark, ReplayFromJournalSegment = 1 },
-                },
-                cancellationToken);
+            _ = await Assert.That(journal.NextSequence).IsEqualTo(4UL);
+            await AppendAsync(journal, "d", cancellationToken);
         }
 
-        var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
-        await using var restarted = CreateJournal(persistence, manifest, ledger);
-        var replayed = 0;
-        foreach (var sequence in CollectionsMarshal.AsSpan(ReadSequences(persistence.DataDir, 1, cancellationToken)))
-        {
-            if (sequence > watermark)
-                replayed++;
-        }
-
-        _ = await Assert.That(replayed).IsEqualTo(0);
-        _ = await Assert.That(restarted.NextSequence).IsEqualTo(watermark + 1UL);
+        var sequences = ReadSequences(persistence.DataDir, 1, cancellationToken);
+        _ = await Assert.That(sequences[^1]).IsEqualTo(4UL);
     }
 
     /// <summary>The first frame after a restart gets the highest recovered sequence plus one, leaving no gap.</summary>

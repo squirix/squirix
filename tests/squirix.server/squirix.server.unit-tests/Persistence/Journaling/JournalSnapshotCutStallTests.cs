@@ -72,7 +72,7 @@ public sealed class JournalSnapshotCutStallTests : IsolatedStorageTestBase
             static async (s, ownership, ct) =>
             {
                 await s.Journal.AppendPutAsync(ownership, CacheKey.Default("c"), JournalEntryPayloadKit.EncodePut("c"), ct);
-                s.Sequence.Value = s.Journal.NextSequence;
+                s.Sequence.Value = s.Journal.NextSequence - 1UL;
                 _ = s.Appended.TrySetResult();
             },
             cancellationToken).AsTask();
