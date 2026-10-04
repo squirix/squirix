@@ -44,12 +44,19 @@ internal sealed class DurableMutationExecutor
 
         await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
-        return _journal.IsJournalGroupCommitEnabled && conflictKey != null
+        // Every keyed mutation takes the key-locked path, with group commit on or off: the pre-apply durability wait must never run under the
+        // global mutation gate, or distinct keys could not share a flush. Only an unkeyed mutation runs monolithically under the gate.
+        return conflictKey != null
             ? await ExecuteGroupCommitAsync(conflictKey, precondition, pipeline, cancellationToken).ConfigureAwait(false)
             : await ExecuteMonolithicAsync(precondition, pipeline, cancellationToken).ConfigureAwait(false);
     }
 
-    private static bool IsIdempotentDurabilityDeferred() => RpcMutationIdempotencyExecutionAmbient.IsDeferred;
+    /// <summary>
+    /// Determines whether the wait for the cache journal flush before the memory apply is skipped: only for a replicated apply, whose durable
+    /// source is the replica group log and not the cache journal.
+    /// </summary>
+    /// <returns><see langword="true" /> when the cache journal is not the durable source of the running write.</returns>
+    private static bool SkipsCacheJournalDurabilityWait() => RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended;
 
     private async ValueTask<TResult> ApplyGroupCommitPlanAsync<TState, TResult>(
         DurableMutationPlan<TResult> plan,
@@ -62,11 +69,12 @@ internal sealed class DurableMutationExecutor
 
         try
         {
-            // The frame is on the ring: from here only a journal failure or shutdown may stop the apply, never the caller.
-            if (!IsIdempotentDurabilityDeferred())
+            // The frame is on the ring: from here only a journal failure or shutdown may stop the apply, never the caller. Memory is applied
+            // only once the frame is covered by a completed flush, so a reader never sees a value a crash or a flush failure could lose.
+            if (!SkipsCacheJournalDurabilityWait())
                 await _journal.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
 
-            // The state is applied to memory right here; only the durability commit above was conditional.
+            // The apply slot stays held across the wait above, so a snapshot cut waits for this write and covers it.
             var applyState = new GroupCommitApplyWithState<TState, TResult>(this, state, mutationState, applyMemory);
             return await _journal.ExecuteUnderSnapshotBarrierAsync(
                     applyState,
@@ -144,7 +152,7 @@ internal sealed class DurableMutationExecutor
         }
 
         // The frame is on the ring: from here only a journal failure or shutdown may stop the apply, never the caller.
-        if (!IsIdempotentDurabilityDeferred())
+        if (!SkipsCacheJournalDurabilityWait())
             await AwaitDurabilityAfterRingEntryAsync().ConfigureAwait(false);
 
         return await ApplyAfterRingEntryAsync(state.State, state.ApplyMemory).ConfigureAwait(false);

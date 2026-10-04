@@ -23,7 +23,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
-/// <summary>Idempotent durable mutations must append idempotency frames before the durability barrier.</summary>
+/// <summary>Idempotent durable mutations make their mutation frame durable before applying it, then append the outcome frame and make it durable.</summary>
 [Immutable]
 public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
 {
@@ -34,14 +34,15 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
     private enum OrderingStep
     {
         Put = 1,
-        IdempotencyOutcome = 2,
-        AwaitDurabilityCommit = 3,
+        MutationDurabilityCommit = 2,
+        IdempotencyOutcome = 3,
+        OutcomeDurabilityCommit = 4,
     }
 
-    /// <summary>Put and IdempotencyOutcome journal appends must precede the durability commit for idempotent RPCs.</summary>
+    /// <summary>The put is made durable before the apply, then the outcome is appended and made durable, for idempotent RPCs.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task MutationAppendsOutcomeThenCommitsDurably(CancellationToken cancellationToken)
+    public async Task MutationCommitsBeforeOutcomeCommits(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -174,7 +175,7 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
 
         public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
         {
-            _trace.Record(OrderingStep.AwaitDurabilityCommit);
+            _trace.RecordDurabilityCommit();
             return _inner.AwaitDurabilityCommitAsync(cancellationToken);
         }
 
@@ -210,21 +211,29 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
     private sealed class OrderingTrace
     {
         private byte _count;
+        private bool _outcomeAppended;
         private OrderingStep _step0;
         private OrderingStep _step1;
         private OrderingStep _step2;
+        private OrderingStep _step3;
 
         internal async Task AssertExpectedAsync()
         {
-            const byte expectedCount = 3;
+            const byte expectedCount = 4;
             _ = await Assert.That(_count).IsEqualTo(expectedCount);
             _ = await Assert.That(_step0).IsEqualTo(OrderingStep.Put);
-            _ = await Assert.That(_step1).IsEqualTo(OrderingStep.IdempotencyOutcome);
-            _ = await Assert.That(_step2).IsEqualTo(OrderingStep.AwaitDurabilityCommit);
+            _ = await Assert.That(_step1).IsEqualTo(OrderingStep.MutationDurabilityCommit);
+            _ = await Assert.That(_step2).IsEqualTo(OrderingStep.IdempotencyOutcome);
+            _ = await Assert.That(_step3).IsEqualTo(OrderingStep.OutcomeDurabilityCommit);
         }
+
+        internal void RecordDurabilityCommit() => Record(_outcomeAppended ? OrderingStep.OutcomeDurabilityCommit : OrderingStep.MutationDurabilityCommit);
 
         internal void Record(OrderingStep step)
         {
+            if (step == OrderingStep.IdempotencyOutcome)
+                _outcomeAppended = true;
+
             switch (_count++)
             {
                 case 0:
@@ -235,6 +244,9 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
                     return;
                 case 2:
                     _step2 = step;
+                    return;
+                case 3:
+                    _step3 = step;
                     return;
                 default:
                     throw new InvalidOperationException("Unexpected ordering step.");
