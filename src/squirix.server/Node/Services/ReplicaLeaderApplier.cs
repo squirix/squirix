@@ -152,8 +152,8 @@ internal sealed class ReplicaLeaderApplier
     /// Called under the committer gate, while no coordinator runs. After a restart memory holds at most what the cache journal kept,
     /// which may miss the entries above the durable applied index: they are applied again, in log order. The applied index is seeded
     /// only once, so a resync in this process keeps the in-memory index and applies nothing twice. The entries belong to no caller of
-    /// the current execution, which can carry the idempotency scope of the write that started the committer; that scope would defer their
-    /// durability to a foreign RPC's outcome and count them as that RPC's effect, so they are applied on a pool thread started without the
+    /// the current execution, which can carry the idempotency scope of the write that started the committer; that scope would stamp their
+    /// frames with a foreign operation id and count them as that RPC's effect, so they are applied on a pool thread started without the
     /// execution context.
     /// </remarks>
     internal async Task CatchUpAsync(IFollowerLog log, ulong durableAppliedIndex, ulong commitIndex, CancellationToken cancellationToken)

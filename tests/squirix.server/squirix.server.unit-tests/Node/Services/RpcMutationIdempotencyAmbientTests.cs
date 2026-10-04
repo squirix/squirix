@@ -20,7 +20,7 @@ public sealed class RpcMutationIdempotencyAmbientTests
         try
         {
             RpcMutationIdempotencyExecutionAmbient.Deactivate(new object());
-            _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.IsDeferred).IsTrue();
+            _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsNotNull();
             _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsEqualTo("op-1");
         }
         finally
@@ -28,7 +28,7 @@ public sealed class RpcMutationIdempotencyAmbientTests
             RpcMutationIdempotencyExecutionAmbient.Deactivate(active);
         }
 
-        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.IsDeferred).IsFalse();
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsNull();
     }
 
     /// <summary>Notifying without an active scope is a no-op.</summary>
@@ -37,7 +37,7 @@ public sealed class RpcMutationIdempotencyAmbientTests
     {
         RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
 
-        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.IsDeferred).IsFalse();
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsNull();
     }
 
     /// <summary>Stamping is tracked per scope across nesting.</summary>

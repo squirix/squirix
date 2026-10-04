@@ -239,7 +239,7 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task FirstCallerOutcomeFaultIsUnknown(bool groupCommit, CancellationToken cancellationToken)
+    public async Task PreApplyWaitShutdownIsUnknown(bool groupCommit, CancellationToken cancellationToken)
     {
         var log = new EventRecordingLogger();
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, ShutdownBudget, NullLogger.Instance, cancellationToken);

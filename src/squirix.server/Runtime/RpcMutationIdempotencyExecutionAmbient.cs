@@ -14,9 +14,6 @@ internal static class RpcMutationIdempotencyExecutionAmbient
     /// <summary>Gets the request fingerprint journal mutation frames are stamped with, or <see langword="null" /> when no scope is active or stamping is suspended.</summary>
     internal static string? ActiveFingerprintValue => Current.Value is { StampingSuspended: false } frame ? frame.Fingerprint : null;
 
-    /// <summary>Gets a value indicating whether an idempotent RPC scope is active.</summary>
-    internal static bool IsDeferred => Current.Value != null;
-
     /// <summary>Gets a value indicating whether stamping is suspended inside an active scope, so the cache journal is not the durable source of the running write.</summary>
     internal static bool IsStampingSuspended => Current.Value is { StampingSuspended: true };
 

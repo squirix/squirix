@@ -29,7 +29,7 @@ internal sealed class DurableMutationExecutor
         _logger = logger;
     }
 
-    /// <summary>Gets the number of keys currently held or awaited by grouped mutations.</summary>
+    /// <summary>Gets the number of keys currently held or awaited by keyed mutations.</summary>
     internal int HeldKeyCount => _keyLocks.Count;
 
     internal async ValueTask<TResult> ExecuteAsync<TState, TResult>(
@@ -104,7 +104,7 @@ internal sealed class DurableMutationExecutor
         DurableMutationPipeline<TState, TResult> pipeline,
         CancellationToken cancellationToken)
     {
-        // Same-key mutations run one after another, as under the single mutation gate of the ungrouped path: the next precondition sees the
+        // Same-key mutations run one after another, as if they ran under one mutation gate: the next precondition sees the
         // previous mutation applied. The key lock is taken before the gate and never under it, and is held until the apply, skip or rollback.
         using var keyLease = await _keyLocks.LockAsync(conflictKey, cancellationToken).ConfigureAwait(false);
         while (true)

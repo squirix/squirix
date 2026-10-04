@@ -55,7 +55,7 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
         await SequenceAssert.EqualAsync(["k1", "k2"], local.AppliedKeys(), StringComparer.Ordinal);
         _ = await Assert.That(local.ScopeFor("k1")).IsNull();
         _ = await Assert.That(local.ScopeFor("k2")).IsNull();
-        _ = await Assert.That(local.DeferredFor("k2")).IsTrue();
+        _ = await Assert.That(local.StampingSuspendedFor("k2")).IsTrue();
     }
 
     /// <summary>
@@ -65,7 +65,7 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
     [ThreadSafe]
     private sealed class ScopeRecordingCache : ILogicalNamespacedCache<object?>
     {
-        private readonly ConcurrentQueue<(string Key, string? OperationId, bool Deferred)> _applied = new();
+        private readonly ConcurrentQueue<(string Key, string? OperationId, bool StampingSuspended)> _applied = new();
         private int _failNext = 1;
 
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult<NodeCacheEntry<object?>?>(null);
@@ -83,7 +83,7 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
             if (Interlocked.Exchange(ref _failNext, 0) == 1)
                 return ValueTask.FromException(new InvalidOperationException("Injected memory apply failure after the majority."));
 
-            _applied.Enqueue((key, RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue, RpcMutationIdempotencyExecutionAmbient.IsDeferred));
+            _applied.Enqueue((key, RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue, RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended));
             return ValueTask.CompletedTask;
         }
 
@@ -104,12 +104,12 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
             return keys;
         }
 
-        internal bool DeferredFor(string key)
+        internal bool StampingSuspendedFor(string key)
         {
-            foreach (var (applied, _, deferred) in _applied)
+            foreach (var (applied, _, suspended) in _applied)
             {
                 if (string.Equals(applied, key, StringComparison.Ordinal))
-                    return deferred;
+                    return suspended;
             }
 
             throw new InvalidOperationException($"Key '{key}' was never applied.");
