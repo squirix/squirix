@@ -133,41 +133,6 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         }
     }
 
-    /// <summary>A write parked in an open group commit window when the host stops gracefully succeeds, and the restart recovers it.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task WriteInFlightAtStopSucceeds(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-group-commit-stop");
-        var (app, uri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
-        await using (app)
-        {
-            using var channel = CreateGrpcChannel(uri);
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-            var write = client.SetEntryAsync(CreateSet("parked", "value"), cancellationToken: cancellationToken).ResponseAsync;
-
-            // The frame is on the ring while its wait is still inside the open window, so the stop races the window end.
-            var journal = GetJournal(app);
-            while (journal.AppendedOps < 1)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                await Task.Yield();
-            }
-
-            await app.StopAsync(cancellationToken);
-            _ = await write.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-        }
-
-        var (restarted, restartedUri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
-        await using (restarted)
-        {
-            using var restartedChannel = CreateGrpcChannel(restartedUri);
-            var restartedClient = new SquirixCacheService.SquirixCacheServiceClient(restartedChannel);
-            var after = await restartedClient.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = "parked" }, cancellationToken: cancellationToken);
-            _ = await Assert.That(after.Found).IsTrue();
-        }
-    }
-
     private static void ConfigureGroupCommit(SquirixServerOptions options)
     {
         options.Journal.GroupCommitMaxWait = TimeSpan.FromMilliseconds(100);

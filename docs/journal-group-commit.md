@@ -59,8 +59,10 @@ per-mutation `FlushAsync`), while a concurrent reader can see a value that a cra
 - **Cancellation.** After the append the durability wait cannot be cancelled by the caller. A client deadline shorter than
   `GroupCommitMaxWait` ends the call with `DeadlineExceeded` while the write still commits; a retry with the same
   operation id replays the recorded outcome.
-- **Shutdown and flush failure.** When the node shuts down or a flush fails, pending grouped writes complete with
-  `COMMIT_OUTCOME_UNKNOWN` (gRPC `Unavailable`): the write may or may not be durable, so retry with the same operation id.
+- **Shutdown and flush failure.** A graceful stop completes pending grouped writes successfully: the final flush of the
+  shutdown marker covers their frames. A write ends with `COMMIT_OUTCOME_UNKNOWN` (gRPC `Unavailable`) only when the stop
+  times out, the final flush fails, or a failure was latched before the marker; the write may or may not be durable, so
+  retry with the same operation id.
 
 ## When to enable group commit
 

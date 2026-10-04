@@ -249,8 +249,10 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     {
         DurabilityPipeline.ThrowIfJournalThreadFailed();
 
-        // No shutdown refusal for a grouped waiter: its frame is already ahead of the shutdown marker, whose final flush seals the
-        // group commit and completes the wait. Without that flush the stop faults the wait as commit-unknown.
+        // A latched pipeline failure is refused above. No shutdown refusal for a grouped waiter: grouped callers wait only after a
+        // completed write ack (barrier callers only over frames whose applies already returned), and write acks are completed by the
+        // journal thread before it exits at the shutdown marker, so the frame is ahead of the marker and its final flush seals the
+        // group commit. A caller that waits without a write-acked frame would succeed after the seal.
         if (GroupCommit is { } groupCommit)
             return groupCommit.AwaitCommitAsync(cancellationToken);
 

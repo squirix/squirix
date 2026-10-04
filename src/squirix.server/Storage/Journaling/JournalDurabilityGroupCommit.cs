@@ -69,8 +69,10 @@ internal sealed class JournalDurabilityGroupCommit
             var signalJournal = false;
             lock (_sync)
             {
-                // Sealed after the final shutdown flush: every frame a waiter can still have appended was written before
-                // that flush, so the wait is already satisfied and wins over a failure recorded by the later teardown.
+                // Sealed after the final shutdown flush: grouped callers wait only after a completed write ack (barrier callers only
+                // over frames whose applies already returned), and write acks complete on the journal thread before it exits at the marker,
+                // so every frame a waiter can have appended was written before that flush. The seal wins over a failure recorded by the
+                // later teardown; a caller that waits without a write-acked frame would also succeed here.
                 if (_sealed)
                     return;
 

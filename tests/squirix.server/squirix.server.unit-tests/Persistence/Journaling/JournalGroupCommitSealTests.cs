@@ -35,7 +35,7 @@ public sealed class JournalGroupCommitSealTests : IsolatedStorageTestBase
     {
         var options = CreateOptions();
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
-        using var writer = new FlushSegmentWriter(null);
+        using var writer = new FlushSegmentWriter();
         await using var journal = new JournalCoordinator(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), writer, NullLoggerFactory.Instance);
         await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), Payload, cancellationToken);
         var parked = CommitAsync(journal);
@@ -49,11 +49,9 @@ public sealed class JournalGroupCommitSealTests : IsolatedStorageTestBase
     }
 
     /// <summary>A failure recorded before the stop keeps parked and later waits failing, and the seal does not override it.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task EarlierFailureStaysUnknown(CancellationToken cancellationToken)
+    public async Task EarlierFailureStaysUnknown()
     {
-        _ = cancellationToken;
         var options = CreateOptions();
         var groupCommit = new JournalDurabilityGroupCommit(static () => { }, static () => { }, options);
         var parked = groupCommit.AwaitCommitAsync(CancellationToken.None).AsTask();
@@ -109,39 +107,4 @@ public sealed class JournalGroupCommitSealTests : IsolatedStorageTestBase
         JournalGroupCommitMaxWait = TimeSpan.FromHours(1),
         JournalGroupCommitMaxBatch = 64,
     };
-
-    private sealed class FlushSegmentWriter : IJournalSegmentWriter
-    {
-        private readonly IOException? _flushFailure;
-
-        internal FlushSegmentWriter(IOException? flushFailure)
-        {
-            _flushFailure = flushFailure;
-        }
-
-        long IJournalSegmentWriter.Length => 0;
-
-        /// <summary>Releases test resources.</summary>
-        public void Dispose()
-        {
-        }
-
-        void IJournalSegmentWriter.FlushToDisk()
-        {
-            if (_flushFailure != null)
-                throw _flushFailure;
-        }
-
-        void IJournalSegmentWriter.OpenSegment(string path, bool append)
-        {
-        }
-
-        void IJournalSegmentWriter.Truncate(long length)
-        {
-        }
-
-        void IJournalSegmentWriter.Write(ReadOnlySpan<byte> buffer, long fileOffset)
-        {
-        }
-    }
 }
