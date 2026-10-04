@@ -7,6 +7,15 @@ namespace Squirix.Server.Storage;
 [Immutable]
 internal sealed record PersistenceOptions
 {
+    /// <summary>Largest accepted group commit batch size.</summary>
+    internal const int MaxGroupCommitBatch = 4096;
+
+    /// <summary>Largest accepted group commit wait.</summary>
+    internal static readonly TimeSpan MaxGroupCommitWait = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>Smallest accepted positive group commit wait.</summary>
+    internal static readonly TimeSpan MinGroupCommitWait = TimeSpan.FromMilliseconds(1);
+
     /// <summary>Gets the root directory for durable storage, journal, snapshot, and manifest files.</summary>
     [JsonPropertyName("dataDir")]
     [JsonInclude]
@@ -97,9 +106,7 @@ internal sealed record PersistenceOptions
     /// <exception cref="InvalidOperationException">Thrown when a scalar is out of range.</exception>
     internal void Validate()
     {
-        RequirePositive(JournalGroupCommitMaxBatch, nameof(JournalGroupCommitMaxBatch));
-        if (JournalGroupCommitMaxWait < TimeSpan.Zero)
-            throw new InvalidOperationException("Persistence JournalGroupCommitMaxWait cannot be negative.");
+        ValidateGroupCommit();
 
         RequirePositive(JournalMaxSegmentCount, nameof(JournalMaxSegmentCount));
         RequireHoldsLargestFrame(JournalMaxSegmentMb, nameof(JournalMaxSegmentMb));
@@ -110,6 +117,19 @@ internal sealed record PersistenceOptions
         RequirePositive(ReplicaLogCompactionEntries, nameof(ReplicaLogCompactionEntries));
         RequirePositive(ReplicaLogCompactionMb, nameof(ReplicaLogCompactionMb));
         RequirePositive(SnapshotRetentionCount, nameof(SnapshotRetentionCount));
+    }
+
+    private void ValidateGroupCommit()
+    {
+        if (JournalGroupCommitMaxBatch is < 1 or > MaxGroupCommitBatch)
+            throw new InvalidOperationException($"Journal GroupCommitMaxBatch must be between 1 and {MaxGroupCommitBatch}.");
+
+        var wait = JournalGroupCommitMaxWait;
+        if (wait == TimeSpan.Zero)
+            return;
+
+        if (wait < MinGroupCommitWait || wait > MaxGroupCommitWait || wait.Ticks % TimeSpan.TicksPerMillisecond != 0)
+            throw new InvalidOperationException("Journal GroupCommitMaxWait must be zero or between 1 and 100 whole milliseconds.");
     }
 
     /// <summary>Refuses a journal size that cannot hold the largest frame, under which valid writes would be refused forever.</summary>

@@ -18,6 +18,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     private readonly JournalEventLoopSegmentWriter _segmentWriterOps;
     private readonly JournalSlowOperationReporter _slowOperations;
     private long _activeSegmentWrittenBytes;
+    private long _flushCount;
     private int _journalSegmentCount;
     private long _journalTotalBytes;
     private int _openCreatesSegment;
@@ -72,6 +73,9 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     public IJournalEventLoopHost Host { get; }
 
+    /// <summary>Gets the number of durability flushes (fsync calls) the journal thread completed. Written by the journal thread; read cross-thread.</summary>
+    public long FlushCount => Volatile.Read(ref _flushCount);
+
     /// <summary>Gets the on-disk journal segment count. Written only by the journal thread; read cross-thread.</summary>
     public int JournalSegmentCount => Volatile.Read(ref _journalSegmentCount);
 
@@ -124,6 +128,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         {
             SegmentWriter.FlushToDisk();
             IsDurabilityFlushPending = false;
+            _ = Interlocked.Increment(ref _flushCount);
         }
         finally
         {

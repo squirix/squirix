@@ -37,7 +37,7 @@ internal sealed class JournalDurabilityGroupCommit
         _timeProvider = timeProvider ?? TimeProvider.System;
         _onWaitCanceled = onWaitCanceled;
 
-        var capacity = Math.Max(4, opt.JournalGroupCommitMaxBatch);
+        var capacity = Math.Clamp(opt.JournalGroupCommitMaxBatch, 4, 64);
         _acks = [with(capacity)];
         _acksSpare = [with(capacity)];
     }

@@ -139,6 +139,12 @@ P:Squirix.Server.SquirixServerBackpressureOptions::RejectThreshold:System.Int32.
 P:Squirix.Server.SquirixServerBackpressureOptions::RejectThreshold:System.Int32.set
 P:Squirix.Server.SquirixServerBackpressureOptions::SlowdownThreshold:System.Int32.get
 P:Squirix.Server.SquirixServerBackpressureOptions::SlowdownThreshold:System.Int32.set
+T:Squirix.Server.SquirixServerJournalOptions
+M:Squirix.Server.SquirixServerJournalOptions::.ctor()
+P:Squirix.Server.SquirixServerJournalOptions::GroupCommitMaxBatch:System.Int32.get
+P:Squirix.Server.SquirixServerJournalOptions::GroupCommitMaxBatch:System.Int32.set
+P:Squirix.Server.SquirixServerJournalOptions::GroupCommitMaxWait:System.TimeSpan.get
+P:Squirix.Server.SquirixServerJournalOptions::GroupCommitMaxWait:System.TimeSpan.set
 T:Squirix.Server.SquirixServerOptions
 M:Squirix.Server.SquirixServerOptions::.ctor()
 M:Squirix.Server.SquirixServerOptions::TryValidate(System.Collections.Generic.IReadOnlyList<System.String>&)
@@ -152,6 +158,8 @@ P:Squirix.Server.SquirixServerOptions::ConfigurationGeneration:System.UInt64.get
 P:Squirix.Server.SquirixServerOptions::ConfigurationGeneration:System.UInt64.set
 P:Squirix.Server.SquirixServerOptions::DataDirectory:System.String.get
 P:Squirix.Server.SquirixServerOptions::DataDirectory:System.String.set
+P:Squirix.Server.SquirixServerOptions::Journal:Squirix.Server.SquirixServerJournalOptions.get
+P:Squirix.Server.SquirixServerOptions::Journal:Squirix.Server.SquirixServerJournalOptions.set
 P:Squirix.Server.SquirixServerOptions::NodeId:System.String.get
 P:Squirix.Server.SquirixServerOptions::NodeId:System.String.set
 P:Squirix.Server.SquirixServerOptions::Peers:System.Collections.Generic.IReadOnlyList<Squirix.Server.SquirixServerPeerOptions>.get

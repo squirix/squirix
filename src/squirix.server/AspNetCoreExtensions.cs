@@ -82,7 +82,8 @@ public static class AspNetCoreExtensions
         if (!options.PersistenceEnabled)
             return null;
 
-        var opt = new PersistenceOptions();
+        var opt = SquirixServerOptions.ToPersistenceOptions(options.Journal);
+
         return string.IsNullOrWhiteSpace(options.DataDirectory) ? opt : opt with { DataDir = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory) };
     }
 }
