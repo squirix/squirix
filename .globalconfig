@@ -68,7 +68,6 @@ dotnet_diagnostic.VSTHRD109.severity = none # switch instead of assert in async 
 
 # Duplicates: each of these reports the same code as a cheaper rule that stays enabled (named after each entry).
 # Because the remaining rule fails the build first, the SonarCloud scanner build loses nothing by skipping these.
-dotnet_diagnostic.AsyncFixer02.severity = none # blocking call inside async method; kept: CA1849, S6966, EPC35
 dotnet_diagnostic.VSTHRD103.severity = none # call async methods when in an async method; kept: CA1849, S6966, EPC35
 dotnet_diagnostic.MA0011.severity = none # IFormatProvider is missing; kept: CA1305
 dotnet_diagnostic.MA0001.severity = none # StringComparison is missing; kept: CA1307, CA1309, CA1310
