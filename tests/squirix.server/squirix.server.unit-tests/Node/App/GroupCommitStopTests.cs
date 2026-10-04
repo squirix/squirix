@@ -96,10 +96,12 @@ public sealed class GroupCommitStopTests : IsolatedStorageTestBase
         await using var stallable = await StallableJournal.CreateAsync(Dir, true, TimeSpan.FromMilliseconds(250), NullLogger.Instance, cancellationToken);
         var journal = stallable.Journal;
         await journal.AppendPutUnderGateAsync(CacheKey.Default("k"), Payload, cancellationToken);
-        var parked = CommitAsync(journal);
-        stallable.Writer.Flush.Arm();
 
-        // The marker's final fsync blocks; the stop gives up, faults the reachable waiters and reports the stuck thread.
+        // Armed before the commit: a batch of one is due at once, so a commit issued first could reach the disk before the stall.
+        stallable.Writer.Flush.Arm();
+        var parked = CommitAsync(journal);
+
+        // The fsync blocks; the stop gives up, faults the reachable waiters and reports the stuck thread.
         await journal.DisposeAsync();
         _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(parked.WaitAsync(Bound, TimeProvider.System, cancellationToken));
 
