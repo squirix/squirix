@@ -364,7 +364,8 @@ id** resolved for each cache operation:
 | Source | Client id | When |
 | ------ | --------- | ---- |
 | JWT bearer principal | `jwt:{subject}` | Authenticated request with a non-empty `sub` / `NameIdentifier` claim |
-| ASP.NET Core connection | `conn:{connectionId}` | Request has an `HttpContext` but no usable principal id (anonymous loopback, internal owner RPCs without JWT, authenticated token missing `sub`) |
+| ASP.NET Core connection | `conn:{connectionId}` | Request has an `HttpContext` but no usable principal id (anonymous loopback, authenticated token missing `sub`) |
+| Internal owner RPC | `internal` | Trusted owner-routed call from another cluster node (peer mTLS on the internal listener). Exempt from per-client limits; node-wide limits apply |
 | In-process / missing context | `runtime` | No `HttpContext` (host bootstrap, some tests, non-HTTP callers). All such callers share one bucket |
 
 Setting `PerClientMaxInFlight` or `PerClientRateLimitPerSecond` turns on per-caller client ids; without either, all callers
@@ -390,7 +391,8 @@ node-wide concurrency, queue and node rate limits still apply to it.
 | `MaxQueueWait`                | TimeSpan string | `00:00:00.250` | `> 0` and at most `00:01:00`                     |
 
 `RejectThreshold` rejects a new request only when in-flight has reached it **and** another request is already waiting in
-the queue; with an empty queue the request still waits (up to `MaxQueue` and `MaxQueueWait`). A burst is meaningless
+the queue; with an empty queue the request is admitted while a slot is free, or queued (up to `MaxQueue` and
+`MaxQueueWait`) once all `MaxInFlight` slots are taken. A burst is meaningless
 without a rate, so setting a burst alone is rejected.
 
 ### Journal compaction

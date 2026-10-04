@@ -1,9 +1,12 @@
 using System;
 using System.Diagnostics.Metrics;
 using System.Runtime.InteropServices;
+using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Time.Testing;
+using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
@@ -69,12 +72,14 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
             new FakeTimeProvider());
         var decisions = new bool[5];
         var leases = new Lease[5];
+        string? lastRejectReason = null;
 
         for (var i = 0; i < decisions.Length; i++)
         {
             var (decision, lease) = await gate.AcquireAsync("grpc", "get", HttpContextClientIdResolver.InternalOwnerClientId, cancellationToken);
             decisions[i] = decision.IsAccepted;
             leases[i] = lease;
+            lastRejectReason = decision.RejectReason;
         }
 
         foreach (var lease in leases)
@@ -82,6 +87,66 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
 
         _ = await Assert.That(decisions[0] && decisions[1] && decisions[2] && decisions[3]).IsTrue();
         _ = await Assert.That(decisions[4]).IsFalse();
+        _ = await Assert.That(lastRejectReason).IsEqualTo("queue_full");
+    }
+
+    /// <summary>Verifies internal owner-routed calls still count against the node rate limit.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InternalClientHitsNodeRateLimit(CancellationToken cancellationToken)
+    {
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
+            {
+                MaxInFlight = 4,
+                MaxQueue = 0,
+                SlowdownThreshold = 4,
+                RejectThreshold = 4,
+                MaxSlowdownDelay = TimeSpan.Zero,
+                PerClientMaxInFlight = 1,
+                NodeRateLimitPerSecond = 1,
+                NodeRateLimitBurst = 1,
+            },
+            new BackpressureMetrics(_testMeter),
+            new FakeTimeProvider());
+
+        var (first, firstLease) = await gate.AcquireAsync("grpc", "get", HttpContextClientIdResolver.InternalOwnerClientId, cancellationToken);
+        firstLease.Dispose();
+        var (second, secondLease) = await gate.AcquireAsync("grpc", "get", HttpContextClientIdResolver.InternalOwnerClientId, cancellationToken);
+        secondLease.Dispose();
+
+        _ = await Assert.That(first.IsAccepted).IsTrue();
+        _ = await Assert.That(second.RejectReason).IsEqualTo("node_rate_limit");
+    }
+
+    /// <summary>Verifies a caller whose JWT subject is literally the internal id is still limited per client.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InternalSubjectStillRateLimited(CancellationToken cancellationToken)
+    {
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
+            {
+                MaxInFlight = 4,
+                MaxQueue = 0,
+                SlowdownThreshold = 4,
+                RejectThreshold = 4,
+                MaxSlowdownDelay = TimeSpan.Zero,
+                PerClientRateLimitPerSecond = 1,
+                PerClientRateLimitBurst = 1,
+            },
+            new BackpressureMetrics(_testMeter),
+            new FakeTimeProvider());
+        var clientId = new HttpContextClientIdResolver(CreateAccessorFor("internal")).Resolve();
+
+        var (first, firstLease) = await gate.AcquireAsync("grpc", "get", clientId, cancellationToken);
+        firstLease.Dispose();
+        var (second, secondLease) = await gate.AcquireAsync("grpc", "get", clientId, cancellationToken);
+        secondLease.Dispose();
+
+        _ = await Assert.That(clientId).IsEqualTo("jwt:internal");
+        _ = await Assert.That(first.IsAccepted).IsTrue();
+        _ = await Assert.That(second.RejectReason).IsEqualTo("client_rate_limit");
     }
 
     /// <summary>Verifies admission succeeds immediately while slots are available.</summary>
@@ -403,6 +468,15 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
 
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
+
+    private static IHttpContextAccessor CreateAccessorFor(string subject)
+    {
+        var context = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", subject)], "Bearer")) };
+        var expectations = new IHttpContextAccessorCreateExpectations();
+        _ = expectations.Setups.HttpContext.Gets().ReturnValue(context);
+        _ = expectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
+        return expectations.Instance();
+    }
 
     private static async Task RunClientAsync(IBackpressureGate gate, int clientIndex, int[] current, int[] observedMax, CancellationToken cancellationToken)
     {

@@ -187,11 +187,13 @@ Per-client and rate limits are off by default. Every rejection increments `squir
 - `node_rate_limit`: the node rate limit is spent.
 - `client_rate_limit`: the caller's rate limit is spent.
 - `client_concurrency_limit`: the caller is at `PerClientMaxInFlight`.
-- `client_queue_full`: the caller is at `PerClientMaxInFlight` and the node queue size is 0.
+- `client_queue_full`: the caller is at `PerClientMaxInFlight` and its queue allowance is used up; usually when `MaxQueue` is 0,
+  but concurrent over-limit requests from one caller can also hit it.
 - `gate_disposed`: the node was shutting down while the request waited.
 
 Raise a limit only after checking that the node, not one noisy caller, is saturated. A request forwarded between nodes is
-counted against the caller on the entry node only; the owner applies node-wide limits to it, not per-client ones.
+counted against the caller on the entry node only. The owner treats it as a trusted internal owner RPC (client id `internal`,
+peer mTLS on the internal listener) and applies node-wide limits to it, not per-client ones.
 
 Per-client concurrency and rate limits isolate callers by backpressure client id: JWT `sub` / `NameIdentifier` when the
 request is authenticated (`jwt:{subject}`), otherwise the ASP.NET Core connection id (`conn:{id}`). Callers without an

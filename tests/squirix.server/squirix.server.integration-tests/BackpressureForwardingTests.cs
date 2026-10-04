@@ -42,9 +42,8 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
         var admittedA = await CountAdmittedAsync(client, TestJwtHelper.CreateBearerToken(credentials, subject: "tenant-a"), key, cancellationToken);
         var admittedB = await CountAdmittedAsync(client, TestJwtHelper.CreateBearerToken(credentials, subject: "tenant-b"), key, cancellationToken);
 
-        _ = await Assert.That(admittedA).IsGreaterThan(0);
-        _ = await Assert.That(admittedA).IsLessThan(MaxCalls);
-        _ = await Assert.That(admittedB).IsEqualTo(admittedA);
+        _ = await Assert.That(admittedA).IsEqualTo(Burst);
+        _ = await Assert.That(admittedB).IsEqualTo(Burst);
     }
 
     private static async Task<int> CountAdmittedAsync(SquirixCacheService.SquirixCacheServiceClient client, string token, string key, CancellationToken cancellationToken)

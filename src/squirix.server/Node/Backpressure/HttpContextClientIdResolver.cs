@@ -16,7 +16,10 @@ namespace Squirix.Server.Node.Backpressure;
 [Immutable]
 internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolver
 {
-    /// <summary>Client id of an internal owner-routed call; per-client limits do not apply to it.</summary>
+    /// <summary>
+    /// Client id of an internal owner-routed call; per-client limits do not apply to it. Every external client id is prefixed
+    /// (<c language="csharp">jwt:</c>, <c language="csharp">conn:</c>) or is <c language="csharp">runtime</c>, never raw, so it cannot collide with this id.
+    /// </summary>
     internal const string InternalOwnerClientId = "internal";
 
     internal const string MissingHttpContextClientId = "runtime";

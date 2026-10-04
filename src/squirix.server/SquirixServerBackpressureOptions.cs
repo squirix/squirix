@@ -72,8 +72,8 @@ public sealed class SquirixServerBackpressureOptions
     /// Default is <c language="csharp">256</c>; must be between 1 and <see cref="MaxInFlight" /> and at least <see cref="SlowdownThreshold" />.
     /// </summary>
     /// <remarks>
-    /// With an empty queue a request at this count still waits in the queue (up to <see cref="MaxQueue" /> and <see cref="MaxQueueWait" />)
-    /// instead of being rejected, so <see cref="MaxQueue" /> bounds the waiting requests before this threshold rejects any.
+    /// With an empty queue a request is admitted while a slot is free, or queued (up to <see cref="MaxQueue" /> and
+    /// <see cref="MaxQueueWait" />) once all <see cref="MaxInFlight" /> slots are taken, instead of being rejected.
     /// </remarks>
     public int RejectThreshold { get; set; } = 256;
 

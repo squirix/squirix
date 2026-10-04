@@ -177,19 +177,8 @@ public static class Configurator
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Validated server options.</returns>
     /// <exception cref="InvalidOperationException">Thrown when a settings file exists but cannot be loaded or fails validation.</exception>
-    public static async Task<SquirixServerOptions> LoadOrCreateDefaultAsync(CancellationToken cancellationToken = default)
-    {
-        var path = ResolveSettingsPath();
-        if (path != null)
-            return await LoadAsync(path, cancellationToken).ConfigureAwait(false);
-
-        var port = NextFreePort();
-        return new SquirixServerOptions
-        {
-            NodeId = "node",
-            Uri = new Uri(InvariantDigitStrings.FormatHttpsOrigin("localhost", port)),
-        };
-    }
+    public static Task<SquirixServerOptions> LoadOrCreateDefaultAsync(CancellationToken cancellationToken = default) =>
+        LoadOrCreateDefaultAsync(ResolveSettingsPath(), cancellationToken);
 
     /// <summary>Resolves the data directory hosting uses for <paramref name="options" /> when persistence is enabled.</summary>
     /// <param name="options">Server options carrying the optional data directory and the cluster and node identifiers.</param>
@@ -301,6 +290,24 @@ public static class Configurator
         await UnifiedSettings.ValidateOptionalSectionsAsync(settingsFilePath, failures, cancellationToken).ConfigureAwait(false);
 
         return failures.Count == 0 ? (true, null) : (false, string.Join(Environment.NewLine, failures));
+    }
+
+    /// <summary>Loads settings from <paramref name="discoveredPath" /> or, when it is <see langword="null" />, creates ephemeral local defaults.</summary>
+    /// <param name="discoveredPath">The discovered settings file path, or <see langword="null" /> when none exists.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Validated server options.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the settings file cannot be loaded or fails validation.</exception>
+    internal static async Task<SquirixServerOptions> LoadOrCreateDefaultAsync(string? discoveredPath, CancellationToken cancellationToken)
+    {
+        if (discoveredPath != null)
+            return await LoadAsync(discoveredPath, cancellationToken).ConfigureAwait(false);
+
+        var port = NextFreePort();
+        return new SquirixServerOptions
+        {
+            NodeId = "node",
+            Uri = new Uri(InvariantDigitStrings.FormatHttpsOrigin("localhost", port)),
+        };
     }
 
     /// <summary>Maps validated server options to internal cluster configuration.</summary>
