@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Services;
@@ -29,6 +30,7 @@ internal sealed class IdempotencyExpiryOrder
     private readonly LiveLookup _lookup;
     private readonly TimeProvider _timeProvider;
     private readonly PriorityQueue<Entry, long> _wallOrder = new();
+    private long _lastStamp = long.MinValue;
 
     internal IdempotencyExpiryOrder(TimeProvider timeProvider, LiveLookup lookup)
     {
@@ -54,10 +56,13 @@ internal sealed class IdempotencyExpiryOrder
     /// <param name="createdTimestamp">The monotonic creation timestamp; <see langword="null" /> for a record restored from disk.</param>
     /// <param name="createdUtc">The wall creation time.</param>
     /// <param name="completed">Whether the record is a completed outcome, which capacity eviction may take.</param>
+    /// <remarks>The owning store reads each monotonic timestamp under its gate right before adding, so the stamps of records created in this process never decrease; the first stage of expiry and the eviction of created outcomes rely on it.</remarks>
     internal void Add(string key, long sequence, long? createdTimestamp, DateTime createdUtc, bool completed)
     {
         if (createdTimestamp is { } stamp)
         {
+            Debug.Assert(stamp >= _lastStamp, "Monotonic creation stamps must not decrease.");
+            _lastStamp = stamp;
             var entry = new Entry(key, sequence, stamp);
             _createdOrder.Enqueue(entry);
             if (completed)
@@ -243,6 +248,8 @@ internal sealed class IdempotencyExpiryOrder
             if (_lookup(entry.Key, entry.Sequence, out _))
                 queue.Enqueue(entry);
         }
+
+        queue.TrimExcess();
     }
 
     private void CompactHeap(PriorityQueue<Entry, long> heap, int limit, int liveRecordCount)
@@ -259,6 +266,7 @@ internal sealed class IdempotencyExpiryOrder
 
         heap.Clear();
         heap.EnqueueRange(survivors);
+        heap.TrimExcess();
     }
 
     /// <summary>An order entry: the key, the sequence identifying the record generation it was made for, and the monotonic creation timestamp.</summary>
