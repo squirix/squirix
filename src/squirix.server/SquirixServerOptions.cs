@@ -28,6 +28,10 @@ public sealed class SquirixServerOptions
     /// <summary>Gets or sets an optional persistence data directory override.</summary>
     public string? DataDirectory { get; set; }
 
+    /// <summary>Gets or sets the node journal options, including journal group commit.</summary>
+    /// <remarks>Must not be <see langword="null" />. Requires persistence for group commit. Changes apply on the next host start.</remarks>
+    public SquirixServerJournalOptions Journal { get; set; } = new();
+
     /// <summary>Gets or sets the local node identifier.</summary>
     public string NodeId { get; set; } = "node";
 
@@ -118,19 +122,10 @@ public sealed class SquirixServerOptions
         if (!TopologyValidator.TryValidate(topology, options.PersistenceEnabled, options.DataDirectory, out errors))
             return false;
 
-        if (options.Backpressure == null)
+        var sectionFailure = ValidateSections(options);
+        if (sectionFailure != null)
         {
-            errors = ["Backpressure cannot be null."];
-            return false;
-        }
-
-        try
-        {
-            options.Backpressure.ToAdmissionOptions().Validate();
-        }
-        catch (InvalidOperationException ex)
-        {
-            errors = [ex.Message];
+            errors = [sectionFailure];
             return false;
         }
 
@@ -143,6 +138,37 @@ public sealed class SquirixServerOptions
 
         errors = activationFailures;
         return false;
+    }
+
+    private static string? ValidateSections(SquirixServerOptions options)
+    {
+        if (options.Backpressure == null)
+            return "Backpressure cannot be null.";
+
+        try
+        {
+            options.Backpressure.ToAdmissionOptions().Validate();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ex.Message;
+        }
+
+        if (options.Journal == null)
+            return "Journal cannot be null.";
+
+        try
+        {
+            options.Journal.ToPersistenceOptions().Validate();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ex.Message;
+        }
+
+        return options.Journal.GroupCommitMaxWait > TimeSpan.Zero && !options.PersistenceEnabled
+            ? "Journal GroupCommitMaxWait greater than zero requires persistence. Set PersistenceEnabled."
+            : null;
     }
 
     private static void Validate(SquirixServerOptions options)

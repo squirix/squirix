@@ -93,6 +93,12 @@ public static class Configurator
             RejectThreshold = source.Backpressure.RejectThreshold,
             SlowdownThreshold = source.Backpressure.SlowdownThreshold,
         };
+        ArgumentNullException.ThrowIfNull(source.Journal);
+        target.Journal = new SquirixServerJournalOptions
+        {
+            GroupCommitMaxBatch = source.Journal.GroupCommitMaxBatch,
+            GroupCommitMaxWait = source.Journal.GroupCommitMaxWait,
+        };
         var peers = new SquirixServerPeerOptions[source.Peers.Count];
         for (var i = 0; i < peers.Length; i++)
             peers[i] = new SquirixServerPeerOptions { NodeId = source.Peers[i].NodeId, Uri = source.Peers[i].Uri };
