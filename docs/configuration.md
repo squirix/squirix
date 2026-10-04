@@ -297,7 +297,7 @@ There is **no** `Squirix:Persistence` JSON merge in v0.1 public hosting — putt
 | `JournalMaxSegmentMb`         | int    | `64`                                                       | `>= 9`: a segment must hold the largest journal frame (an entry or a recorded reply of up to 8 MiB, plus framing)                          |
 | `ManifestRetentionCount`      | int    | `3`                                                        | `> 0`                                                                                                                                      |
 | `SnapshotRetentionCount`      | int    | `3`                                                        | `> 0`                                                                                                                                      |
-| Journal group commit wait     | ms     | `0` (disabled)                                             | Set through `SquirixServerOptions.Journal`, see [Journal](#journal)                                                                        |
+| Journal group commit wait     | span   | `0` (disabled)                                             | Set through `SquirixServerOptions.Journal`, see [Journal](#journal)                                                                        |
 | Journal group commit batch    | int    | `32`                                                       | Set through `SquirixServerOptions.Journal`, see [Journal](#journal)                                                                        |
 | `JournalMaxSegmentCount`      | int    | `32`                                                       | `> 0` (Pipelined journal segment count cap)                                                                                                |
 | `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | `>= 9` (Pipelined journal total on-disk size hard cap; must hold one segment with the largest journal frame)                               |
@@ -362,9 +362,10 @@ the next host start.
 | `GroupCommitMaxBatch` | int      | `32`       | `1..4096`; used only when `GroupCommitMaxWait` is greater than zero                                |
 
 `TimeSpan` values are strings in `[d.]hh:mm:ss[.fffffff]` form; a number is rejected and the error names the field.
-Unknown keys in the `Journal` object fail loading, and `Journal` must not be `null`. Invalid values fail host startup,
-`validate-config`, and settings loading, for example with `Journal GroupCommitMaxWait must be zero or between 1 and 100
-whole milliseconds.`
+A bare `"5"` is read as five days and rejected by the range check. With RF>1 group commit affects the node journal only, and a
+replicated commit stretches by up to `GroupCommitMaxWait`. Unknown keys in the `Journal` object fail loading, and `Journal`
+must not be `null`. Invalid values fail host startup, `validate-config`, and settings loading, for example with `Journal GroupCommitMaxWait must be zero or between 1 and 100
+whole milliseconds (for example "00:00:00.005").`
 
 ### Backpressure
 
@@ -631,7 +632,7 @@ startup; the process refuses to start without them.
 ## Validation failures
 
 Typical examples from options validators (host composition / `validate-config`). Backpressure messages are also
-returned by `SquirixServerOptions.TryValidate` and settings loading. Persistence messages apply when that option object
+returned by `SquirixServerOptions.TryValidate` and settings loading, as are the `Journal` messages. Persistence messages apply when that option object
 is constructed or overridden in a custom host — they are **not** produced by merging a JSON section that v0.1 public
 hosting ignores:
 
@@ -641,7 +642,8 @@ hosting ignores:
 - `Backpressure NodeRateLimitBurst requires NodeRateLimitPerSecond.`
 - `Backpressure MaxQueueWait cannot exceed 00:01:00.`
 - `Journal GroupCommitMaxBatch must be between 1 and 4096.`
-- `Journal GroupCommitMaxWait greater than zero requires persistence. Set PersistenceEnabled (call UsePersistence() or pass --persist).`
+- `Journal GroupCommitMaxWait must be zero or between 1 and 100 whole milliseconds (for example "00:00:00.005").`
+- `Journal GroupCommitMaxWait greater than zero requires persistence. Set PersistenceEnabled.`
 - `Persistence DataDir is required.`
 - `ReplicaCount greater than 1 requires the replication opt-in. Enable Squirix:Cluster:ReplicationEnabled (or pass --enable-replication).`
 - `Persistence JournalMaxSegmentMb must be at least 9: a journal segment must hold the largest journal frame.`

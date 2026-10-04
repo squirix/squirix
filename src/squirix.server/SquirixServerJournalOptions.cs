@@ -12,8 +12,8 @@ namespace Squirix.Server;
 public sealed class SquirixServerJournalOptions
 {
     /// <summary>
-    /// Gets or sets the maximum number of concurrent durable mutations that can share one journal flush.
-    /// Default is <c language="csharp">32</c>; must be between 1 and 4096. Used only when <see cref="GroupCommitMaxWait" /> is greater than zero.
+    /// Gets or sets the number of waiting durable mutations at which the journal flushes without waiting for <see cref="GroupCommitMaxWait" />;
+    /// one flush may cover more. Default is <c language="csharp">32</c>; must be between 1 and 4096. Used only when <see cref="GroupCommitMaxWait" /> is greater than zero.
     /// </summary>
     public int GroupCommitMaxBatch { get; set; } = 32;
 
