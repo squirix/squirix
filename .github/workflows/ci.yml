@@ -907,7 +907,10 @@ jobs:
                 run: bash tools/ci/ensure-dev-https-cert.sh
 
             # Each filter is a glob of its own: BenchmarkDotNet does not split one argument at '|'.
-            # iterationCount 3: MinIterationTime(150) often yields empty rows at 1.
+            # BenchmarkDotNet measures allocations in one extra iteration whose invocation count the pilot picks from
+            # MinIterationTime(150): 1 or 2 invocations (512 or 1024 operations) of an operation that takes 0.1-0.7 ms, so
+            # one-off allocations (store and journal growth, GCs) landed in that sample and SetAsync moved by up to 8.5%.
+            # A fixed invocationCount of 8 (4096 operations, no pilot) amortizes them; timings are not used.
             # In process, BenchmarkDotNet does not build a project of its own (about 110 s here, since it recompiled the
             # benchmarks with analyzers) or start a process per case.
             -   name: Run Wire Allocation Benchmarks
@@ -924,7 +927,9 @@ jobs:
                       -- \
                       --filter '*Wire*AllocBenchmarks.GetValueAsync' '*Wire*AllocBenchmarks.SetAsync' \
                       --warmupCount 1 \
-                      --iterationCount 3 \
+                      --iterationCount 1 \
+                      --invocationCount 8 \
+                      --unrollFactor 1 \
                       --exporters json \
                       --artifacts "$BDN_ARTIFACTS" 2>&1 | tee benchmark-wire-alloc.log
 
