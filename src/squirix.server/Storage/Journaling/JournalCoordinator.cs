@@ -248,8 +248,16 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
     {
         DurabilityPipeline.ThrowIfJournalThreadFailed();
+
+        // A latched pipeline failure is refused above. No shutdown refusal for a grouped waiter: grouped callers wait only after a
+        // completed write ack (barrier callers only over frames whose applies already returned), and write acks are completed by the
+        // journal thread before it exits at the shutdown marker, so the frame is ahead of the marker and its final flush seals the
+        // group commit. A caller that waits without a write-acked frame would succeed after the seal.
+        if (GroupCommit is { } groupCommit)
+            return groupCommit.AwaitCommitAsync(cancellationToken);
+
         _producerGate.ThrowIfShutdownInitiated();
-        return GroupCommit?.AwaitCommitAsync(cancellationToken) ?? DurabilityPipeline.EnqueueFlushAsync(cancellationToken);
+        return DurabilityPipeline.EnqueueFlushAsync(cancellationToken);
     }
 
     public ValueTask DisposeAsync() => Interlocked.Exchange(ref _disposed, 1) == 1 ? ValueTask.CompletedTask : _stopper.StopOnDisposeAsync();

@@ -396,7 +396,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         {
             await journal.AppendPutUnderGateAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
             var durability = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(cancellationToken));
-            await journal.DisposeAsync();
+            journal.FailJournalPipeline(new IOException("journal device lost"));
             await durability.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
             _ = await Assert.That(durability.IsFaulted).IsTrue();
         }
