@@ -63,6 +63,26 @@ internal sealed class AppliedKeys
             cancellationToken).AsTask();
     }
 
+    /// <summary>Runs one add-if-absent through <paramref name="executor" />: the precondition skips with 0 when the key is already applied, otherwise the put is journaled and applied.</summary>
+    /// <param name="executor">Executor under test.</param>
+    /// <param name="journal">Journal the executor writes to.</param>
+    /// <param name="key">Default-namespace key to add.</param>
+    /// <param name="cancellationToken">Caller cancellation token.</param>
+    /// <returns>The mutation task; 1 when the key was added, 0 when it was already present.</returns>
+    internal Task<int> AddIfAbsentAsync(DurableMutationExecutor executor, IJournalCoordinator journal, string key, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(executor);
+        var cacheKey = CacheKey.Default(key);
+        return executor.ExecuteAsync(
+            cacheKey,
+            static (s, _) => new ValueTask<DurableMutationCondition<int>>(s.Memory.Contains(s.Key) ? DurableMutationCondition<int>.Skip(0) : DurableMutationCondition<int>.Apply()),
+            new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload, AppliedKeys Memory), int>(
+                (journal, cacheKey, JournalEntryPayloadKit.EncodePut(key), this),
+                static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, s.Key, s.Payload, ct),
+                static (s, _) => s.Memory.ApplyAsync(s.Key)),
+            cancellationToken).AsTask();
+    }
+
     /// <summary>Runs one remove through <paramref name="executor" />: journal append of the removal, then its memory apply.</summary>
     /// <param name="executor">Executor under test.</param>
     /// <param name="journal">Journal the executor writes to.</param>
@@ -82,6 +102,8 @@ internal sealed class AppliedKeys
                 static (s, _) => s.Memory.UnapplyAsync(s.Key)),
             cancellationToken).AsTask();
     }
+
+    private bool Contains(CacheKey key) => _applied.TryGetValue(key.ToString(), out var signal) && signal.Task.IsCompleted;
 
     private ValueTask<int> ApplyAsync(CacheKey key)
     {

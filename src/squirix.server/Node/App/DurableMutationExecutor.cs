@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,12 +16,10 @@ namespace Squirix.Server.Node.App;
 [Mutable]
 internal sealed class DurableMutationExecutor
 {
-    private const string KeyAlreadyExistsMessage = "Key already exists.";
-
     private const string SkipResultRequiresShouldApplyFalse = "SkipResult is only set when ShouldApply is false.";
 
-    private readonly ConcurrentDictionary<CacheKey, byte> _inFlight = new();
     private readonly IJournalCoordinator _journal;
+    private readonly KeyedAsyncLock<CacheKey> _keyLocks = new();
     private readonly ILogger<DurableMutationExecutor> _logger;
 
     internal DurableMutationExecutor(IJournalCoordinator journal, ILogger<DurableMutationExecutor> logger)
@@ -97,21 +94,16 @@ internal sealed class DurableMutationExecutor
         DurableMutationPipeline<TState, TResult> pipeline,
         CancellationToken cancellationToken)
     {
+        // Same-key mutations run one after another, as under the single mutation gate of the ungrouped path: the next precondition sees the
+        // previous mutation applied. The key lock is taken before the gate and never under it, and is held until the apply, skip or rollback.
+        using var keyLease = await _keyLocks.LockAsync(conflictKey, cancellationToken).ConfigureAwait(false);
         var state = new GroupCommitExecutionState();
-        try
-        {
-            var plan = await _journal.ExecuteUnderSnapshotBarrierAsync(
-                new GroupCommitPrepareWithPipelineState<TState, TResult>(this, conflictKey, state, precondition, pipeline.State, pipeline.AppendJournal),
-                static (s, ownership, ct) => s.Mutator.PrepareGroupCommitPlanCoreAsync(s.ConflictKey, s.ExecutionState, s.Precondition, s.State, s.AppendJournal, ownership, ct),
-                cancellationToken).ConfigureAwait(false);
+        var plan = await _journal.ExecuteUnderSnapshotBarrierAsync(
+            new GroupCommitPrepareWithPipelineState<TState, TResult>(this, state, precondition, pipeline.State, pipeline.AppendJournal),
+            static (s, ownership, ct) => s.Mutator.PrepareGroupCommitPlanCoreAsync(s.ExecutionState, s.Precondition, s.State, s.AppendJournal, ownership, ct),
+            cancellationToken).ConfigureAwait(false);
 
-            return await ApplyGroupCommitPlanAsync(plan, state, pipeline.State, pipeline.ApplyMemory).ConfigureAwait(false);
-        }
-        finally
-        {
-            if (state.Admitted)
-                _ = _inFlight.TryRemove(conflictKey, out _);
-        }
+        return await ApplyGroupCommitPlanAsync(plan, state, pipeline.State, pipeline.ApplyMemory).ConfigureAwait(false);
     }
 
     private ValueTask<TResult> ExecuteMonolithicAsync<TState, TResult>(
@@ -189,7 +181,6 @@ internal sealed class DurableMutationExecutor
     }
 
     private async ValueTask<DurableMutationPlan<TResult>> PrepareGroupCommitPlanCoreAsync<TState, TResult>(
-        CacheKey conflictKey,
         GroupCommitExecutionState state,
         Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
         TState mutationState,
@@ -197,19 +188,11 @@ internal sealed class DurableMutationExecutor
         AsyncLockOwnership ownership,
         CancellationToken cancellationToken)
     {
-        if (!_inFlight.TryAdd(conflictKey, 0))
-            throw new InvalidOperationException(KeyAlreadyExistsMessage);
-
-        state.Admitted = true;
         try
         {
             var decision = await precondition(mutationState, cancellationToken).ConfigureAwait(false);
             if (!decision.ShouldApply)
-            {
-                _ = _inFlight.TryRemove(conflictKey, out _);
-                state.Admitted = false;
                 return DurableMutationPlan<TResult>.Skip(decision.SkipResult ?? ThrowHelper.Throw<TResult>(new InvalidOperationException(SkipResultRequiresShouldApplyFalse)));
-            }
 
             _journal.InFlightApplyGate.Enter();
             state.PendingMemoryApply = true;
@@ -219,28 +202,22 @@ internal sealed class DurableMutationExecutor
         catch (JournalPostEnqueueFaultException ex)
         {
             // The frame is on the ring, but shutdown or the failure latch closed the journal, so its memory apply never runs in this process:
-            // release the apply slot and the key exactly once, as for a failed append, yet report the outcome as unknown, not failed.
-            RollbackGroupCommitBarrierState(conflictKey, state);
+            // release the apply slot exactly once, as for a failed append, yet report the outcome as unknown, not failed.
+            RollbackGroupCommitBarrierState(state);
             throw ReportCommitOutcomeUnknown(ex.InnerException ?? ex);
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or InvalidDataException or OperationCanceledException or JournalCapacityExceededException)
         {
             // A capacity rejection is definite: the journal thread dropped the frame before writing it, so it never becomes durable.
-            RollbackGroupCommitBarrierState(conflictKey, state);
+            RollbackGroupCommitBarrierState(state);
             throw;
         }
     }
 
-    private void RollbackGroupCommitBarrierState(CacheKey conflictKey, GroupCommitExecutionState state)
+    private void RollbackGroupCommitBarrierState(GroupCommitExecutionState state)
     {
         if (state.PendingMemoryApply)
             _journal.InFlightApplyGate.Exit();
-
-        if (!state.Admitted)
-            return;
-
-        _ = _inFlight.TryRemove(conflictKey, out _);
-        state.Admitted = false;
     }
 
     /// <summary>Result of the journal append phase of a durable mutation.</summary>
@@ -299,14 +276,12 @@ internal sealed class DurableMutationExecutor
     {
         internal GroupCommitPrepareWithPipelineState(
             DurableMutationExecutor mutator,
-            CacheKey conflictKey,
             GroupCommitExecutionState executionState,
             Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
             TState state,
             Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> appendJournal)
         {
             Mutator = mutator;
-            ConflictKey = conflictKey;
             ExecutionState = executionState;
             Precondition = precondition;
             State = state;
@@ -314,8 +289,6 @@ internal sealed class DurableMutationExecutor
         }
 
         internal Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> AppendJournal { get; }
-
-        internal CacheKey ConflictKey { get; }
 
         internal GroupCommitExecutionState ExecutionState { get; }
 
@@ -356,8 +329,6 @@ internal sealed class DurableMutationExecutor
 
     private sealed class GroupCommitExecutionState
     {
-        internal bool Admitted { get; set; }
-
         /// <summary>Gets or sets a value indicating whether the memory apply began, so its own failures are not reported as commit-unknown.</summary>
         internal bool MemoryApplyStarted { get; set; }
 
