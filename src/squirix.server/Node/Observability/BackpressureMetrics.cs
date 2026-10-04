@@ -17,8 +17,8 @@ internal sealed class BackpressureMetrics
     private readonly Counter<long> _rejectTotalCtr;
     private readonly Counter<long> _slowdownTotalCtr;
 
-    /// <summary>The admission gate the gauges read, or <see langword="null" /> while none is registered.</summary>
-    private Observer? _observer;
+    /// <summary>Holds the admission gate the gauges read, keeping this type free of mutable fields.</summary>
+    private readonly ObserverSlot _slot = new();
 
     internal BackpressureMetrics(Meter meter)
     {
@@ -30,17 +30,18 @@ internal sealed class BackpressureMetrics
         _rateLimitRejectTotalCtr = meter.CreateCounter<long>("squirix_backpressure_rate_limit_reject_total");
         _rejectTotalCtr = meter.CreateCounter<long>("squirix_backpressure_reject_total");
         _slowdownTotalCtr = meter.CreateCounter<long>("squirix_backpressure_slowdown_total");
+        var slot = _slot;
         _ = meter.CreateObservableGauge(
             "squirix_backpressure_in_flight",
-            () => new Measurement<int>(Volatile.Read(ref _observer)?.InFlight() ?? 0),
+            () => new Measurement<int>(slot.Current?.InFlight() ?? 0),
             description: "Current number of admitted in-flight requests");
         _ = meter.CreateObservableGauge(
             "squirix_backpressure_queue_depth",
-            () => new Measurement<int>(Volatile.Read(ref _observer)?.QueueDepth() ?? 0),
+            () => new Measurement<int>(slot.Current?.QueueDepth() ?? 0),
             description: "Current number of requests waiting for admission");
         _ = meter.CreateObservableGauge(
             "squirix_backpressure_tracked_clients",
-            () => new Measurement<int>(Volatile.Read(ref _observer)?.TrackedClients() ?? 0),
+            () => new Measurement<int>(slot.Current?.TrackedClients() ?? 0),
             description: "Current number of client buckets tracked for backpressure state; zero unless a per-client limit is set");
     }
 
@@ -98,8 +99,8 @@ internal sealed class BackpressureMetrics
         ArgumentNullException.ThrowIfNull(observeQueueDepth);
         ArgumentNullException.ThrowIfNull(observeTrackedClients);
 
-        var observer = new Observer(this, observeInFlight, observeQueueDepth, observeTrackedClients);
-        return Interlocked.CompareExchange(ref _observer, observer, null) == null
+        var observer = new Observer(_slot, observeInFlight, observeQueueDepth, observeTrackedClients);
+        return _slot.TryRegister(observer)
             ? observer
             : throw new InvalidOperationException("Backpressure metrics already observe an admission gate.");
     }
@@ -122,11 +123,11 @@ internal sealed class BackpressureMetrics
     [Immutable]
     private sealed class Observer : IDisposable
     {
-        private readonly BackpressureMetrics _owner;
+        private readonly ObserverSlot _slot;
 
-        internal Observer(BackpressureMetrics owner, Func<int> inFlight, Func<int> queueDepth, Func<int> trackedClients)
+        internal Observer(ObserverSlot slot, Func<int> inFlight, Func<int> queueDepth, Func<int> trackedClients)
         {
-            _owner = owner;
+            _slot = slot;
             InFlight = inFlight;
             QueueDepth = queueDepth;
             TrackedClients = trackedClients;
@@ -138,6 +139,19 @@ internal sealed class BackpressureMetrics
 
         internal Func<int> TrackedClients { get; }
 
-        public void Dispose() => _ = Interlocked.CompareExchange(ref _owner._observer, null, this);
+        public void Dispose() => _slot.Clear(this);
+    }
+
+    /// <summary>The registered admission gate, or <see langword="null" /> while none is registered.</summary>
+    [Mutable]
+    private sealed class ObserverSlot
+    {
+        private Observer? _current;
+
+        internal Observer? Current => Volatile.Read(ref _current);
+
+        internal bool TryRegister(Observer observer) => Interlocked.CompareExchange(ref _current, observer, null) == null;
+
+        internal void Clear(Observer observer) => _ = Interlocked.CompareExchange(ref _current, null, observer);
     }
 }
