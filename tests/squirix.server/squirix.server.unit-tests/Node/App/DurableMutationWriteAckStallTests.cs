@@ -129,10 +129,10 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
     }
 
     /// <summary>
-    /// A write ack fault after the enqueue releases the conflict key and the in-flight apply slot exactly once, so the next mutation of the
-    /// same key is admitted and applied instead of failing as a key already in flight.
+    /// A write ack fault after the enqueue releases the key lock and the in-flight apply slot exactly once, so the next mutation of the
+    /// same key runs and is applied instead of waiting forever.
     /// </summary>
-    /// <param name="groupCommit">Whether the journal runs in group commit mode (keyed admission) instead of the monolithic path.</param>
+    /// <param name="groupCommit">Whether the journal runs in group commit mode instead of the monolithic path.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(false)]

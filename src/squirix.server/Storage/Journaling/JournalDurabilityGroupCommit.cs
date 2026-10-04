@@ -115,7 +115,7 @@ internal sealed class JournalDurabilityGroupCommit
             CompleteBatchOnJournalThread(batch);
     }
 
-    /// <summary>Milliseconds until the active batch deadline, or <see cref="Timeout.Infinite" /> when idle.</summary>
+    /// <summary>Milliseconds until the active batch deadline, rounded up, or <see cref="Timeout.Infinite" /> when idle.</summary>
     /// <returns>Wait timeout in milliseconds for the journal thread idle loop.</returns>
     internal int GetJournalThreadWaitTimeoutMs()
     {
@@ -128,7 +128,9 @@ internal sealed class JournalDurabilityGroupCommit
             var maxWait = _opt.JournalGroupCommitMaxWait;
             var remaining = maxWait - _timeProvider.GetElapsedTime(_batchDeadline.ArmedTimestamp);
             var wait = remaining < maxWait ? remaining : maxWait;
-            return wait <= TimeSpan.Zero ? 0 : Convert.ToInt32(Math.Min(wait.TotalMilliseconds, int.MaxValue));
+
+            // Rounded up: a remaining fraction of a millisecond must not become a zero wait, which returns at once and spins the journal thread until the deadline.
+            return wait <= TimeSpan.Zero ? 0 : Convert.ToInt32(Math.Min(Math.Ceiling(wait.TotalMilliseconds), int.MaxValue));
         }
     }
 

@@ -320,16 +320,36 @@ internal sealed class JournalDurabilityCoordinator
         return work.Joined;
     }
 
+    /// <summary>Stops admitting grouped writers, waits for the admitted ones to finish their apply, and takes the mutation gate for the cut.</summary>
+    /// <param name="cancellationToken">Cancels the wait; admission reopens on cancellation or failure.</param>
+    /// <returns>The mutation gate holder, with admission already reopened.</returns>
+    /// <remarks>
+    /// Without the closed admission, writers that keep entering would hold the in-flight count above zero for ever. Admission reopens only after the gate is
+    /// held: a writer enters only under the gate, so none can slip in between the reopening and the capture.
+    /// </remarks>
     internal async ValueTask<AsyncLockHolder> WaitForSnapshotCutAdmissionAsync(CancellationToken cancellationToken)
     {
-        while (true)
+        var admission = _snapshot.InFlightApplyGate;
+        admission.Close();
+        try
         {
-            await _snapshot.InFlightApplyGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            var gateGuard = await _snapshot.MutationGate.LockAsync(cancellationToken).ConfigureAwait(false);
-            if (!_snapshot.InFlightApplyGate.HasPending)
-                return gateGuard;
+            while (true)
+            {
+                await admission.WaitAsync(cancellationToken).ConfigureAwait(false);
+                var gateGuard = await _snapshot.MutationGate.LockAsync(cancellationToken).ConfigureAwait(false);
+                if (!admission.HasPending)
+                {
+                    admission.Open();
+                    return gateGuard;
+                }
 
-            gateGuard.Dispose();
+                gateGuard.Dispose();
+            }
+        }
+        catch
+        {
+            admission.Open();
+            throw;
         }
     }
 

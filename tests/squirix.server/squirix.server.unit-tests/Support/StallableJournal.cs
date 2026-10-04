@@ -243,6 +243,23 @@ internal sealed class StallableJournal : IAsyncDisposable
         return Describe(puts);
     }
 
+    /// <summary>Reads the sequence of the last put frame of every key the segments hold; readable while the journal thread is stalled.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The last put sequence per key in <c language="text">CacheKey.ToString</c> form.</returns>
+    internal Dictionary<string, ulong> ReadPutSequences(CancellationToken cancellationToken)
+    {
+        var sequences = new Dictionary<string, ulong>(StringComparer.Ordinal);
+        using var records = JournalReadPath.ReadAll(_dataDir, 1, cancellationToken);
+        while (records.MoveNext())
+        {
+            var record = records.Current;
+            if (record.Operation == JournalOperationKind.Put)
+                sequences[record.Key.ToString()] = record.Sequence;
+        }
+
+        return sequences;
+    }
+
     /// <summary>Releases every stall and shuts the journal down so its segments can be replayed.</summary>
     /// <returns>An asynchronous operation.</returns>
     internal async Task ShutdownAsync()

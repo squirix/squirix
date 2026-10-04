@@ -278,6 +278,38 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         _ = await Assert.That(flushCounter.Value).IsEqualTo(1);
     }
 
+    /// <summary>
+    /// The journal thread wait rounds a sub-millisecond remainder up to one millisecond while time remains, is zero once the deadline passed, and
+    /// is infinite while no batch is armed.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WaitTimeoutRoundsUpWhileTimeRemains(CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions
+        {
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
+            JournalGroupCommitMaxBatch = 32,
+        };
+        var time = new FakeTimeProvider();
+        var groupCommit = CreateGroupCommit(static () => { }, options, time);
+        var idle = groupCommit.GetJournalThreadWaitTimeoutMs();
+
+        var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
+        var fresh = groupCommit.GetJournalThreadWaitTimeoutMs();
+        time.Advance(TimeSpan.FromMilliseconds(1.7));
+        var fraction = groupCommit.GetJournalThreadWaitTimeoutMs();
+        time.Advance(TimeSpan.FromMilliseconds(0.3));
+        var due = groupCommit.GetJournalThreadWaitTimeoutMs();
+        groupCommit.DrainDueBatchesOnJournalThread();
+        await ack.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+
+        _ = await Assert.That(idle).IsEqualTo(Timeout.Infinite);
+        _ = await Assert.That(fresh).IsEqualTo(2);
+        _ = await Assert.That(fraction).IsEqualTo(1);
+        _ = await Assert.That(due).IsEqualTo(0);
+    }
+
     /// <summary>Ensures an immediate batch flush racing the delay timer does not fail concurrent acks.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
