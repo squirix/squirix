@@ -78,6 +78,21 @@ public static class Configurator
         target.PersistenceEnabled = source.PersistenceEnabled;
         target.ReplicationEnabled = source.ReplicationEnabled;
         target.DataDirectory = source.DataDirectory;
+        target.Backpressure = new SquirixServerBackpressureOptions
+        {
+            MaxInFlight = source.Backpressure.MaxInFlight,
+            MaxQueue = source.Backpressure.MaxQueue,
+            MaxQueueWait = source.Backpressure.MaxQueueWait,
+            MaxSlowdownDelay = source.Backpressure.MaxSlowdownDelay,
+            NodeRateLimitBurst = source.Backpressure.NodeRateLimitBurst,
+            NodeRateLimitPerSecond = source.Backpressure.NodeRateLimitPerSecond,
+            PerClientMaxInFlight = source.Backpressure.PerClientMaxInFlight,
+            PerClientMaxQueue = source.Backpressure.PerClientMaxQueue,
+            PerClientRateLimitBurst = source.Backpressure.PerClientRateLimitBurst,
+            PerClientRateLimitPerSecond = source.Backpressure.PerClientRateLimitPerSecond,
+            RejectThreshold = source.Backpressure.RejectThreshold,
+            SlowdownThreshold = source.Backpressure.SlowdownThreshold,
+        };
         var peers = new SquirixServerPeerOptions[source.Peers.Count];
         for (var i = 0; i < peers.Length; i++)
             peers[i] = new SquirixServerPeerOptions { NodeId = source.Peers[i].NodeId, Uri = source.Peers[i].Uri };

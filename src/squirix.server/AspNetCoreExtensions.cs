@@ -70,6 +70,7 @@ public static class AspNetCoreExtensions
             {
                 args.WaitForRecovery = options.WaitForRecovery;
                 args.PersistenceOptions = persistenceOptions;
+                args.BackpressureOptions = options.Backpressure.ToAdmissionOptions();
                 args.Extensions = extensions;
             },
             cancellationToken).ConfigureAwait(false);

@@ -177,6 +177,11 @@ validation and before memory admission. Reads and writes share this policy acros
 Treat runtime backpressure as overload protection; memory pressure remains capacity admission based on estimated cache
 working-set size.
 
+Tune limits through `Squirix:Cluster:Backpressure` or `SquirixServerOptions.Backpressure`; a restart applies the change.
+Per-client and rate limits are off by default. Rejections are counted per reason (`client_concurrency_limit`,
+`client_rate_limit`, `node_rate_limit`, `hard_threshold`); raise a limit only after checking that the node, not one
+noisy caller, is saturated.
+
 Per-client concurrency and rate limits isolate callers by backpressure client id: JWT `sub` / `NameIdentifier` when the
 request is authenticated (`jwt:{subject}`), otherwise the ASP.NET Core connection id (`conn:{id}`). Callers without an
 `HttpContext` (in-process paths) share the `runtime` bucket — see [configuration.md](configuration.md#backpressure).
