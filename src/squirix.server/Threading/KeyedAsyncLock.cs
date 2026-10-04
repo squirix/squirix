@@ -79,7 +79,7 @@ internal sealed class KeyedAsyncLock<TKey>
         }
     }
 
-    /// <summary>Releases the key lock when disposed; dispose it exactly once.</summary>
+    /// <summary>Releases the key lock when disposed; disposing any copy again, or a default lease, does nothing.</summary>
     /// <param name="Owner">Table the key belongs to.</param>
     /// <param name="Key">Locked key.</param>
     /// <param name="Entry">Per-key lock entry.</param>
@@ -89,8 +89,9 @@ internal sealed class KeyedAsyncLock<TKey>
         /// <inheritdoc />
         public void Dispose()
         {
-            Holder.Dispose();
-            Owner.Leave(Key, Entry);
+            // The holder's release is generation-checked, so only the first dispose of any copy leaves the entry.
+            if (Owner != null && Holder.TryRelease())
+                Owner.Leave(Key, Entry);
         }
     }
 

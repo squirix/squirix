@@ -37,8 +37,12 @@ internal struct AsyncLockHolder : IDisposable, IEquatable<AsyncLockHolder>
         if (_owner == null || Interlocked.Exchange(ref _released, 1) == 1)
             return;
 
-        _owner.Release(_generation);
+        _ = _owner.Release(_generation);
     }
 
     public readonly bool Equals(AsyncLockHolder other) => ReferenceEquals(_owner, other._owner) && _generation == other._generation && _released == other._released;
+
+    /// <summary>Releases the acquisition and reports whether this call did, whichever copy of the holder it is called on.</summary>
+    /// <returns><see langword="true"/> when the lock was released by this call; <see langword="false"/> for a default holder or an acquisition already released.</returns>
+    internal readonly bool TryRelease() => _owner?.Release(_generation) == true;
 }

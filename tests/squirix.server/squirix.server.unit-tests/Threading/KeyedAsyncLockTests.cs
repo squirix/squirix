@@ -103,4 +103,28 @@ public sealed class KeyedAsyncLockTests : ServerUnitTestBase
 
         _ = await Assert.That(locks.Count).IsEqualTo(0);
     }
+
+    /// <summary>Disposing a lease twice, or a default lease, neither frees the key for others nor corrupts the table.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DoubleDisposeReleasesOnce(CancellationToken cancellationToken)
+    {
+        var locks = new KeyedAsyncLock<string>();
+        var first = await locks.LockAsync("k", cancellationToken);
+        var second = locks.LockAsync("k", cancellationToken);
+
+        first.Dispose();
+        var secondLease = await second.AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        first.Dispose();
+        default(KeyedAsyncLock<string>.Lease).Dispose();
+        var third = locks.LockAsync("k", cancellationToken);
+
+        _ = await Assert.That(third.IsCompleted).IsFalse();
+        _ = await Assert.That(locks.Count).IsEqualTo(1);
+
+        secondLease.Dispose();
+        (await third.AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken)).Dispose();
+
+        _ = await Assert.That(locks.Count).IsEqualTo(0);
+    }
 }

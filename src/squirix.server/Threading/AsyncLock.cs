@@ -114,6 +114,7 @@ internal sealed class AsyncLock : IDisposable
 
     /// <summary>Releases the acquisition issued <paramref name="generation"/>: hands ownership to the oldest queued waiter, or marks the lock free when none is queued.</summary>
     /// <param name="generation">The generation of the releasing acquisition.</param>
+    /// <returns><see langword="true"/> when this call released the acquisition; <see langword="false"/> when it no longer held the lock.</returns>
     /// <remarks>
     /// Never throws. A release by an acquisition that no longer holds the lock, such as a copy of a holder that was already
     /// released, is ignored: it can neither hand the lock off nor free it from under the current holder. After
@@ -121,12 +122,12 @@ internal sealed class AsyncLock : IDisposable
     /// the next generation before completing the waiter, so the releasing ownership stops matching <see cref="IsHeldBy"/> at
     /// once and the new holder observes its own generation when it resumes.
     /// </remarks>
-    internal void Release(ulong generation)
+    internal bool Release(ulong generation)
     {
         lock (_sync)
         {
             if (generation == 0 || generation != _holderGeneration)
-                return;
+                return false;
 
             while (_head != null)
             {
@@ -134,10 +135,11 @@ internal sealed class AsyncLock : IDisposable
                 Unlink(waiter);
                 var next = IssueGeneration();
                 if (waiter.TrySetResult(new AsyncLockHolder(this, next)))
-                    return;
+                    return true;
             }
 
             Volatile.Write(ref _holderGeneration, 0UL);
+            return true;
         }
     }
 
