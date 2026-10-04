@@ -17,7 +17,7 @@ internal sealed class BackpressureMetrics
     private readonly Counter<long> _rejectTotalCtr;
     private readonly Counter<long> _slowdownTotalCtr;
 
-    /// <summary>Holds the admission gate the gauges read, keeping this type free of mutable fields.</summary>
+    /// <summary>Holds the admission gate the gauges read, so every field of this type stays readonly.</summary>
     private readonly ObserverSlot _slot = new();
 
     internal BackpressureMetrics(Meter meter)

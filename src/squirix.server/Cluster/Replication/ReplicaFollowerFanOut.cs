@@ -59,6 +59,7 @@ internal static class ReplicaFollowerFanOut
     /// <param name="commitIndex">The group commit index, which does not change while the caller holds the commit gate.</param>
     /// <param name="cancellationToken">The commit budget token.</param>
     /// <returns>An asynchronous operation; the caller checks whether the majority was reached.</returns>
+    /// <remarks>Call only under the coordinator's commit gate, so <paramref name="commitIndex" /> cannot go stale.</remarks>
     internal static async Task AwaitMajorityAsync(
         ReplicaCommitQuorum quorum,
         IReplicaCommitPipeline pipeline,
