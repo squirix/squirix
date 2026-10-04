@@ -25,6 +25,9 @@ public sealed class DurableMutationCutStressTests : IsolatedStorageTestBase
 
     private static readonly TimeSpan CutPeriod = TimeSpan.FromMilliseconds(100);
 
+    /// <summary>Longest run: a loaded machine slows each cut, so the run extends up to this limit until the required cuts completed.</summary>
+    private static readonly TimeSpan RunLimit = TimeSpan.FromSeconds(30);
+
     private static readonly TimeSpan RunLength = TimeSpan.FromSeconds(5);
 
     /// <summary>
@@ -50,7 +53,7 @@ public sealed class DurableMutationCutStressTests : IsolatedStorageTestBase
         try
         {
             var started = TimeProvider.System.GetTimestamp();
-            while (TimeProvider.System.GetElapsedTime(started) < RunLength)
+            while (TimeProvider.System.GetElapsedTime(started) < RunLength || (completed < CutsRequired && TimeProvider.System.GetElapsedTime(started) < RunLimit))
             {
                 await Task.Delay(CutPeriod, TimeProvider.System, cancellationToken);
                 var cut = journal.Journal.ExecuteSnapshotCutAsync(
