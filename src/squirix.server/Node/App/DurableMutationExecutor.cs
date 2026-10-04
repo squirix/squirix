@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -230,9 +229,10 @@ internal sealed class DurableMutationExecutor
             RollbackGroupCommitBarrierState(state);
             throw ReportCommitOutcomeUnknown(ex.InnerException ?? ex);
         }
-        catch (Exception ex) when (ex is IOException or InvalidOperationException or InvalidDataException or OperationCanceledException or JournalCapacityExceededException)
+        catch
         {
-            // A capacity rejection is definite: the journal thread dropped the frame before writing it, so it never becomes durable.
+            // Any other failure is definite: a capacity rejection or a refused append never reaches the ring, and a post-enqueue fault is handled
+            // above. The apply slot must be released for every exit, or a snapshot cut would wait for it for ever.
             RollbackGroupCommitBarrierState(state);
             throw;
         }

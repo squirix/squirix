@@ -110,6 +110,38 @@ public sealed class DurableMutationCutAdmissionTests : IsolatedStorageTestBase
         _ = await Assert.That(journal.Journal.InFlightApplyGate.HasPending).IsFalse();
     }
 
+    /// <summary>An append that fails with an unexpected exception before its frame is enqueued leaves no in-flight apply, so a later cut completes and writers are admitted.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnexpectedAppendFailureReleasesAdmission(CancellationToken cancellationToken)
+    {
+        await using var journal = await CreateWarmJournalAsync(cancellationToken);
+        var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
+
+        var failing = executor.ExecuteAsync(
+            CacheKey.Default("a"),
+            static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
+            new DurableMutationPipeline<int, int>(
+                0,
+                static (_, _, _) => ValueTask.FromException(new NotSupportedException("encode failed")),
+                static (_, _) => ValueTask.FromResult(1)),
+            cancellationToken).AsTask();
+        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(failing.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+
+        var watermark = await journal.Journal.ExecuteSnapshotCutAsync(
+            0,
+            static (_, sequence, _) => new ValueTask<ulong>(sequence),
+            static (_, _, barrier, _) => new ValueTask<ulong>(barrier),
+            cancellationToken).AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        var admitted = journal.Journal.InFlightApplyGate.TryEnter();
+        if (admitted)
+            journal.Journal.InFlightApplyGate.Exit();
+
+        _ = await Assert.That(watermark).IsGreaterThan(0UL);
+        _ = await Assert.That(admitted).IsTrue();
+        _ = await Assert.That(journal.Journal.InFlightApplyGate.HasPending).IsFalse();
+    }
+
     private static async Task<bool> IsStillPendingAsync(Task operation, CancellationToken cancellationToken)
     {
         try
