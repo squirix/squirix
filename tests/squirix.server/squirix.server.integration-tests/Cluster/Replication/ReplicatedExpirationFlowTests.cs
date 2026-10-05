@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
@@ -26,7 +27,10 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
         var expectations = new IReplicaCommitFaultHooksCreateExpectations();
         _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 1);
-        await using var commit = new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(4, TimeSpan.MaxValue));
+        await using var commit = new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(4, TimeSpan.MaxValue))
+        {
+            BudgetTimeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch),
+        };
         await using var expiration = new ReplicaExpirationCoordinator(commit, true, 1);
         var expiresUtc = new DateTime(638900000000000000, DateTimeKind.Utc);
 

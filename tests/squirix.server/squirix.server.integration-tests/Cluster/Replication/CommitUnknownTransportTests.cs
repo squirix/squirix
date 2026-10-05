@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
@@ -28,7 +29,10 @@ public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
         var acknowledgement = new TaskCompletionSource<ReplicaDurableAcknowledgement>(TaskCreationOptions.RunContinuationsAsynchronously);
         var pipeline = CreateBlockingFollowerPipeline(localAppended, acknowledgement);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 1);
-        await using var coordinator = new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(4, TimeSpan.MaxValue));
+        await using var coordinator = new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(4, TimeSpan.MaxValue))
+        {
+            BudgetTimeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch),
+        };
         var mutation = CreateMutation();
         try
         {
