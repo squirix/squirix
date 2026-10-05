@@ -43,9 +43,9 @@ internal sealed class DurableMutationExecutor
         ArgumentNullException.ThrowIfNull(pipeline.AppendJournal);
         ArgumentNullException.ThrowIfNull(pipeline.ApplyMemory);
 
-        // Every mutation takes the key-locked path, with group commit on or off: the pre-apply durability wait must never run under the
-        // global mutation gate, or distinct keys could not share a flush, and an unkeyed mutation could interleave between a keyed one's prepare
-        // and apply. The path waits for the journal startup itself, so this entry point needs no state machine of its own.
+        // Every mutation holds its key lock and an in-flight apply slot from prepare to apply, with group commit on or off. The pre-apply
+        // durability wait never runs under the global mutation gate, so distinct keys share a flush and no other mutation can be applied between
+        // this one's journal frame and its memory apply. The path waits for the journal startup itself, so this entry point needs no state machine.
         return ExecuteGroupCommitAsync(conflictKey, precondition, pipeline, cancellationToken);
     }
 
