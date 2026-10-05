@@ -20,6 +20,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     /// <summary>The one client entry all callers share while no per-client limit is set, so admission keeps no per-client state.</summary>
     private readonly ClientState? _sharedClient;
     private readonly AsyncSemaphore _slots;
+    private readonly ClientSweeper _sweeper;
     private readonly TimeProvider _timeProvider;
 
     /// <summary>The client entry of internal owner-routed calls: it carries no per-client limit, so only node-wide limits apply to them.</summary>
@@ -40,6 +41,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _slots = new AsyncSemaphore(_options.MaxInFlight);
         _nodeRateLimiter = RateLimiter.Create(_options.NodeRateLimitPerSecond, _options.NodeRateLimitBurst, _timeProvider);
         _sharedClient = _options.HasPerClientLimits ? null : new ClientState(_options, _timeProvider, false);
+        _sweeper = new ClientSweeper(_clients, _timeProvider);
     }
 
     /// <summary>Gets the number of admitted requests holding a slot.</summary>
@@ -63,6 +65,9 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             return disabledResult.Value;
 
         cancellationToken.ThrowIfCancellationRequested();
+        if (_sharedClient == null)
+            _sweeper.SweepIfDue();
+
         var client = ResolveClient(clientId);
 
         // The client entry is created above, so every exit that does not hand it to the slot or queue step gives it back if it is idle.
@@ -107,6 +112,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
         _observerRegistration.Dispose();
         _slots.Dispose();
+        _sweeper.Dispose();
     }
 
     internal void ReleaseLease(string clientId, ClientState client) => Release(clientId, client);
@@ -260,7 +266,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private ClientState ResolveClient(string clientId) => _sharedClient ?? (string.Equals(clientId, HttpContextClientIdResolver.InternalOwnerClientId, StringComparison.Ordinal)
         ? _unmeteredClient
-        : _clients.GetOrAdd(clientId, static (_, gate) => new ClientState(gate._options, gate._timeProvider), this));
+        : _clients.GetOrAdd(clientId, static (_, gate) => gate._sweeper.CreateClient(gate._options, gate._timeProvider), this));
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
@@ -349,7 +355,134 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         /// <returns><see langword="true" /> when the entry was retired.</returns>
         internal bool TryRetire() => Interlocked.CompareExchange(ref _inFlight, int.MinValue, 0) == 0;
 
+        /// <summary>Checks, without changing the bucket, whether it would be full at <paramref name="now" />.</summary>
+        /// <param name="now">The timestamp of the gate time provider to evaluate at.</param>
+        /// <returns><see langword="true" /> when there is no bucket or it has refilled to its burst.</returns>
+        internal bool IsRefilled(long now) => _rateLimiter?.IsRefilled(now) != false;
+
         internal bool TryAcquire() => _rateLimiter?.TryAcquire() != false;
+    }
+
+    /// <summary>
+    /// Evicts idle client entries a bounded batch at a time, at most once per second of the gate time provider, driven by admissions.
+    /// An entry goes only when nothing is in flight or queued for it and its rate-limit bucket would already be full again,
+    /// so its replacement starting with a full burst changes no admission decision. Retiring uses the same protocol as the
+    /// last release of a request, so the per-client concurrency limit stays strict.
+    /// </summary>
+    internal sealed class ClientSweeper : IDisposable
+    {
+        /// <summary>The fewest entries one sweep examines; a sweep examines more when many entries were added since the last one.</summary>
+        private const int MinBudget = 256;
+
+        /// <summary>The most entries one sweep examines, so one admission never stalls on a large burst; the rest is swept by the following admissions.</summary>
+        private const int MaxBudget = 16384;
+
+        private readonly ConcurrentDictionary<string, ClientState> _clients;
+        private readonly TimeProvider _timeProvider;
+
+        /// <summary>Entries still owed a sweep: newly created ones plus the carried-over part of earlier batches, decaying as sweeps pass.</summary>
+        private int _added;
+        private long _nextTimestamp;
+        private int _sweeping;
+        private IEnumerator<KeyValuePair<string, ClientState>>? _enumerator;
+
+        internal ClientSweeper(ConcurrentDictionary<string, ClientState> clients, TimeProvider timeProvider)
+        {
+            _clients = clients;
+            _timeProvider = timeProvider;
+            _nextTimestamp = timeProvider.GetTimestamp() + timeProvider.TimestampFrequency;
+        }
+
+        public void Dispose()
+        {
+            // Taking the sweep flag for good keeps a later sweep off the enumerator; a sweep already running leaves it for the garbage collector.
+            if (Interlocked.Exchange(ref _sweeping, 1) != 0)
+                return;
+
+            _enumerator?.Dispose();
+            _enumerator = null;
+        }
+
+        /// <summary>Creates a client entry and counts it, so the next sweep scales its batch with the churn.</summary>
+        /// <param name="options">The admission options of the gate.</param>
+        /// <param name="timeProvider">The time provider of the gate.</param>
+        /// <returns>The new client entry.</returns>
+        internal ClientState CreateClient(AdmissionOptions options, TimeProvider timeProvider)
+        {
+            _ = Interlocked.Increment(ref _added);
+            return new ClientState(options, timeProvider);
+        }
+
+        internal void SweepIfDue()
+        {
+            var due = Volatile.Read(ref _nextTimestamp);
+            var now = _timeProvider.GetTimestamp();
+            if (now < due)
+                return;
+
+            // The timestamp claim spaces sweeps apart; the exclusive flag keeps a sweep that outlasts an interval from overlapping the next one.
+            // The sweep interval is one second of the gate time provider, which is exactly one timestamp frequency.
+            var next = now + _timeProvider.TimestampFrequency;
+            if (Interlocked.CompareExchange(ref _nextTimestamp, next, due) != due || Interlocked.Exchange(ref _sweeping, 1) != 0)
+                return;
+
+            try
+            {
+                SweepBatch(now);
+            }
+            finally
+            {
+                Volatile.Write(ref _sweeping, 0);
+            }
+        }
+
+        /// <summary>
+        /// Examines the next batch of entries with a persistent enumerator, so a sweep costs the batch size and never re-walks entries.
+        /// The batch is twice the owed entries, between the minimum and maximum budget. The owed count then halves, or keeps the unspent
+        /// part when the cap was hit, so a burst whose buckets are still refilling keeps a large budget over the next sweeps; a capped
+        /// sweep also makes the next one due at once, spreading the work over the following admissions.
+        /// The enumerator tolerates concurrent changes; after a dictionary resize it finishes its pass over the old table, which is harmless,
+        /// and a stale entry is harmless too, because retiring a removed entry kills only the dead object.
+        /// </summary>
+        /// <param name="now">The sweep timestamp of the gate time provider.</param>
+        private void SweepBatch(long now)
+        {
+            var owed = Interlocked.Exchange(ref _added, 0);
+            var budget = Math.Clamp(Math.Min(owed, MaxBudget) * 2, MinBudget, MaxBudget);
+            var carry = Math.Max(owed / 2, owed - (budget / 2));
+            if (carry > 0)
+                _ = Interlocked.Add(ref _added, carry);
+
+            if (owed > budget / 2)
+                Volatile.Write(ref _nextTimestamp, now);
+
+            var enumerator = _enumerator ??= _clients.GetEnumerator();
+            for (var examined = 0; examined < budget; examined++)
+            {
+                if (!enumerator.MoveNext())
+                {
+                    enumerator.Dispose();
+                    _enumerator = null;
+
+                    // A pass that ended exactly at the previous batch boundary starts the next pass in this sweep instead of wasting it.
+                    if (examined != 0)
+                        return;
+
+                    enumerator = _enumerator = _clients.GetEnumerator();
+                    if (!enumerator.MoveNext())
+                    {
+                        enumerator.Dispose();
+                        _enumerator = null;
+                        return;
+                    }
+                }
+
+                var entry = enumerator.Current;
+                var client = entry.Value;
+                if (client.QueueDepth == 0 && client.IsRefilled(now) && client.TryRetire())
+                    _ = _clients.TryRemove(new KeyValuePair<string, ClientState>(entry.Key, client));
+            }
+        }
     }
 
     private sealed class RateLimiter
@@ -384,6 +517,15 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
         internal static RateLimiter? Create(int? ratePerSecond, int? burst, TimeProvider timeProvider) =>
             ratePerSecond != null && burst != null ? new RateLimiter(ratePerSecond.Value, burst.Value, timeProvider) : null;
+
+        internal bool IsRefilled(long now)
+        {
+            lock (_gate)
+            {
+                var elapsed = Math.Max(0d, _timeProvider.GetElapsedTime(_lastTick, now).TotalSeconds);
+                return _tokens + (elapsed * _ratePerSecond) >= _burst;
+            }
+        }
 
         internal bool TryAcquire()
         {
