@@ -95,16 +95,33 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         ClientState client,
         CancellationToken cancellationToken)
     {
-        return _slots.TryAcquire() ? (Decision.Accepted(), AcquireLease(clientId, client))
-            : await WaitInQueueAsync(transport, operation, clientId, client, cancellationToken).ConfigureAwait(false);
+        // The per-client reservation taken before this step is handed over to the lease on admission and undone on every other exit.
+        var admitted = false;
+        try
+        {
+            if (_slots.TryAcquire())
+            {
+                admitted = true;
+                return (Decision.Accepted(), AcquireLease(clientId, client));
+            }
+
+            var queued = await WaitInQueueAsync(transport, operation, clientId, client, cancellationToken).ConfigureAwait(false);
+            admitted = queued.Decision.IsAccepted;
+            return queued;
+        }
+        finally
+        {
+            if (!admitted && client.IsPerClient)
+            {
+                _ = Interlocked.Decrement(ref client.InFlightRef);
+                RemoveIdleClient(clientId, client);
+            }
+        }
     }
 
     private Lease AcquireLease(string clientId, ClientState client)
     {
         AdjustInFlight(1);
-        if (client.IsPerClient)
-            _ = Interlocked.Increment(ref client.InFlightRef);
-
         return new Lease(this, clientId, client);
     }
 
@@ -168,9 +185,15 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private (Decision Decision, Lease Lease)? RejectByPerClientConcurrencyIfLimited(string transport, string operation, string clientId, ClientState client)
     {
-        if (_options.PerClientMaxInFlight is not { } perClientMaxInFlight || !client.IsPerClient || client.InFlight < perClientMaxInFlight)
+        if (!client.IsPerClient)
             return null;
 
+        // Admitted and queued requests of one client share this counter, so a client cannot exceed its limit by queueing.
+        var reserved = Interlocked.Increment(ref client.InFlightRef);
+        if (_options.PerClientMaxInFlight is not { } perClientMaxInFlight || reserved <= perClientMaxInFlight)
+            return null;
+
+        _ = Interlocked.Decrement(ref client.InFlightRef);
         var queuedForClient = Interlocked.Increment(ref client.QueueDepthRef);
         try
         {
@@ -290,6 +313,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
         internal bool? HasRecentActivity => _rateLimiter?.HasRecentActivity;
 
+        /// <summary>Gets the number of this client's requests that are admitted or waiting for a slot.</summary>
         internal int InFlight => Volatile.Read(ref _inFlight);
 
         internal ref int InFlightRef => ref _inFlight;

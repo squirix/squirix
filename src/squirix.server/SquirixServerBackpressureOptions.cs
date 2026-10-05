@@ -49,7 +49,7 @@ public sealed class SquirixServerBackpressureOptions
     public int? NodeRateLimitPerSecond { get; set; }
 
     /// <summary>
-    /// Gets or sets the maximum number of concurrently admitted requests per client, or <see langword="null" /> for no per-client concurrency limit.
+    /// Gets or sets the maximum number of requests per client that are admitted or waiting in the queue, or <see langword="null" /> for no per-client concurrency limit.
     /// Must be between 1 and <see cref="MaxInFlight" /> when set.
     /// </summary>
     public int? PerClientMaxInFlight { get; set; }

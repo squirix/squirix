@@ -466,6 +466,54 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
         _ = await Assert.That(sink.HasEvent("squirix_backpressure_queue_cancellations_total", ("transport", "rest"), ("op", "remove"))).IsTrue();
     }
 
+    /// <summary>Verifies a failed queued admission gives its per-client reservation back, so the client can acquire again.</summary>
+    /// <param name="scenario">The way the queued admission fails.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments("cancellation")]
+    [Arguments("queue_full")]
+    [Arguments("queue_wait_timeout")]
+    public async Task ClientReservationReleasedOnFailure(string scenario, CancellationToken cancellationToken)
+    {
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
+            {
+                MaxInFlight = 1,
+                MaxQueue = string.Equals(scenario, "queue_full", StringComparison.Ordinal) ? 0 : 1,
+                SlowdownThreshold = 1,
+                RejectThreshold = 1,
+                MaxSlowdownDelay = TimeSpan.Zero,
+                MaxQueueWait = string.Equals(scenario, "queue_wait_timeout", StringComparison.Ordinal) ? TimeSpan.FromMilliseconds(40) : TimeSpan.FromMinutes(1),
+                PerClientMaxInFlight = 1,
+            },
+            new BackpressureMetrics(_testMeter));
+        var held = (await gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken)).Lease;
+        using var cts = new CancellationTokenSource();
+        var failing = gate.AcquireAsync("rest", "get", "rest:client-a", cts.Token).AsTask();
+
+        string? rejectReason = null;
+        if (string.Equals(scenario, "cancellation", StringComparison.Ordinal))
+        {
+            _ = await Assert.That(failing.IsCompleted).IsFalse();
+            await cts.CancelAsync();
+            await failing.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+            _ = await Assert.That(failing.IsCanceled).IsTrue();
+        }
+        else
+        {
+            var (decision, failedLease) = await failing;
+            failedLease.Dispose();
+            rejectReason = decision.RejectReason;
+        }
+
+        held.Dispose();
+        var (retry, retryLease) = await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken);
+        retryLease.Dispose();
+
+        _ = await Assert.That(rejectReason).IsEqualTo(string.Equals(scenario, "cancellation", StringComparison.Ordinal) ? null : scenario);
+        _ = await Assert.That(retry.IsAccepted).IsTrue();
+    }
+
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 
