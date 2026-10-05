@@ -1,8 +1,10 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Node.Backpressure;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Transport.Grpc.Cache;
@@ -44,6 +46,44 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
 
         _ = await Assert.That(admittedA).IsEqualTo(Burst);
         _ = await Assert.That(admittedB).IsEqualTo(Burst);
+    }
+
+    /// <summary>
+    /// A forwarded request that finds the owner without a free slot is refused at once with no queue wait, and the entry
+    /// node gives its only slot back, so the same request is served once the owner has a free slot again.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ForwardedRequestFailsFastOnFullOwner(CancellationToken cancellationToken)
+    {
+        var options = new IntegrationStartOptions
+        {
+            BackpressureOptions = new AdmissionOptions
+            {
+                MaxInFlight = 1,
+                MaxQueue = 4,
+                SlowdownThreshold = 1,
+                MaxSlowdownDelay = TimeSpan.Zero,
+                MaxQueueWait = TimeSpan.FromMinutes(1),
+            },
+            TimeProvider = new FakeTimeProvider(),
+        };
+        await using var cluster = await StartClusterAsync("node-a", "node-b", options, cancellationToken);
+        var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "forwarded-saturated");
+        using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var request = new GetValueAsyncRequest { CacheName = "default", Key = key };
+        var ownerGate = cluster["node-b"].GetRequiredService<IBackpressureGate>();
+
+        var (held, heldLease) = await ownerGate.AcquireAsync("grpc", "get", "grpc:holder", cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken));
+        heldLease.Dispose();
+        _ = await client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync;
+
+        _ = await Assert.That(held.IsAccepted).IsTrue();
+        _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
+        _ = await Assert.That(refused.Status.Detail).Contains("forwarded_no_slot");
     }
 
     private static async Task<int> CountAdmittedAsync(SquirixCacheService.SquirixCacheServiceClient client, string token, string key, CancellationToken cancellationToken)
