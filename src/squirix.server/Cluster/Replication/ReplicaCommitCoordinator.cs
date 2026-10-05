@@ -793,7 +793,8 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         /// The current execution context belongs to another operation (the commit that re-applies the entry, or the commit whose
         /// background follower observation resolved it) and can carry that RPC's idempotency scope, which would stamp the entry's
         /// cache-WAL frame with the foreign operation id and count it as that RPC's effect. Starting the apply on a
-        /// pool thread without flowing the context runs it with no ambient scope at all.
+        /// pool thread without flowing the context runs it with no ambient scope at all. The apply marks itself as replicated on its
+        /// own, so it skips the wait for the node journal flush even without a scope.
         /// </remarks>
         private Task ApplyForeignAsync(PreparedReplicaMutation entry)
         {

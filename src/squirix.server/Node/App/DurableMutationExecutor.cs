@@ -51,7 +51,8 @@ internal sealed class DurableMutationExecutor
 
     /// <summary>
     /// Determines whether the wait for the cache journal flush before the memory apply is skipped: only for a replicated apply, whose durable
-    /// source is the replica group log and not the cache journal.
+    /// source is the replica group log and not the cache journal. The leader applier marks every such apply, with or without an RPC scope,
+    /// so a re-applied committed entry never waits for its own flush; any other write still does.
     /// </summary>
     /// <returns><see langword="true" /> when the cache journal is not the durable source of the running write.</returns>
     private static bool SkipsCacheJournalDurabilityWait() => RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended;

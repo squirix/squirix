@@ -8,13 +8,16 @@ internal static class RpcMutationIdempotencyExecutionAmbient
 {
     private static readonly AsyncLocal<ScopeFrame?> Current = new();
 
+    /// <summary>Scope of the frame that marks a replicated apply running outside every RPC scope; it equals no scope a caller activates.</summary>
+    private static readonly object ScopelessSentinel = new();
+
     /// <summary>Gets the operation identifier journal mutation frames are stamped with, or <see langword="null" /> when no scope is active or stamping is suspended.</summary>
     internal static string? ActiveOperationIdValue => Current.Value is { StampingSuspended: false } frame ? frame.OperationId : null;
 
     /// <summary>Gets the request fingerprint journal mutation frames are stamped with, or <see langword="null" /> when no scope is active or stamping is suspended.</summary>
     internal static string? ActiveFingerprintValue => Current.Value is { StampingSuspended: false } frame ? frame.Fingerprint : null;
 
-    /// <summary>Gets a value indicating whether stamping is suspended inside an active scope, so the cache journal is not the durable source of the running write.</summary>
+    /// <summary>Gets a value indicating whether the running write is a replicated apply, whose durable source is the replica group log and not the cache journal; true with or without an active scope.</summary>
     internal static bool IsStampingSuspended => Current.Value is { StampingSuspended: true };
 
     internal static void Activate(object scope, string operationId, string fingerprint)
@@ -28,14 +31,17 @@ internal static class RpcMutationIdempotencyExecutionAmbient
     /// <summary>Stops stamping mutation frames with the active operation id until the returned value is disposed.</summary>
     /// <returns>The value that restores the previous stamping state when disposed.</returns>
     /// <remarks>
-    /// Mutations still count as having taken effect; the write-ahead stamp is dropped and the executor skips the wait for the cache journal
-    /// flush before the apply, for writes whose durable source is not the cache journal.
+    /// Mutations inside an active scope still count as having taken effect; the write-ahead stamp is dropped and the executor skips the wait
+    /// for the cache journal flush before the apply, for writes whose durable source is not the cache journal. Without an active scope the
+    /// suspension pushes a frame of its own that belongs to no scope, so the same applies run unstamped and skip the wait there too; disposing
+    /// it always restores the previous frame, which keeps the push and the restore balanced on every path.
     /// </remarks>
     internal static SuspendedStamping SuspendStamping()
     {
         var previous = Current.Value;
-        if (previous != null)
-            Current.Value = new ScopeFrame(previous.Scope, previous.OperationId, previous.Fingerprint, previous, true, previous.State);
+        Current.Value = previous != null
+            ? new ScopeFrame(previous.Scope, previous.OperationId, previous.Fingerprint, previous, true, previous.State)
+            : new ScopeFrame(ScopelessSentinel, string.Empty, string.Empty, null, true, new ScopeState());
 
         return new SuspendedStamping(previous);
     }
@@ -87,15 +93,11 @@ internal static class RpcMutationIdempotencyExecutionAmbient
     }
 
     /// <summary>Restores the stamping state that was active before <see cref="SuspendStamping" />.</summary>
-    /// <param name="Previous">The frame active before the suspension; <see langword="null" /> when no scope was active.</param>
+    /// <param name="Previous">The frame active before the suspension; <see langword="null" /> when no scope was active, which is then the state restored.</param>
     internal readonly record struct SuspendedStamping(ScopeFrame? Previous) : IDisposable
     {
         /// <inheritdoc />
-        public void Dispose()
-        {
-            if (Previous != null)
-                Current.Value = Previous;
-        }
+        public void Dispose() => Current.Value = Previous;
     }
 
     /// <summary>Scope state shared by the frame of a scope and the frames that suspend its stamping.</summary>
