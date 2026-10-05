@@ -43,7 +43,6 @@ internal sealed class HighResolutionDeadlineWait : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
-        _armed = false;
         _handles = null;
         _timer?.Dispose();
         _timer = null;
