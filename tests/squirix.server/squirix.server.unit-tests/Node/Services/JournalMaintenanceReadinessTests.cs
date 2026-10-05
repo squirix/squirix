@@ -135,14 +135,16 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
     [Test]
     public async Task ShortStallStaysHealthy(CancellationToken cancellationToken)
     {
-        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var journal = await StallableJournal.CreateAsync(Dir, clock, cancellationToken);
         await using var traced = new TracingJournalCoordinatorDecorator(journal.Journal, new OpenTelemetryJournalOperationTracer());
         journal.Writer.Flush.Arm();
         await traced.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
         var commit = traced.AwaitDurabilityCommitAsync(cancellationToken).AsTask();
         await journal.Writer.Flush.Entered.WaitAsync(Bound, TimeProvider.System, cancellationToken);
 
-        var result = await CreateCheck(traced, journal.Journal.StallProbe, new ShiftedClock(Threshold / 2)).CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        clock.Advance(Threshold / 2);
+        var result = await CreateCheck(traced, journal.Journal.StallProbe, clock).CheckHealthAsync(new HealthCheckContext(), cancellationToken);
         journal.Writer.Flush.Release();
         await commit.WaitAsync(Bound, TimeProvider.System, cancellationToken);
 

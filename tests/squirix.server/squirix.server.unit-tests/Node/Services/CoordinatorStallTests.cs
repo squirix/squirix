@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -31,8 +32,6 @@ namespace Squirix.Server.UnitTests.Node.Services;
 [Immutable]
 public sealed class CoordinatorStallTests : IsolatedStorageTestBase
 {
-    private static readonly TimeSpan CompactionProbeWindow = TimeSpan.FromSeconds(1);
-
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
     private readonly Meter _testMeter = new("test");
@@ -129,19 +128,26 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
                             _ = entered.TrySetResult();
                             return ValueTask.CompletedTask;
                         });
+        var clock = new TimerSignalClock();
         var options = Options.Create(new JournalCompactionOptions { Enabled = true, MinGap = TimeSpan.FromMilliseconds(100), MinTailBytes = 0, MinTailSegments = 0 });
         var cluster = new TopologyOptions([]) { ClusterId = "c", NodeId = "n", Uri = new Uri("https://localhost:1") };
         using var compaction = new JournalCompactionService<object?>(
             NullLogger<JournalCompactionService<object?>>.Instance,
             options,
-            new JournalCompactionDependencies(snapshots, maintenance.Instance(), journal.Ledger, StoreFactory.CreateReader(), journal.Journal.Options, cluster),
+            new JournalCompactionDependencies(snapshots, maintenance.Instance(), journal.Ledger, StoreFactory.CreateReader(), journal.Journal.Options, cluster, clock),
             new CompactionMetrics(_testMeter));
 
         await StallNextFlushAsync(journal, cancellationToken);
         var snapshot = snapshots.SnapshotAsync(journal.Journal, cancellationToken).AsTask();
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         await compaction.StartAsync(cancellationToken);
-        var compactedDuringSnapshot = await StallableJournal.CompletesWithinAsync(entered, CompactionProbeWindow, cancellationToken);
+
+        // The loop arms its wait, wakes after MinGap on the fake clock, attempts a compaction (skipped while the snapshot is in flight)
+        // and arms the next wait; the second armed wait proves the skipped attempt has finished.
+        _ = await clock.TimerCreated.WaitAsync(StallTimeout, cancellationToken);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        _ = await clock.TimerCreated.WaitAsync(StallTimeout, cancellationToken);
+        var compactedDuringSnapshot = entered.Task.IsCompleted;
         journal.Writer.Flush.Release();
         await snapshot;
         await entered.Task.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
@@ -186,5 +192,24 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
             new BackgroundSnapshotMemoryThrottle(new StateEvaluator(Options.Create(new PressureOptions())), new MemoryUsageAccounting()),
             null);
         return new Coordinator(opt, journal.Journal, deps);
+    }
+
+    /// <summary>A fake clock that signals each timer created on it, so a test advances only once a wait is armed.</summary>
+    [ThreadSafe]
+    private sealed class TimerSignalClock : FakeTimeProvider
+    {
+        internal TimerSignalClock()
+            : base(DateTimeOffset.UtcNow)
+        {
+        }
+
+        internal SemaphoreSlim TimerCreated { get; } = new(0);
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = base.CreateTimer(callback, state, dueTime, period);
+            _ = TimerCreated.Release();
+            return timer;
+        }
     }
 }
