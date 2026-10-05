@@ -54,6 +54,7 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
 
         await SequenceAssert.EqualAsync(["k1", "k2"], local.AppliedKeys(), StringComparer.Ordinal);
         _ = await Assert.That(local.ScopeFor("k1")).IsNull();
+        _ = await Assert.That(local.StampingSuspendedFor("k1")).IsTrue();
         _ = await Assert.That(local.ScopeFor("k2")).IsNull();
         _ = await Assert.That(local.StampingSuspendedFor("k2")).IsTrue();
     }
