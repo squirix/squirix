@@ -77,17 +77,12 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         var handedOver = false;
         try
         {
-            var nodeRateLimitReject = RejectByNodeRateLimitIfLimited(transport, operation);
-            if (nodeRateLimitReject != null)
-                return nodeRateLimitReject.Value;
-
-            var clientRateLimitReject = RejectByClientRateLimitIfLimited(transport, operation, client);
-            if (clientRateLimitReject != null)
-                return clientRateLimitReject.Value;
+            var rateLimitReject = RejectByRateLimitsIfLimited(transport, operation, client);
+            if (rateLimitReject != null)
+                return rateLimitReject.Value;
 
             var inFlight = Volatile.Read(ref _inFlight);
-            var queueDepth = Volatile.Read(ref _queueDepth);
-            var queueFullReject = RejectByQueueFullIfSaturated(transport, operation, inFlight, queueDepth);
+            var queueFullReject = RejectByQueueFullIfSaturated(transport, operation, inFlight, Volatile.Read(ref _queueDepth));
             if (queueFullReject != null)
                 return queueFullReject.Value;
 
@@ -202,8 +197,12 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         return (Decision.Accepted(), Lease.Empty);
     }
 
-    private (Decision Decision, Lease Lease)? RejectByClientRateLimitIfLimited(string transport, string operation, ClientState client)
+    private (Decision Decision, Lease Lease)? RejectByRateLimitsIfLimited(string transport, string operation, ClientState client)
     {
+        var nodeRateLimitReject = RejectByNodeRateLimitIfLimited(transport, operation);
+        if (nodeRateLimitReject != null)
+            return nodeRateLimitReject;
+
         if (client.TryAcquire())
             return null;
 
