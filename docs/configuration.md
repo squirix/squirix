@@ -418,7 +418,6 @@ node-wide concurrency, queue and node rate limits still apply to it.
 | `PerClientMaxInFlight`        | int?            | `null`         | unset or `1..MaxInFlight`                        |
 | `MaxQueue`                    | int             | `128`          | `>= 0`                                           |
 | `SlowdownThreshold`           | int             | `192`          | `1..MaxInFlight`                                 |
-| `RejectThreshold`             | int             | `256`          | `1..MaxInFlight`, `>= SlowdownThreshold`         |
 | `NodeRateLimitPerSecond`      | int?            | `null`         | unset or `> 0` with `NodeRateLimitBurst`         |
 | `NodeRateLimitBurst`          | int?            | `null`         | needs `NodeRateLimitPerSecond`; `>=` that rate   |
 | `PerClientRateLimitPerSecond` | int?            | `null`         | unset or `> 0` with `PerClientRateLimitBurst`    |
@@ -426,10 +425,13 @@ node-wide concurrency, queue and node rate limits still apply to it.
 | `MaxSlowdownDelay`            | TimeSpan string | `00:00:00.025` | `0` to `00:00:05`                                |
 | `MaxQueueWait`                | TimeSpan string | `00:00:00.250` | `> 0` and at most `00:01:00`                     |
 
-`RejectThreshold` rejects a new request only when in-flight has reached it **and** another request is already waiting in
-the queue; with an empty queue the request is admitted while a slot is free, or queued (up to `MaxQueue` and
-`MaxQueueWait`) once all `MaxInFlight` slots are taken. A burst is meaningless
-without a rate, so setting a burst alone is rejected.
+A request is admitted while a slot is free. Once all `MaxInFlight` slots are taken, requests wait in a first-in,
+first-out queue of up to `MaxQueue` requests, each for at most `MaxQueueWait`; a request that finds the queue full is rejected
+with `queue_full`, and one that waits too long with `queue_wait_timeout`. From `SlowdownThreshold` in-flight requests on,
+each new request is first delayed by up to `MaxSlowdownDelay`, growing linearly to the full delay when `MaxInFlight` slots are
+taken, so a queued request can wait up to `MaxSlowdownDelay` plus `MaxQueueWait` (275 ms with the defaults).
+`PerClientMaxInFlight` counts a caller's admitted and queued requests together; a request over that limit is rejected,
+never queued. A burst is meaningless without a rate, so setting a burst alone is rejected.
 
 ### Journal compaction
 
@@ -636,7 +638,7 @@ returned by `SquirixServerOptions.TryValidate` and settings loading, as are the 
 is constructed or overridden in a custom host — they are **not** produced by merging a JSON section that v0.1 public
 hosting ignores:
 
-- `Backpressure RejectThreshold must be greater than or equal to SlowdownThreshold.`
+- `Backpressure SlowdownThreshold must be in the range [1, MaxInFlight].`
 - `Backpressure PerClientMaxInFlight cannot exceed MaxInFlight.`
 - `Backpressure NodeRateLimitBurst must be greater than zero when configured.`
 - `Backpressure NodeRateLimitBurst requires NodeRateLimitPerSecond.`
