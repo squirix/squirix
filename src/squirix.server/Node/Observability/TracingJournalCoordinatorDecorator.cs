@@ -70,11 +70,13 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         await _inner.AppendRemoveAsync(ownership, key, cancellationToken).ConfigureAwait(false);
     }
 
-    public async ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
+    public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
     {
         var traceContext = Enrich(null);
-        using var scope = _tracer.Begin(JournalOperationKind.AwaitDurabilityCommit, in traceContext);
-        await _inner.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
+        var scope = _tracer.Begin(JournalOperationKind.AwaitDurabilityCommit, in traceContext);
+
+        // Without a listener there is no scope to close, so the wait is returned as is and skips a state machine.
+        return scope == null ? _inner.AwaitDurabilityCommitAsync(cancellationToken) : AwaitDurabilityCommitTracedAsync(scope, cancellationToken);
     }
 
     /// <summary>Detaches from the inner journal without disposing it.</summary>
@@ -146,6 +148,12 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         var traceContext = Enrich(null);
         using var scope = _tracer.Begin(JournalOperationKind.WaitForStartup, in traceContext);
         await _inner.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask AwaitDurabilityCommitTracedAsync(IJournalOperationTraceScope scope, CancellationToken cancellationToken)
+    {
+        using (scope)
+            await _inner.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private JournalOperationTraceContext? Enrich(JournalOperationTraceContext? context) => JournalCoordinatorTracing.WithDurability(_inner, in context);
