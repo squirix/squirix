@@ -116,9 +116,11 @@ public sealed class BoundedJournalRingTests
     {
         using var ring = new BoundedJournalRing(4, useHighResolutionTimer);
         using var parked = new ManualResetEventSlim(false);
+        Thread? waiterThread = null;
         var waiter = Task.Factory.StartNew(
             () =>
             {
+                Volatile.Write(ref waiterThread, Thread.CurrentThread);
                 parked.Set();
                 ring.WaitForWork(120_000, CancellationToken.None);
             },
@@ -127,7 +129,9 @@ public sealed class BoundedJournalRingTests
             TaskScheduler.Default);
 
         _ = parked.Wait(TimeSpan.FromSeconds(10), cancellationToken);
-        await Task.Delay(50, cancellationToken);
+
+        // A notification that lands before the wait is kept, so the notify is sent only once the waiter thread is blocked in it.
+        await Volatile.Read(ref waiterThread).WaitUntilAsync(static t => IsBlocked(t), TimeSpan.FromSeconds(10), cancellationToken);
         ring.NotifyWorkAvailable();
 
         await waiter.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
@@ -147,6 +151,8 @@ public sealed class BoundedJournalRingTests
         ring.NotifyWorkAvailable();
         _ = await Assert.That(ring.TryDequeue(out _)).IsFalse();
     }
+
+    private static bool IsBlocked(Thread? thread) => thread?.ThreadState.HasFlag(System.Threading.ThreadState.WaitSleepJoin) == true;
 
     private sealed class PipelineFailureProbe
     {
