@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -25,6 +26,37 @@ internal static class ReplicaCommitterDoubles
 
         /// <summary>The first apply stalls, ignoring cancellation, until released and then fails; every later apply fails at once.</summary>
         StallThenFail = 2,
+    }
+
+    /// <summary>A fake clock that signals each timer created on it with one due time, so a test advances only once the commit budget is armed.</summary>
+    [ThreadSafe]
+    internal sealed class DueTimerClock : FakeTimeProvider
+    {
+        private readonly TimeSpan _due;
+
+        internal DueTimerClock(TimeSpan due)
+            : base(DateTimeOffset.UnixEpoch)
+        {
+            _due = due;
+        }
+
+        internal SemaphoreSlim TimerCreated { get; } = new(0);
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = base.CreateTimer(callback, state, dueTime, period);
+            if (dueTime == _due)
+                _ = TimerCreated.Release();
+
+            return timer;
+        }
+
+        /// <summary>Discards the signals of timers created so far.</summary>
+        internal void ForgetCreated()
+        {
+            while (TimerCreated.CurrentCount > 0)
+                _ = TimerCreated.Wait(0, CancellationToken.None);
+        }
     }
 
     [Immutable]

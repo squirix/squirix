@@ -39,7 +39,8 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
     {
         using var hooks = new StallableFollowerLogFaultHooks();
         await using var registry = await OpenRegistryAsync(hooks, cancellationToken);
-        await using var committer = CreateCommitter(registry);
+        var clock = new DueTimerClock(ShortCommitBudget);
+        await using var committer = CreateCommitter(registry, clock);
         await committer.CommitSetAsync(Guid.NewGuid().ToString("N"), "cache", "k1", Entry(), cancellationToken);
         var log = Log(registry);
 
@@ -47,8 +48,12 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
         hooks.StallNextMetaWrite();
         var holder = log.AdvanceAppliedAsync(1UL, cancellationToken);
         await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+        // The budget runs on the fake clock: advance it past the budget once the second write armed it, while the write still waits for the log.
+        clock.ForgetCreated();
         var write = committer.CommitSetAsync(Guid.NewGuid().ToString("N"), "cache", "k2", Entry(), cancellationToken);
-        await Task.Delay(ShortCommitBudget * 5, TimeProvider.System, cancellationToken);
+        _ = await Assert.That(await clock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
+        clock.Advance(ShortCommitBudget * 5);
         hooks.Release();
         _ = await holder.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
@@ -65,7 +70,7 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
     {
         using var hooks = new StallableFollowerLogFaultHooks();
         await using var registry = await OpenRegistryAsync(hooks, cancellationToken);
-        await using var committer = CreateCommitter(registry);
+        await using var committer = CreateCommitter(registry, TimeProvider.System);
         await committer.CommitSetAsync(Guid.NewGuid().ToString("N"), "cache", "k1", Entry(), cancellationToken);
 
         hooks.StallNextMetaWrite();
@@ -86,7 +91,7 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
     {
         using var hooks = new StallableFollowerLogFaultHooks();
         await using var registry = await OpenRegistryAsync(hooks, cancellationToken);
-        await using var committer = CreateCommitter(registry);
+        await using var committer = CreateCommitter(registry, TimeProvider.System);
         var operationId = Guid.NewGuid().ToString("N");
         await committer.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken);
 
@@ -96,13 +101,14 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
         _ = await Assert.That((await Log(registry).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
     }
 
-    private static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry)
+    private static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, TimeProvider budgetClock)
     {
         var local = new ScriptedApplyCache(ApplyMode.Fail);
         local.Recover();
         return new ReplicaGroupCommitter(registry, new TwoNodeLocator(), new AcceptingGateway(), local, OwnedGroup, new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             CommitBudget = ShortCommitBudget,
+            BudgetTimeProvider = budgetClock,
             ShutdownBudget = TimeSpan.FromMilliseconds(200),
         };
     }
