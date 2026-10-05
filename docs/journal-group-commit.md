@@ -130,10 +130,13 @@ Effects to account for:
   idempotency outcome frame, so a lone write can pay up to `2 × MaxWait`.
 - **Hot key.** Writers on one key are serialized across the fsync, so a hot key completes about one write per batch wait
   and gains nothing; batching needs distinct keys.
-- **Windows timer granularity.** The journal thread waits on an OS wait handle with a millisecond timeout, which Windows
-  rounds up to the system timer tick (about `15.6 ms`). `MaxWait = 1 ms` and `5 ms` therefore behave alike and a
-  partial batch waits a full tick. A batch that reaches `MaxBatch` flushes at once and does not wait for the timer, so
-  keep concurrency at or above `MaxBatch`.
+- **Windows timer granularity.** On Windows 10 version 1803 and later (Windows Server 2019 and later) the journal thread
+  waits for the batch deadline on a high-resolution timer, so a partial batch is flushed about `1 ms` after `MaxWait`.
+  Older Windows falls back to a millisecond wait handle that Windows rounds up to the system timer tick (about
+  `15.6 ms`), so `MaxWait = 1 ms` and `5 ms` behave alike there; the journal logs one Information line when this
+  fallback is in use. Linux and macOS use monotonic millisecond waits. Group commit never changes the process-wide timer
+  resolution. A batch that reaches `MaxBatch` flushes at once and does not wait for the timer, so keep concurrency at or
+  above `MaxBatch`.
 
 Suggested sweep:
 
@@ -148,7 +151,8 @@ See [journal-single-owner-wal.md](journal-single-owner-wal.md) for the journal t
 
 `DurableMutationGroupCommitBenchmarks`: hosted write path (mutation frame plus idempotency outcome frame), distinct keys,
 256 B values, 200 writes per writer, `MaxBatch = 32`, Windows 11, local NVMe SSD with a write cache (cheap fsync).
-Throughput in writes per second, three iterations, high variance at 256 writers:
+Throughput in writes per second, three iterations, high variance at 256 writers. These numbers were taken with the
+system-tick wait, before the high-resolution batch timer, and are pending a re-measurement:
 
 | Writers | Off (`MaxWait = 0`) | `MaxWait = 1 ms` | `MaxWait = 5 ms` |
 | ------- | ------------------- | ---------------- | ---------------- |
