@@ -36,19 +36,28 @@ public sealed class ReplicaCommitApplyStallTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var pipeline = new JournalApplyPipeline(journal.Journal);
+        var clock = new DueTimerClock(CommitBudget);
         await using var coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(2, 0, 0, 1),
             pipeline,
             ReplicaFaultHooks.CreateCancellationHonoring(),
-            new GroupIdempotencyState(4, TimeSpan.MaxValue));
+            new GroupIdempotencyState(4, TimeSpan.MaxValue))
+        {
+            BudgetTimeProvider = clock,
+        };
         var mutation = ReplicaMutationTestKit.CreateMutation();
         journal.Writer.Flush.Arm();
 
         var commit = coordinator.CommitAsync(mutation, CommitBudget, CancellationToken.None).AsTask();
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        var applyCanceled = await pipeline.ApplyBudgetExpiredWithinAsync(CommitBudget * 3, cancellationToken);
+
+        // The budget runs on a fake clock, so it expires exactly when moved, while the apply is parked in its flush; the fake timer's
+        // callbacks run inside Advance, so the apply token is already canceled afterwards if the budget reached the apply.
+        clock.Advance(CommitBudget);
+        var applyCanceled = pipeline.ApplyBudgetExpired;
+        _ = await Assert.That(commit.IsCompleted).IsFalse();
         journal.Writer.Flush.Release();
-        var outcome = await commit;
+        var outcome = await commit.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         await SequenceAssert.EqualMemoryAsync(mutation.OutcomePayload, outcome);
         _ = await Assert.That(pipeline.Memory.Snapshot).IsEqualTo(CacheKey.Default(AppliedKey).ToString());
@@ -68,6 +77,9 @@ public sealed class ReplicaCommitApplyStallTests : IsolatedStorageTestBase
             _journal = journal;
             _executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
         }
+
+        /// <summary>Gets a value indicating whether the budget token handed to the apply was canceled.</summary>
+        internal bool ApplyBudgetExpired => _applyBudgetExpired.Task.IsCompleted;
 
         internal AppliedKeys Memory { get; } = new();
 
@@ -94,15 +106,5 @@ public sealed class ReplicaCommitApplyStallTests : IsolatedStorageTestBase
         public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
         {
         }
-
-        /// <summary>
-        /// Returns once the budget token handed to the apply is canceled, or after <paramref name="window" /> when the apply runs without
-        /// a cancelable budget; the stall then outlasts the budget either way.
-        /// </summary>
-        /// <param name="window">Wait used when the apply token never cancels.</param>
-        /// <param name="cancellationToken">Cancellation token.</param>
-        /// <returns><see langword="true" /> when the apply token was canceled.</returns>
-        internal Task<bool> ApplyBudgetExpiredWithinAsync(TimeSpan window, CancellationToken cancellationToken) =>
-            StallableJournal.CompletesWithinAsync(_applyBudgetExpired, window, cancellationToken);
     }
 }

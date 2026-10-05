@@ -164,14 +164,20 @@ public sealed class ReplicaCommitDisposeTests
     public async Task DisposeKeepsQueuedCommitCancelable(CancellationToken cancellationToken)
     {
         var pipeline = new StallingApplyPipeline();
-        var coordinator = CreateCoordinator(pipeline, new LeakRecorder());
+        var clock = new DueTimerClock(QueuedBudget);
+        var coordinator = CreateCoordinatorOnClock(pipeline, new LeakRecorder(), clock);
         var stuck = StartCommitAsync(coordinator, CreateMutation(1, "00000000000000000000000000000001"), StallTimeout);
         try
         {
             await pipeline.ApplyEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             var queued = StartCommitAsync(coordinator, CreateMutation(2, "00000000000000000000000000000002"), QueuedBudget);
 
-            await coordinator.DisposeAsync();
+            // The queued budget runs on the fake clock: it moves only once the queued commit armed it and dispose gave up on the stuck one.
+            _ = await Assert.That(await clock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
+            await coordinator.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(queued.IsCompleted).IsFalse();
+
+            clock.Advance(QueuedBudget);
             _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(queued.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
 
             pipeline.ReleaseApply();
@@ -191,7 +197,7 @@ public sealed class ReplicaCommitDisposeTests
     {
         var pipeline = new StallingApplyPipeline();
         var leaks = new LeakRecorder();
-        var coordinator = CreateCoordinator(pipeline, leaks);
+        var coordinator = CreateCoordinator(pipeline, leaks, shutdownBudget: StallTimeout);
         pipeline.ReleaseApply();
         var mutation = ReplicaMutationTestKit.CreateMutation();
         var outcome = await coordinator.CommitAsync(mutation, StallTimeout, cancellationToken);
@@ -202,12 +208,20 @@ public sealed class ReplicaCommitDisposeTests
         _ = await Assert.That(leaks.Count).IsEqualTo(0);
     }
 
-    private static ReplicaCommitCoordinator CreateCoordinator(StallingApplyPipeline pipeline, LeakRecorder leaks, Action<Exception>? faults = null) =>
+    private static ReplicaCommitCoordinator CreateCoordinator(StallingApplyPipeline pipeline, LeakRecorder leaks, Action<Exception>? faults = null, TimeSpan? shutdownBudget = null) =>
+        new(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue))
+        {
+            ShutdownBudget = shutdownBudget ?? ShutdownBudget,
+            ShutdownLeakReporter = leaks.Report,
+            AbandonedWorkFaultReporter = faults,
+        };
+
+    private static ReplicaCommitCoordinator CreateCoordinatorOnClock(StallingApplyPipeline pipeline, LeakRecorder leaks, TimeProvider budgetClock) =>
         new(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue))
         {
             ShutdownBudget = ShutdownBudget,
+            BudgetTimeProvider = budgetClock,
             ShutdownLeakReporter = leaks.Report,
-            AbandonedWorkFaultReporter = faults,
         };
 
     private static PreparedReplicaMutation CreateMutation(ulong logIndex, string operationId) => new(

@@ -224,8 +224,8 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     }
 
     /// <summary>
-    /// With one group log stuck in a flush, the registry dispose closes the other log without waiting for the stuck one's budget and
-    /// returns once that single budget expired; the other group's directory can be reopened.
+    /// With one group log stuck in a flush, the registry dispose closes the other log without waiting for the stuck one's budget, which
+    /// runs on a fake clock that moves only after the idle log closed, and returns once that single budget expired; the other group's directory can be reopened.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="InvalidOperationException">The stalled group log is not open.</exception>
@@ -235,7 +235,8 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         using var hooks = new StallableFollowerLogFaultHooks();
         var log = new LeakRecordingLogger();
         using var loggerFactory = new FixedLoggerFactory(log);
-        var registry = await OpenRegistryAsync([StalledGroup, IdleGroup], StallOptions(hooks), loggerFactory, cancellationToken);
+        var clock = new DueTimerClock(LogShutdownBudget);
+        var registry = await OpenRegistryAsync([StalledGroup, IdleGroup], new FollowerLogOptions { FaultHooks = hooks, ShutdownBudget = LogShutdownBudget, TimeProvider = clock }, loggerFactory, cancellationToken);
         var idleLogPath = FollowerLogPaths.Create(Dir, IdleGroup).LogPath;
         try
         {
@@ -248,8 +249,8 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(IsReleased(idleLogPath)).IsFalse();
 
-            // The leak event is logged before the stuck log's dispose returns, so seeing the idle log closed without it proves the idle
-            // log was not queued behind the stuck one.
+            // The stuck log's budget cannot expire until the clock moves, so seeing the idle log closed without the leak event proves the
+            // idle log was not queued behind the stuck one.
             var idleClosedWhileStuck = false;
             var disposing = registry.DisposeAsync().AsTask();
             var idleClosed = SpinWait.SpinUntil(
@@ -262,10 +263,14 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
                     return true;
                 },
                 StallTimeout);
-            await disposing.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-
             _ = await Assert.That(idleClosed).IsTrue();
             _ = await Assert.That(idleClosedWhileStuck).IsTrue();
+            _ = await Assert.That(disposing.IsCompleted).IsFalse();
+
+            _ = await Assert.That(await clock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
+            clock.Advance(LogShutdownBudget);
+            await disposing.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
             _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(append.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             _ = await Assert.That(log.Count(LogLeakedOnShutdownEventId)).IsEqualTo(1);
         }

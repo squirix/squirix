@@ -18,7 +18,7 @@ public sealed class ReplicaAckOrderTests
 {
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(10);
 
-    /// <summary>A budget a commit waiting on an acknowledgement nobody sends is certain to exhaust.</summary>
+    /// <summary>The budget of a commit waiting on an acknowledgement nobody sends; it runs on a fake clock that the test moves once the fan-out started.</summary>
     private static readonly TimeSpan ShortBudget = TimeSpan.FromMilliseconds(300);
 
     /// <summary>
@@ -93,7 +93,8 @@ public sealed class ReplicaAckOrderTests
     public async Task BudgetEndsWaitForProgress(CancellationToken cancellationToken)
     {
         var pipeline = new AckPipeline();
-        var coordinator = CreateCoordinator(pipeline);
+        var clock = new DueTimerClock(ShortBudget);
+        var coordinator = CreateCoordinatorOnClock(pipeline, clock);
         try
         {
             var first = Mutation(1);
@@ -105,7 +106,9 @@ public sealed class ReplicaAckOrderTests
             pipeline.Fail(2, second);
 
             var secondCommit = CommitAsync(coordinator, second, ShortBudget, cancellationToken);
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(secondCommit);
+            await pipeline.StartedAsync(2).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            clock.Advance(ShortBudget);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(secondCommit.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
 
             _ = await Assert.That(error.Message).StartsWith(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
         }
@@ -125,7 +128,8 @@ public sealed class ReplicaAckOrderTests
     public async Task LatePrefixAppliesRetainedEntry(CancellationToken cancellationToken)
     {
         var pipeline = new AckPipeline();
-        await using var coordinator = CreateCoordinator(pipeline);
+        var clock = new DueTimerClock(ShortBudget);
+        await using var coordinator = CreateCoordinatorOnClock(pipeline, clock);
         var first = Mutation(1);
         var second = Mutation(2);
         try
@@ -134,7 +138,10 @@ public sealed class ReplicaAckOrderTests
             pipeline.Answer(2, first);
             _ = await firstCommit.AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             pipeline.Answer(1, second);
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, second, ShortBudget, cancellationToken));
+            var secondCommit = CommitAsync(coordinator, second, ShortBudget, cancellationToken);
+            await pipeline.StartedAsync(2).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            clock.Advance(ShortBudget);
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(secondCommit.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
 
             pipeline.Answer(1, first);
 
@@ -152,6 +159,12 @@ public sealed class ReplicaAckOrderTests
     private static ReplicaCommitCoordinator CreateCoordinator(AckPipeline pipeline) =>
         new(new ReplicaCommitCoordinatorOptions(3, 0, 0, 2), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue));
 
+    private static ReplicaCommitCoordinator CreateCoordinatorOnClock(AckPipeline pipeline, TimeProvider budgetClock) =>
+        new(new ReplicaCommitCoordinatorOptions(3, 0, 0, 2), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue))
+        {
+            BudgetTimeProvider = budgetClock,
+        };
+
     private static PreparedReplicaMutation Mutation(ulong index)
     {
         var identity = new ReplicaOperationIdentity("group-a", "client", $"op-{index}", new byte[] { 1 });
@@ -164,12 +177,18 @@ public sealed class ReplicaAckOrderTests
     {
         private readonly Dictionary<(int Replica, ulong Index), TaskCompletionSource<ReplicaDurableAcknowledgement>> _acks = [];
         private readonly Dictionary<ulong, TaskCompletionSource> _applied = [];
+        private readonly Dictionary<ulong, TaskCompletionSource> _started = [];
         private readonly Lock _sync = new();
 
         public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
-        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
-            new(AckFor(replicaIndex, mutation.LogIndex).Task);
+        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        {
+            lock (_sync)
+                _ = StartedFor(mutation.LogIndex).TrySetResult();
+
+            return new ValueTask<ReplicaDurableAcknowledgement>(AckFor(replicaIndex, mutation.LogIndex).Task);
+        }
 
         public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
@@ -195,6 +214,15 @@ public sealed class ReplicaAckOrderTests
                 return AppliedFor(index).Task;
         }
 
+        /// <summary>Gets a task that completes once a follower append of the entry started, which happens after its local append.</summary>
+        /// <param name="index">The log index of the entry.</param>
+        /// <returns>The task.</returns>
+        internal Task StartedAsync(ulong index)
+        {
+            lock (_sync)
+                return StartedFor(index).Task;
+        }
+
         internal void Fail(int replicaIndex, PreparedReplicaMutation mutation) =>
             _ = AckFor(replicaIndex, mutation.LogIndex).TrySetException(new TimeoutException("follower failed"));
 
@@ -207,6 +235,17 @@ public sealed class ReplicaAckOrderTests
 
             foreach (var ack in all)
                 _ = ack.TrySetException(new TimeoutException("follower did not answer"));
+        }
+
+        private TaskCompletionSource StartedFor(ulong index)
+        {
+            if (!_started.TryGetValue(index, out var started))
+            {
+                started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _started[index] = started;
+            }
+
+            return started;
         }
 
         private TaskCompletionSource AppliedFor(ulong index)

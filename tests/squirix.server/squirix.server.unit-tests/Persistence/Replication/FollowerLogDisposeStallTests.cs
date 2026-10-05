@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -228,14 +229,17 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
         }
     }
 
-    /// <summary>Without a stall the dispose drains within the budget, closes the handle, logs no leak, and later callers get NotReady.</summary>
+    /// <summary>
+    /// Without a stall the dispose drains without the budget ever expiring (its clock never moves), closes the handle, logs no leak, and
+    /// later callers get NotReady.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task DisposeWithoutStallClosesHandle(CancellationToken cancellationToken)
     {
         using var hooks = new StallableFollowerLogFaultHooks();
         var logger = new EventRecordingLogger();
-        var log = await OpenLogAsync(hooks, logger, cancellationToken);
+        var log = await OpenLogOnClockAsync(hooks, logger, new FakeTimeProvider(), cancellationToken);
         IFollowerLogDurability durable = log;
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
 
@@ -266,9 +270,14 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
         durable.Durability.Dispose();
     }
 
-    private async Task<FollowerLog> OpenLogAsync(StallableFollowerLogFaultHooks hooks, ILogger<FollowerLog> logger, CancellationToken cancellationToken)
+    private Task<FollowerLog> OpenLogAsync(StallableFollowerLogFaultHooks hooks, ILogger<FollowerLog> logger, CancellationToken cancellationToken) =>
+        OpenLogAsync(new FollowerLogOptions { FaultHooks = hooks, ShutdownBudget = ShutdownBudget }, logger, cancellationToken);
+
+    private Task<FollowerLog> OpenLogOnClockAsync(StallableFollowerLogFaultHooks hooks, ILogger<FollowerLog> logger, TimeProvider clock, CancellationToken cancellationToken) =>
+        OpenLogAsync(new FollowerLogOptions { FaultHooks = hooks, ShutdownBudget = ShutdownBudget, TimeProvider = clock }, logger, cancellationToken);
+
+    private async Task<FollowerLog> OpenLogAsync(FollowerLogOptions options, ILogger<FollowerLog> logger, CancellationToken cancellationToken)
     {
-        var options = new FollowerLogOptions { FaultHooks = hooks, ShutdownBudget = ShutdownBudget };
         var log = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId), logger, options);
         try
         {

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
@@ -28,40 +27,51 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
 
     private static readonly TimeSpan CommitBudget = TimeSpan.FromMilliseconds(200);
 
-    /// <summary>Below the coordinator's 5 s disposal drain bound, so disposal must stop the observer instead of abandoning it on the bound.</summary>
-    private static readonly TimeSpan DisposeBound = TimeSpan.FromSeconds(3);
-
     /// <summary>Past the coordinator's 5 s bound on the first wait of background follower observation.</summary>
     private static readonly TimeSpan PastObserveBound = TimeSpan.FromSeconds(6);
+
+    /// <summary>The coordinator's bound on the first wait of background follower observation, as the due time its timer is armed with.</summary>
+    private static readonly TimeSpan ObserveBound = TimeSpan.FromSeconds(5);
 
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>
     /// Disposal stops background follower observation that is still waiting, past its first bound, for a follower that never answers,
-    /// instead of waiting out the drain bound.
+    /// instead of waiting out the drain bound, which would be reported as a shutdown leak.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task DisposeStopsUnboundedFollowerObserver(CancellationToken cancellationToken)
     {
         var pipeline = new ScriptedPipeline(false);
-        var clock = new FakeTimeProvider();
+        var budgetClock = new DueTimerClock(CommitBudget);
+        var observeClock = new DueTimerClock(ObserveBound);
+        var leaks = new ConcurrentQueue<TimeSpan>();
         var coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(2, 0, 0, 1),
             pipeline,
             ReplicaFaultHooks.CreateNoOp(),
             new GroupIdempotencyState(4, TimeSpan.MaxValue))
         {
-            ObserveTimeProvider = clock,
+            BudgetTimeProvider = budgetClock,
+            ObserveTimeProvider = observeClock,
+            ShutdownBudget = StallTimeout,
+            ShutdownLeakReporter = leaks.Enqueue,
         };
+        var commit = coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001", 11), CommitBudget, cancellationToken);
         try
         {
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(
-                coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001", 11), CommitBudget, cancellationToken));
+            await pipeline.FollowerEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            budgetClock.Advance(CommitBudget);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(commit);
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
-            clock.Advance(PastObserveBound);
 
-            await coordinator.DisposeAsync().AsTask().WaitAsync(DisposeBound, TimeProvider.System, cancellationToken);
+            // The observer is past its first bound once the observe clock moved beyond it, so only disposal can stop it.
+            _ = await Assert.That(await observeClock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
+            observeClock.Advance(PastObserveBound);
+
+            await coordinator.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(leaks.IsEmpty).IsTrue();
         }
         finally
         {
@@ -79,16 +89,22 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
     {
         var pipeline = new ScriptedPipeline(false);
         var idempotency = new GroupIdempotencyState(4, TimeSpan.MaxValue);
-        var clock = new FakeTimeProvider();
+        var budgetClock = new DueTimerClock(CommitBudget);
+        var observeClock = new DueTimerClock(ObserveBound);
         await using var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), idempotency)
         {
-            ObserveTimeProvider = clock,
+            BudgetTimeProvider = budgetClock,
+            ObserveTimeProvider = observeClock,
         };
         var mutation = CreateMutation(1, "00000000000000000000000000000001", 11);
-        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(mutation, CommitBudget, cancellationToken));
+        var commit = coordinator.CommitAsync(mutation, CommitBudget, cancellationToken);
+        await pipeline.FollowerEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        budgetClock.Advance(CommitBudget);
+        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(commit);
         _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
-        clock.Advance(PastObserveBound);
+        _ = await Assert.That(await observeClock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
+        observeClock.Advance(PastObserveBound);
         pipeline.ReleaseFollower();
         await pipeline.FirstApplied.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
@@ -112,11 +128,18 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
     {
         var pipeline = new ScriptedPipeline(false);
         var idempotency = new GroupIdempotencyState(4, TimeSpan.MaxValue);
-        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), idempotency);
+        var budgetClock = new DueTimerClock(CommitBudget);
+        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), idempotency)
+        {
+            BudgetTimeProvider = budgetClock,
+        };
         var mutation = CreateMutation(1, "00000000000000000000000000000001", 11);
+        var commit = coordinator.CommitAsync(mutation, CommitBudget, cancellationToken);
         try
         {
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(mutation, CommitBudget, cancellationToken));
+            await pipeline.FollowerEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            budgetClock.Advance(CommitBudget);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(commit);
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
             _ = await Assert.That(pipeline.Applied.IsEmpty).IsTrue();
 
@@ -184,6 +207,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
     private sealed class ScriptedPipeline : IReplicaCommitPipeline
     {
         private readonly TaskCompletionSource _firstApplied = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _followerEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _followerReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _failFirstApply;
 
@@ -198,6 +222,9 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
 
         internal Task FirstApplied => _firstApplied.Task;
 
+        /// <summary>Gets a task that completes when the follower append started and waits for its release.</summary>
+        internal Task FollowerEntered => _followerEntered.Task;
+
         public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
         {
             CommitIndexes.Enqueue(commitIndex);
@@ -207,6 +234,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
         public async ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
             // The follower ignores the majority budget, as a slow peer does: its acknowledgement arrives only once released.
+            _ = _followerEntered.TrySetResult();
             await _followerReleased.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
             return new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true);
         }
