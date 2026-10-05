@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -83,41 +82,38 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     }
 
     /// <summary>
-    /// A write whose follower never answers ends with COMMIT_OUTCOME_UNKNOWN once a shortened commit budget expires, well before the
-    /// default budget of 5 seconds, with its entry kept in the local log.
+    /// A write whose follower never answers ends with COMMIT_OUTCOME_UNKNOWN once a shortened commit budget expires on the committer's clock, with
+    /// its entry kept in the local log.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ShortCommitBudgetYieldsUnknownFast(CancellationToken cancellationToken)
+    public async Task ShortCommitBudgetYieldsUnknown(CancellationToken cancellationToken)
     {
         var local = new ScriptedApplyCache(ApplyMode.Fail);
         var log = new LeakRecordingLogger();
         var gateway = new StalledGateway();
+        var clock = new DueTimerClock(ShortCommitBudget);
         await using var registry = await OpenRegistryAsync(cancellationToken);
         await using var defaults = CreateCommitter(registry, local, log);
         await using var committer = new ReplicaGroupCommitter(registry, new TwoNodeLocator(), gateway, local, OwnedGroup, new ReplicaTopologyStamp(Fingerprint, 1), log)
         {
             CommitBudget = ShortCommitBudget,
+            BudgetTimeProvider = clock,
             ShutdownBudget = LogShutdownBudget,
         };
         try
         {
             var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken);
 
-            // On a busy machine the short budget can expire before the committer reaches the follower; the outcome contract asserted
-            // below is the same either way, so wait for whichever comes first instead of hanging until the stall timeout.
-            _ = await Task.WhenAny(gateway.Entered, write).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-
-            // Timed from the stalled follower call, not from the call: the committer's first start opens and recovers the group logs
-            // before the budget runs, and that work depends on the machine, not on the budget. Only the budget remains after this point.
-            var stalled = Stopwatch.GetTimestamp();
+            // The budget runs on the fake clock, so it cannot expire before the follower call; once that call is stalled, the budget is armed
+            // and moving the clock past it ends the commit.
+            await gateway.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            clock.Advance(ShortCommitBudget);
             var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            var elapsed = Stopwatch.GetElapsedTime(stalled);
 
             _ = await Assert.That(defaults.CommitBudget).IsEqualTo(TimeSpan.FromSeconds(5));
             _ = await Assert.That(committer.CommitBudget).IsEqualTo(ShortCommitBudget);
             _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
-            _ = await Assert.That(elapsed < ShortCommitBudget + TimeSpan.FromSeconds(2)).IsTrue().Because($"the shortened budget ended the stalled commit {elapsed} after it reached the follower");
             _ = await Assert.That(log.UnknownLevel).IsEqualTo(LogLevel.Warning);
             _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(1UL);
             _ = await Assert.That(local.Applied.IsEmpty).IsTrue();

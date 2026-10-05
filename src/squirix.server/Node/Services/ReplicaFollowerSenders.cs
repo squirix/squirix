@@ -12,8 +12,7 @@ internal static class ReplicaFollowerSenders
     /// <param name="members">Ordered group members; index zero is this node.</param>
     /// <param name="status">Durable log status of the leader.</param>
     /// <param name="header">Replication envelope identity for follower calls.</param>
-    /// <param name="commitBudget">The longest wait for one follower request.</param>
-    /// <param name="shutdownBudget">The committer's shutdown budget; each sender's teardown never waits longer than the coordinator default.</param>
+    /// <param name="timing">The commit budget, the shutdown budget, and the time source of the follower request timeouts.</param>
     /// <param name="leakReporter">Reports, with the sender's shutdown budget, a sender that leaked a request it could not stop.</param>
     /// <returns>The senders of slots one and up, in slot order.</returns>
     internal static ReplicaFollowerSender[] Create(
@@ -21,22 +20,28 @@ internal static class ReplicaFollowerSenders
         string[] members,
         in FollowerLogStatus status,
         in ReplicaRpcHeader header,
-        TimeSpan commitBudget,
-        TimeSpan shutdownBudget,
+        in SenderTiming timing,
         Action<TimeSpan> leakReporter)
     {
         var senders = new ReplicaFollowerSender[members.Length - 1];
-        var senderShutdownBudget = shutdownBudget < ReplicaCommitCoordinator.DefaultShutdownBudget ? shutdownBudget : ReplicaCommitCoordinator.DefaultShutdownBudget;
+        var senderShutdownBudget = timing.ShutdownBudget < ReplicaCommitCoordinator.DefaultShutdownBudget ? timing.ShutdownBudget : ReplicaCommitCoordinator.DefaultShutdownBudget;
         for (var i = 0; i < senders.Length; i++)
         {
-            senders[i] = new ReplicaFollowerSender(gateway, members[i + 1], in header, status.LastLogIndex, status.LastLogTerm, commitBudget)
+            senders[i] = new ReplicaFollowerSender(gateway, members[i + 1], in header, status.LastLogIndex, status.LastLogTerm, timing.CommitBudget)
             {
                 // The senders' teardown is part of the committer's dispose, so it never waits longer than the committer's budget.
                 ShutdownBudget = senderShutdownBudget,
                 ShutdownLeakReporter = leakReporter,
+                TimeProvider = timing.TimeProvider,
             };
         }
 
         return senders;
     }
+
+    /// <summary>Timing of the follower senders of one committer.</summary>
+    /// <param name="CommitBudget">The longest wait for one follower request.</param>
+    /// <param name="ShutdownBudget">The committer's shutdown budget; each sender's teardown never waits longer than the coordinator default.</param>
+    /// <param name="TimeProvider">The time source of each follower request timeout.</param>
+    internal readonly record struct SenderTiming(TimeSpan CommitBudget, TimeSpan ShutdownBudget, TimeProvider TimeProvider);
 }

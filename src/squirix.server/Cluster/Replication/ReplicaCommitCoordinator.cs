@@ -109,6 +109,10 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// <remarks>The owner reads it under its commit gate, where no commit body runs, so only background follower observation can change it.</remarks>
     internal bool HasPendingApply => !_pendingApply.IsEmpty;
 
+    /// <summary>Initializes the time source of the commit budget; the system clock unless set.</summary>
+    /// <remarks>Test seam: production coordinators keep the system clock.</remarks>
+    internal TimeProvider BudgetTimeProvider { private get; init; } = TimeProvider.System;
+
     /// <summary>Initializes the time source bounding the first wait of background follower observation; the system clock unless set.</summary>
     /// <remarks>Test seam: production coordinators keep the system clock.</remarks>
     internal TimeProvider ObserveTimeProvider { private get; init; } = TimeProvider.System;
@@ -362,7 +366,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
     private async Task<ReadOnlyMemory<byte>> ExecuteAsync(PreparedReplicaMutation mutation, TimeSpan timeout, CommitAttempt attempt, CancellationToken callerCancellation)
     {
-        using var budgetCancellation = new CancellationTokenSource(timeout);
+        using var budgetCancellation = new CancellationTokenSource(timeout, BudgetTimeProvider);
         using var preAppendCancellation = CancellationTokenSource.CreateLinkedTokenSource(callerCancellation, budgetCancellation.Token);
         using var lease = await _admission.EnterAsync(mutation.OperationId.GetHashCode(StringComparison.Ordinal), preAppendCancellation.Token).ConfigureAwait(false);
         await _turn.WaitAsync(mutation.LogIndex, preAppendCancellation.Token).ConfigureAwait(false);

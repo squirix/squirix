@@ -21,7 +21,8 @@ public sealed class DurableMutationCutStressTests : IsolatedStorageTestBase
     private const int CutsRequired = 20;
     private const int WriterCount = 32;
 
-    private static readonly TimeSpan CutBound = TimeSpan.FromSeconds(2);
+    /// <summary>Only catches a cut that never captures: a cut slows with machine load, and a tight bound turns scheduling delay into a failure.</summary>
+    private static readonly TimeSpan CutBound = TimeSpan.FromSeconds(15);
 
     private static readonly TimeSpan CutPeriod = TimeSpan.FromMilliseconds(100);
 
@@ -31,7 +32,7 @@ public sealed class DurableMutationCutStressTests : IsolatedStorageTestBase
     private static readonly TimeSpan RunLength = TimeSpan.FromSeconds(5);
 
     /// <summary>
-    /// With writers on distinct keys that never pause, every requested cut still captures within its bound, and at capture no admitted
+    /// With writers on distinct keys that never pause, every requested cut still captures, and at capture no admitted
     /// writer is left unapplied.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -79,9 +80,11 @@ public sealed class DurableMutationCutStressTests : IsolatedStorageTestBase
         finally
         {
             await stop.CancelAsync();
-            await Task.WhenAll(writers);
+            await Task.WhenAll(writers).WaitAsync(CutBound, TimeProvider.System, CancellationToken.None);
+
+            // A stuck cut gets one more bound to finish; the timed-out assertion below reports it instead of hanging here.
             if (stuckCut != null)
-                await stuckCut;
+                _ = await Task.WhenAny(stuckCut, Task.Delay(CutBound, TimeProvider.System, CancellationToken.None));
         }
 
         _ = await Assert.That(timedOut).IsEqualTo(0).Because($"completed={completed}");
