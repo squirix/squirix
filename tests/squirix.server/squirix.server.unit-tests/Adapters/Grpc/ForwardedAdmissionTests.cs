@@ -8,6 +8,7 @@ using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
@@ -28,6 +29,39 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
 
     private readonly Meter _meterA = new("test-forwarded-a");
     private readonly Meter _meterB = new("test-forwarded-b");
+
+    /// <summary>A forward to an owner whose only permit is taken is refused at once and never holds an entry slot.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BusyPeerRejectsWithoutHoldingEntrySlot(CancellationToken cancellationToken)
+    {
+        using var entryGate = new AdmissionGate(CreateOptions(2), new BackpressureMetrics(_meterA), new FakeTimeProvider());
+        using var ownerGate = new AdmissionGate(CreateOptions(2), new BackpressureMetrics(_meterB), new FakeTimeProvider());
+        using var go = new SemaphoreSlim(0);
+        using var decided = new SemaphoreSlim(0);
+        using var finish = new SemaphoreSlim(0);
+        var invoker = new OwnerGateInvoker(ownerGate, go, decided, finish);
+        var forwarder = CreateForwarder(entryGate, invoker, 1);
+
+        var first = forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken);
+        await invoker.Entered.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        var second = forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken);
+
+        _ = await Assert.That(second.IsCompleted).IsTrue();
+        var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException>(second);
+        _ = await Assert.That(failure.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
+        _ = await Assert.That(failure.Message).Contains("peer_busy");
+        _ = await Assert.That(invoker.Calls).IsEqualTo(1);
+        _ = await Assert.That(entryGate.InFlight).IsEqualTo(1);
+        _ = await Assert.That(entryGate.QueueDepth).IsEqualTo(0);
+
+        _ = go.Release();
+        _ = await decided.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+        _ = finish.Release();
+        _ = await first.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(entryGate.InFlight).IsEqualTo(0);
+    }
 
     /// <summary>
     /// Both entry nodes hold their only slot while their forwarded request reaches the other node, which is full too.
@@ -85,9 +119,9 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
         _meterB.Dispose();
     }
 
-    private static AdmissionOptions CreateOptions() => new()
+    private static AdmissionOptions CreateOptions(int maxInFlight = 1) => new()
     {
-        MaxInFlight = 1,
+        MaxInFlight = maxInFlight,
         MaxQueue = 1,
         SlowdownThreshold = 1,
         MaxSlowdownDelay = TimeSpan.Zero,
@@ -101,18 +135,18 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
         return expectations.Instance();
     }
 
-    private OwnerRpcForwarder CreateForwarder(AdmissionGate entryGate, OwnerGateInvoker invoker)
+    private OwnerRpcForwarder CreateForwarder(AdmissionGate entryGate, OwnerGateInvoker invoker, int maxConcurrentPerPeer = 64)
     {
         var poolExpectations = new IServerClientPoolCreateExpectations();
         _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(new SquirixCacheService.SquirixCacheServiceClient(invoker));
-        _ = poolExpectations.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(CreatePolicy());
+        _ = poolExpectations.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(CreatePolicy(maxConcurrentPerPeer));
         return new OwnerRpcForwarder(poolExpectations.Instance(), entryGate, CreateClientIdResolver(), RingAgreements.Create());
     }
 
-    private ServerCallPolicy CreatePolicy() => new(
+    private ServerCallPolicy CreatePolicy(int maxConcurrentPerPeer) => new(
         new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_meterA), new ServerRpcTimeoutMetrics(_meterA)),
         3,
-        64,
+        maxConcurrentPerPeer,
         Owner,
         TimeProvider.System,
         new CallPolicyTimeouts(TimeSpan.FromSeconds(30), TimeSpan.Zero, TimeSpan.Zero));
@@ -127,6 +161,7 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
         private readonly SemaphoreSlim _decided;
         private readonly SemaphoreSlim _finish;
         private readonly AdmissionGate _ownerGate;
+        private int _calls;
 
         internal OwnerGateInvoker(AdmissionGate ownerGate, SemaphoreSlim barrier, SemaphoreSlim decided, SemaphoreSlim finish)
         {
@@ -138,6 +173,9 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
 
         /// <summary>Gets the reject reason of every owner admission, or <see langword="null" /> when it was accepted, in call order.</summary>
         internal List<string?> Decisions { get; } = [];
+
+        /// <summary>Gets the number of calls that reached this owner.</summary>
+        internal int Calls => Volatile.Read(ref _calls);
 
         /// <summary>Gets a task that completes once the first call reached this owner.</summary>
         internal TaskCompletionSource EnteredSource { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -181,6 +219,7 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
 
         private async Task<TResponse> RunOwnerAsync<TResponse>(CancellationToken cancellationToken)
         {
+            _ = Interlocked.Increment(ref _calls);
             _ = EnteredSource.TrySetResult();
             await _barrier.WaitAsync(cancellationToken).ConfigureAwait(false);
 
