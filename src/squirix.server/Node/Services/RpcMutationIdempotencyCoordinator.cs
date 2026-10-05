@@ -231,7 +231,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
     }
 
     /// <summary>Activates the ambient idempotency scope of the active RPC and appends its outcome frame.</summary>
-    [Mutable]
+    [Immutable]
     private sealed class RpcMutationIdempotencyExecutionScope : IDisposable, IRpcMutationStampListener, IRpcMutationOutcomeSink
     {
         private readonly string _fingerprint;
@@ -241,12 +241,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         private readonly TaskCompletionSource _reservation;
         private readonly Type _responseType;
         private readonly RpcMutationIdempotencyStore _store;
-        private Action? _acceptedCallback;
-        private byte[]? _candidateBytes;
-        private IMessage? _candidateResponse;
-        private byte[]? _fusedBytes;
-        private bool _promoted;
-        private Delegate? _projection;
+        private readonly FusedState _fused = new();
 
         private RpcMutationIdempotencyExecutionScope(
             string operationId,
@@ -268,11 +263,11 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
 
         /// <summary>Gets the response whose outcome frame was appended together with the mutation frame, or <see langword="null" /> when the outcome was not fused.</summary>
         /// <remarks>Set exactly when the outcome frame is known to be on the journal ring, so any failure while it is set is an unknown outcome.</remarks>
-        internal IMessage? FusedResponse { get; private set; }
+        internal IMessage? FusedResponse => _fused.Response;
 
         async ValueTask IRpcMutationOutcomeSink.AppendPredictedOutcomeAsync<TResult>(TResult predicted)
         {
-            if (FusedResponse != null || _projection is not Func<TResult, IMessage> project)
+            if (FusedResponse != null || _fused.Projection is not Func<TResult, IMessage> project)
                 return;
 
             if (!TryPrepareOutcome(project, predicted))
@@ -281,7 +276,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             try
             {
                 // The token is never canceled: the mutation frame is already on the ring, so this append follows it however the caller goes.
-                await _journal.AppendIdempotencyOutcomeAsync(_operationId, _fingerprint, _candidateBytes!, _acceptedCallback ??= OnOutcomeAccepted, CancellationToken.None)
+                await _journal.AppendIdempotencyOutcomeAsync(_operationId, _fingerprint, _fused.CandidateBytes!, _fused.AcceptedCallback ??= OnOutcomeAccepted, CancellationToken.None)
                               .ConfigureAwait(false);
             }
             catch (Exception ex) when (FusedResponse == null && ex is not JournalPostEnqueueFaultException)
@@ -294,14 +289,14 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
 
         void IRpcMutationOutcomeSink.PromoteAfterApply()
         {
-            if (!_promoted && FusedResponse != null)
+            if (!_fused.Promoted && FusedResponse != null)
                 Promote();
         }
 
         void IRpcMutationOutcomeSink.RegisterProjection<TResult>(Func<TResult, IMessage> projection)
         {
             ArgumentNullException.ThrowIfNull(projection);
-            _projection = projection;
+            _fused.Projection = projection;
         }
 
         void IRpcMutationStampListener.OnMutationStamped() => _store.MarkStamped(_operationId, _reservation);
@@ -337,7 +332,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         /// <returns>A task that completes once the outcome is recorded.</returns>
         internal async ValueTask ConfirmFusedOutcomeAsync()
         {
-            if (_promoted)
+            if (_fused.Promoted)
                 return;
 
             await _journal.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
@@ -369,17 +364,17 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
 
         private void Promote()
         {
-            _promoted = true;
-            _store.RecordSuccess(_operationId, _fingerprint, _fusedBytes!, _reservation);
+            _fused.Promoted = true;
+            _store.RecordSuccess(_operationId, _fingerprint, _fused.Bytes!, _reservation);
         }
 
         /// <summary>Called under the journal mutation gate once the outcome frame is on the ring; it sets the fused response before anything else can fail.</summary>
         private void OnOutcomeAccepted()
         {
-            _fusedBytes = _candidateBytes;
-            FusedResponse = _candidateResponse;
+            _fused.Bytes = _fused.CandidateBytes;
+            _fused.Response = _fused.CandidateResponse;
             RpcMutationIdempotencyExecutionAmbient.NotifyOutcomeAppended();
-            _store.HoldAppendedOutcome(_operationId, _fingerprint, _candidateBytes!, _reservation);
+            _store.HoldAppendedOutcome(_operationId, _fingerprint, _fused.CandidateBytes!, _reservation);
         }
 
         /// <summary>Projects the predicted result to the response and serializes it, before anything is appended.</summary>
@@ -398,8 +393,8 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
                     return false;
                 }
 
-                _candidateBytes = IdempotencyResponseCodec.SerializeResponseBytes(response);
-                _candidateResponse = response;
+                _fused.CandidateBytes = IdempotencyResponseCodec.SerializeResponseBytes(response);
+                _fused.CandidateResponse = response;
                 return true;
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -408,5 +403,24 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
                 return false;
             }
         }
+    }
+
+    /// <summary>The fused-outcome state of one scope; the append, apply and response steps of one write run one after another, so it needs no lock.</summary>
+    [Mutable]
+    private sealed class FusedState
+    {
+        internal Action? AcceptedCallback { get; set; }
+
+        internal byte[]? Bytes { get; set; }
+
+        internal byte[]? CandidateBytes { get; set; }
+
+        internal IMessage? CandidateResponse { get; set; }
+
+        internal bool Promoted { get; set; }
+
+        internal Delegate? Projection { get; set; }
+
+        internal IMessage? Response { get; set; }
     }
 }
