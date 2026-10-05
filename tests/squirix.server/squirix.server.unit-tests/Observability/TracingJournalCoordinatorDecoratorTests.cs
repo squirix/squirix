@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -130,12 +131,31 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         _ = await Assert.That(context.GroupCommitEnabled).IsEqualTo(groupCommitMaxWaitMilliseconds > 0);
     }
 
+    /// <summary>A durability wait that finishes asynchronously leaves the caller's current activity as it was, not the closed wait span.</summary>
+    [Test]
+    public async Task AwaitDurabilityKeepsCurrentActivity()
+    {
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var innerExpectations = new IJournalCoordinatorCreateExpectations();
+        _ = innerExpectations.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(new ValueTask(release.Task));
+        await using var journal = new TracingJournalCoordinatorDecorator(innerExpectations.Instance(), new OpenTelemetryJournalOperationTracer());
+        using var outer = ActivitySourceHolder.StartInternal("outer");
+
+        var wait = journal.AwaitDurabilityCommitAsync(CancellationToken.None);
+        release.SetResult();
+        await wait;
+
+        _ = await Assert.That(Activity.Current).IsSameReferenceAs(outer);
+    }
+
     /// <summary>Mocks a tracer that records <see cref="IJournalOperationTracer.Begin" /> calls that carry a trace context.</summary>
     /// <param name="beginCalls">Receives each traced operation kind with its context.</param>
     /// <returns>The mocked tracer.</returns>
     private static IJournalOperationTracer CreateRecordingTracer(List<(JournalOperationKind Kind, JournalOperationTraceContext Context)> beginCalls)
     {
         var expectations = new IJournalOperationTracerCreateExpectations();
+        _ = expectations.Setups.IsEnabled.Gets().ReturnValue(true);
         _ = expectations.Setups.Begin(Arg.Any<JournalOperationKind>(), Arg.Any<JournalOperationTraceContext?>())
                         .Callback((kind, context) =>
                          {

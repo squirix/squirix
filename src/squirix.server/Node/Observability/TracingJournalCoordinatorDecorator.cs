@@ -70,14 +70,8 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         await _inner.AppendRemoveAsync(ownership, key, cancellationToken).ConfigureAwait(false);
     }
 
-    public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
-    {
-        var traceContext = Enrich(null);
-        var scope = _tracer.Begin(JournalOperationKind.AwaitDurabilityCommit, in traceContext);
-
-        // Without a listener there is no scope to close, so the wait is returned as is and skips a state machine.
-        return scope == null ? _inner.AwaitDurabilityCommitAsync(cancellationToken) : AwaitDurabilityCommitTracedAsync(scope, cancellationToken);
-    }
+    public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken) =>
+        _tracer.IsEnabled ? AwaitDurabilityCommitTracedAsync(cancellationToken) : _inner.AwaitDurabilityCommitAsync(cancellationToken);
 
     /// <summary>Detaches from the inner journal without disposing it.</summary>
     /// <returns>A completed task.</returns>
@@ -150,10 +144,18 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         await _inner.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private async ValueTask AwaitDurabilityCommitTracedAsync(IJournalOperationTraceScope scope, CancellationToken cancellationToken)
+    /// <summary>Waits for durability inside a span that starts and ends in this async method.</summary>
+    /// <param name="cancellationToken">Cancels the wait.</param>
+    /// <returns>A task that completes when the inner wait does.</returns>
+    /// <remarks>
+    /// Without a listener the decorator returns the inner wait as is and skips a state machine. With one, the span must not start in the
+    /// synchronous caller: its activity would stay the caller's current one after the await.
+    /// </remarks>
+    private async ValueTask AwaitDurabilityCommitTracedAsync(CancellationToken cancellationToken)
     {
-        using (scope)
-            await _inner.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
+        var traceContext = Enrich(null);
+        using var scope = _tracer.Begin(JournalOperationKind.AwaitDurabilityCommit, in traceContext);
+        await _inner.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private JournalOperationTraceContext? Enrich(JournalOperationTraceContext? context) => JournalCoordinatorTracing.WithDurability(_inner, in context);
