@@ -85,7 +85,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
 
         _ = await Assert.That(decisions[0] && decisions[1] && decisions[2] && decisions[3]).IsTrue();
         _ = await Assert.That(decisions[4]).IsFalse();
-        _ = await Assert.That(lastRejectReason).IsEqualTo("queue_full");
+        _ = await Assert.That(lastRejectReason).IsEqualTo("forwarded_no_slot");
     }
 
     /// <summary>Verifies internal owner-routed calls still count against the node rate limit.</summary>

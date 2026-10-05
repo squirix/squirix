@@ -188,11 +188,17 @@ Per-client and rate limits are off by default. Every rejection increments `squir
 - `client_concurrency_limit`: the caller has `PerClientMaxInFlight` requests admitted or queued.
 - `client_queue_full`: the caller is at `PerClientMaxInFlight` and its queue allowance is used up; usually when `MaxQueue` is 0,
   but concurrent over-limit requests from one caller can also hit it.
-- `gate_disposed`: the node was shutting down while the request waited.
+- `forwarded_no_slot`: a request forwarded from another node found no free slot on this node (the owner); it is refused
+  at once, never queued, and the client retries it. A rising count can also mean requests are queued locally on the owner,
+  since a forwarded request never overtakes them.
+- `gate_disposed`: the node was shutting down while the request was being admitted or waited.
 
 Raise a limit only after checking that the node, not one noisy caller, is saturated. A request forwarded between nodes is
-counted against the caller on the entry node only. The owner treats it as a trusted internal owner RPC (client id `internal`,
-peer mTLS on the internal listener) and applies node-wide limits to it, not per-client ones.
+counted against the caller on the entry node only, where it also waits in the queue. The owner treats it as a trusted
+internal owner RPC (client id `internal`, peer mTLS on the internal listener): it applies the node rate limit and admits it
+only to a free slot, with no per-client limits, slowdown or queue. A rising `forwarded_no_slot` count on a node means it
+owns more load than its `MaxInFlight` serves; queue metrics (`squirix_backpressure_queue_wait_seconds`, `squirix_backpressure_queue_timeouts_total`) on that node no
+longer include forwarded requests.
 
 Per-client concurrency and rate limits isolate callers by backpressure client id: JWT `sub` / `NameIdentifier` when the
 request is authenticated (`jwt:{subject}`), otherwise the ASP.NET Core connection id (`conn:{id}`). Callers without an

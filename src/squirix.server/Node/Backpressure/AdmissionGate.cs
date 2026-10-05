@@ -23,7 +23,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     private readonly ClientSweeper _sweeper;
     private readonly TimeProvider _timeProvider;
 
-    /// <summary>The client entry of internal owner-routed calls: it carries no per-client limit, so only node-wide limits apply to them.</summary>
+    /// <summary>The client entry of forwarded owner calls: it carries no per-client limit, so only node-wide limits apply to them.</summary>
     private readonly ClientState _unmeteredClient = new();
     private int _disposed;
     private int _inFlight;
@@ -67,6 +67,9 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         if (_sharedClient == null)
             _sweeper.SweepIfDue();
+
+        if (string.Equals(clientId, HttpContextClientIdResolver.InternalOwnerClientId, StringComparison.Ordinal))
+            return AcquireForwarded(transport, operation);
 
         var client = ResolveClient(clientId);
 
@@ -146,6 +149,28 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
                 RemoveIdleClient(clientId, client);
             }
         }
+    }
+
+    /// <summary>
+    /// Admits a request forwarded by its entry node only to a free slot. The entry node already applied the caller's limits, the slowdown and
+    /// the queue wait, so the owner never queues or delays it: that would put one request in two queues and let two nodes wait on each other.
+    /// A free slot is never taken ahead of queued waiters, because the semaphore refuses a direct acquire while any waiter is queued.
+    /// </summary>
+    /// <param name="transport">The transport label of the request.</param>
+    /// <param name="operation">The operation label of the request.</param>
+    /// <returns>The admission decision and, when accepted, the lease holding the slot.</returns>
+    private (Decision Decision, Lease Lease) AcquireForwarded(string transport, string operation)
+    {
+        var nodeRateLimitReject = RejectByNodeRateLimitIfLimited(transport, operation);
+        if (nodeRateLimitReject != null)
+            return nodeRateLimitReject.Value;
+
+        if (_slots.TryAcquire())
+            return (Decision.Accepted(), AcquireLease(HttpContextClientIdResolver.InternalOwnerClientId, _unmeteredClient));
+
+        var reason = Volatile.Read(ref _disposed) != 0 ? "gate_disposed" : "forwarded_no_slot";
+        _metrics.AddReject(transport, operation, reason);
+        return (Decision.Rejected(reason), Lease.Empty);
     }
 
     private Lease AcquireLease(string clientId, ClientState client)
@@ -264,9 +289,8 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _ = _clients.TryRemove(new KeyValuePair<string, ClientState>(clientId, client));
     }
 
-    private ClientState ResolveClient(string clientId) => _sharedClient ?? (string.Equals(clientId, HttpContextClientIdResolver.InternalOwnerClientId, StringComparison.Ordinal)
-        ? _unmeteredClient
-        : _clients.GetOrAdd(clientId, static (_, gate) => gate._sweeper.CreateClient(gate._options, gate._timeProvider), this));
+    private ClientState ResolveClient(string clientId) =>
+        _sharedClient ?? _clients.GetOrAdd(clientId, static (_, gate) => gate._sweeper.CreateClient(gate._options, gate._timeProvider), this);
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
