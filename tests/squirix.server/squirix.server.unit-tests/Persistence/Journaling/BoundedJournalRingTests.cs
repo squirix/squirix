@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -71,6 +72,79 @@ public sealed class BoundedJournalRingTests
         _ = await Assert.That(third).IsNotNull();
         _ = await Assert.That(ring.TryDequeue(out var fourth)).IsTrue();
         _ = await Assert.That(fourth).IsNotNull();
+        _ = await Assert.That(ring.TryDequeue(out _)).IsFalse();
+    }
+
+    /// <summary>Queued work makes the wait return without parking until the deadline.</summary>
+    /// <param name="useHighResolutionTimer">Whether the high-resolution timer is allowed.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task WaitForWorkReturnsWhenWorkQueued(bool useHighResolutionTimer)
+    {
+        using var ring = new BoundedJournalRing(4, useHighResolutionTimer);
+        await ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None);
+
+        var started = Stopwatch.GetTimestamp();
+        ring.WaitForWork(60_000, CancellationToken.None);
+
+        _ = await Assert.That(Stopwatch.GetElapsedTime(started)).IsLessThan(TimeSpan.FromSeconds(10));
+    }
+
+    /// <summary>A zero timeout never parks.</summary>
+    /// <param name="useHighResolutionTimer">Whether the high-resolution timer is allowed.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task WaitForWorkZeroTimeoutReturns(bool useHighResolutionTimer)
+    {
+        using var ring = new BoundedJournalRing(4, useHighResolutionTimer);
+
+        var started = Stopwatch.GetTimestamp();
+        ring.WaitForWork(0, CancellationToken.None);
+
+        _ = await Assert.That(Stopwatch.GetElapsedTime(started)).IsLessThan(TimeSpan.FromSeconds(10));
+    }
+
+    /// <summary>A notification during a long deadline wait wakes the waiter long before the deadline.</summary>
+    /// <param name="useHighResolutionTimer">Whether the high-resolution timer is allowed.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task NotifyDuringDeadlineWaitWakes(bool useHighResolutionTimer, CancellationToken cancellationToken)
+    {
+        using var ring = new BoundedJournalRing(4, useHighResolutionTimer);
+        using var parked = new ManualResetEventSlim(false);
+        var waiter = Task.Factory.StartNew(
+            () =>
+            {
+                parked.Set();
+                ring.WaitForWork(120_000, CancellationToken.None);
+            },
+            cancellationToken,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+
+        _ = parked.Wait(TimeSpan.FromSeconds(10), cancellationToken);
+        await Task.Delay(50, cancellationToken);
+        ring.NotifyWorkAvailable();
+
+        await waiter.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(waiter.IsCompletedSuccessfully).IsTrue();
+    }
+
+    /// <summary>Disposing a ring whose journal thread already ran a deadline wait releases the timer and stays idempotent.</summary>
+    [Test]
+    public async Task DisposeAfterDeadlineWaitIsSafe()
+    {
+        var ring = new BoundedJournalRing(4);
+        ring.WaitForWork(2, CancellationToken.None);
+
+        ring.Dispose();
+        ring.Dispose();
+
+        ring.NotifyWorkAvailable();
         _ = await Assert.That(ring.TryDequeue(out _)).IsFalse();
     }
 
