@@ -80,9 +80,11 @@ public sealed class DurableMutationCutStressTests : IsolatedStorageTestBase
         finally
         {
             await stop.CancelAsync();
-            await Task.WhenAll(writers);
+            await Task.WhenAll(writers).WaitAsync(CutBound, TimeProvider.System, CancellationToken.None);
+
+            // A stuck cut gets one more bound to finish; the timed-out assertion below reports it instead of hanging here.
             if (stuckCut != null)
-                await stuckCut;
+                _ = await Task.WhenAny(stuckCut, Task.Delay(CutBound, TimeProvider.System, CancellationToken.None));
         }
 
         _ = await Assert.That(timedOut).IsEqualTo(0).Because($"completed={completed}");
