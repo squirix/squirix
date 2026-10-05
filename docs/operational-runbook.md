@@ -178,7 +178,7 @@ Treat runtime backpressure as overload protection; memory pressure remains capac
 working-set size.
 
 Tune limits through `Squirix:Cluster:Backpressure` or `SquirixServerOptions.Backpressure`; a restart applies the change.
-Per-client and rate limits are off by default. Every rejection increments `squirix_backpressure_reject_total` with a
+Per-client and rate limits are off by default. Every rejection by the admission gate increments `squirix_backpressure_reject_total` with a
 `reason` label (rate-limit rejections also increment `squirix_backpressure_rate_limit_reject_total`):
 
 - `queue_full`: all `MaxInFlight` slots are taken and the node queue holds `MaxQueue` requests.
@@ -192,6 +192,11 @@ Per-client and rate limits are off by default. Every rejection increments `squir
   at once, never queued, and the client retries it. A rising count can also mean requests are queued locally on the owner,
   since a forwarded request never overtakes them.
 - `gate_disposed`: the node was shutting down while the request was being admitted or waited.
+
+One more refusal is not counted there: `peer_busy`. The entry node refuses a forwarded call at once, without queuing, when
+all of its per-owner forwarding permits (half of `MaxInFlight`, at least one) are in use; the client sees
+`ResourceExhausted` and retries. It increments `squirix_call_policy_busy_rejects_total` with a `peer` label naming the
+owner. A rising count for one peer points at a slow or hung owner.
 
 Raise a limit only after checking that the node, not one noisy caller, is saturated. A request forwarded between nodes is
 counted against the caller on the entry node only, where it also waits in the queue. The owner treats it as a trusted
