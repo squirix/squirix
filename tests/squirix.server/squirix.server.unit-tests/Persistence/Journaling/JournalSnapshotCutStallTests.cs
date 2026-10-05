@@ -16,8 +16,6 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 [Immutable]
 public sealed class JournalSnapshotCutStallTests : IsolatedStorageTestBase
 {
-    private static readonly TimeSpan GateProbeWindow = TimeSpan.FromSeconds(2);
-
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>While the snapshot cut's checkpoint flush is stalled, another mutation enters the barrier.</summary>
@@ -41,7 +39,8 @@ public sealed class JournalSnapshotCutStallTests : IsolatedStorageTestBase
             entered,
             static (signal, _, _) => ValueTask.FromResult(signal.TrySetResult()),
             cancellationToken).AsTask();
-        var enteredDuringStall = await StallableJournal.CompletesWithinAsync(entered, GateProbeWindow, cancellationToken);
+        await entered.Task.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        var enteredDuringStall = !cut.IsCompleted;
         journal.Writer.Flush.Release();
         _ = await cut;
         _ = await mutation;
@@ -76,7 +75,8 @@ public sealed class JournalSnapshotCutStallTests : IsolatedStorageTestBase
                 _ = s.Appended.TrySetResult();
             },
             cancellationToken).AsTask();
-        var appendedDuringStall = await StallableJournal.CompletesWithinAsync(appended, GateProbeWindow, cancellationToken);
+        await appended.Task.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        var appendedDuringStall = !cut.IsCompleted;
         journal.Writer.Flush.Release();
         var watermark = await cut;
         await mutation;
