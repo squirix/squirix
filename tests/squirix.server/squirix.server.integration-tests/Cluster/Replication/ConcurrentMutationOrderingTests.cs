@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.IntegrationTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -18,7 +19,7 @@ public sealed class ConcurrentMutationOrderingTests : NodeIntegrationTestBase
     {
         const int operationCount = 8;
         var pipeline = new ConformanceTestKit.Pipeline(blockFirstLocalAppend: true);
-        var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, operationCount);
+        var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, new FakeTimeProvider(DateTimeOffset.UnixEpoch), operationCount);
         try
         {
             var operations = new Task<ReadOnlyMemory<byte>>[operationCount];

@@ -33,12 +33,15 @@ internal static class ConformanceTestKit
         _ = await Assert.That(ExploreRunner.AcceptsCommitTrace(modelTrace)).IsTrue().Because("The production trace is not accepted by the protocol model transition system.");
     }
 
-    internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, int maxInFlight = 4, int replicaCount = 3)
+    internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, TimeProvider budgetClock, int maxInFlight = 4, int replicaCount = 3)
     {
         var expectations = new IReplicaCommitFaultHooksCreateExpectations();
         _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         var options = new ReplicaCommitCoordinatorOptions(replicaCount, 0, 0, maxInFlight);
-        return new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(maxInFlight + 2, TimeSpan.MaxValue));
+        return new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(maxInFlight + 2, TimeSpan.MaxValue))
+        {
+            BudgetTimeProvider = budgetClock,
+        };
     }
 
     internal static PreparedReplicaMutation CreateMutation(ulong index)
@@ -54,6 +57,7 @@ internal static class ConformanceTestKit
         private readonly bool _blockFirstLocalAppend;
         private readonly TaskCompletionSource<bool> _firstLocalAppendRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<bool> _firstLocalAppendStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _laggingStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<ReplicaDurableAcknowledgement> _lagging = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         private readonly int _laggingReplica;
@@ -74,6 +78,8 @@ internal static class ConformanceTestKit
         internal Task FirstLocalAppendStarted => _firstLocalAppendStarted.Task;
 
         internal int FollowerCalls { get; private set; }
+
+        internal Task LaggingFollowerStarted => _laggingStarted.Task;
 
         internal List<ulong> LocalIndexes { get; } = [];
 
@@ -97,7 +103,7 @@ internal static class ConformanceTestKit
             return (isUnavailable, isLagging) switch
             {
                 (true, _) => ValueTask.FromException<ReplicaDurableAcknowledgement>(new IOException("Simulated replica unavailable.")),
-                (false, true) => new ValueTask<ReplicaDurableAcknowledgement>(_lagging.Task),
+                (false, true) => ParkLaggingAsync(),
                 (false, false) => ValueTask.FromResult(Acknowledge(mutation)),
             };
         }
@@ -135,5 +141,11 @@ internal static class ConformanceTestKit
             mutation.PayloadChecksum,
             true,
             true);
+
+        private ValueTask<ReplicaDurableAcknowledgement> ParkLaggingAsync()
+        {
+            _ = _laggingStarted.TrySetResult(true);
+            return new ValueTask<ReplicaDurableAcknowledgement>(_lagging.Task);
+        }
     }
 }

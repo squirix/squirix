@@ -26,7 +26,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
     public async Task ProductionCommitTraceMatchesModel(CancellationToken cancellationToken)
     {
         var pipeline = new ConformanceTestKit.Pipeline();
-        await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline);
+        await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
 
         _ = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), cancellationToken);
 
@@ -62,7 +62,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         _ = await Assert.That(eligible.Eligible).IsTrue();
 
         var pipeline = new ConformanceTestKit.Pipeline();
-        await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline);
+        await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
         _ = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), cancellationToken);
         await ConformanceTestKit.AssertModelAcceptedAsync(pipeline.Trace);
     }
@@ -86,7 +86,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         await wait;
 
         var pipeline = new ConformanceTestKit.Pipeline();
-        await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline);
+        await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
         _ = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), cancellationToken);
         await ConformanceTestKit.AssertModelAcceptedAsync(pipeline.Trace);
     }

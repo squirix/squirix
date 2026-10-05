@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
@@ -19,7 +20,7 @@ public sealed class QuorumCommitTests : NodeIntegrationTestBase
     public async Task MajorityDoesNotWaitForLaggard(CancellationToken cancellationToken)
     {
         var pipeline = new ConformanceTestKit.Pipeline(2);
-        var coordinator = ConformanceTestKit.CreateCoordinator(pipeline);
+        var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
         try
         {
             var result = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), cancellationToken);
@@ -41,7 +42,7 @@ public sealed class QuorumCommitTests : NodeIntegrationTestBase
     public async Task RfThreeWritesWithOneReplicaUnavailable(CancellationToken cancellationToken)
     {
         var pipeline = new ConformanceTestKit.Pipeline(unavailableReplica: 2);
-        await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline);
+        await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
 
         var result = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), cancellationToken);
 
@@ -57,11 +58,17 @@ public sealed class QuorumCommitTests : NodeIntegrationTestBase
     public async Task RfTwoFailsWriteWhenMirrorUnavailable(CancellationToken cancellationToken)
     {
         var pipeline = new ConformanceTestKit.Pipeline(1);
-        await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, replicaCount: 2);
+        var budget = TimeSpan.FromSeconds(1);
+        var clock = new DueTimerClock(budget);
+        await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, clock, replicaCount: 2);
         try
         {
-            var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
-                coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(1), cancellationToken).AsTask());
+            var commit = coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), budget, cancellationToken).AsTask();
+
+            // The budget expires only once the mirror append is parked, so the outcome is unknown rather than a pre-append failure.
+            await pipeline.LaggingFollowerStarted.WaitAsync(cancellationToken);
+            clock.Advance(budget);
+            var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit);
 
             _ = await Assert.That(exception.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
             _ = await Assert.That(pipeline.CommitIndex).IsEqualTo(0UL);

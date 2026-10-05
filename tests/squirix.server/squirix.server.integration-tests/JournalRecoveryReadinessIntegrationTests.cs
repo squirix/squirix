@@ -69,6 +69,8 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
 
         var entry = BuildEntry("during-recovery");
         var writeTask = cache.SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, DuringRecoveryKey, entry, cancellationToken).AsTask();
+
+        // Replay is held by the test until Release, so this negative window cannot fail falsely; it only gives a premature completion time to surface.
         var writeStarted = await Task.WhenAny(writeTask, Task.Delay(TimeSpan.FromMilliseconds(250), TimeProvider.System, cancellationToken));
         _ = await Assert.That(writeStarted).IsNotSameReferenceAs(writeTask);
 
