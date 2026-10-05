@@ -419,8 +419,9 @@ still applies to it, and it never overtakes requests already queued on the owner
 The entry node also limits forwarded calls per owner to half of `MaxInFlight` (at least one) concurrent calls. A call
 that finds all of them taken is refused at once with `peer_busy` and does not wait while holding its admission slot, so a
 slow or hung owner cannot pin more than that many slots. The entry node sends each forwarded call once and does not
-retry it against the owner; the client retries `Unavailable` and `ResourceExhausted` with the same operation id. A raw
-gRPC caller that does not use the Squirix client must retry `Unavailable` itself.
+retry it against the owner; the Squirix client retries transient failures (`Unavailable`, `Internal`, `ResourceExhausted`
+and deadline expiry) with the same operation id. A raw gRPC caller that does not use the Squirix client must retry them
+itself.
 
 | Field                         | Type            | Default        | Validation                                       |
 | ----------------------------- | --------------- | -------------- | ------------------------------------------------ |

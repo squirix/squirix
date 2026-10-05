@@ -178,8 +178,8 @@ Treat runtime backpressure as overload protection; memory pressure remains capac
 working-set size.
 
 Tune limits through `Squirix:Cluster:Backpressure` or `SquirixServerOptions.Backpressure`; a restart applies the change.
-Per-client and rate limits are off by default. Every rejection by the admission gate increments `squirix_backpressure_reject_total` with a
-`reason` label (rate-limit rejections also increment `squirix_backpressure_rate_limit_reject_total`):
+Per-client and rate limits are off by default. Every rejection by the admission gate increments
+`squirix_backpressure_reject_total` with a `reason` label (rate-limit rejections also increment `squirix_backpressure_rate_limit_reject_total`):
 
 - `queue_full`: all `MaxInFlight` slots are taken and the node queue holds `MaxQueue` requests.
 - `queue_wait_timeout`: the request waited `MaxQueueWait` without getting a slot.
