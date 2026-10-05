@@ -24,8 +24,8 @@ namespace Squirix.UnitTests;
 public sealed class OperationDeadlineTests
 {
     private static readonly TimeSpan ShortDeadline = TimeSpan.FromMilliseconds(400);
-    private static readonly TimeSpan LongPerAttempt = TimeSpan.FromDays(40);
-    private static readonly TimeSpan LongDeadline = TimeSpan.FromDays(41);
+    private static readonly TimeSpan LongPerAttempt = TimeSpan.FromHours(1);
+    private static readonly TimeSpan LongDeadline = TimeSpan.FromSeconds(30);
     private static readonly DateTimeOffset ClockStart = new(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
     private static readonly TimeSpan CompletionBound = TimeSpan.FromSeconds(5);
 
@@ -69,7 +69,7 @@ public sealed class OperationDeadlineTests
             static (cache, ct) => new ValueTask(cache.RemoveExpirationAsync("key-a", ct)),
             static (cache, ct) => new ValueTask(cache.SetAsync("key-a", "value", null, ct)),
             static (cache, ct) => new ValueTask(cache.TouchAsync("key-a", TimeSpan.FromMinutes(1), ct)),
-            static (cache, ct) => new ValueTask(cache.TouchAsync("key-a", DateTimeOffset.UtcNow.AddMinutes(1), ct)),
+            static (cache, ct) => new ValueTask(cache.TouchAsync("key-a", ClockStart.AddMinutes(1), ct)),
             static (cache, ct) => new ValueTask(cache.TryAddAsync("key-a", "value", null, ct)),
             static (cache, ct) => new ValueTask(cache.UpdateAsync("key-a", "value", ct)),
         ];
@@ -207,21 +207,18 @@ public sealed class OperationDeadlineTests
         _ = await Assert.That(await harness.FirstTransport.WaitForCallAsync()).IsTrue();
         var callsBeforeQueued = harness.FirstTransport.Calls.Count;
 
-        // The queued call takes its deadline when it starts, so advance until it expires; the holder budget is far longer.
-        // The real-time pause only paces the polling and never decides the outcome.
+        // The queued call has its budget timer by the time it waits on the semaphore, so the fake clock expires it exactly at its deadline.
         var queued = GetAsync(queuedCache, CancellationToken.None);
-        var guard = TimeProvider.System.GetTimestamp();
-        while (!queued.IsCompleted && TimeProvider.System.GetElapsedTime(guard) < CompletionBound)
-        {
-            harness.Clock.Advance(ShortDeadline);
-            await Task.Delay(TimeSpan.FromMilliseconds(1), TimeProvider.System, CancellationToken.None);
-        }
+        harness.Clock.Advance(ShortDeadline - TimeSpan.FromTicks(1));
+        var pending = !queued.IsCompleted;
+        harness.Clock.Advance(TimeSpan.FromTicks(1));
 
-        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(queued);
+        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(new ValueTask<bool>(queued.AsTask().WaitAsync(CompletionBound, TimeProvider.System, CancellationToken.None)));
 
         await holderSource.CancelAsync();
         _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(holder);
 
+        _ = await Assert.That(pending).IsTrue();
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
         _ = await Assert.That(error.Status.Detail).IsEqualTo("Request deadline exceeded.");
         _ = await Assert.That(harness.FirstTransport.Calls.Count).IsEqualTo(callsBeforeQueued);
