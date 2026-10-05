@@ -23,8 +23,8 @@ namespace Squirix.Server.Node.Services;
 /// </remarks>
 internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 {
-    private const int MaxInFlight = 2;
-    private const string CommitBudgetRefusalReason = "replica_commit_budget";
+    internal const int MaxInFlight = 2;
+    internal const string CommitBudgetRefusalReason = "replica_commit_budget";
     private const string PendingApplyRefusalReason = "replica_apply_pending";
     private static readonly TimeSpan DefaultCommitBudget = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
@@ -102,9 +102,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
     }
 
-    /// <summary>Initializes the time source of the commit budget and of the follower request timeouts; the system clock unless set.</summary>
+    /// <summary>Gets or initializes the time source of the commit budget and of the follower request timeouts; the system clock unless set.</summary>
     /// <remarks>Test seam: production committers keep the system clock.</remarks>
-    internal TimeProvider BudgetTimeProvider { private get; init; } = TimeProvider.System;
+    internal TimeProvider BudgetTimeProvider { get; init; } = TimeProvider.System;
 
     /// <summary>Initializes the time source of the shutdown budget that bounds the dispose drain; the system clock unless set.</summary>
     /// <remarks>Test seam: production committers keep the system clock.</remarks>
@@ -120,11 +120,11 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Initializes the replication metrics counting the inconsistent log records the committer refuses to apply; none are counted unless set.</summary>
     internal ReplicationMetrics? Metrics { private get; init; }
 
-    /// <summary>Initializes the longest wait for an in-flight commit on dispose, which also caps the coordinator's own teardown wait; 30 seconds unless set.</summary>
+    /// <summary>Gets or initializes the longest wait for an in-flight commit on dispose, which also caps the coordinator's own teardown wait; 30 seconds unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
     internal TimeSpan ShutdownBudget
     {
-        private get;
+        get;
         init
         {
             value.ThrowIfNegativeOrZero(nameof(value), "The shutdown budget must be greater than zero.");
@@ -134,7 +134,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     }
 
     /// <summary>Gets the logger for lifecycle failures.</summary>
-    private ILogger Log { get; }
+    internal ILogger Log { get; }
 
     private ReplicaLeaderApplier Applier => _applier.Value;
 
@@ -235,7 +235,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var (coordinator, factory) = await starting.ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await prepare(factory, state, index, cancellationToken).ConfigureAwait(false);
-        var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
+        var outcome = await this.CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
         return await decode(outcome).ConfigureAwait(false);
     }
 
@@ -336,8 +336,13 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         return await AdmitVerifiedAsync(log, snapshot, cancellationToken).ConfigureAwait(false);
     }
 
-    private static bool IsPostAppendOutcome(Exception error) =>
-        error is InvalidOperationException && error.Message.StartsWith(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+    /// <summary>Tells whether the owned group log holds the entry of a prepared mutation.</summary>
+    /// <param name="mutation">The prepared mutation.</param>
+    /// <returns><see langword="true" /> when the log holds the entry.</returns>
+    internal ValueTask<bool> HoldsEntryAsync(PreparedReplicaMutation mutation) => _registry.HoldsEntryAsync(GroupId, mutation);
+
+    /// <summary>Drops the started state, so the next attempt rebuilds the pipeline positions from the durable log status.</summary>
+    internal void DropStartedState() => _started = false;
 
     /// <summary>Admits the followers verified outside the gate and commits what the verified slots now cover.</summary>
     /// <param name="log">The owned group log.</param>
@@ -357,52 +362,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var eligibility = await Probe.AdmitVerifiedSlotsAsync(log, snapshot, coordinator, cancellationToken).ConfigureAwait(false);
         var applied = await TryApplyPendingAsync().ConfigureAwait(false);
         return applied && eligibility.AllCanCountInWriteQuorum() ? ReplicaVerification.AllReady : ReplicaVerification.Pending;
-    }
-
-    private async ValueTask<ReadOnlyMemory<byte>> CommitWithPreAppendResyncAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation)
-    {
-        try
-        {
-            return await coordinator.CommitAsync(mutation, CommitBudget, CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (Exception error) when (IsPostAppendOutcome(error))
-        {
-            // A durable majority may hold the entry: keep the reservation and sequencing untouched and report the stable contract
-            // (gRPC Unavailable with COMMIT_OUTCOME_UNKNOWN), so callers stop instead of retrying under a new identity.
-            ServerLog.ReplicaCommitOutcomeUnknown(Log, error);
-            throw ServerOpContract.CommitOutcomeUnknown();
-        }
-        catch (InvalidOperationException error) when (error.Message.StartsWith(ReplicaCommitCoordinator.IdempotencyCapacityCode, StringComparison.Ordinal))
-        {
-            // Refused when the identity was reserved, before anything was appended: the pipeline positions stand, so the started state
-            // is kept, and the caller gets a retryable refusal while older outcomes age out.
-            throw ServerOpContract.TooManyRequests(ReplicaCommitCoordinator.IdempotencyCapacityCode);
-        }
-        catch (InvalidOperationException error) when (error.Message.StartsWith(ReplicaCommitCoordinator.FingerprintMismatchCode, StringComparison.Ordinal))
-        {
-            // Refused the same way at the lookup, as a reuse of the identifier.
-            throw new ServerOpIdMismatchException();
-        }
-        catch (Exception error)
-        {
-            // The local appending was refused before anything was marked appended: an interrupted
-            // append may leave the durable log ahead of the pipeline positions, so drop the started
-            // state and rebuild from status.LastLogIndex on the next attempt.
-            _started = false;
-
-            // The log may still hold the entry (its frames were durable when the write behind them failed): the next start recovers and
-            // pins it as the tail, and a majority may commit it, so the caller must not be told the write was refused.
-            if (await _registry.HoldsEntryAsync(GroupId, mutation).ConfigureAwait(false))
-            {
-                ServerLog.ReplicaCommitOutcomeUnknown(Log, error);
-                throw ServerOpContract.CommitOutcomeUnknown();
-            }
-
-            // The commit runs on the budget only, so a cancellation here is the budget expiring before the append: a definite refusal.
-            if (error is OperationCanceledException)
-                throw ServerOpContract.TooManyRequests(CommitBudgetRefusalReason);
-            throw;
-        }
     }
 
     /// <summary>Starts the coordinator when needed and, for a write, checks that it may be prepared and appended now.</summary>
@@ -493,20 +452,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var pipeline = new ReplicaGroupCommitPipeline(Applier, log, CreateSenders(members, in status, in header), GroupId, in status);
         var factory = new ReplicaMutationFactory(_local, GroupId, term, Clock, Log);
         _pipeline = pipeline;
-        _coordinator = new ReplicaCommitCoordinator(
-            new ReplicaCommitCoordinatorOptions(_locator.ReplicaCount, status.LastLogIndex, status.CommitIndex, MaxInFlight),
-            pipeline,
-            NoOpCommitHooks.Instance,
-            log.Idempotency,
-            eligibility,
-            Applier.RecoverTail(tail, term, factory))
-        {
-            // The coordinator's teardown is part of this committer's dispose, so it never waits longer than this committer's budget.
-            ShutdownBudget = ShutdownBudget < ReplicaCommitCoordinator.DefaultShutdownBudget ? ShutdownBudget : ReplicaCommitCoordinator.DefaultShutdownBudget,
-            BudgetTimeProvider = BudgetTimeProvider,
-            ShutdownLeakReporter = budget => ServerLog.ReplicaCoordinatorLeakedOnShutdown(Log, budget),
-            AbandonedWorkFaultReporter = error => ServerLog.ReplicaCoordinatorAbandonedWorkFaulted(Log, error),
-        };
+        _coordinator = this.CreateCoordinator(_locator.ReplicaCount, pipeline, log, in status, eligibility, Applier.RecoverTail(tail, term, factory));
 
         // Before a restart the outcomes of the committed entries above the snapshot lived only in memory; their records carry them, so
         // a retry of an operation committed before the restart replays its outcome. The recovered tail is pinned first and keeps its pins.
@@ -626,7 +572,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     /// <summary>No-op fault hooks for production commits outside fault-injection tests.</summary>
     [Immutable]
-    private sealed class NoOpCommitHooks : IReplicaCommitFaultHooks
+    internal sealed class NoOpCommitHooks : IReplicaCommitFaultHooks
     {
         internal static NoOpCommitHooks Instance { get; } = new();
 
