@@ -191,8 +191,9 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         var cluster = CreateCluster([n1, n2]);
         try
         {
-            _ = await cluster.StartNodeAsync(n1, [n1, n2], null, cancellationToken);
-            _ = await cluster.StartNodeAsync(n2, [n1, n2, n3], null, cancellationToken);
+            var options = new IntegrationStartOptions { TimeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow) };
+            _ = await cluster.StartNodeAsync(n1, [n1, n2], options, cancellationToken);
+            _ = await cluster.StartNodeAsync(n2, [n1, n2, n3], options, cancellationToken);
             return cluster;
         }
         catch
