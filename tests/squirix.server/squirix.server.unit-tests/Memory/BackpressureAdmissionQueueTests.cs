@@ -42,23 +42,25 @@ public sealed class BackpressureAdmissionQueueTests : DisposableServerUnitTestBa
         var queued2 = StartAcquireAsync(gate, "rest:client-2", cancellationToken);
         var queued3 = StartAcquireAsync(gate, "rest:client-3", cancellationToken);
 
+        _ = await Assert.That(gate.QueueDepth).IsEqualTo(3);
+
         var (overflow, overflowLease) = await gate.AcquireAsync("rest", "get", "rest:client-9", cancellationToken);
         overflowLease.Dispose();
         _ = await Assert.That(overflow.RejectReason).IsEqualTo("queue_full");
         _ = await Assert.That(sink.HasEvent("squirix_backpressure_reject_total", ("transport", "rest"), ("op", "get"), ("reason", "queue_full"))).IsTrue();
 
         held.Dispose();
-        var (decision1, lease1) = await queued1;
+        var (decision1, lease1) = await queued1.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         _ = await Assert.That(decision1.IsAccepted).IsTrue();
         _ = await Assert.That(queued2.IsCompleted || queued3.IsCompleted).IsFalse();
 
         lease1.Dispose();
-        var (decision2, lease2) = await queued2;
+        var (decision2, lease2) = await queued2.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         _ = await Assert.That(decision2.IsAccepted).IsTrue();
         _ = await Assert.That(queued3.IsCompleted).IsFalse();
 
         lease2.Dispose();
-        var (decision3, lease3) = await queued3;
+        var (decision3, lease3) = await queued3.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         lease3.Dispose();
         _ = await Assert.That(decision3.IsAccepted).IsTrue();
     }
@@ -167,8 +169,11 @@ public sealed class BackpressureAdmissionQueueTests : DisposableServerUnitTestBa
 
         var saturated = StartAcquireAsync(gate, "rest:client-3", cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(1));
+        await gate.WaitUntilAsync(static g => g.QueueDepth == 1, cancellationToken);
+        _ = await Assert.That(saturated.IsCompleted).IsFalse();
+
         first.Dispose();
-        var (decision, lease) = await saturated;
+        var (decision, lease) = await saturated.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         lease.Dispose();
         second.Dispose();
 
