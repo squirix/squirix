@@ -1,5 +1,7 @@
 using System;
 using System.Threading;
+using System.Threading.Tasks;
+using Google.Protobuf;
 
 namespace Squirix.Server.Runtime;
 
@@ -19,6 +21,19 @@ internal static class RpcMutationIdempotencyExecutionAmbient
 
     /// <summary>Gets a value indicating whether the running write is a replicated apply, whose durable source is the replica group log and not the cache journal; true with or without an active scope.</summary>
     internal static bool IsStampingSuspended => Current.Value is { StampingSuspended: true };
+
+    /// <summary>Gets a value indicating whether the active scope already appended its outcome frame, so no cache mutation frame may follow it.</summary>
+    internal static bool HasAppendedOutcome => Current.Value?.State.OutcomeAppended ?? false;
+
+    /// <summary>
+    /// Gets the sink an outcome frame is appended through: the active scope when it stamped its mutation frame, has not appended an outcome and runs a
+    /// write whose durable source is the cache journal; otherwise <see langword="null" />.
+    /// </summary>
+    private static IRpcMutationOutcomeSink? AppendableOutcomeSink =>
+        Current.Value is { StampingSuspended: false, State: { Stamped: true, OutcomeAppended: false } } frame ? frame.Scope as IRpcMutationOutcomeSink : null;
+
+    /// <summary>Gets the sink of the active scope when its stamping is not suspended; otherwise <see langword="null" />.</summary>
+    private static IRpcMutationOutcomeSink? ActiveOutcomeSink => Current.Value is { StampingSuspended: false } frame ? frame.Scope as IRpcMutationOutcomeSink : null;
 
     internal static void Activate(object scope, string operationId, string fingerprint)
     {
@@ -63,6 +78,31 @@ internal static class RpcMutationIdempotencyExecutionAmbient
     /// <returns><see langword="true" /> when the scope appended at least one cache mutation frame.</returns>
     internal static bool HasTakenEffect(object scope) => FindState(scope)?.TakenEffect ?? false;
 
+    /// <summary>Marks the active scope as having appended its outcome frame, after which it refuses every further cache mutation frame.</summary>
+    internal static void NotifyOutcomeAppended()
+    {
+        if (Current.Value is { } frame)
+            frame.State.OutcomeAppended = true;
+    }
+
+    /// <summary>
+    /// Appends the outcome of the running operation from the result its mutation will have, when the active scope can take it: it stamped its mutation
+    /// frame, has not appended an outcome yet and runs a write whose durable source is the cache journal; otherwise nothing is appended.
+    /// </summary>
+    /// <typeparam name="TResult">Result type of the durable mutation.</typeparam>
+    /// <param name="predicted">The result the mutation will have once applied.</param>
+    /// <returns>A task that completes once the outcome frame is on the journal ring, or was not appended.</returns>
+    internal static ValueTask AppendPredictedOutcomeAsync<TResult>(TResult predicted) =>
+        AppendableOutcomeSink is { } sink ? sink.AppendPredictedOutcomeAsync(predicted) : ValueTask.CompletedTask;
+
+    /// <summary>Records the outcome the active scope appended as completed, right after its mutation was applied; does nothing without such a scope.</summary>
+    internal static void PromoteOutcomeAfterApply() => ActiveOutcomeSink?.PromoteAfterApply();
+
+    /// <summary>Registers, in the active scope, the projection of a mutation result to the response of the running RPC; does nothing without a scope.</summary>
+    /// <typeparam name="TResult">Result type of the durable mutation.</typeparam>
+    /// <param name="projection">Builds the response from the predicted result.</param>
+    internal static void RegisterOutcomeProjection<TResult>(Func<TResult, IMessage> projection) => ActiveOutcomeSink?.RegisterProjection(projection);
+
     /// <summary>Marks the active scope as having appended a mutation frame that was not stamped.</summary>
     internal static void NotifyMutationApplied()
     {
@@ -103,6 +143,8 @@ internal static class RpcMutationIdempotencyExecutionAmbient
     /// <summary>Scope state shared by the frame of a scope and the frames that suspend its stamping.</summary>
     internal sealed class ScopeState
     {
+        internal bool OutcomeAppended { get; set; }
+
         internal bool Stamped { get; set; }
 
         internal bool TakenEffect { get; set; }
