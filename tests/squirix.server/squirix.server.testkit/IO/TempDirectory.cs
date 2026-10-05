@@ -39,6 +39,7 @@ public sealed class TempDirectory : IDisposable
         // Antivirus scanners and lingering handles on Windows can hold a just-closed file for seconds; ~5 s of backoff in total.
         const int maxAttempts = 11;
         var attempt = 1;
+        using var backoff = new ManualResetEventSlim(false, 0);
         while (true)
         {
             try
@@ -51,7 +52,7 @@ public sealed class TempDirectory : IDisposable
             catch (Exception ex) when (attempt < maxAttempts && ex is IOException or UnauthorizedAccessException)
             {
                 TestLog.Suppressed($"Transient delete failure on '{Path}' (attempt {attempt}); retrying.", ex);
-                Thread.Sleep(100 * attempt);
+                _ = backoff.Wait(TimeSpan.FromMilliseconds(100 * attempt));
                 attempt++;
             }
         }
