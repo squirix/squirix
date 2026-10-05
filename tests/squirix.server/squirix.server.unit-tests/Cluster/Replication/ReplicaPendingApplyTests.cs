@@ -37,7 +37,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
 
     /// <summary>
     /// Disposal stops background follower observation that is still waiting, past its first bound, for a follower that never answers,
-    /// instead of waiting out the drain bound, which would be reported as a shutdown leak.
+    /// instead of waiting out the drain bound (a budget far above the test guard, so only a stopped observer lets dispose return in time).
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -46,7 +46,6 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
         var pipeline = new ScriptedPipeline(false);
         var budgetClock = new DueTimerClock(CommitBudget);
         var observeClock = new DueTimerClock(ObserveBound);
-        var leaks = new ConcurrentQueue<TimeSpan>();
         var coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(2, 0, 0, 1),
             pipeline,
@@ -55,15 +54,16 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
         {
             BudgetTimeProvider = budgetClock,
             ObserveTimeProvider = observeClock,
-            ShutdownBudget = StallTimeout,
-            ShutdownLeakReporter = leaks.Enqueue,
+            ShutdownBudget = TimeSpan.FromMinutes(5),
         };
         var commit = coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001", 11), CommitBudget, cancellationToken);
+        var commitTask = commit.AsTask();
         try
         {
             await pipeline.FollowerEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(await budgetClock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
             budgetClock.Advance(CommitBudget);
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(commit);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commitTask.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
             // The observer is past its first bound once the observe clock moved beyond it, so only disposal can stop it.
@@ -71,7 +71,6 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
             observeClock.Advance(PastObserveBound);
 
             await coordinator.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            _ = await Assert.That(leaks.IsEmpty).IsTrue();
         }
         finally
         {
@@ -98,9 +97,11 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
         };
         var mutation = CreateMutation(1, "00000000000000000000000000000001", 11);
         var commit = coordinator.CommitAsync(mutation, CommitBudget, cancellationToken);
+        var commitTask = commit.AsTask();
         await pipeline.FollowerEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        _ = await Assert.That(await budgetClock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
         budgetClock.Advance(CommitBudget);
-        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(commit);
+        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commitTask.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
         _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
         _ = await Assert.That(await observeClock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
@@ -135,11 +136,13 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
         };
         var mutation = CreateMutation(1, "00000000000000000000000000000001", 11);
         var commit = coordinator.CommitAsync(mutation, CommitBudget, cancellationToken);
+        var commitTask = commit.AsTask();
         try
         {
             await pipeline.FollowerEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(await budgetClock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
             budgetClock.Advance(CommitBudget);
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(commit);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commitTask.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
             _ = await Assert.That(pipeline.Applied.IsEmpty).IsTrue();
 

@@ -208,7 +208,11 @@ public sealed class ReplicaCommitDisposeTests
         _ = await Assert.That(leaks.Count).IsEqualTo(0);
     }
 
-    private static ReplicaCommitCoordinator CreateCoordinator(StallingApplyPipeline pipeline, LeakRecorder leaks, Action<Exception>? faults = null, TimeSpan? shutdownBudget = null) =>
+    private static ReplicaCommitCoordinator CreateCoordinator(
+        StallingApplyPipeline pipeline,
+        LeakRecorder leaks,
+        Action<Exception>? faults = null,
+        TimeSpan? shutdownBudget = null) =>
         new(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue))
         {
             ShutdownBudget = shutdownBudget ?? ShutdownBudget,

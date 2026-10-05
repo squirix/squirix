@@ -5,7 +5,7 @@ using Squirix.Server.Attributes;
 
 namespace Squirix.Server.UnitTests.Support;
 
-/// <summary>A fake clock that signals each timer created on it with one due time, so a test advances only once the commit budget is armed.</summary>
+/// <summary>A fake clock that signals each timer created on it with one due time, so a test advances it only once the timer it waits for is armed.</summary>
 [ThreadSafe]
 internal sealed class DueTimerClock : FakeTimeProvider
 {

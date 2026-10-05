@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
@@ -93,7 +94,7 @@ public sealed class ReplicaAckOrderTests
     public async Task BudgetEndsWaitForProgress(CancellationToken cancellationToken)
     {
         var pipeline = new AckPipeline();
-        var clock = new DueTimerClock(ShortBudget);
+        var clock = new FakeTimeProvider();
         var coordinator = CreateCoordinatorOnClock(pipeline, clock);
         try
         {
@@ -128,7 +129,7 @@ public sealed class ReplicaAckOrderTests
     public async Task LatePrefixAppliesRetainedEntry(CancellationToken cancellationToken)
     {
         var pipeline = new AckPipeline();
-        var clock = new DueTimerClock(ShortBudget);
+        var clock = new FakeTimeProvider();
         await using var coordinator = CreateCoordinatorOnClock(pipeline, clock);
         var first = Mutation(1);
         var second = Mutation(2);

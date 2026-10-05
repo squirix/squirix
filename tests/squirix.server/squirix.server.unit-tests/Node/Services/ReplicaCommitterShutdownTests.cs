@@ -44,7 +44,14 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
 
         // The dispose waits for the gate holder on a fake clock nobody moves, so a loaded machine cannot expire that wait before the
         // holder is released; only the coordinator's own observer drain still runs on the budget.
-        var committer = new ReplicaGroupCommitter(registry, new ThreeNodeLocator(), gateway, local, OwnedGroup, new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+        var committer = new ReplicaGroupCommitter(
+            registry,
+            new ThreeNodeLocator(),
+            gateway,
+            local,
+            OwnedGroup,
+            new ReplicaTopologyStamp(Fingerprint, 1),
+            NullLogger<ReplicaGroupCommitter>.Instance)
         {
             ShutdownBudget = ObserverDrainBudget,
             ShutdownTimeProvider = new FakeTimeProvider(),

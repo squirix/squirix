@@ -236,7 +236,11 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var log = new LeakRecordingLogger();
         using var loggerFactory = new FixedLoggerFactory(log);
         var clock = new DueTimerClock(LogShutdownBudget);
-        var registry = await OpenRegistryAsync([StalledGroup, IdleGroup], new FollowerLogOptions { FaultHooks = hooks, ShutdownBudget = LogShutdownBudget, TimeProvider = clock }, loggerFactory, cancellationToken);
+        var registry = await OpenRegistryAsync(
+            [StalledGroup, IdleGroup],
+            new FollowerLogOptions { FaultHooks = hooks, ShutdownBudget = LogShutdownBudget, ShutdownTimeProvider = clock },
+            loggerFactory,
+            cancellationToken);
         var idleLogPath = FollowerLogPaths.Create(Dir, IdleGroup).LogPath;
         try
         {
@@ -267,6 +271,8 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             _ = await Assert.That(idleClosedWhileStuck).IsTrue();
             _ = await Assert.That(disposing.IsCompleted).IsFalse();
 
+            // Both group logs arm a budget timer on this clock when the registry dispose starts: wait for both before moving it.
+            _ = await Assert.That(await clock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
             _ = await Assert.That(await clock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
             clock.Advance(LogShutdownBudget);
             await disposing.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);

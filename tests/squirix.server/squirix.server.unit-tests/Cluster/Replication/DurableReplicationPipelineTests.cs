@@ -266,7 +266,11 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         var pipeline = new LateFollowerPipeline();
 
         // The budget clock is never advanced: the second commit waits for the late acknowledgement and cannot expire first on a loaded machine.
-        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(5, 0, 0, 8), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(16, TimeSpan.MaxValue))
+        var coordinator = new ReplicaCommitCoordinator(
+            new ReplicaCommitCoordinatorOptions(5, 0, 0, 8),
+            pipeline,
+            ReplicaFaultHooks.CreateNoOp(),
+            new GroupIdempotencyState(16, TimeSpan.MaxValue))
         {
             BudgetTimeProvider = new FakeTimeProvider(),
         };
@@ -306,7 +310,11 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         var pipeline = new DeferredFollowersPipeline();
         var budget = TimeSpan.FromMilliseconds(100);
         var budgetClock = new DueTimerClock(budget);
-        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 8), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(16, TimeSpan.MaxValue))
+        var coordinator = new ReplicaCommitCoordinator(
+            new ReplicaCommitCoordinatorOptions(3, 0, 0, 8),
+            pipeline,
+            ReplicaFaultHooks.CreateNoOp(),
+            new GroupIdempotencyState(16, TimeSpan.MaxValue))
         {
             BudgetTimeProvider = budgetClock,
         };

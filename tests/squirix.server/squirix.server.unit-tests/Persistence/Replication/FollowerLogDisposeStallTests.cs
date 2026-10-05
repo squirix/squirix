@@ -273,8 +273,15 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
     private Task<FollowerLog> OpenLogAsync(StallableFollowerLogFaultHooks hooks, ILogger<FollowerLog> logger, CancellationToken cancellationToken) =>
         OpenLogAsync(new FollowerLogOptions { FaultHooks = hooks, ShutdownBudget = ShutdownBudget }, logger, cancellationToken);
 
-    private Task<FollowerLog> OpenLogOnClockAsync(StallableFollowerLogFaultHooks hooks, ILogger<FollowerLog> logger, TimeProvider clock, CancellationToken cancellationToken) =>
-        OpenLogAsync(new FollowerLogOptions { FaultHooks = hooks, ShutdownBudget = ShutdownBudget, TimeProvider = clock }, logger, cancellationToken);
+    private Task<FollowerLog> OpenLogOnClockAsync(
+        StallableFollowerLogFaultHooks hooks,
+        ILogger<FollowerLog> logger,
+        TimeProvider clock,
+        CancellationToken cancellationToken) =>
+        OpenLogAsync(
+            new FollowerLogOptions { FaultHooks = hooks, ShutdownBudget = ShutdownBudget, ShutdownTimeProvider = clock },
+            logger,
+            cancellationToken);
 
     private async Task<FollowerLog> OpenLogAsync(FollowerLogOptions options, ILogger<FollowerLog> logger, CancellationToken cancellationToken)
     {
