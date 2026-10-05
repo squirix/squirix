@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Runtime;
@@ -29,6 +30,86 @@ public sealed class RpcMutationIdempotencyAmbientTests
         }
 
         _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsNull();
+    }
+
+    /// <summary>A scope begun inside a scope-less suspension stamps while active, and ending it returns to the suspension, which ends with its disposal.</summary>
+    [Test]
+    public async Task ScopeBegunInsideScopelessSuspension()
+    {
+        var scope = new object();
+        string? insideOperationId;
+        bool suspendedAfterScope;
+        using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
+        {
+            RpcMutationIdempotencyExecutionAmbient.Activate(scope, "op", "fp");
+            insideOperationId = RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue;
+            RpcMutationIdempotencyExecutionAmbient.Deactivate(scope);
+            suspendedAfterScope = RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended;
+        }
+
+        _ = await Assert.That(insideOperationId).IsEqualTo("op");
+        _ = await Assert.That(suspendedAfterScope).IsTrue();
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended).IsFalse();
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsNull();
+    }
+
+    /// <summary>An exception thrown inside a scope-less suspension still restores the empty state.</summary>
+    [Test]
+    public async Task ThrowInsideSuspensionRestoresFrame()
+    {
+        try
+        {
+            using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
+                throw new InvalidOperationException("Injected failure inside the suspension.");
+        }
+        catch (InvalidOperationException)
+        {
+            // The suspension was disposed by the unwinding using.
+        }
+
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended).IsFalse();
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsNull();
+    }
+
+    /// <summary>Suspending without a scope reports a replicated apply with no operation id, and disposing restores the empty state.</summary>
+    [Test]
+    public async Task SuspendWithoutScopeMarksReplicatedApply()
+    {
+        bool suspended;
+        string? operationId;
+        using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
+        {
+            suspended = RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended;
+            operationId = RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue;
+        }
+
+        _ = await Assert.That(suspended).IsTrue();
+        _ = await Assert.That(operationId).IsNull();
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended).IsFalse();
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsNull();
+    }
+
+    /// <summary>Suspending inside a scope and disposing restores the scope frame, which stamps again.</summary>
+    [Test]
+    public async Task SuspendInsideScopeRestoresScopeFrame()
+    {
+        var scope = new object();
+        RpcMutationIdempotencyExecutionAmbient.Activate(scope, "op-1", "fp-1");
+        try
+        {
+            using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
+            {
+                _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended).IsTrue();
+                _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsNull();
+            }
+
+            _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended).IsFalse();
+            _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsEqualTo("op-1");
+        }
+        finally
+        {
+            RpcMutationIdempotencyExecutionAmbient.Deactivate(scope);
+        }
     }
 
     /// <summary>Notifying without an active scope is a no-op.</summary>

@@ -47,7 +47,7 @@ Group commit never lets a caller or a reader see a value before its journal byte
   (`RpcMutationIdempotencyCoordinator.RecordOutcomeDurablyAsync`).
 
 Replicated applies are the exception: their durable source is the group log, so they do not wait for the node journal
-before applying.
+before applying, including re-applies of committed entries.
 
 ## Scope and failure behaviour
 
