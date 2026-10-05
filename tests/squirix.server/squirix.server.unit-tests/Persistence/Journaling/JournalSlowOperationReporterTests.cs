@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -45,6 +46,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
     {
         var logger = new RecordingLogger();
         using var loggerFactory = new FixedLoggerFactory(logger);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var options = CreateOptions();
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero, holdFsync: true);
@@ -54,14 +56,16 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             writer,
-            loggerFactory);
+            loggerFactory,
+            clock);
         try
         {
             await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
             using var waitBudget = new CancellationTokenSource();
             var wait = journal.AwaitDurabilityCommitAsync(waitBudget.Token).AsTask();
             await writer.FsyncEntered.Task.WaitAsync(EntryTimeout, TimeProvider.System, cancellationToken);
-            waitBudget.CancelAfter(StallBudget);
+            clock.Advance(StallBudget);
+            await waitBudget.CancelAsync();
 
             // The checkpoint's fsync is in flight, so a caller cancel cannot win it: the canceled wait settles only once that fsync
             // returns. The stall is reported at the moment of cancellation, so release the writer once the warning is recorded.
@@ -85,6 +89,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
     {
         var logger = new RecordingLogger();
         using var loggerFactory = new FixedLoggerFactory(logger);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var options = CreateOptions();
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero, holdWrite: true);
@@ -94,14 +99,18 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             writer,
-            loggerFactory);
+            loggerFactory,
+            clock);
         try
         {
             await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
             await writer.WriteEntered.Task.WaitAsync(EntryTimeout, TimeProvider.System, cancellationToken);
-            using var waitBudget = new CancellationTokenSource(StallBudget);
+            using var waitBudget = new CancellationTokenSource();
+            var wait = journal.AwaitDurabilityCommitAsync(waitBudget.Token).AsTask();
+            clock.Advance(StallBudget);
+            await waitBudget.CancelAsync();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(journal.AwaitDurabilityCommitAsync(waitBudget.Token).AsTask());
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
         }
         finally
         {
@@ -118,6 +127,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
     {
         var logger = new RecordingLogger();
         using var loggerFactory = new FixedLoggerFactory(logger);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var options = CreateOptions();
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
@@ -127,16 +137,20 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             writer,
-            loggerFactory);
+            loggerFactory,
+            clock);
         var gate = new GateHold();
         var holder = HoldGateUntilReleasedAsync(journal, gate, cancellationToken);
         try
         {
             // The waiter starts only once the holder owns the gate, and the holder keeps it until the canceled wait completed.
             await gate.Entered.Task.WaitAsync(EntryTimeout, TimeProvider.System, cancellationToken);
-            using var waitBudget = new CancellationTokenSource(StallBudget);
+            using var waitBudget = new CancellationTokenSource();
+            var waiter = HoldGateAsync(journal, waitBudget.Token);
+            clock.Advance(StallBudget);
+            await waitBudget.CancelAsync();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(HoldGateAsync(journal, TimeSpan.Zero, waitBudget.Token));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(waiter);
         }
         finally
         {
@@ -159,6 +173,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
     {
         var logger = new RecordingLogger();
         using var loggerFactory = new FixedLoggerFactory(logger);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var options = CreateOptions() with
         {
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(20),
@@ -172,14 +187,16 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             writer,
-            loggerFactory);
+            loggerFactory,
+            clock);
         try
         {
             await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
             using var waitBudget = new CancellationTokenSource();
             var wait = journal.AwaitDurabilityCommitAsync(waitBudget.Token).AsTask();
             await writer.FsyncEntered.Task.WaitAsync(EntryTimeout, TimeProvider.System, cancellationToken);
-            waitBudget.CancelAfter(StallBudget);
+            clock.Advance(StallBudget);
+            await waitBudget.CancelAsync();
 
             _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
         }
@@ -198,6 +215,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
     {
         var logger = new RecordingLogger();
         using var loggerFactory = new FixedLoggerFactory(logger);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var options = CreateOptions();
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero, holdWrite: true);
@@ -207,7 +225,8 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             writer,
-            loggerFactory);
+            loggerFactory,
+            clock);
         try
         {
             await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
@@ -219,9 +238,12 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
                     cancellationToken);
             }
 
-            using var waitBudget = new CancellationTokenSource(StallBudget);
+            using var waitBudget = new CancellationTokenSource();
+            var wait = journal.AwaitDurabilityCommitAsync(waitBudget.Token).AsTask();
+            clock.Advance(StallBudget);
+            await waitBudget.CancelAsync();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(journal.AwaitDurabilityCommitAsync(waitBudget.Token).AsTask());
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
         }
         finally
         {
@@ -253,6 +275,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
     {
         var logger = new RecordingLogger(true);
         using var loggerFactory = new FixedLoggerFactory(logger);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var options = CreateOptions();
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
@@ -262,16 +285,17 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             writer,
-            loggerFactory);
+            loggerFactory,
+            clock);
         var failure = new InvalidOperationException("action failed");
 
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
             journal.ExecuteUnderSnapshotBarrierAsync(
-                failure,
-                static async (reason, _, ct) =>
+                (Failure: failure, Clock: clock),
+                static (state, _, _) =>
                 {
-                    await Task.Delay(PastThreshold, TimeProvider.System, ct);
-                    throw reason;
+                    state.Clock.Advance(PastThreshold);
+                    throw state.Failure;
                 },
                 cancellationToken));
 
@@ -286,6 +310,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
     {
         var logger = new RecordingLogger();
         using var loggerFactory = new FixedLoggerFactory(logger);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var options = CreateOptions();
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
@@ -295,9 +320,17 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             writer,
-            loggerFactory);
+            loggerFactory,
+            clock);
 
-        await journal.ExecuteUnderSnapshotBarrierAsync(PastThreshold, static async (delay, _, ct) => await Task.Delay(delay, TimeProvider.System, ct), cancellationToken);
+        await journal.ExecuteUnderSnapshotBarrierAsync(
+            clock,
+            static (c, _, _) =>
+            {
+                c.Advance(PastThreshold);
+                return ValueTask.CompletedTask;
+            },
+            cancellationToken);
 
         _ = await Assert.That(logger.Count(GateHeldLongEventId)).IsEqualTo(1);
     }
@@ -309,6 +342,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
     {
         var logger = new RecordingLogger();
         using var loggerFactory = new FixedLoggerFactory(logger);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var options = CreateOptions();
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
@@ -318,9 +352,16 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             writer,
-            loggerFactory);
+            loggerFactory,
+            clock);
 
-        await journal.ExecuteMaintenanceExclusiveAsync(static async ct => await Task.Delay(PastThreshold, TimeProvider.System, ct), cancellationToken);
+        await journal.ExecuteMaintenanceExclusiveAsync(
+            _ =>
+            {
+                clock.Advance(PastThreshold);
+                return ValueTask.CompletedTask;
+            },
+            cancellationToken);
 
         _ = await Assert.That(logger.Count(GateHeldLongEventId)).IsEqualTo(1);
     }
@@ -363,8 +404,8 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         _ = await Assert.That(warning["IoMs"] is long ioMs ? ioMs : -1).IsGreaterThanOrEqualTo(JournalSlowOperationReporter.WarningThresholdMs);
     }
 
-    private static Task HoldGateAsync(JournalCoordinator journal, TimeSpan holdFor, CancellationToken cancellationToken) => journal
-       .ExecuteUnderSnapshotBarrierAsync(holdFor, static async (delay, _, ct) => await Task.Delay(delay, TimeProvider.System, ct), cancellationToken).AsTask();
+    private static Task HoldGateAsync(JournalCoordinator journal, CancellationToken cancellationToken) => journal
+       .ExecuteUnderSnapshotBarrierAsync(0, static (_, _, _) => ValueTask.CompletedTask, cancellationToken).AsTask();
 
     private static Task HoldGateUntilReleasedAsync(JournalCoordinator journal, GateHold gate, CancellationToken cancellationToken) => journal.ExecuteUnderSnapshotBarrierAsync(
         gate,
