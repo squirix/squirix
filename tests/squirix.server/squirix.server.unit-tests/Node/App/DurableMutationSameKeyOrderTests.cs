@@ -22,8 +22,6 @@ public sealed class DurableMutationSameKeyOrderTests : IsolatedStorageTestBase
 
     private static readonly string KeyW = CacheKey.Default("w").ToString();
 
-    private static readonly TimeSpan ObservationWindow = TimeSpan.FromMilliseconds(100);
-
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>A same-key mutation waits for the earlier one, including its durability wait, and its precondition then sees the earlier mutation applied.</summary>
@@ -46,7 +44,7 @@ public sealed class DurableMutationSameKeyOrderTests : IsolatedStorageTestBase
             var first = memory.PutAsync(executor, journal.Journal, "k", cancellationToken);
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             var second = memory.AddIfAbsentAsync(executor, journal.Journal, "k", cancellationToken);
-            pendingDuringStall = await IsStillPendingAsync(second, cancellationToken);
+            pendingDuringStall = await PendingProbe.StaysPendingAsync(second);
             journal.Writer.Flush.Release();
             put = await first.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             added = await second.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
@@ -174,7 +172,7 @@ public sealed class DurableMutationSameKeyOrderTests : IsolatedStorageTestBase
             var first = StartPutInScopeAsync(memory, executor, journal, "op-1", cancellationToken);
             await journal.Writer.Write.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             var second = StartPutInScopeAsync(memory, executor, journal, "op-2", cancellationToken);
-            pendingDuringStall = await IsStillPendingAsync(second, cancellationToken);
+            pendingDuringStall = await PendingProbe.StaysPendingAsync(second);
             journal.Writer.Write.Release();
             _ = await first.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             _ = await second.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
@@ -190,19 +188,6 @@ public sealed class DurableMutationSameKeyOrderTests : IsolatedStorageTestBase
         _ = await Assert.That(journal.ReadStampedPuts(cancellationToken)).IsEqualTo(StallableJournal.Describe([$"{KeyK}#op-1", $"{KeyK}#op-2", KeyW]));
         _ = await Assert.That(memory.Snapshot).IsEqualTo(KeyK);
         _ = await Assert.That(journal.Journal.InFlightApplyGate.HasPending).IsFalse();
-    }
-
-    private static async Task<bool> IsStillPendingAsync(Task operation, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await operation.WaitAsync(ObservationWindow, TimeProvider.System, cancellationToken);
-            return false;
-        }
-        catch (TimeoutException)
-        {
-            return true;
-        }
     }
 
     private static Task<int> StartPutInScopeAsync(AppliedKeys memory, DurableMutationExecutor executor, StallableJournal journal, string operationId, CancellationToken cancellationToken)

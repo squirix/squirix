@@ -41,9 +41,10 @@ public sealed class ElectionTimerTests : ServerUnitTestBase
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
             dispose = Task.Factory.StartNew(timer.Dispose, cancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
-            // The callback holds the gate until released, so the dispose cannot have returned yet however the threads are scheduled.
-            await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, cancellationToken);
-            disposedWhileRunning = dispose.IsCompleted;
+            // The callback holds the gate until released, so the dispose cannot return however the threads are scheduled: once it
+            // marked the timer disposed, all that is left for it is the wait on the gate.
+            await timer.WaitUntilAsync(static t => IsDisposed(t), TimeSpan.FromSeconds(10), cancellationToken);
+            disposedWhileRunning = !await PendingProbe.StaysPendingAsync(dispose);
         }
         finally
         {
@@ -172,5 +173,18 @@ public sealed class ElectionTimerTests : ServerUnitTestBase
 
         time.Advance(TimeSpan.FromMilliseconds(1));
         _ = await Assert.That(firings).IsEqualTo(2);
+    }
+
+    private static bool IsDisposed(ElectionTimer timer)
+    {
+        try
+        {
+            timer.Reset();
+            return false;
+        }
+        catch (ObjectDisposedException)
+        {
+            return true;
+        }
     }
 }

@@ -36,8 +36,6 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
 
     private const string OperationId = "0123456789abcdef0123456789abcdef";
 
-    private static readonly TimeSpan JoinObservationWindow = TimeSpan.FromMilliseconds(500);
-
     private static readonly TimeSpan ShutdownBudget = TimeSpan.FromMilliseconds(250);
 
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
@@ -60,7 +58,7 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         var original = target.PutAsync(Fingerprint, cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         var retry = target.PutAsync(Fingerprint, cancellationToken);
-        var retryCompletedDuringStall = await Task.WhenAny(retry, Task.Delay(JoinObservationWindow, TimeProvider.System, cancellationToken)) == retry;
+        var retryCompletedDuringStall = !await PendingProbe.StaysPendingAsync(retry);
         journal.Writer.Flush.Release();
         var originalResponse = await original.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         var joinedResponse = await retry.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
@@ -85,7 +83,7 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         var original = target.PutAsync(Fingerprint, caller.Token);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         await caller.CancelAsync();
-        var completedWhileStalled = await Task.WhenAny(original, Task.Delay(JoinObservationWindow, TimeProvider.System, cancellationToken)) == original;
+        var completedWhileStalled = !await PendingProbe.StaysPendingAsync(original);
         journal.Writer.Flush.Release();
         var response = await original.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         var replayed = store.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out var recorded);
@@ -118,7 +116,7 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         await originalAttempt.CancelAsync();
         var firstRetry = target.PutAsync(Fingerprint, firstRetryAttempt.Token);
-        var firstRetryCompletedDuringStall = await Task.WhenAny(firstRetry, Task.Delay(JoinObservationWindow, TimeProvider.System, cancellationToken)) == firstRetry;
+        var firstRetryCompletedDuringStall = !await PendingProbe.StaysPendingAsync(firstRetry);
         await firstRetryAttempt.CancelAsync();
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(firstRetry.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
         var secondRetry = target.PutAsync(Fingerprint, cancellationToken);

@@ -35,8 +35,6 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
 
     private const int LeakedOnShutdownEventId = 3014;
 
-    private static readonly TimeSpan CancelObservationWindow = TimeSpan.FromMilliseconds(500);
-
     private static readonly TimeSpan ShutdownBudget = TimeSpan.FromMilliseconds(250);
 
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
@@ -60,7 +58,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         {
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             await caller.CancelAsync();
-            completedWhileStalled = await Task.WhenAny(commit, Task.Delay(CancelObservationWindow, TimeProvider.System, cancellationToken)) == commit;
+            completedWhileStalled = !await PendingProbe.StaysPendingAsync(commit);
         }
         finally
         {
@@ -258,9 +256,9 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         {
             // The durability ack completes, then the apply parks on the gate held here while disposal starts.
             journal.Writer.Flush.Release();
-            completedWhileGated = await Task.WhenAny(put, Task.Delay(CancelObservationWindow, TimeProvider.System, cancellationToken)) == put;
+            completedWhileGated = !await PendingProbe.StaysPendingAsync(put);
             shutdown = journal.ShutdownAsync();
-            disposedWhileGated = await Task.WhenAny(shutdown, Task.Delay(CancelObservationWindow, TimeProvider.System, cancellationToken)) == shutdown;
+            disposedWhileGated = !await PendingProbe.StaysPendingAsync(shutdown);
         }
         finally
         {
@@ -299,7 +297,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         {
             // The durability ack completes, then the apply parks on the gate held here.
             journal.Writer.Flush.Release();
-            completedWhileGated = await Task.WhenAny(put, Task.Delay(CancelObservationWindow, TimeProvider.System, cancellationToken)) == put;
+            completedWhileGated = !await PendingProbe.StaysPendingAsync(put);
             await journal.ShutdownAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
         }
