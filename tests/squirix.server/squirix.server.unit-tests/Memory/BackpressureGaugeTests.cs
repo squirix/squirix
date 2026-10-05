@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
@@ -50,7 +51,7 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
             MaxQueueWait = TimeSpan.FromMilliseconds(200),
             PerClientMaxInFlight = 1,
         };
-        using var gate = new AdmissionGate(backpressureOptions, new BackpressureMetrics(meter));
+        using var gate = new AdmissionGate(backpressureOptions, new BackpressureMetrics(meter), new FakeTimeProvider());
         var first = (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease;
         var secondAcquire = gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken).AsTask();
         await WaitForGaugeSnapshotAsync(listener, inFlight, queueDepth, trackedClients, cancellationToken);
@@ -200,7 +201,6 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
                 s.Listener.RecordObservableInstruments();
                 return HasAtLeast(s.InFlight, 1) && HasAtLeast(s.QueueDepth, 1) && HasAtLeast(s.TrackedClients, 2);
             },
-            TimeSpan.FromSeconds(1),
             cancellationToken);
 
         _ = await Assert.That(HasAtLeast(inFlight, 1)).IsTrue();

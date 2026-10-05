@@ -45,8 +45,9 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     [Test]
     public async Task RemoveExpiryClearsOnlyTheExpiryAsync(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>();
-        await cache.SetAsync(CacheKey.Default("k1"), new NodeCacheEntry<string> { Value = "v", ExpiresUtc = DateTime.UtcNow.AddMilliseconds(150), Version = 1 }, cancellationToken);
+        var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1));
+        var cache = new PhysicalCache<string>(clock);
+        await cache.SetAsync(CacheKey.Default("k1"), new NodeCacheEntry<string> { Value = "v", ExpiresUtc = clock.GetUtcNow().UtcDateTime.AddMilliseconds(150), Version = 1 }, cancellationToken);
 
         var entryBefore = await cache.GetEntryAsync(CacheKey.Default("k1"), cancellationToken);
         _ = await Assert.That(entryBefore).IsNotNull();
@@ -58,7 +59,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
         var entryAfter = await cache.GetEntryAsync(CacheKey.Default("k1"), cancellationToken);
         _ = await Assert.That(entryAfter).IsNotNull();
         _ = await Assert.That(entryAfter.ExpiresUtc).IsNull();
-        await Task.Delay(200, cancellationToken);
+        clock.Advance(TimeSpan.FromMilliseconds(200));
         var found = await cache.GetValueAsync(CacheKey.Default("k1"), cancellationToken);
         _ = await Assert.That(found.Found).IsTrue();
         _ = await Assert.That(found.Value).IsEqualTo("v");

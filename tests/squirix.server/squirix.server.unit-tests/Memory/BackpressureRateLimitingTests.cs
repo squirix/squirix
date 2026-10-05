@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
@@ -37,7 +38,8 @@ public sealed class BackpressureRateLimitingTests : DisposableServerUnitTestBase
                 NodeRateLimitPerSecond = 1,
                 NodeRateLimitBurst = 1,
             },
-            new BackpressureMetrics(meter));
+            new BackpressureMetrics(meter),
+            new FakeTimeProvider());
 
         using var first = (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease;
 
@@ -97,7 +99,8 @@ public sealed class BackpressureRateLimitingTests : DisposableServerUnitTestBase
                 PerClientRateLimitPerSecond = 1,
                 PerClientRateLimitBurst = 1,
             },
-            new BackpressureMetrics(meter));
+            new BackpressureMetrics(meter),
+            new FakeTimeProvider());
 
         using var first = (await gate.AcquireAsync("grpc", "get", "grpc:client-a", cancellationToken)).Lease;
 

@@ -361,24 +361,24 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
 
     private static async Task RunSynchronizedConcurrentVoidAsync(int concurrency, Func<int, Task> operation, CancellationToken cancellationToken)
     {
-        var runner = new SynchronizedConcurrentVoidRunner(operation, cancellationToken);
+        var runner = new SynchronizedConcurrentVoidRunner(operation, concurrency, cancellationToken);
         var tasks = new Task[concurrency];
         for (var i = 0; i < concurrency; i++)
             tasks[i] = runner.RunAfterGateAsync(i);
 
-        await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+        await runner.Arrived.WaitAsync(cancellationToken).ConfigureAwait(false);
         runner.Release();
         await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 
     private static async Task<T[]> RunSynchronizedConcurrentlyAsync<T>(int concurrency, Func<int, Task<T>> operation, CancellationToken cancellationToken)
     {
-        var runner = new SynchronizedConcurrentRunner<T>(operation, cancellationToken);
+        var runner = new SynchronizedConcurrentRunner<T>(operation, concurrency, cancellationToken);
         var tasks = new Task<T>[concurrency];
         for (var i = 0; i < concurrency; i++)
             tasks[i] = runner.RunAfterGateAsync(i);
 
-        await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+        await runner.Arrived.WaitAsync(cancellationToken).ConfigureAwait(false);
         runner.Release();
         return await Task.WhenAll(tasks).ConfigureAwait(false);
     }
@@ -442,20 +442,28 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     [Immutable]
     private sealed class SynchronizedConcurrentRunner<T>
     {
+        private readonly TaskCompletionSource _arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly CancellationToken _cancellationToken;
         private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly Func<int, Task<T>> _operation;
+        private int _pendingArrivals;
 
-        internal SynchronizedConcurrentRunner(Func<int, Task<T>> operation, CancellationToken cancellationToken)
+        internal SynchronizedConcurrentRunner(Func<int, Task<T>> operation, int concurrency, CancellationToken cancellationToken)
         {
             _operation = operation;
+            _pendingArrivals = concurrency;
             _cancellationToken = cancellationToken;
         }
+
+        internal Task Arrived => _arrived.Task;
 
         internal void Release() => _ = _gate.TrySetResult();
 
         internal async Task<T> RunAfterGateAsync(int index)
         {
+            if (Interlocked.Decrement(ref _pendingArrivals) == 0)
+                _ = _arrived.TrySetResult();
+
             await _gate.Task.WaitAsync(_cancellationToken).ConfigureAwait(false);
             return await _operation(index).ConfigureAwait(false);
         }
@@ -464,20 +472,28 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     [Immutable]
     private sealed class SynchronizedConcurrentVoidRunner
     {
+        private readonly TaskCompletionSource _arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly CancellationToken _cancellationToken;
         private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly Func<int, Task> _operation;
+        private int _pendingArrivals;
 
-        internal SynchronizedConcurrentVoidRunner(Func<int, Task> operation, CancellationToken cancellationToken)
+        internal SynchronizedConcurrentVoidRunner(Func<int, Task> operation, int concurrency, CancellationToken cancellationToken)
         {
             _operation = operation;
+            _pendingArrivals = concurrency;
             _cancellationToken = cancellationToken;
         }
+
+        internal Task Arrived => _arrived.Task;
 
         internal void Release() => _ = _gate.TrySetResult();
 
         internal async Task RunAfterGateAsync(int index)
         {
+            if (Interlocked.Decrement(ref _pendingArrivals) == 0)
+                _ = _arrived.TrySetResult();
+
             await _gate.Task.WaitAsync(_cancellationToken).ConfigureAwait(false);
             await _operation(index).ConfigureAwait(false);
         }

@@ -22,6 +22,8 @@ namespace Squirix.Server.UnitTests.Cluster;
 [Immutable]
 public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
 {
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(10);
+
     private readonly Meter _testMeter = new("test");
 
     /// <summary>Ensures the ambient request deadline caps the overall retry budget.</summary>
@@ -30,19 +32,24 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     public async Task AmbientDeadlineCapsOverallRetryBudget(CancellationToken cancellationToken)
     {
         var timeouts = new CallPolicyTimeouts(TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(5));
-        await using var policy = CreatePolicy(timeouts, 5, peer: "peer-a", timeProvider: TimeProvider.System);
-        using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(50), TimeProvider.System);
+        var clock = new FakeTimeProvider();
+        await using var policy = CreatePolicy(timeouts, 5, peer: "peer-a", timeProvider: clock);
+        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime.AddMilliseconds(50), clock);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
-            policy.ExecuteAsync(
-                0,
-                static async (_, token) =>
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
-                    return 1;
-                },
-                cancellationToken));
+        var pending = policy.ExecuteAsync(
+            clock,
+            static async (c, token) =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), c, token);
+                return 1;
+            },
+            cancellationToken);
+        clock.Advance(TimeSpan.FromMilliseconds(49));
+        var stillPending = !pending.IsCompleted;
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(pending);
 
+        _ = await Assert.That(stillPending).IsTrue();
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
     }
 
@@ -70,7 +77,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         await using var policy = CreatePolicy(
             new CallPolicyTimeouts(TimeSpan.FromMilliseconds(50), TimeSpan.Zero, TimeSpan.Zero),
             peer: "peer-h",
-            timeProvider: TimeProvider.System);
+            timeProvider: new FakeTimeProvider());
         using var cts = new CancellationTokenSource();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var attempts = new InvocationCounter();
@@ -363,25 +370,31 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     [Test]
     public async Task PerAttemptTimeoutRetrySucceedsNextTry(CancellationToken cancellationToken)
     {
+        var clock = new FakeTimeProvider();
         await using var policy = CreatePolicy(
             new CallPolicyTimeouts(TimeSpan.FromMilliseconds(25), TimeSpan.Zero, TimeSpan.Zero),
             2,
             peer: "peer-i",
-            timeProvider: TimeProvider.System);
+            timeProvider: clock);
         var attempts = new InvocationCounter();
 
-        var value = await policy.ExecuteAsync(
-            attempts,
-            static async (counter, token) =>
+        var pending = policy.ExecuteAsync(
+            new RetryDelayState(attempts, clock),
+            static async (state, token) =>
             {
-                var attempt = counter.Increment();
+                var attempt = state.Attempts.Increment();
                 if (attempt != 1)
                     return 42;
-                await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
+                await Task.Delay(TimeSpan.FromSeconds(1), state.Clock, token);
                 return 0;
             },
             cancellationToken);
+        clock.Advance(TimeSpan.FromMilliseconds(24));
+        var stillPending = !pending.IsCompleted;
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        var value = await pending.AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
+        _ = await Assert.That(stillPending).IsTrue();
         _ = await Assert.That(value).IsEqualTo(42);
         _ = await Assert.That(attempts.Count).IsEqualTo(2);
     }
@@ -428,26 +441,31 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     [Test]
     public async Task TimeoutMetricsRecordedAsOwnCategory(CancellationToken cancellationToken)
     {
+        var clock = new FakeTimeProvider();
         using var meter = new Meter("Squirix");
         using var sink = new NodeMeasurementSink(meter);
         await using var policy = CreatePolicy(
             new CallPolicyTimeouts(TimeSpan.FromMilliseconds(100), TimeSpan.Zero, TimeSpan.Zero),
             2,
             peer: "peer-b",
-            timeProvider: TimeProvider.System,
+            timeProvider: clock,
             meter: meter);
-        using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(35), TimeProvider.System);
+        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime.AddMilliseconds(35), clock);
         _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsNotNull();
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
-            policy.ExecuteAsync(
-                0,
-                static async (_, token) =>
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
-                    return 1;
-                },
-                cancellationToken));
+        var pending = policy.ExecuteAsync(
+            clock,
+            static async (c, token) =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), c, token);
+                return 1;
+            },
+            cancellationToken);
+        clock.Advance(TimeSpan.FromMilliseconds(34));
+        var stillPending = !pending.IsCompleted;
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(pending);
+        _ = await Assert.That(stillPending).IsTrue();
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
 
         _ = await Assert.That(sink.HasEvent("squirix_rpc_timeouts_total", ("peer", "peer-b"), ("scope", "overall"), ("kind", "deadline_budget"))).IsTrue();
@@ -571,6 +589,20 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         internal InvocationCounter Attempts { get; }
 
         internal TaskCompletionSource Entered { get; }
+    }
+
+    [Immutable]
+    private sealed class RetryDelayState
+    {
+        internal RetryDelayState(InvocationCounter attempts, FakeTimeProvider clock)
+        {
+            Attempts = attempts;
+            Clock = clock;
+        }
+
+        internal InvocationCounter Attempts { get; }
+
+        internal FakeTimeProvider Clock { get; }
     }
 
     [Immutable]
