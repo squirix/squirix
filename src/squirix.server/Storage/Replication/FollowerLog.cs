@@ -67,6 +67,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     private readonly FollowerLogJournal _journal;
     private readonly ILogger _log;
     private readonly TimeSpan _shutdownBudget;
+    private readonly TimeProvider _shutdownClock;
 
     private int _disposed;
     private ulong _lastLogIndex;
@@ -91,6 +92,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         _faults = settings.FaultHooks ?? DefaultFaults;
         _log = log;
         _shutdownBudget = settings.ShutdownBudget;
+        _shutdownClock = settings.ShutdownTimeProvider;
         GroupId = groupId;
         var paths = FollowerLogPaths.Create(persistenceRoot, groupId);
         var snapshot = new GroupSnapshotStore(persistenceRoot, groupId, settings.MaxSnapshotBytes);
@@ -239,7 +241,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         // holder are released by disposing the gate, and the handle, its worker thread and the holder are leaked
         // loudly: the handle is never closed under a running flush. Not throwing keeps the host disposing the rest.
         AsyncLockHolder lockGuard;
-        using (var budget = new CancellationTokenSource(_shutdownBudget))
+        using (var budget = new CancellationTokenSource(_shutdownBudget, _shutdownClock))
         {
             try
             {

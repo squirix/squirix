@@ -106,11 +106,19 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         var stalledPipeline = new RecordingPipeline(1);
         var stalledHooks = new RecordingHooks(stalledPipeline.Trace);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
-        var stalled = new ReplicaCommitCoordinator(options, stalledPipeline, stalledHooks, new GroupIdempotencyState(10, TimeSpan.MaxValue), eligibility);
+        var stalledBudget = TimeSpan.FromMilliseconds(200);
+        var stalledClock = new DueTimerClock(stalledBudget);
+        var stalled = new ReplicaCommitCoordinator(options, stalledPipeline, stalledHooks, new GroupIdempotencyState(10, TimeSpan.MaxValue), eligibility)
+        {
+            BudgetTimeProvider = stalledClock,
+        };
         try
         {
-            var stalledCommit = stalled.CommitAsync(CreateMutation(), TimeSpan.FromMilliseconds(200), cancellationToken);
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(stalledCommit);
+            // The budget runs on a fake clock that moves only once the entry is appended locally, so the wait for a majority is what expires.
+            var stalledCommit = stalled.CommitAsync(CreateMutation(), stalledBudget, cancellationToken).AsTask();
+            _ = await stalledPipeline.LocalAppended.Task.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+            stalledClock.Advance(stalledBudget);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(stalledCommit.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken));
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
         }
         finally
@@ -256,11 +264,20 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     public async Task LateAcknowledgementSupportsNextCommit(CancellationToken cancellationToken)
     {
         var pipeline = new LateFollowerPipeline();
-        var coordinator = CreateCoordinator(5, pipeline);
+
+        // The budget clock is never advanced: the second commit waits for the late acknowledgement and cannot expire first on a loaded machine.
+        var coordinator = new ReplicaCommitCoordinator(
+            new ReplicaCommitCoordinatorOptions(5, 0, 0, 8),
+            pipeline,
+            ReplicaFaultHooks.CreateNoOp(),
+            new GroupIdempotencyState(16, TimeSpan.MaxValue))
+        {
+            BudgetTimeProvider = new FakeTimeProvider(),
+        };
         try
         {
             _ = await coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(2), cancellationToken);
-            var second = coordinator.CommitAsync(CreateMutation(2, "00000000000000000000000000000002"), TimeSpan.FromSeconds(2), cancellationToken);
+            var second = coordinator.CommitAsync(CreateMutation(2, "00000000000000000000000000000002"), TimeSpan.FromSeconds(2), cancellationToken).AsTask();
             await pipeline.SecondReplicaThreeStarted.WaitAsync(cancellationToken);
 
             pipeline.ReleaseFirstReplicaThree();
@@ -274,7 +291,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             await match.WaitUntilAsync(static s => s.Coordinator.MatchIndexFor(s.ReplicaIndex) >= s.MatchIndex, cancellationToken);
             pipeline.ReleaseSecondReplicaThree();
 
-            _ = await second;
+            _ = await second.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
             _ = await Assert.That(pipeline.MemoryApplyCount).IsEqualTo(2);
         }
         finally
@@ -291,15 +308,27 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     public async Task LateFollowerResponseIsRecorded(CancellationToken cancellationToken)
     {
         var pipeline = new DeferredFollowersPipeline();
-        var coordinator = CreateCoordinator(3, pipeline);
+        var budget = TimeSpan.FromMilliseconds(100);
+        var budgetClock = new DueTimerClock(budget);
+        var coordinator = new ReplicaCommitCoordinator(
+            new ReplicaCommitCoordinatorOptions(3, 0, 0, 8),
+            pipeline,
+            ReplicaFaultHooks.CreateNoOp(),
+            new GroupIdempotencyState(16, TimeSpan.MaxValue))
+        {
+            BudgetTimeProvider = budgetClock,
+        };
         try
         {
-            var operation = coordinator.CommitAsync(CreateMutation(), TimeSpan.FromMilliseconds(100), cancellationToken);
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation);
+            // The budget moves only once both followers are parked, so the deadline cannot pass before the fan-out.
+            var operation = coordinator.CommitAsync(CreateMutation(), budget, cancellationToken).AsTask();
+            await pipeline.FollowersStarted.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+            budgetClock.Advance(budget);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(operation.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken));
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
             // Wait for the observable deadline signal so late responses truly arrive after the deadline.
-            await pipeline.DeadlineElapsed.WaitAsync(cancellationToken);
+            await pipeline.DeadlineElapsed.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
             pipeline.ReleaseFollowers(CreateMutation());
         }
         finally
@@ -349,7 +378,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
 
         // The observe bound runs on an injected clock, so the test moves it past the 5 s bound instead of waiting in real time.
-        var observeClock = new FakeTimeProvider();
+        var observeClock = new DueTimerClock(TimeSpan.FromSeconds(5));
         var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue)) { ObserveTimeProvider = observeClock };
         try
         {
@@ -357,15 +386,10 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             var outcome = await coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), cancellationToken);
             await SequenceAssert.EqualAsync<byte>([7], outcome.ToArray());
 
-            // Start disposal first so a stuck drain fails fast on the test-side bound instead of hanging.
+            // The observer registers its bound timer in the background; the clock moves only once that timer exists.
+            _ = await Assert.That(await observeClock.TimerCreated.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken)).IsTrue();
             var disposal = coordinator.DisposeAsync().AsTask();
-
-            // The observer registers its bound timer in the background, so keep advancing the clock briefly instead of assuming it exists yet.
-            for (var i = 0; i < 20; i++)
-            {
-                observeClock.Advance(TimeSpan.FromSeconds(6));
-                await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, cancellationToken);
-            }
+            observeClock.Advance(TimeSpan.FromSeconds(6));
 
             // The bound already attached fault observers; faulting the laggard runs them for cleanup.
             pipeline.FailFollowers(new TimeoutException("Lagging follower fault."));
@@ -607,11 +631,16 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     {
         private readonly TaskCompletionSource<bool> _deadlineElapsed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<ReplicaDurableAcknowledgement> _first = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _followersStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<ReplicaDurableAcknowledgement> _second = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        private int _followerCalls;
 
         internal Task DeadlineElapsed => _deadlineElapsed.Task;
 
-        internal int FollowerCalls { get; private set; }
+        internal int FollowerCalls => Volatile.Read(ref _followerCalls);
+
+        internal Task FollowersStarted => _followersStarted.Task;
 
         internal List<int> LaggingReplicas { get; } = [];
 
@@ -620,7 +649,9 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
             _ = cancellationToken.Register(() => _ = _deadlineElapsed.TrySetResult(true));
-            FollowerCalls++;
+            if (Interlocked.Increment(ref _followerCalls) == 2)
+                _ = _followersStarted.TrySetResult();
+
             return new ValueTask<ReplicaDurableAcknowledgement>(replicaIndex == 1 ? _first.Task : _second.Task);
         }
 

@@ -19,8 +19,12 @@ internal sealed class FollowerLogOptions
     /// <summary>Gets the fault hooks used by failure-injection tests.</summary>
     internal IFollowerLogFaultHooks? FaultHooks { get; init; }
 
-    /// <summary>Gets the time source used by idempotency retention.</summary>
+    /// <summary>Gets the time source used by idempotency retention only; the shutdown budget never follows it.</summary>
     internal TimeProvider? TimeProvider { get; init; }
+
+    /// <summary>Gets the time source of the shutdown budget; the system clock unless set.</summary>
+    /// <remarks>Test seam: hosted composition leaves it on the system clock, so a host clock that never advances cannot park a dispose.</remarks>
+    internal TimeProvider ShutdownTimeProvider { get; init; } = TimeProvider.System;
 
     /// <summary>Gets the maximum number of retained idempotency records.</summary>
     internal int IdempotencyCapacity { get; init; } = 1024;

@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -40,7 +41,21 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
         var local = new ScriptedApplyCache(ApplyMode.StallThenFail);
         var gateway = new ParkingGateway { HeldNode = "n3" };
         await using var registry = await OpenRegistryAsync(3, cancellationToken);
-        var committer = CreateCommitter(registry, local, gateway, ObserverDrainBudget, new ThreeNodeLocator());
+
+        // The dispose waits for the gate holder on a fake clock nobody moves, so a loaded machine cannot expire that wait before the
+        // holder is released; only the coordinator's own observer drain still runs on the budget.
+        var committer = new ReplicaGroupCommitter(
+            registry,
+            new ThreeNodeLocator(),
+            gateway,
+            local,
+            OwnedGroup,
+            new ReplicaTopologyStamp(Fingerprint, 1),
+            NullLogger<ReplicaGroupCommitter>.Instance)
+        {
+            ShutdownBudget = ObserverDrainBudget,
+            ShutdownTimeProvider = new FakeTimeProvider(),
+        };
         try
         {
             // The write holds the gate while its first apply stalls; the entry is committed and stays pending when the apply fails. The
