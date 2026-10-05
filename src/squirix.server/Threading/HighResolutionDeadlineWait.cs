@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Utils;
@@ -34,7 +35,7 @@ internal sealed class HighResolutionDeadlineWait : IDisposable
     /// <summary>Gets a value indicating whether a finite wait currently uses the high-resolution timer.</summary>
     internal bool IsHighResolutionActive => _timer != null && !IsHighResolutionUnavailable;
 
-    /// <summary>Gets a value indicating whether the high-resolution timer is not in use: disabled by the caller, or its creation failed.</summary>
+    /// <summary>Gets a value indicating whether the Windows high-resolution timer is not in use: disabled by the caller, or it failed to create or arm. Always <see langword="false" /> on other platforms unless disabled by the caller.</summary>
     internal bool IsHighResolutionUnavailable { get; private set; }
 
     public void Dispose()
@@ -52,6 +53,7 @@ internal sealed class HighResolutionDeadlineWait : IDisposable
     /// <param name="timeoutMs">A positive number of milliseconds, or <see cref="Timeout.Infinite" />.</param>
     internal void Wait(int timeoutMs)
     {
+        Debug.Assert(timeoutMs > 0 || timeoutMs == Timeout.Infinite, "The deadline must be positive or infinite.");
         if (timeoutMs == Timeout.Infinite)
         {
             // A previously armed timer is not in this wait set; cancelling keeps it from sitting signalled
@@ -93,7 +95,14 @@ internal sealed class HighResolutionDeadlineWait : IDisposable
 
         var dueTime = -timeoutMs * TicksPerMillisecond;
         if (!NativeMethods.SetWaitableTimer(_timer!.SafeWaitHandle, in dueTime, 0, nint.Zero, nint.Zero, false))
+        {
+            // A timer that cannot be armed is not retried on every wait: fall back for good so the caller can report it once.
+            _handles = null;
+            _timer.Dispose();
+            _timer = null;
+            IsHighResolutionUnavailable = true;
             return false;
+        }
 
         _armed = true;
         return true;
