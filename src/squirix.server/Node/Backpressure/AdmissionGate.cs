@@ -339,9 +339,6 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
         internal bool? HasRecentActivity => _rateLimiter?.HasRecentActivity;
 
-        /// <summary>Gets the number of this client's requests that are admitted or waiting for a slot, or a negative value once the entry is retired.</summary>
-        internal int InFlight => Volatile.Read(ref _inFlight);
-
         internal ref int InFlightRef => ref _inFlight;
 
         internal int QueueDepth => Volatile.Read(ref _queueDepth);
