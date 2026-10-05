@@ -270,8 +270,139 @@ public sealed class BackpressureClientAdmissionTests : DisposableServerUnitTestB
         _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
     }
 
+    /// <summary>Verifies idle client entries with a refilled bucket, including those left by rate-limit rejects, are swept by a later admission.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SweepEvictsRefilledIdleClients(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider();
+        using var gate = CreateGate(clock, RateLimitedOptions(1, 2));
+        for (var i = 0; i < 10; i++)
+        {
+            var clientId = $"rest:client-{NodeInvariantIndexStrings.Format(i)}";
+            var attempts = i % 2 == 0 ? 3 : 1;
+            for (var attempt = 0; attempt < attempts; attempt++)
+            {
+                var (decision, lease) = await gate.AcquireAsync("rest", "get", clientId, cancellationToken);
+                lease.Dispose();
+                _ = await Assert.That(decision.IsAccepted || string.Equals(decision.RejectReason, "client_rate_limit", StringComparison.Ordinal)).IsTrue();
+            }
+        }
+
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(10);
+
+        clock.Advance(TimeSpan.FromSeconds(3));
+        await TriggerSweepAsync(gate, cancellationToken);
+
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
+    }
+
+    /// <summary>Verifies a client entry with an admitted request is never swept, however long it has been idle.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SweepKeepsClientWithRequestInFlight(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider();
+        using var gate = CreateGate(clock, RateLimitedOptions(1, 2));
+        var held = (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease;
+
+        clock.Advance(TimeSpan.FromSeconds(3));
+        await TriggerSweepAsync(gate, cancellationToken);
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(1);
+
+        held.Dispose();
+        clock.Advance(TimeSpan.FromSeconds(3));
+        await TriggerSweepAsync(gate, cancellationToken);
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
+    }
+
+    /// <summary>Verifies a client entry whose bucket has not refilled to burst is kept, so its rate limit is not reset.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SweepKeepsClientWithUnrefilledBucket(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider();
+        using var gate = CreateGate(clock, RateLimitedOptions(1, 4));
+        for (var i = 0; i < 4; i++)
+            (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease.Dispose();
+
+        clock.Advance(TimeSpan.FromSeconds(2));
+        await TriggerSweepAsync(gate, cancellationToken);
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(1);
+
+        clock.Advance(TimeSpan.FromSeconds(5));
+        await TriggerSweepAsync(gate, cancellationToken);
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
+    }
+
+    /// <summary>Verifies sweeps running between churning acquires and releases never let one client exceed its concurrency limit.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ChurnWithSweepsNeverExceedsClientLimit(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider();
+        using var gate = CreateGate(
+            clock,
+            new AdmissionOptions
+            {
+                MaxInFlight = 8,
+                MaxQueue = 8,
+                SlowdownThreshold = 8,
+                MaxSlowdownDelay = TimeSpan.Zero,
+                PerClientMaxInFlight = 1,
+                PerClientRateLimitPerSecond = 1000,
+                PerClientRateLimitBurst = 1000,
+            });
+
+        var held = new int[2];
+        await Parallel.ForEachAsync(
+            [0, 1, 2, 3, 4, 5, 6, 7],
+            cancellationToken,
+            async (_, token) =>
+            {
+                for (var i = 0; i < 200; i++)
+                {
+                    clock.Advance(TimeSpan.FromSeconds(2));
+                    var (decision, lease) = await gate.AcquireAsync("rest", "get", "rest:client-a", token);
+                    if (!decision.IsAccepted)
+                        continue;
+
+                    var now = Interlocked.Increment(ref held[0]);
+                    if (now > 1)
+                        _ = Interlocked.Exchange(ref held[1], now);
+
+                    await Task.Yield();
+                    _ = Interlocked.Decrement(ref held[0]);
+                    lease.Dispose();
+                }
+            });
+
+        _ = await Assert.That(Volatile.Read(ref held[1])).IsEqualTo(0);
+        clock.Advance(TimeSpan.FromSeconds(2));
+        await TriggerSweepAsync(gate, cancellationToken);
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
+    }
+
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
+
+    private static AdmissionOptions RateLimitedOptions(int perSecond, int burst) => new()
+    {
+        MaxInFlight = 16,
+        MaxQueue = 16,
+        SlowdownThreshold = 16,
+        MaxSlowdownDelay = TimeSpan.Zero,
+        PerClientMaxInFlight = 4,
+        PerClientRateLimitPerSecond = perSecond,
+        PerClientRateLimitBurst = burst,
+    };
+
+    /// <summary>Triggers the sweep with an internal owner call, which is never tracked, so it adds no client entry.</summary>
+    /// <param name="gate">The gate to sweep.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when the call returns.</returns>
+    private static async Task TriggerSweepAsync(AdmissionGate gate, CancellationToken cancellationToken) =>
+        (await gate.AcquireAsync("rest", "get", HttpContextClientIdResolver.InternalOwnerClientId, cancellationToken)).Lease.Dispose();
 
     private static Task<(Decision Decision, Lease Lease)> StartAcquireAsync(AdmissionGate gate, string clientId, CancellationToken cancellationToken) =>
         gate.AcquireAsync("rest", "get", clientId, cancellationToken).AsTask();
