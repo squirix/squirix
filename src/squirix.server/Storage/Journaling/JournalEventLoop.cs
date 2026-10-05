@@ -18,6 +18,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     private readonly JournalEventLoopSegmentWriter _segmentWriterOps;
     private readonly JournalSlowOperationReporter _slowOperations;
     private long _activeSegmentWrittenBytes;
+    private bool _deadlineWaitFallbackReported;
     private long _flushCount;
     private int _journalSegmentCount;
     private long _journalTotalBytes;
@@ -140,6 +141,15 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     public void MarkSegmentRollCompletionPending() => Volatile.Write(ref _segmentRollCompletionPending, 1);
 
+    public void ReportDeadlineWaitFallbackOnce()
+    {
+        if (_deadlineWaitFallbackReported || GroupCommit == null || !OperatingSystem.IsWindows() || !Ring.IsHighResolutionTimerUnavailable)
+            return;
+
+        _deadlineWaitFallbackReported = true;
+        ServerLog.JournalHighResolutionTimerUnavailable(JournalLog);
+    }
+
     public void SetActiveSegmentPath(string? value) => ActiveSegmentPath = value;
 
     public void SetActiveSegmentWrittenBytes(long value) => Volatile.Write(ref _activeSegmentWrittenBytes, value);
@@ -232,6 +242,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
                 DrainDueGroupCommitBatches();
                 var rollWaitMs = _owner.GroupCommit?.GetJournalThreadWaitTimeoutMs() ?? Timeout.Infinite;
                 _owner.Ring.WaitForWork(rollWaitMs, _owner.BackgroundToken);
+                _owner.ReportDeadlineWaitFallbackOnce();
                 DrainDueGroupCommitBatches();
                 return true;
             }
@@ -251,6 +262,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
             var timeoutMs = _owner.GroupCommit?.GetJournalThreadWaitTimeoutMs() ?? Timeout.Infinite;
             _owner.Ring.WaitForWork(timeoutMs, _owner.BackgroundToken);
+            _owner.ReportDeadlineWaitFallbackOnce();
             DrainDueGroupCommitBatches();
             return true;
         }

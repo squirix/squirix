@@ -18,6 +18,9 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 3024, Level = LogLevel.Debug, Message = "Journal I/O thread exited on background cancellation")]
     internal static partial void JournalThreadExitOnCancel(ILogger logger);
 
+    [LoggerMessage(EventId = 3028, Level = LogLevel.Information, Message = "Journal group commit batch deadline uses the system clock tick: the high-resolution timer is unavailable on this Windows version, so a short MaxWait may be rounded up to about 15.6 ms")]
+    internal static partial void JournalHighResolutionTimerUnavailable(ILogger logger);
+
     [LoggerMessage(EventId = 3010, Level = LogLevel.Debug, Message = "Journal compaction background loop canceled")]
     internal static partial void CompactionLoopCanceled(ILogger logger, Exception exception);
 
