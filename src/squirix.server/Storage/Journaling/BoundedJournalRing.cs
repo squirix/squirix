@@ -14,6 +14,7 @@ internal sealed class BoundedJournalRing : IDisposable
     private static readonly TimeSpan FailurePollInterval = TimeSpan.FromMilliseconds(5);
 
     private readonly SemaphoreSlim _availableSlots;
+    private readonly HighResolutionDeadlineWait _deadlineWait;
     private readonly int _mask;
     private readonly int[] _published;
     private readonly JournalWorkItem[] _slots;
@@ -23,6 +24,11 @@ internal sealed class BoundedJournalRing : IDisposable
     private long _tail;
 
     internal BoundedJournalRing(int capacity)
+        : this(capacity, true)
+    {
+    }
+
+    internal BoundedJournalRing(int capacity, bool useHighResolutionTimer)
     {
         if (capacity <= 0 || !BitOperations.IsPow2(capacity))
             throw new ArgumentOutOfRangeException(nameof(capacity), "capacity must be a power of two.");
@@ -31,12 +37,19 @@ internal sealed class BoundedJournalRing : IDisposable
         _published = new int[capacity];
         _mask = capacity - 1;
         _availableSlots = new SemaphoreSlim(capacity, capacity);
+        _deadlineWait = new HighResolutionDeadlineWait(_workSignal, useHighResolutionTimer);
     }
+
+    /// <summary>Gets a value indicating whether deadline waits run without the high-resolution timer. Written and read by the journal thread.</summary>
+    internal bool IsHighResolutionTimerUnavailable => _deadlineWait.IsHighResolutionUnavailable;
 
     public void Dispose()
     {
         Volatile.Write(ref _disposed, 1);
         _workSignal.Dispose();
+
+        // Called only after the journal thread is joined (or never started), the one thread that touches the timer.
+        _deadlineWait.Dispose();
         _availableSlots.Dispose();
     }
 
@@ -94,29 +107,13 @@ internal sealed class BoundedJournalRing : IDisposable
         if (HasQueuedWork() || cancellationToken.IsCancellationRequested || timeoutMs == 0)
             return;
 
-        var waitMs = timeoutMs;
-        if (timeoutMs != Timeout.Infinite)
-        {
-            waitMs = ComputeRemainingWaitMs(Environment.TickCount64 + timeoutMs);
-            if (waitMs == 0)
-                return;
-        }
+        if (timeoutMs < 0 && timeoutMs != Timeout.Infinite)
+            return;
 
         // A fired signal means "re-evaluate": ring work, a group-commit deadline, or manifest roll
         // completion. Returning here lets the journal loop re-drain and recompute its next wait so a
-        // group-commit notify (which adds no ring item) can never be lost.
-        _ = _workSignal.WaitOne(waitMs);
-    }
-
-    private static int ComputeRemainingWaitMs(long deadline)
-    {
-        var remaining = deadline - Environment.TickCount64;
-        return remaining switch
-        {
-            <= 0 => 0,
-            > int.MaxValue => int.MaxValue,
-            _ => Convert.ToInt32(remaining),
-        };
+        // group-commit notify (which adds no ring item) can never be lost. Only the journal thread waits.
+        _deadlineWait.Wait(timeoutMs);
     }
 
     private bool HasQueuedWork() => Volatile.Read(ref _tail) > Volatile.Read(ref _head);
