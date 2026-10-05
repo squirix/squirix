@@ -41,6 +41,7 @@ public sealed class LeaderReadAuthorityTests : NodeIntegrationTestBase
 
         await using var cluster = await StartClusterAsync("node-a", "node-b", options, cancellationToken);
         var nodeA = cluster["node-a"];
+        await ReplicaGroupFollowers.AwaitVerifiedAsync(nodeA, cancellationToken);
 
         var cache = nodeA.GetCache<object?>("leader-read");
         var key = nodeA.FindKeyOwnedBy("leader-read", "node-a");

@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
@@ -17,9 +16,6 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 public sealed class ConditionalRetryTests : NodeIntegrationTestBase
 {
     private const string CacheName = "conditional-retry";
-
-    /// <summary>Bounds the verification of a fresh cluster.</summary>
-    private static readonly TimeSpan VerificationBound = TimeSpan.FromSeconds(30);
 
     /// <summary>A retried add that succeeded replays <see langword="true" /> although its key now exists.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -87,12 +83,7 @@ public sealed class ConditionalRetryTests : NodeIntegrationTestBase
         CancellationToken cancellationToken)
     {
         var owner = cluster["node-a"];
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(VerificationBound);
-        var committer = owner.GetRequiredService<ReplicaGroupCommitter>();
-        while (await committer.VerifyReplicasAsync(deadline.Token) != ReplicaVerification.AllReady)
-            await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, deadline.Token);
-
+        await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
         return (owner.GetCache<object?>(CacheName), owner.FindKeyOwnedBy(CacheName, "node-a"));
     }
 }
