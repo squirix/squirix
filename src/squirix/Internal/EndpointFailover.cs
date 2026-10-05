@@ -34,7 +34,8 @@ internal sealed class EndpointFailover
     /// <param name="operationDeadline">The finite positive duration each operation may take in total.</param>
     /// <param name="timeProvider">
     /// The clock the operation deadline is computed and counted down on: the call policy measures the budget on its monotonic timestamp,
-    /// and the deadline handed to the gRPC client is rebuilt from that budget on the system clock.
+    /// and the deadline handed to the gRPC client is rebuilt from that budget and this clock's wall time. Production must pass
+    /// <see cref="TimeProvider.System" />, because gRPC converts the absolute deadline back into a timeout with the system clock.
     /// </param>
     internal EndpointFailover(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId, TimeSpan operationDeadline, TimeProvider timeProvider)
     {
