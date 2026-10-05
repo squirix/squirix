@@ -916,6 +916,8 @@ jobs:
             # MinIterationTime(150): 1 or 2 invocations (512 or 1024 operations) of an operation that takes 0.1-0.7 ms, so
             # one-off allocations (store and journal growth, GCs) landed in that sample and SetAsync moved by up to 8.5%.
             # A fixed invocationCount of 8 (4096 operations, no pilot) amortizes them; timings are not used.
+            # The warmup iteration stays: without it (warmupCount 0) the first-use allocations land in the measured sample and
+            # SetAsync allocates 3-5% more, up to the 5% tolerance of the guard. iterationCount cannot go below 1.
             # In process, BenchmarkDotNet does not build a project of its own (about 110 s here, since it recompiled the
             # benchmarks with analyzers) or start a process per case.
             -   name: Run Wire Allocation Benchmarks
