@@ -10,14 +10,14 @@ namespace Squirix.Server.Node.Backpressure;
 /// Derives backpressure client ids from the JWT subject when authenticated, otherwise from the
 /// ASP.NET Core connection id. In-process calls without an <see cref="HttpContext" /> share the
 /// <c language="csharp">runtime</c> bucket. Owner-routed calls from another cluster node resolve to
-/// <see cref="InternalOwnerClientId" />, which the gate exempts from per-client limits: the entry node already admitted
-/// the request under the caller's own client id, and the forwarding connection stands for many callers.
+/// <see cref="InternalOwnerClientId" />, which the gate admits only to a free slot, without per-client limits, slowdown or queueing: the entry node already
+/// admitted the request under the caller's own client id, and the forwarding connection stands for many callers.
 /// </summary>
 [Immutable]
 internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolver
 {
     /// <summary>
-    /// Client id of an internal owner-routed call; per-client limits do not apply to it. Every external client id is prefixed
+    /// Client id of an internal owner-routed call; the gate admits it only to a free slot. Every external client id is prefixed
     /// (<c language="csharp">jwt:</c>, <c language="csharp">conn:</c>) or is <c language="csharp">runtime</c>, never raw, so it cannot collide with this id.
     /// </summary>
     internal const string InternalOwnerClientId = "internal";
