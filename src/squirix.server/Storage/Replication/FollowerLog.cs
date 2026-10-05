@@ -92,7 +92,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         _faults = settings.FaultHooks ?? DefaultFaults;
         _log = log;
         _shutdownBudget = settings.ShutdownBudget;
-        _shutdownClock = settings.TimeProvider ?? TimeProvider.System;
+        _shutdownClock = settings.ShutdownTimeProvider;
         GroupId = groupId;
         var paths = FollowerLogPaths.Create(persistenceRoot, groupId);
         var snapshot = new GroupSnapshotStore(persistenceRoot, groupId, settings.MaxSnapshotBytes);
