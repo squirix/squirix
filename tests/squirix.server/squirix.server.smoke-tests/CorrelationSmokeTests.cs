@@ -73,8 +73,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
             },
             new CallOptions(headers, cancellationToken: cancellationToken));
 
-        await Task.Delay(50, cancellationToken);
-
+        // The forwarded call reached node B before node A answered, so its headers are already captured.
         var last = capture.LastRequestHeaders;
         _ = await Assert.That(last).IsNotNull();
         var gotTp = last.GetValue(TraceParentHeader);
@@ -127,20 +126,23 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
     }
 
     /// <summary>
-    /// Test-only server-side gRPC interceptor that captures the latest request metadata headers.
+    /// Test-only server-side gRPC interceptor that captures the latest request metadata headers of the add call under test,
+    /// so a background call of the node cannot overwrite them.
     /// Useful for asserting trace-context propagation in smoke tests.
     /// </summary>
     private sealed class CapturingHeadersInterceptor : Interceptor
     {
         private volatile Metadata? _last;
 
-        /// <summary>Gets the last captured request metadata headers.</summary>
+        /// <summary>Gets the request metadata headers of the last add call.</summary>
         internal Metadata? LastRequestHeaders => _last;
 
         /// <inheritdoc />
         public override Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
         {
-            _last = context.RequestHeaders;
+            if (context.Method.EndsWith("/TryAddEntry", StringComparison.Ordinal))
+                _last = context.RequestHeaders;
+
             return base.UnaryServerHandler(request, context, continuation);
         }
     }

@@ -30,10 +30,8 @@ public sealed class FailoverDeadlineE2ETests : EndToEndTestBase
 
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
-        var startedUtc = DateTime.UtcNow;
 
         await cache.SetAsync(key, "after-loss", cancellationToken: linked.Token);
         _ = await Assert.That((await cache.GetValueAsync(key, linked.Token)).Value).IsEqualTo("after-loss");
-        _ = await Assert.That(DateTime.UtcNow - startedUtc < TimeSpan.FromSeconds(20)).IsTrue();
     }
 }

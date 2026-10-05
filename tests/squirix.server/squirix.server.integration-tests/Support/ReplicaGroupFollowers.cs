@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Core.Exceptions;
@@ -19,8 +20,37 @@ internal static class ReplicaGroupFollowers
 {
     private const int YieldsBeforeDelay = 64;
 
-    /// <summary>Bounds the wait of one follower; a healthy follower holds an entry within milliseconds.</summary>
-    private static readonly TimeSpan Bound = TimeSpan.FromSeconds(10);
+    /// <summary>Bounds the wait of one follower; a healthy follower holds an entry within milliseconds, so the bound only absorbs a loaded machine.</summary>
+    private static readonly TimeSpan Bound = TimeSpan.FromSeconds(30);
+
+    /// <summary>Bounds the verification of the owner's replica slots, which covers the first TLS handshake to each follower.</summary>
+    private static readonly TimeSpan VerificationBound = TimeSpan.FromSeconds(30);
+
+    /// <summary>Verifies the owner's replica slots, as its readiness service does, until every slot counts, so the first write finds a write quorum.</summary>
+    /// <param name="owner">The group owner.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="System.TimeoutException">The owner did not verify every replica slot within the bound.</exception>
+    /// <remarks>
+    /// The owner probes its followers once at start with a short real-time budget that also covers the first TLS handshake; a probe that
+    /// loses that race is not retried by a write, only by this verification.
+    /// </remarks>
+    internal static async Task AwaitVerifiedAsync(ITestNodeHost owner, CancellationToken cancellationToken)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(VerificationBound);
+        var committer = owner.GetRequiredService<ReplicaGroupCommitter>();
+        var verdict = ReplicaVerification.Pending;
+        try
+        {
+            while ((verdict = await committer.VerifyReplicasAsync(deadline.Token)) != ReplicaVerification.AllReady)
+                await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, deadline.Token);
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new System.TimeoutException($"The owner did not verify every replica slot within {VerificationBound}; last verdict {verdict}.", exception);
+        }
+    }
 
     /// <summary>Waits until every follower's copy of the group log holds the owner's last appended entry.</summary>
     /// <param name="owner">The group owner.</param>

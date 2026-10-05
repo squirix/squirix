@@ -59,7 +59,12 @@ public sealed class ReplicaRestartE2ETests : EndToEndTestBase
         // Without its followers the owner appends the write durably but cannot commit it: the outcome is unknown.
         await cluster.StopNodeAsync("nodeB");
         await cluster.StopNodeAsync("nodeC");
-        _ = await NodeAsyncAssert.ThrowsAsync<CommitOutcomeUnknownException>(beforeCache.SetAsync(tailKey, "tail", cancellationToken: cancellationToken));
+
+        // A client attempt that times out before the server reports the unknown outcome surfaces as a deadline error. The tail assertion
+        // below then covers the case where the server had not yet appended the write before the abrupt shutdown.
+        var refused = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(beforeCache.SetAsync(tailKey, "tail", cancellationToken: cancellationToken));
+        var unknownOrDeadline = refused is CommitOutcomeUnknownException or RpcException { StatusCode: StatusCode.DeadlineExceeded };
+        _ = await Assert.That(unknownOrDeadline).IsTrue().Because($"A write without its followers must end with an unknown outcome or a deadline error; observed {refused.GetType()}.");
         await cluster.AbruptShutdownNodeAsync("nodeA");
         await cluster.RestartNodeAsync("nodeB", cancellationToken);
         await cluster.RestartNodeAsync("nodeC", cancellationToken);

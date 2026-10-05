@@ -23,6 +23,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
 
         await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", options, cancellationToken);
         var nodeA = cluster["node-a"];
+        await ReplicaGroupFollowers.AwaitVerifiedAsync(nodeA, cancellationToken);
 
         var cache = nodeA.GetCache<object?>("partition-safety");
         var key = nodeA.FindKeyOwnedBy("partition-safety", "node-a");

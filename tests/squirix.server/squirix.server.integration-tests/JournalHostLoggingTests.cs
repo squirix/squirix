@@ -7,6 +7,7 @@ using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
@@ -35,20 +36,19 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
     public async Task JournalEventsReachHostLogger(CancellationToken cancellationToken)
     {
         using var recorder = new RecordingLoggerProvider();
-        var options = new IntegrationStartOptions { PersistenceOptions = new PersistenceOptions(), ServicesConfigure = recorder.Register };
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var options = new IntegrationStartOptions { PersistenceOptions = new PersistenceOptions(), ServicesConfigure = recorder.Register, TimeProvider = clock };
         await using var cluster = await StartClusterAsync("node_journal_logging", options, cancellationToken);
         var node = cluster["node_journal_logging"];
         if (node.GetRequiredService<JournalCoordinatorHost>().Coordinator is not IJournalStallProbeSource journal)
             throw new InvalidOperationException("the host journal does not expose its stall probe.");
 
         // The node is idle, so its journal thread performs no segment I/O and the test is the only writer of the probe.
-        var started = Stopwatch.GetTimestamp();
         journal.StallProbe.IoStarted(nameof(IJournalSegmentWriter.FlushToDisk));
         try
         {
-            // The warning fires only once the I/O has been in progress for the slow-operation threshold.
-            while (Stopwatch.GetElapsedTime(started).TotalMilliseconds <= JournalSlowOperationReporter.WarningThresholdMs)
-                await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken);
+            // The warning fires only once the I/O has been in progress for the slow-operation threshold, measured on the server clock.
+            clock.Advance(TimeSpan.FromMilliseconds(JournalSlowOperationReporter.WarningThresholdMs + 1));
 
             journal.StallProbe.ReportWaitCanceled("durability commit");
         }
