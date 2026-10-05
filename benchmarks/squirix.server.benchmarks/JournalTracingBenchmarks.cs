@@ -66,6 +66,8 @@ public class JournalTracingBenchmarks
     /// <summary>Tracer that reports tracing as disabled, like a production node without a listener.</summary>
     private sealed class NoListenerTracer : IJournalOperationTracer
     {
+        bool IJournalOperationTracer.IsEnabled => false;
+
         IJournalOperationTraceScope? IJournalOperationTracer.Begin(JournalOperationKind kind, in JournalOperationTraceContext? context) => null;
     }
 }

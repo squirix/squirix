@@ -27,6 +27,9 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
     }.ToFrozenDictionary();
 
     /// <inheritdoc />
+    bool IJournalOperationTracer.IsEnabled => ActivitySourceHolder.HasListeners;
+
+    /// <inheritdoc />
     IJournalOperationTraceScope? IJournalOperationTracer.Begin(JournalOperationKind kind, in JournalOperationTraceContext? context)
     {
         var activity = ActivitySourceHolder.StartInternal(GetSpanName(kind));

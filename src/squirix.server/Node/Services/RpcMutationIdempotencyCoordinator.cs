@@ -167,7 +167,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         }
     }
 
-    /// <summary>Appends the outcome frame and waits for its durability.</summary>
+    /// <summary>Appends the outcome frame and waits for its durability; the mutation frames were already made durable before they were applied.</summary>
     /// <typeparam name="TResponse">Response type.</typeparam>
     /// <param name="journal">Journal the outcome is appended to.</param>
     /// <param name="scope">Execution scope of the operation.</param>
@@ -213,7 +213,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         internal static T NotCached<T>() => throw new InvalidOperationException("Replayed response was not cached.");
     }
 
-    /// <summary>Defers journal durability until idempotency outcome frames are appended for the active RPC.</summary>
+    /// <summary>Activates the ambient idempotency scope of the active RPC and appends its outcome frame.</summary>
     [Immutable]
     private sealed class RpcMutationIdempotencyExecutionScope : IDisposable, IRpcMutationStampListener
     {

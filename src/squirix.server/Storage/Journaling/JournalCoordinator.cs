@@ -304,7 +304,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         var (seqAtFlush, barrierState, checkpoint) = await CaptureSnapshotCutAsync(state, captureUnderBarrier, cancellationToken).ConfigureAwait(false);
 
         // A faulted or canceled checkpoint aborts the cut: nothing is built or published over frames that may never become durable.
-        await DurabilityPipeline.AwaitFlushAsync(checkpoint, cancellationToken).ConfigureAwait(false);
+        await DurabilityPipeline.AwaitFlushAsync(new ValueTask<TaskCompletionSource>(checkpoint), cancellationToken).ConfigureAwait(false);
         return await buildOutsideBarrier(state, seqAtFlush, barrierState, cancellationToken).ConfigureAwait(false);
     }
 

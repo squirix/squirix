@@ -7,6 +7,8 @@ routing configuration.
 
 - Single-key reads and writes execute on the owning node.
 - Durability is per node. There is no replication or automatic failover.
+- With persistence on, a read never returns a value whose journal frame is not yet durable, and a failed fsync never
+  leaves the value in memory.
 - Multi-key operations are not transactions across owners.
 - Memory pressure may reject growing writes before they are persisted.
 - Journal disk quota may reject durable appends with `JOURNAL_DISK_QUOTA` before they are persisted.

@@ -5,10 +5,10 @@
     "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 14374,
     "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 14278,
     "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 16602,
-    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 21150,
+    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 23255,
     "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 28678,
     "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 28669,
     "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 33425,
-    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 38757
+    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 40884
   }
 }

@@ -191,7 +191,10 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         _ = await Assert.That(target.Executions).IsEqualTo(1);
     }
 
-    /// <summary>Disposal during the outcome durability wait faults the original after stamping, so a retry reports the unknown outcome.</summary>
+    /// <summary>
+    /// Disposal during the outcome durability wait, after the mutation frame was flushed and applied, faults the original after stamping:
+    /// the durable value stays in memory and a retry reports the unknown outcome.
+    /// </summary>
     /// <param name="groupCommit">Whether the stuck fsync belongs to a group commit batch instead of a plain checkpoint.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -200,8 +203,12 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
     public async Task OutcomeWaitShutdownKeepsIntent(bool groupCommit, CancellationToken cancellationToken)
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, ShutdownBudget, NullLogger.Instance, cancellationToken);
+
+        // The first write also writes the segment header: warm up so the one flush that passes is the mutation frame's.
+        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("w"), JournalEntryPayloadKit.EncodePut("w"), cancellationToken);
+        await journal.Journal.AwaitDurabilityCommitAsync(cancellationToken);
         var target = new PutTarget(journal.Journal, CreateStore());
-        journal.Writer.Flush.Arm();
+        journal.Writer.Flush.ArmAfter(1);
 
         var original = target.PutAsync(Fingerprint, cancellationToken);
         RpcException retryError;
@@ -218,19 +225,21 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         }
 
         _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Status.Detail)).IsTrue();
+        _ = await Assert.That(target.Memory.Snapshot).IsEqualTo(KeyA);
         _ = await Assert.That(target.Executions).IsEqualTo(1);
     }
 
     /// <summary>
-    /// Disposal during the outcome durability wait faults the first caller after its mutation frame was stamped: it gets the stable
-    /// commit-unknown contract with the shutdown fault logged as the cause, and a retry stays unknown without executing again.
+    /// Disposal during the durability wait that precedes the memory apply faults the first caller after its mutation frame was stamped: it
+    /// gets the stable commit-unknown contract with the shutdown fault logged as the cause, memory never receives the value, and a retry
+    /// stays unknown without executing again.
     /// </summary>
     /// <param name="groupCommit">Whether the stuck fsync belongs to a group commit batch instead of a plain checkpoint.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task FirstCallerOutcomeFaultIsUnknown(bool groupCommit, CancellationToken cancellationToken)
+    public async Task PreApplyWaitShutdownIsUnknown(bool groupCommit, CancellationToken cancellationToken)
     {
         var log = new EventRecordingLogger();
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, ShutdownBudget, NullLogger.Instance, cancellationToken);
@@ -238,13 +247,13 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         journal.Writer.Flush.Arm();
 
         var original = target.PutAsync(Fingerprint, cancellationToken);
-        RpcException originalError;
+        SquirixException originalError;
         RpcException retryError;
         try
         {
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            originalError = await NodeAsyncAssert.ThrowsAsync<RpcException>(original.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            originalError = await NodeAsyncAssert.ThrowsAsync<SquirixException>(original.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(Fingerprint, cancellationToken).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
         }
         finally
@@ -254,8 +263,9 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
 
         var logged = log.Find(CommitUnknownEventId);
 
-        _ = await Assert.That(originalError.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(originalError.Status.Detail)).IsTrue();
+        _ = await Assert.That(originalError.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(originalError.Detail)).IsTrue();
+        _ = await Assert.That(target.Memory.Snapshot).IsEmpty();
         _ = await Assert.That(logged?.Level).IsEqualTo(LogLevel.Warning);
         _ = await Assert.That(logged?.Cause).IsTypeOf<ObjectDisposedException>();
         _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Status.Detail)).IsTrue();
@@ -325,7 +335,6 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         private readonly DurableMutationExecutor _executor;
         private readonly StrongBox<int> _executions = new(0);
         private readonly IJournalCoordinator _journal;
-        private readonly AppliedKeys _memory = new();
 
         internal PutTarget(IJournalCoordinator journal, RpcMutationIdempotencyStore store)
             : this(journal, store, new EventRecordingLogger())
@@ -339,6 +348,9 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
             _coordinator = new RpcMutationIdempotencyCoordinator(store, journal, log);
         }
 
+        /// <summary>Gets the keys the mutation applied to memory.</summary>
+        internal AppliedKeys Memory { get; } = new();
+
         /// <summary>Gets how many times the mutation handler ran.</summary>
         internal int Executions => Volatile.Read(ref _executions.Value);
 
@@ -350,7 +362,7 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
                 static async (s, ct) =>
                 {
                     _ = Interlocked.Increment(ref s._executions.Value);
-                    var applied = await s._memory.PutAsync(s._executor, s._journal, "a", ct).ConfigureAwait(false);
+                    var applied = await s.Memory.PutAsync(s._executor, s._journal, "a", ct).ConfigureAwait(false);
                     return new TryAddAsyncResponse { Added = applied == 1 };
                 },
                 cancellationToken);

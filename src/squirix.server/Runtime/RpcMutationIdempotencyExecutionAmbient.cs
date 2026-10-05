@@ -3,7 +3,7 @@ using System.Threading;
 
 namespace Squirix.Server.Runtime;
 
-/// <summary>Ambient marker for RPC idempotency executions that defer journal durability until outcomes are recorded.</summary>
+/// <summary>Ambient marker for RPC idempotency executions: it stamps mutation frames with the operation id and tracks whether the scope took effect.</summary>
 internal static class RpcMutationIdempotencyExecutionAmbient
 {
     private static readonly AsyncLocal<ScopeFrame?> Current = new();
@@ -14,8 +14,8 @@ internal static class RpcMutationIdempotencyExecutionAmbient
     /// <summary>Gets the request fingerprint journal mutation frames are stamped with, or <see langword="null" /> when no scope is active or stamping is suspended.</summary>
     internal static string? ActiveFingerprintValue => Current.Value is { StampingSuspended: false } frame ? frame.Fingerprint : null;
 
-    /// <summary>Gets a value indicating whether durability is currently deferred for an active idempotent RPC.</summary>
-    internal static bool IsDeferred => Current.Value != null;
+    /// <summary>Gets a value indicating whether stamping is suspended inside an active scope, so the cache journal is not the durable source of the running write.</summary>
+    internal static bool IsStampingSuspended => Current.Value is { StampingSuspended: true };
 
     internal static void Activate(object scope, string operationId, string fingerprint)
     {
@@ -28,8 +28,8 @@ internal static class RpcMutationIdempotencyExecutionAmbient
     /// <summary>Stops stamping mutation frames with the active operation id until the returned value is disposed.</summary>
     /// <returns>The value that restores the previous stamping state when disposed.</returns>
     /// <remarks>
-    /// Durability stays deferred and mutations still count as having taken effect; only the write-ahead stamp is dropped, for writes whose
-    /// durable source is not the cache journal.
+    /// Mutations still count as having taken effect; the write-ahead stamp is dropped and the executor skips the wait for the cache journal
+    /// flush before the apply, for writes whose durable source is not the cache journal.
     /// </remarks>
     internal static SuspendedStamping SuspendStamping()
     {

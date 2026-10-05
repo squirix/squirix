@@ -34,12 +34,13 @@ internal sealed class JournalDurabilityCoordinator
     internal Action ThrowIfJournalThreadFailedCheck { get; }
 
     /// <summary>Waits for the ack of a checkpoint published by <see cref="PublishFlushAsync" />.</summary>
-    /// <param name="ack">Ack returned by <see cref="PublishFlushAsync" />.</param>
+    /// <param name="published">Ack returned by <see cref="PublishFlushAsync" />, possibly still being published.</param>
     /// <param name="cancellationToken">Cancels the wait; the checkpoint itself stays on the ring.</param>
     /// <returns>A task that completes once every frame enqueued before the checkpoint is durable.</returns>
-    internal async ValueTask AwaitFlushAsync(TaskCompletionSource ack, CancellationToken cancellationToken)
+    /// <remarks>Taking the publication itself lets a caller that publishes and waits in one step use a single state machine.</remarks>
+    internal async ValueTask AwaitFlushAsync(ValueTask<TaskCompletionSource> published, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(ack);
+        var ack = await published.ConfigureAwait(false);
 
         // The durability wait stays outside the gate: the gate covers only the publication, so a slow
         // journal thread never blocks shutdown drain on fsync latency.
@@ -102,11 +103,7 @@ internal sealed class JournalDurabilityCoordinator
     /// <param name="ack">Ack returned by <see cref="PublishFlushAsync" />.</param>
     internal void DetachDurabilityAck(TaskCompletionSource ack) => _ = _owner.DurabilityAcks.Remove(ack);
 
-    internal async ValueTask EnqueueFlushAsync(CancellationToken cancellationToken)
-    {
-        var ack = await PublishFlushAsync(cancellationToken).ConfigureAwait(false);
-        await AwaitFlushAsync(ack, cancellationToken).ConfigureAwait(false);
-    }
+    internal ValueTask EnqueueFlushAsync(CancellationToken cancellationToken) => AwaitFlushAsync(PublishFlushAsync(cancellationToken), cancellationToken);
 
     internal async ValueTask EnqueueMaintenanceAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
     {
