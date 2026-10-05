@@ -43,8 +43,10 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
         using var gateA = new AdmissionGate(CreateOptions(), new BackpressureMetrics(_meterA), clock);
         using var gateB = new AdmissionGate(CreateOptions(), new BackpressureMetrics(_meterB), clock);
         using var go = new SemaphoreSlim(0);
-        var toB = new OwnerGateInvoker(gateB, go);
-        var toA = new OwnerGateInvoker(gateA, go);
+        using var decided = new SemaphoreSlim(0);
+        using var finish = new SemaphoreSlim(0);
+        var toB = new OwnerGateInvoker(gateB, go, decided, finish);
+        var toA = new OwnerGateInvoker(gateA, go, decided, finish);
         var forwarderA = CreateForwarder(gateA, toB);
         var forwarderB = CreateForwarder(gateB, toA);
 
@@ -55,10 +57,15 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
         _ = await Assert.That(gateA.InFlight).IsEqualTo(1);
         _ = await Assert.That(gateB.InFlight).IsEqualTo(1);
 
+        // Both owners decide while both entry slots are still held; only then may either call return and free its entry slot.
         _ = go.Release(2);
+        var firstDecided = await decided.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+        var secondDecided = await decided.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+        _ = finish.Release(2);
         var failureA = await NodeAsyncAssert.ThrowsAsync<RpcException>(first.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken));
         var failureB = await NodeAsyncAssert.ThrowsAsync<RpcException>(second.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken));
 
+        _ = await Assert.That(firstDecided && secondDecided).IsTrue();
         _ = await Assert.That(failureA.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
         _ = await Assert.That(failureB.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
         _ = await Assert.That(toB.Decisions[0]).IsEqualTo("forwarded_no_slot");
@@ -110,16 +117,23 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
         TimeProvider.System,
         new CallPolicyTimeouts(TimeSpan.FromSeconds(30), TimeSpan.Zero, TimeSpan.Zero));
 
-    /// <summary>Runs every call as the owner node does: after a barrier it admits the call on the owner gate as an internal owner invocation.</summary>
+    /// <summary>
+    /// Runs every call as the owner node does: after a barrier it admits the call on the owner gate as an internal owner invocation,
+    /// reports the decision and returns only when released.
+    /// </summary>
     private sealed class OwnerGateInvoker : CallInvoker
     {
         private readonly SemaphoreSlim _barrier;
+        private readonly SemaphoreSlim _decided;
+        private readonly SemaphoreSlim _finish;
         private readonly AdmissionGate _ownerGate;
 
-        internal OwnerGateInvoker(AdmissionGate ownerGate, SemaphoreSlim barrier)
+        internal OwnerGateInvoker(AdmissionGate ownerGate, SemaphoreSlim barrier, SemaphoreSlim decided, SemaphoreSlim finish)
         {
             _ownerGate = ownerGate;
             _barrier = barrier;
+            _decided = decided;
+            _finish = finish;
         }
 
         /// <summary>Gets the reject reason of every owner admission, or <see langword="null" /> when it was accepted, in call order.</summary>
@@ -175,6 +189,8 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
             using (lease)
             {
                 Decisions.Add(decision.RejectReason);
+                _ = _decided.Release();
+                await _finish.WaitAsync(cancellationToken).ConfigureAwait(false);
                 return decision.IsAccepted
                     ? CreateResponse<TResponse>()
                     : throw new RpcException(new Status(StatusCode.ResourceExhausted, decision.RejectReason ?? "unknown"));
