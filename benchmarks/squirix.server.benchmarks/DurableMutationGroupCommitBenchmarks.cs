@@ -10,6 +10,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Runtime;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
@@ -20,7 +21,8 @@ namespace Squirix.Server.Benchmarks;
 
 /// <summary>
 /// Durable mutation group-commit throughput via <see cref="DurableMutationExecutor" />. With <see cref="IdempotentScope" /> each mutation runs the way
-/// a hosted RPC does: through <see cref="RpcMutationIdempotencyCoordinator" />, which defers journal durability until the outcome frame is appended.
+/// a hosted RPC does: through <see cref="RpcMutationIdempotencyCoordinator" />. The handler registers its outcome projection and the mutation predicts
+/// its result, so the outcome frame is appended right behind the mutation frame and one flush covers both.
 /// </summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 3)]
@@ -134,6 +136,7 @@ public class DurableMutationGroupCommitBenchmarks
                 pipelineState,
                 static async (s, ct) =>
                 {
+                    RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<int>(static predicted => new Int32Value { Value = predicted });
                     _ = await PutAsync(s, ct).ConfigureAwait(false);
                     return new Int32Value { Value = 1 };
                 },
@@ -154,11 +157,13 @@ public class DurableMutationGroupCommitBenchmarks
     private static ValueTask<int> PutAsync((DurableMutationExecutor Executor, IJournalCoordinator Journal, CacheKey Key, byte[] Payload) s, CancellationToken cancellationToken) =>
         s.Executor.ExecuteAsync(
             s.Key,
-            static (_, _) => ValueTask.FromResult(DurableMutationCondition<int>.Apply()),
+            static (_, _) => ValueTask.FromResult(DurableMutationCondition<int>.Apply(1)),
             new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, ReadOnlyMemory<byte> Payload), int>(
                 (s.Journal, s.Key, s.Payload),
                 static (p, ownership, ct) => p.Journal.AppendPutAsync(ownership, p.Key, p.Payload, ct),
-                static (_, _) => new ValueTask<int>(1)),
+                static (_, _) => new ValueTask<int>(1),
+                static (_, predicted) => RpcMutationIdempotencyExecutionAmbient.AppendPredictedOutcomeAsync(predicted),
+                static _ => RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply()),
             cancellationToken);
 
     private static int GetOperationsPerWriter() => JournalBenchmarkSupport.ResolveGroupCommitOperationsPerWriter(DefaultOperationsPerWriter);
