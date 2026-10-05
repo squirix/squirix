@@ -102,6 +102,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
     }
 
+    /// <summary>Initializes the time source of the commit budget and of the follower request timeouts; the system clock unless set.</summary>
+    /// <remarks>Test seam: production committers keep the system clock.</remarks>
+    internal TimeProvider BudgetTimeProvider { private get; init; } = TimeProvider.System;
+
     /// <summary>Initializes the time source that pins the expiration deadlines of prepared records; the system clock unless set.</summary>
     /// <remarks>Only the prepare of a mutation reads it. Applying a record never does.</remarks>
     internal TimeProvider Clock { private get; init; } = TimeProvider.System;
@@ -495,6 +499,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         {
             // The coordinator's teardown is part of this committer's dispose, so it never waits longer than this committer's budget.
             ShutdownBudget = ShutdownBudget < ReplicaCommitCoordinator.DefaultShutdownBudget ? ShutdownBudget : ReplicaCommitCoordinator.DefaultShutdownBudget,
+            BudgetTimeProvider = BudgetTimeProvider,
             ShutdownLeakReporter = budget => ServerLog.ReplicaCoordinatorLeakedOnShutdown(Log, budget),
             AbandonedWorkFaultReporter = error => ServerLog.ReplicaCoordinatorAbandonedWorkFaulted(Log, error),
         };
@@ -523,8 +528,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             members,
             in status,
             in header,
-            CommitBudget,
-            ShutdownBudget,
+            new ReplicaFollowerSenders.SenderTiming(CommitBudget, ShutdownBudget, BudgetTimeProvider),
             budget => ServerLog.ReplicaFollowerSenderLeakedOnShutdown(Log, budget));
     }
 
