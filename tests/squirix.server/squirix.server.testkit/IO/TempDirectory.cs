@@ -36,7 +36,8 @@ public sealed class TempDirectory : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        const int maxAttempts = 5;
+        // Antivirus scanners and lingering handles on Windows can hold a just-closed file for seconds; ~5 s of backoff in total.
+        const int maxAttempts = 11;
         var attempt = 1;
         while (true)
         {
@@ -50,7 +51,7 @@ public sealed class TempDirectory : IDisposable
             catch (Exception ex) when (attempt < maxAttempts && ex is IOException or UnauthorizedAccessException)
             {
                 TestLog.Suppressed($"Transient delete failure on '{Path}' (attempt {attempt}); retrying.", ex);
-                _ = SpinWait.SpinUntil(static () => false, 20 * attempt);
+                _ = SpinWait.SpinUntil(static () => false, 100 * attempt);
                 attempt++;
             }
         }
