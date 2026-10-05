@@ -110,16 +110,30 @@ Number of waiting writes at which the batch is flushed without waiting for `Grou
 Set `MaxBatch` to at least your expected **peak concurrent durable mutations on distinct keys**, but avoid unnecessarily
 large values if p99 commit latency is sensitive.
 
-### Starting points (not defaults)
+### Recommended starting values
 
-Recommended values are pending measurement on the public hosting path; the numbers below are provisional.
-Use these only as **first experiments** after enabling group commit, then sweep on representative hardware:
+Keep group commit **off** (`MaxWait = 0`) unless a measurement on your storage shows fsync is the bottleneck. When it is,
+start with:
 
-| Profile          | `MaxWait` (starting point) | `MaxBatch` (starting point)       |
-| ---------------- | -------------------------- | --------------------------------- |
-| Latency-first    | `0` (keep disabled)        | n/a                               |
-| Balanced         | `2–5 ms`                   | `32` (default)                    |
-| Throughput-first | `5–10 ms`                  | `64` (if concurrency supports it) |
+| Setting                       | Starting value | Notes                                                              |
+| ----------------------------- | -------------- | ------------------------------------------------------------------ |
+| `Journal.GroupCommitMaxWait`  | `2 ms`         | Latency a lone write can pay per durability wait; sweep `1–10 ms`  |
+| `Journal.GroupCommitMaxBatch` | `32` (default) | Raise toward the peak count of concurrent writers on distinct keys |
+
+Group commit can only win when many writers on **distinct keys** reach the journal together (roughly `MaxBatch` or more
+in flight) and one fsync is expensive (network or cloud block storage, SATA SSD without a write cache, spinning disk).
+On fast local storage a flush is cheap, so waiting for a batch only adds latency.
+
+Effects to account for:
+
+- **Two durability waits per hosted write.** A hosted write waits once for its mutation frame and once for its
+  idempotency outcome frame, so a lone write can pay up to `2 × MaxWait`.
+- **Hot key.** Writers on one key are serialized across the fsync, so a hot key completes about one write per batch wait
+  and gains nothing; batching needs distinct keys.
+- **Windows timer granularity.** The journal thread waits on an OS wait handle with a millisecond timeout, which Windows
+  rounds up to the system timer tick (about `15.6 ms`). `MaxWait = 1 ms` and `5 ms` therefore behave alike and a
+  partial batch waits a full tick. A batch that reaches `MaxBatch` flushes at once and does not wait for the timer, so
+  keep concurrency at or above `MaxBatch`.
 
 Suggested sweep:
 
@@ -128,8 +142,23 @@ Suggested sweep:
 2. At the best `MaxWait`, vary `MaxBatch` (for example `16`, `32`, `64`, `128`) until throughput stops improving or p99
    exceeds your budget.
 
-The journal thread uses a timed wait, so on Windows a short `MaxWait` may resolve coarser than the configured value
-(OS timer granularity); include `2–5 ms` in sweeps, not only `1 ms`. See [journal-single-owner-wal.md](journal-single-owner-wal.md).
+See [journal-single-owner-wal.md](journal-single-owner-wal.md) for the journal thread wait loop.
+
+### Measured on one machine
+
+`DurableMutationGroupCommitBenchmarks`: hosted write path (mutation frame plus idempotency outcome frame), distinct keys,
+256 B values, 200 writes per writer, `MaxBatch = 32`, Windows 11, local NVMe SSD with a write cache (cheap fsync).
+Throughput in writes per second, three iterations, high variance at 256 writers:
+
+| Writers | Off (`MaxWait = 0`) | `MaxWait = 1 ms` | `MaxWait = 5 ms` |
+| ------- | ------------------- | ---------------- | ---------------- |
+| 8       | ~6,900              | ~290             | ~260             |
+| 64      | ~6,800              | ~5,200           | ~6,000           |
+| 256     | ~8,300              | ~5,300           | ~6,100           |
+
+On this machine group commit never beat the default: with 8 writers the batch never fills and every write waits a
+`15.6 ms` timer tick per durability wait; with 64 or more writers batches fill and the gap closes, but fsync is cheap
+enough that sharing it does not pay. Expect a gain only on storage where one fsync costs milliseconds; measure there.
 
 ### Development benchmarks vs production tuning
 
@@ -137,23 +166,6 @@ Internal benchmarks may use a **minimal non-zero** `MaxWait` (for example `1 ms`
 under concurrent writers. That value is a **regression gate for backend comparison**, not a recommendation for production.
 
 Production integrators should choose `MaxWait` and `MaxBatch` from their own measurements and SLA.
-
-### Measured defaults (Windows, 2026-06-21)
-
-Internal quick benchmarks (`SQUIRIX_BENCH_QUICK=1`, 800 ops/invoke, 8→4 writers) after Pipelined GC tuning.
-JsonFramed write backend was removed in `8d2664c5`; numbers below are from pre-removal A/B runs kept for context.
-
-| Path                                     | Payload | Pipelined vs legacy JsonFramed write |
-| ---------------------------------------- | ------- | ------------------------------------ |
-| **DurableMutationExecutor** (production) | 256 B   | **~2× throughput**                   |
-| DurableMutationExecutor                  | 4096 B  | ~1.17× throughput                    |
-
-**Recommendations for production concurrent durable writes (pending measurement on the public hosting path):**
-
-- As a production starting point after enabling group commit, try **`Journal.GroupCommitMaxWait = 1–5 ms`** with
-  **`Journal.GroupCommitMaxBatch = 32`** (default). The library default remains `MaxWait = 0` (disabled).
-- Prefer the **DurableMutationExecutor** group-commit path (conflict key + barrier) over calling `AppendPutAsync` and
-  `AwaitDurabilityCommitAsync` separately on hot paths.
 
 ## Latency vs throughput (summary)
 

@@ -27,7 +27,6 @@ namespace Squirix.Server.Benchmarks;
 public class DurableMutationGroupCommitBenchmarks
 {
     private const int DefaultOperationsPerWriter = 2_000;
-    private const int DefaultParallelWriters = 8;
     private const string Fingerprint = "bench-fingerprint";
     private readonly Meter _meter = new("durable-mutation-gc-bench");
     private RpcMutationIdempotencyCoordinator? _coordinator;
@@ -47,6 +46,10 @@ public class DurableMutationGroupCommitBenchmarks
     /// <summary>Gets or sets a value indicating whether each mutation runs through the RPC idempotency coordinator (outcome frame and durability wait).</summary>
     [Params(false, true)]
     public bool IdempotentScope { get; set; }
+
+    /// <summary>Gets or sets the number of concurrent writers.</summary>
+    [Params(8, 64, 256)]
+    public int Writers { get; set; }
 
     /// <summary>Gets or sets the PUT payload size in bytes.</summary>
     [Params(256, 4096)]
@@ -76,7 +79,7 @@ public class DurableMutationGroupCommitBenchmarks
         var hotKey = HotKey;
         var payload = _putPayload;
         var operationsPerWriter = GetOperationsPerWriter();
-        var parallelWriters = GetParallelWriters();
+        var parallelWriters = Writers;
         return Parallel.ForEachAsync(
             new int[parallelWriters],
             new ParallelOptions { MaxDegreeOfParallelism = parallelWriters },
@@ -159,6 +162,4 @@ public class DurableMutationGroupCommitBenchmarks
             cancellationToken);
 
     private static int GetOperationsPerWriter() => JournalBenchmarkSupport.ResolveGroupCommitOperationsPerWriter(DefaultOperationsPerWriter);
-
-    private static int GetParallelWriters() => JournalBenchmarkSupport.ResolveGroupCommitParallelWriters(DefaultParallelWriters);
 }
