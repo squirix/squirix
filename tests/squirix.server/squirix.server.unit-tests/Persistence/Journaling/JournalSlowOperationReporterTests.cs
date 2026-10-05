@@ -82,6 +82,44 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         await AssertIoStallReportedAsync(logger, "durability commit", nameof(IJournalSegmentWriter.FlushToDisk));
     }
 
+    /// <summary>A durability wait canceled while a segment write has been stuck for less than the threshold reports nothing.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BriefStallCancelDoesNotReport(CancellationToken cancellationToken)
+    {
+        var logger = new RecordingLogger();
+        using var loggerFactory = new FixedLoggerFactory(logger);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var options = CreateOptions();
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero, holdWrite: true);
+        await using var journal = new JournalCoordinator(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            writer,
+            loggerFactory,
+            clock);
+        try
+        {
+            await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
+            await writer.WriteEntered.Task.WaitAsync(EntryTimeout, TimeProvider.System, cancellationToken);
+            using var waitBudget = new CancellationTokenSource();
+            var wait = journal.AwaitDurabilityCommitAsync(waitBudget.Token).AsTask();
+            clock.Advance(TimeSpan.FromMilliseconds(JournalSlowOperationReporter.WarningThresholdMs - 1));
+            await waitBudget.CancelAsync();
+
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
+        }
+        finally
+        {
+            writer.Release();
+        }
+
+        _ = await Assert.That(logger.Count(WaitCanceledEventId)).IsEqualTo(0);
+    }
+
     /// <summary>A durability wait canceled while the journal thread is stuck in a segment write reports the stall.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
