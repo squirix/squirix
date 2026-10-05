@@ -65,7 +65,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
     /// Ensures a failed in-memory apply after durable journal is not retried, and reaches the caller as its own failure rather than as
     /// commit-unknown.
     /// </summary>
-    /// <param name="groupCommit">Whether the mutation runs through the group commit path, which applies under a re-acquired gate.</param>
+    /// <param name="groupCommit">Whether the journal batches flushes across writers.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="InvalidOperationException">Thrown by the simulated in-memory apply delegate.</exception>
     [Test]
@@ -91,7 +91,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
 
             var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, int>(
                 executor.ExecuteAsync(
-                    groupCommit ? CacheKey.Default("k") : null,
+                    CacheKey.Default("k"),
                     static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
                     new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload, ApplyCounter Apply), int>(
                         (journal, CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), applyState),

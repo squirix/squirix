@@ -68,7 +68,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
                 {
                     state.Attempts.Value++;
                     _ = await state.Executor.ExecuteAsync(
-                        null,
+                        state.Key,
                         static (_, _) => new ValueTask<DurableMutationCondition<bool>>(DurableMutationCondition<bool>.Apply()),
                         new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload), bool>(
                             (state.Journal, state.Key, state.Payload),
@@ -133,7 +133,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
             static async (state, cancellationToken) =>
             {
                 var added = await state.Executor.ExecuteAsync(
-                    null,
+                    state.Key,
                     static (_, _) => new ValueTask<DurableMutationCondition<bool>>(DurableMutationCondition<bool>.Apply()),
                     new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload), bool>(
                         (state.Journal, state.Key, state.Payload),
