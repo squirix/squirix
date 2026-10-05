@@ -21,6 +21,7 @@ namespace Squirix.Server.Benchmarks;
 /// <summary>
 /// Cost of the leader re-applying a committed backlog of replica log entries to a journaled local cache, the way start, resync catch-up and
 /// readiness do: every entry goes through <see cref="ReplicaLeaderApplier" /> on a task started without the execution context.
+/// The reported time is per backlog, because the invocation count cannot take a parameter value: divide by <see cref="Backlog" /> for the per-entry cost.
 /// </summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 3)]
