@@ -22,6 +22,8 @@ namespace Squirix.Server.UnitTests.Cluster;
 [Immutable]
 public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
 {
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(10);
+
     private readonly Meter _testMeter = new("test");
 
     /// <summary>Ensures the ambient request deadline caps the overall retry budget.</summary>
@@ -42,8 +44,12 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
                 return 1;
             },
             cancellationToken);
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(FakeClockKit.AdvanceUntilCompletedAsync(clock, pending, cancellationToken));
+        clock.Advance(TimeSpan.FromMilliseconds(49));
+        var stillPending = !pending.IsCompleted;
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(pending);
 
+        _ = await Assert.That(stillPending).IsTrue();
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
     }
 
@@ -383,8 +389,12 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
                 return 0;
             },
             cancellationToken);
-        var value = await FakeClockKit.AdvanceUntilCompletedAsync(clock, pending, cancellationToken);
+        clock.Advance(TimeSpan.FromMilliseconds(24));
+        var stillPending = !pending.IsCompleted;
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        var value = await pending.AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
+        _ = await Assert.That(stillPending).IsTrue();
         _ = await Assert.That(value).IsEqualTo(42);
         _ = await Assert.That(attempts.Count).IsEqualTo(2);
     }
@@ -451,7 +461,11 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
                 return 1;
             },
             cancellationToken);
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(FakeClockKit.AdvanceUntilCompletedAsync(clock, pending, cancellationToken));
+        clock.Advance(TimeSpan.FromMilliseconds(34));
+        var stillPending = !pending.IsCompleted;
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(pending);
+        _ = await Assert.That(stillPending).IsTrue();
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
 
         _ = await Assert.That(sink.HasEvent("squirix_rpc_timeouts_total", ("peer", "peer-b"), ("scope", "overall"), ("kind", "deadline_budget"))).IsTrue();
