@@ -1,7 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -70,39 +70,52 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         _ = await Assert.That(metrics).Contains("squirix_replication_log_compactions_total{", StringComparison.Ordinal);
     }
 
-    /// <summary>Under a steady write load the owner compacts repeatedly between bursts of writes, so its log stays bounded.</summary>
+    /// <summary>Under a steady write load the owner compacts repeatedly while writes are in flight, so the gated step fires between commits and its log stays bounded.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="TimeoutException">Compaction did not fire the required number of times within the bound.</exception>
     [Test]
     public async Task SteadyLoadCompactsRepeatedly(CancellationToken cancellationToken)
     {
         const int writes = 300;
-        const int CompactEvery = 20;
+        const int requiredCompactions = 2;
         await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", Options("group-log-steady", true, ManualMaintenanceInterval), cancellationToken);
         var owner = cluster[OwnerId];
         await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
         var log = OwnerLog(owner);
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
         var cache = owner.GetCache<object?>(CacheName);
-        var followers = Followers(cluster);
-        var snapshots = new HashSet<ulong>();
-        var peak = 0;
-        for (var i = 1; i <= writes; i++)
-        {
-            await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = $"value-{i}", Version = i }, cancellationToken);
-            if (i % CompactEvery == 0)
-            {
-                await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, OwnerId, followers, cancellationToken);
-                await CompactAsync(owner, cancellationToken);
-            }
+        var compactions = new StrongBox<int>();
+        using var writerDone = new CancellationTokenSource();
 
-            var retention = await log.GetRetentionAsync(cancellationToken);
-            peak = Math.Max(peak, retention.RetainedEntries);
-            if (retention.SnapshotIndex > 0)
-                _ = snapshots.Add(retention.SnapshotIndex);
+        // The maintenance step runs concurrently with the writer; a step the followers or the gate refuse is simply tried again.
+        var compactor = CompactWhileAsync(owner, compactions, writerDone.Token, cancellationToken);
+
+        var peak = 0;
+        try
+        {
+            var started = Stopwatch.GetTimestamp();
+            var i = 0;
+            while (true)
+            {
+                i++;
+                await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = $"value-{i}", Version = i }, cancellationToken);
+                var retention = await log.GetRetentionAsync(cancellationToken);
+                peak = Math.Max(peak, retention.RetainedEntries);
+                if (i >= writes && Volatile.Read(ref compactions.Value) >= requiredCompactions)
+                    break;
+
+                if (Stopwatch.GetElapsedTime(started) >= Bound * 2)
+                    throw new TimeoutException($"Compaction did not fire {requiredCompactions} times while writes went on; compactions: {Volatile.Read(ref compactions.Value)}; {await DescribeLogsAsync(cluster, cancellationToken)}.");
+            }
+        }
+        finally
+        {
+            await writerDone.CancelAsync();
+            await compactor;
         }
 
         var logs = await DescribeLogsAsync(cluster, cancellationToken);
-        _ = await Assert.That(snapshots.Count >= 2).IsTrue().Because($"Compaction must fire repeatedly while writes go on; snapshot indexes seen: {snapshots.Count}; {logs}.");
+        _ = await Assert.That(Volatile.Read(ref compactions.Value) >= requiredCompactions).IsTrue().Because($"Compaction must fire repeatedly while writes go on; compactions: {compactions.Value}; {logs}.");
         _ = await Assert.That(peak < writes / 2).IsTrue().Because($"The group log must stay bounded under load; peak retained entries: {peak}.");
     }
 
@@ -152,6 +165,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     {
         await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", Options("group-log-follower-down", true, ManualMaintenanceInterval), cancellationToken);
         var owner = cluster[OwnerId];
+        await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
         await cluster.StopNodeAsync("node-c");
         _ = await OverwriteAsync(owner, [], Threshold * 3, cancellationToken);
 
@@ -256,21 +270,48 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         }
     }
 
-    /// <summary>Runs the maintenance step of the owner by hand until it compacts the log: flushes the applied index, then compacts through the commit index.</summary>
+    /// <summary>Runs the maintenance step of the owner repeatedly until told to stop, counting the passes that compacted.</summary>
+    /// <param name="owner">The group owner.</param>
+    /// <param name="compactions">The counter of passes that compacted the log.</param>
+    /// <param name="stop">Signals that the loop ends after its current pass.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    private static async Task CompactWhileAsync(ITestNodeHost owner, StrongBox<int> compactions, CancellationToken stop, CancellationToken cancellationToken)
+    {
+        while (!stop.IsCancellationRequested)
+        {
+            var outcome = await CompactOnceAsync(owner, cancellationToken);
+            if (outcome == ReplicaLogCompactionOutcome.Compacted)
+                _ = Interlocked.Increment(ref compactions.Value);
+            else
+                await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, cancellationToken);
+        }
+    }
+
+    /// <summary>Runs the maintenance step of the owner once by hand: flushes the applied index, then compacts through the commit index.</summary>
+    /// <param name="owner">The group owner.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The outcome of the compaction step.</returns>
+    private static async Task<ReplicaLogCompactionOutcome> CompactOnceAsync(ITestNodeHost owner, CancellationToken cancellationToken)
+    {
+        var committer = owner.GetRequiredService<ReplicaGroupCommitter>();
+        var journal = owner.GetRequiredService<IJournalCoordinator>();
+        var policy = ReplicaLogCompactionPolicy.From(owner.GetRequiredService<PersistenceOptions>());
+        await committer.FlushAppliedAsync(journal, cancellationToken);
+        return await committer.CompactOwnedLogAsync(policy, journal, cancellationToken);
+    }
+
+    /// <summary>Runs the maintenance step of the owner by hand until it compacts the log.</summary>
     /// <param name="owner">The group owner, whose followers already hold its log.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>An asynchronous operation.</returns>
     /// <exception cref="TimeoutException">The step did not compact the log within the bound.</exception>
     private static async Task CompactAsync(ITestNodeHost owner, CancellationToken cancellationToken)
     {
-        var committer = owner.GetRequiredService<ReplicaGroupCommitter>();
-        var journal = owner.GetRequiredService<IJournalCoordinator>();
-        var policy = ReplicaLogCompactionPolicy.From(owner.GetRequiredService<PersistenceOptions>());
         var started = Stopwatch.GetTimestamp();
         while (true)
         {
-            await committer.FlushAppliedAsync(journal, cancellationToken);
-            var outcome = await committer.CompactOwnedLogAsync(policy, journal, cancellationToken);
+            var outcome = await CompactOnceAsync(owner, cancellationToken);
             if (outcome == ReplicaLogCompactionOutcome.Compacted)
                 return;
 
