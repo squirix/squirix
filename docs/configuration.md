@@ -401,16 +401,19 @@ id** resolved for each cache operation:
 | ------ | --------- | ---- |
 | JWT bearer principal | `jwt:{subject}` | Authenticated request with a non-empty `sub` / `NameIdentifier` claim |
 | ASP.NET Core connection | `conn:{connectionId}` | Request has an `HttpContext` but no usable principal id (anonymous loopback, authenticated token missing `sub`) |
-| Internal owner RPC | `internal` | Trusted owner-routed call from another cluster node (peer mTLS on the internal listener). Exempt from per-client limits; node-wide limits apply |
+| Internal owner RPC | `internal` | Trusted owner-routed call from another cluster node (peer mTLS on the internal listener). Admitted only to a free slot: no per-client limits, slowdown or queueing; the node rate limit applies |
 | In-process / missing context | `runtime` | No `HttpContext` (host bootstrap, some tests, non-HTTP callers). All such callers share one bucket |
 
 Setting `PerClientMaxInFlight` or `PerClientRateLimitPerSecond` turns on per-caller client ids; without either, all callers
 share one bucket and no caller identity is computed per request.
 
 v0.1 external auth is JWT-only; there is no API-key principal. A request forwarded to its key owner is admitted on the
-entry node under the caller's own client id. The owner treats it as an internal owner call (mTLS on the internal
-listener) and skips per-client limits for it, so forwarded traffic is not pooled into one bucket per peer connection;
-node-wide concurrency, queue and node rate limits still apply to it.
+entry node under the caller's own client id, including the slowdown delay and queue wait, and holds that admission for
+the whole hop. The owner treats it as an internal owner call (mTLS on the internal listener): it skips per-client limits,
+the slowdown delay and the queue, so a forwarded request waits in at most one queue and traffic is not pooled into one
+bucket per peer connection. The owner admits it only to a free slot and refuses it at once with `forwarded_no_slot` when
+none is free; the entry node does not retry that refusal, so the client retries it with backoff. The node rate limit
+still applies to it, and it never overtakes requests already queued on the owner.
 
 | Field                         | Type            | Default        | Validation                                       |
 | ----------------------------- | --------------- | -------------- | ------------------------------------------------ |
@@ -431,7 +434,7 @@ with `queue_full`, and one that waits too long with `queue_wait_timeout`. From `
 each new request is first delayed by up to `MaxSlowdownDelay`, growing linearly to the full delay when `MaxInFlight` slots are
 taken, so a queued request can wait up to `MaxSlowdownDelay` plus `MaxQueueWait` (275 ms with the defaults).
 `PerClientMaxInFlight` counts a caller's admitted and queued requests together; a request over that limit is rejected,
-never queued. A burst is meaningless without a rate, so setting a burst alone is rejected.
+never queued. Forwarded owner calls are never queued on the owner (see above). A burst is meaningless without a rate, so setting a burst alone is rejected.
 
 ### Journal compaction
 

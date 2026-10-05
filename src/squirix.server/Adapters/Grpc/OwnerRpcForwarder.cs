@@ -15,8 +15,9 @@ namespace Squirix.Server.Adapters.Grpc;
 
 /// <summary>Sends an inbound single-key RPC unchanged from the entry node to the key owner and returns the owner response as is.</summary>
 /// <remarks>
-/// The entry node takes its own backpressure admission for the duration of the hop but reserves no operation id, runs no cache pipeline and
-/// writes no journal record: only the owner does. The request instance is sent as parsed, so the owner computes the same fingerprint as for a direct call.
+/// The entry node takes its own backpressure admission for the duration of the hop, including any slowdown delay and queue wait, but reserves
+/// no operation id, runs no cache pipeline and writes no journal record: only the owner does. The owner admits the forwarded call only to a
+/// free slot and refuses it at once otherwise, so a forwarded request waits in at most one admission queue and nodes never wait on each other. The request instance is sent as parsed, so the owner computes the same fingerprint as for a direct call.
 /// </remarks>
 [Immutable]
 internal sealed class OwnerRpcForwarder
