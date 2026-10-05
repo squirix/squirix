@@ -135,8 +135,6 @@ P:Squirix.Server.SquirixServerBackpressureOptions::PerClientRateLimitBurst:Syste
 P:Squirix.Server.SquirixServerBackpressureOptions::PerClientRateLimitBurst:System.Nullable<System.Int32>.set
 P:Squirix.Server.SquirixServerBackpressureOptions::PerClientRateLimitPerSecond:System.Nullable<System.Int32>.get
 P:Squirix.Server.SquirixServerBackpressureOptions::PerClientRateLimitPerSecond:System.Nullable<System.Int32>.set
-P:Squirix.Server.SquirixServerBackpressureOptions::RejectThreshold:System.Int32.get
-P:Squirix.Server.SquirixServerBackpressureOptions::RejectThreshold:System.Int32.set
 P:Squirix.Server.SquirixServerBackpressureOptions::SlowdownThreshold:System.Int32.get
 P:Squirix.Server.SquirixServerBackpressureOptions::SlowdownThreshold:System.Int32.set
 T:Squirix.Server.SquirixServerJournalOptions

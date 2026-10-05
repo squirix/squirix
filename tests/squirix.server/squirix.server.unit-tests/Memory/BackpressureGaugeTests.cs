@@ -46,7 +46,6 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
             MaxInFlight = 1,
             MaxQueue = 1,
             SlowdownThreshold = 1,
-            RejectThreshold = 1,
             MaxSlowdownDelay = TimeSpan.Zero,
             MaxQueueWait = TimeSpan.FromMilliseconds(200),
             PerClientMaxInFlight = 1,

@@ -45,7 +45,6 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
             PerClientMaxInFlight = 3,
             PerClientRateLimitBurst = 8,
             PerClientRateLimitPerSecond = 4,
-            RejectThreshold = 9,
             SlowdownThreshold = 7,
         };
 
@@ -63,7 +62,6 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
                 PerClientMaxInFlight = 3,
                 PerClientRateLimitBurst = 8,
                 PerClientRateLimitPerSecond = 4,
-                RejectThreshold = 9,
                 SlowdownThreshold = 7,
             });
         _ = await Assert.That(mapped.HasPerClientLimits).IsTrue();
@@ -75,13 +73,13 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
     {
         var options = new SquirixServerOptions
         {
-            Backpressure = new SquirixServerBackpressureOptions { MaxInFlight = 8, SlowdownThreshold = 7, RejectThreshold = 6 },
+            Backpressure = new SquirixServerBackpressureOptions { MaxInFlight = 8, SlowdownThreshold = 9 },
         };
 
         var valid = options.TryValidate(out var errors);
 
         _ = await Assert.That(valid).IsFalse();
-        _ = await Assert.That(errors[0]).Contains("RejectThreshold", StringComparison.Ordinal);
+        _ = await Assert.That(errors[0]).Contains("SlowdownThreshold", StringComparison.Ordinal);
     }
 
     /// <summary>A per-client limit above the node cap fails validation.</summary>
@@ -90,7 +88,7 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
     {
         var options = new SquirixServerOptions
         {
-            Backpressure = new SquirixServerBackpressureOptions { MaxInFlight = 8, SlowdownThreshold = 8, RejectThreshold = 8, PerClientMaxInFlight = 9 },
+            Backpressure = new SquirixServerBackpressureOptions { MaxInFlight = 8, SlowdownThreshold = 8, PerClientMaxInFlight = 9 },
         };
 
         var valid = options.TryValidate(out var errors);
@@ -277,7 +275,6 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
                 PerClientMaxInFlight = 3,
                 PerClientRateLimitBurst = 8,
                 PerClientRateLimitPerSecond = 4,
-                RejectThreshold = 9,
                 SlowdownThreshold = 7,
             },
         };

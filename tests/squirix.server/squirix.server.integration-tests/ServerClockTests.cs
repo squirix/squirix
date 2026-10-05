@@ -57,7 +57,6 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
             MaxInFlight = 4,
             MaxQueue = 0,
             SlowdownThreshold = 4,
-            RejectThreshold = 4,
             MaxSlowdownDelay = TimeSpan.Zero,
             NodeRateLimitPerSecond = 1,
             NodeRateLimitBurst = 1,

@@ -66,9 +66,9 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
         var inFlight = Volatile.Read(ref _inFlight);
         var queueDepth = Volatile.Read(ref _queueDepth);
-        var hardThresholdReject = RejectByHardThresholdIfExceeded(transport, operation, inFlight, queueDepth);
-        if (hardThresholdReject != null)
-            return hardThresholdReject.Value;
+        var queueFullReject = RejectByQueueFullIfSaturated(transport, operation, inFlight, queueDepth);
+        if (queueFullReject != null)
+            return queueFullReject.Value;
 
         if (inFlight >= _options.SlowdownThreshold)
             await ApplySlowdownAsync(transport, operation, inFlight, cancellationToken).ConfigureAwait(false);
@@ -129,7 +129,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private async Task ApplySlowdownAsync(string transport, string operation, int inFlight, CancellationToken cancellationToken)
     {
-        var window = Math.Max(1d, _options.RejectThreshold - _options.SlowdownThreshold);
+        var window = Math.Max(1d, _options.MaxInFlight - _options.SlowdownThreshold);
         var relative = Math.Clamp((inFlight - _options.SlowdownThreshold + 1d) / window, 0d, 1d);
         var delay = TimeSpan.FromMilliseconds(_options.MaxSlowdownDelay.TotalMilliseconds * relative);
         if (delay <= TimeSpan.Zero)
@@ -162,15 +162,6 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _metrics.AddRateLimitReject(transport, operation, "client");
         _metrics.AddReject(transport, operation, "client_rate_limit");
         return (Decision.Rejected("client_rate_limit"), Lease.Empty);
-    }
-
-    private (Decision Decision, Lease Lease)? RejectByHardThresholdIfExceeded(string transport, string operation, int inFlight, int queueDepth)
-    {
-        if (inFlight < _options.RejectThreshold || queueDepth <= 0)
-            return null;
-
-        _metrics.AddReject(transport, operation, "hard_threshold");
-        return (Decision.Rejected("hard_threshold"), Lease.Empty);
     }
 
     private (Decision Decision, Lease Lease)? RejectByNodeRateLimitIfLimited(string transport, string operation)
@@ -212,6 +203,16 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             _ = Interlocked.Decrement(ref client.QueueDepthRef);
             RemoveIdleClient(clientId, client);
         }
+    }
+
+    private (Decision Decision, Lease Lease)? RejectByQueueFullIfSaturated(string transport, string operation, int inFlight, int queueDepth)
+    {
+        // A snapshot shortcut that spares a doomed request the slowdown delay; the queue step stays the authoritative check.
+        if (inFlight < _options.MaxInFlight || queueDepth < _options.MaxQueue)
+            return null;
+
+        _metrics.AddReject(transport, operation, "queue_full");
+        return (Decision.Rejected("queue_full"), Lease.Empty);
     }
 
     private void Release(string clientId, ClientState client)

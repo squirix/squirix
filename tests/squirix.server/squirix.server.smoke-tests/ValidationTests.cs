@@ -21,14 +21,13 @@ public sealed class ValidationTests : SmokeTestBase
         var invalidBackpressure = new TestNodeBackpressureOptions
         {
             MaxInFlight = 8,
-            SlowdownThreshold = 7,
-            RejectThreshold = 6,
+            SlowdownThreshold = 9,
         };
 
         var operation = StartClusterAsync("nodeA", _ => new BlackBoxStartOptions { BackpressureOptions = invalidBackpressure }, cancellationToken);
         var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestCluster<BlackBoxStartOptions>>(operation);
 
-        _ = await Assert.That(ex.Message).Contains("RejectThreshold", StringComparison.Ordinal);
+        _ = await Assert.That(ex.Message).Contains("SlowdownThreshold", StringComparison.Ordinal);
     }
 
     /// <summary>Invalid memory pressure options fail during host startup through the options validation pipeline.</summary>

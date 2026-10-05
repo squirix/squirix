@@ -38,7 +38,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxInFlight = 1,
                 MaxQueue = 0,
                 SlowdownThreshold = 1,
-                RejectThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(200),
             },
@@ -62,7 +61,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxInFlight = 4,
                 MaxQueue = 0,
                 SlowdownThreshold = 4,
-                RejectThreshold = 4,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 PerClientMaxInFlight = 1,
                 PerClientRateLimitPerSecond = 1,
@@ -101,7 +99,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxInFlight = 4,
                 MaxQueue = 0,
                 SlowdownThreshold = 4,
-                RejectThreshold = 4,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 PerClientMaxInFlight = 1,
                 NodeRateLimitPerSecond = 1,
@@ -130,7 +127,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxInFlight = 4,
                 MaxQueue = 0,
                 SlowdownThreshold = 4,
-                RejectThreshold = 4,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 PerClientRateLimitPerSecond = 1,
                 PerClientRateLimitBurst = 1,
@@ -160,7 +156,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxInFlight = 2,
                 MaxQueue = 1,
                 SlowdownThreshold = 2,
-                RejectThreshold = 2,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(200),
             },
@@ -185,7 +180,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxInFlight = 1,
                 MaxQueue = 1,
                 SlowdownThreshold = 1,
-                RejectThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(200),
             },
@@ -211,7 +205,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxInFlight = 1,
                 MaxQueue = 1,
                 SlowdownThreshold = 1,
-                RejectThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMinutes(1),
             },
@@ -242,7 +235,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
             MaxInFlight = maxInFlight,
             MaxQueue = 64,
             SlowdownThreshold = maxInFlight,
-            RejectThreshold = maxInFlight,
             MaxSlowdownDelay = TimeSpan.Zero,
             MaxQueueWait = TimeSpan.FromSeconds(2),
         };
@@ -272,7 +264,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxInFlight = 1,
                 MaxQueue = 1,
                 SlowdownThreshold = 1,
-                RejectThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(200),
             },
@@ -299,7 +290,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxInFlight = 6,
                 MaxQueue = 1,
                 SlowdownThreshold = 3,
-                RejectThreshold = 6,
                 MaxSlowdownDelay = TimeSpan.FromSeconds(5),
                 MaxQueueWait = TimeSpan.FromSeconds(10),
                 PerClientMaxInFlight = 2,
@@ -335,7 +325,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
         _ = await Assert.That(fifthDecision.RejectReason).IsEqualTo("client_concurrency_limit");
     }
 
-    /// <summary>Verifies requests are rejected once the hard threshold is reached while another request is queued.</summary>
+    /// <summary>Verifies a request arriving while all slots are taken and the queue is full is rejected immediately as queue full.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task QueueFullRejectsImmediately(CancellationToken cancellationToken)
@@ -348,7 +338,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxInFlight = 1,
                 MaxQueue = 1,
                 SlowdownThreshold = 1,
-                RejectThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(200),
             },
@@ -367,9 +356,9 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
 
         // Check the reason first so a recurring flake reports the observed rejection instead of
         // a bare boolean failure.
-        _ = await Assert.That(decision.RejectReason).IsEqualTo("hard_threshold");
+        _ = await Assert.That(decision.RejectReason).IsEqualTo("queue_full");
         _ = await Assert.That(decision.IsAccepted).IsFalse();
-        _ = await Assert.That(sink.HasEvent("squirix_backpressure_reject_total", ("transport", "grpc"), ("op", "insert"), ("reason", "hard_threshold"))).IsTrue();
+        _ = await Assert.That(sink.HasEvent("squirix_backpressure_reject_total", ("transport", "grpc"), ("op", "insert"), ("reason", "queue_full"))).IsTrue();
 
         await secondCts.CancelAsync();
         await secondAcquire.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
@@ -390,7 +379,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxInFlight = 1,
                 MaxQueue = 1,
                 SlowdownThreshold = 1,
-                RejectThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(40),
             },
@@ -418,7 +406,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxInFlight = 1,
                 MaxQueue = 1,
                 SlowdownThreshold = 1,
-                RejectThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(500),
             },
@@ -448,7 +435,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxInFlight = 1,
                 MaxQueue = 1,
                 SlowdownThreshold = 1,
-                RejectThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromSeconds(2),
             },
@@ -481,7 +467,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxInFlight = 1,
                 MaxQueue = string.Equals(scenario, "queue_full", StringComparison.Ordinal) ? 0 : 1,
                 SlowdownThreshold = 1,
-                RejectThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = string.Equals(scenario, "queue_wait_timeout", StringComparison.Ordinal) ? TimeSpan.FromMilliseconds(40) : TimeSpan.FromMinutes(1),
                 PerClientMaxInFlight = 1,

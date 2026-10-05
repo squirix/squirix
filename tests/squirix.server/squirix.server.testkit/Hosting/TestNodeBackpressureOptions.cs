@@ -13,9 +13,6 @@ public sealed class TestNodeBackpressureOptions
     /// <summary>Gets the maximum number of concurrently admitted requests, or <see langword="null" /> for the server default.</summary>
     public int? MaxInFlight { get; init; }
 
-    /// <summary>Gets the in-flight count at which requests are rejected, or <see langword="null" /> for the server default.</summary>
-    public int? RejectThreshold { get; init; }
-
     /// <summary>Gets the in-flight count at which requests are slowed down, or <see langword="null" /> for the server default.</summary>
     public int? SlowdownThreshold { get; init; }
 
@@ -25,7 +22,6 @@ public sealed class TestNodeBackpressureOptions
         return defaults with
         {
             MaxInFlight = MaxInFlight ?? defaults.MaxInFlight,
-            RejectThreshold = RejectThreshold ?? defaults.RejectThreshold,
             SlowdownThreshold = SlowdownThreshold ?? defaults.SlowdownThreshold,
         };
     }
