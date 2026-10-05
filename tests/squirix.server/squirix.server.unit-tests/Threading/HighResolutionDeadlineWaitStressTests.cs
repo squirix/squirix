@@ -11,7 +11,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Threading;
 
-/// <summary>Timing check for the high-resolution deadline wait, kept out of fast runs because it depends on scheduler load.</summary>
+/// <summary>Timing check for the high-resolution deadline wait, marked as a stress test because it depends on scheduler load.</summary>
 [Immutable]
 [Property(StressTrait.TraitName, StressTrait.TraitValue)]
 public sealed class HighResolutionDeadlineWaitStressTests

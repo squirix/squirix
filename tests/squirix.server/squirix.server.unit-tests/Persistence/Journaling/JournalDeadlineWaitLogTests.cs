@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -26,21 +26,46 @@ public sealed class JournalDeadlineWaitLogTests : IsolatedStorageTestBase
         if (!OperatingSystem.IsWindows())
             return;
 
-        var logger = new RecordingLogger();
+        var logger = new EventRecordingLogger();
         using var setup = CreateLoop(logger, false, true);
 
         setup.EventLoop.ReportDeadlineWaitFallbackOnce();
         setup.EventLoop.ReportDeadlineWaitFallbackOnce();
 
         _ = await Assert.That(logger.Count(TimerUnavailableEventId)).IsEqualTo(1);
-        _ = await Assert.That(logger.LevelOf(TimerUnavailableEventId)).IsEqualTo(LogLevel.Information);
+        _ = await Assert.That(logger.Find(TimerUnavailableEventId)?.Level).IsEqualTo(LogLevel.Information);
+    }
+
+    /// <summary>The journal thread loop reports the fallback after its first idle wait, once.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RunLoopReportsFallbackAfterIdleWait(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        var logger = new EventRecordingLogger();
+        using var setup = CreateLoop(logger, false, true);
+        var loop = Task.Factory.StartNew(setup.EventLoop.Run, cancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+        // A notification adds no ring item: it ends the idle wait (even if it lands before the loop parks), and the wake is followed
+        // by the report. Shutdown is queued only after the report, so the loop cannot exit before its first wait.
+        setup.Ring.NotifyWorkAvailable();
+        var deadline = Stopwatch.GetTimestamp();
+        while (logger.Count(TimerUnavailableEventId) == 0 && Stopwatch.GetElapsedTime(deadline) < TimeSpan.FromSeconds(10))
+            await Task.Delay(10, cancellationToken);
+
+        await setup.Ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellationToken);
+        await loop.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(logger.Count(TimerUnavailableEventId)).IsEqualTo(1);
     }
 
     /// <summary>Without group commit there is no batch deadline, so nothing is logged.</summary>
     [Test]
     public async Task NoLineWithoutGroupCommit()
     {
-        var logger = new RecordingLogger();
+        var logger = new EventRecordingLogger();
         using var setup = CreateLoop(logger, false, false);
 
         setup.EventLoop.ReportDeadlineWaitFallbackOnce();
@@ -52,7 +77,7 @@ public sealed class JournalDeadlineWaitLogTests : IsolatedStorageTestBase
     [Test]
     public async Task NoLineWhenTimerAllowed()
     {
-        var logger = new RecordingLogger();
+        var logger = new EventRecordingLogger();
         using var setup = CreateLoop(logger, true, true);
 
         setup.EventLoop.ReportDeadlineWaitFallbackOnce();
@@ -60,110 +85,38 @@ public sealed class JournalDeadlineWaitLogTests : IsolatedStorageTestBase
         _ = await Assert.That(logger.Count(TimerUnavailableEventId)).IsEqualTo(0);
     }
 
-    private LoopSetup CreateLoop(RecordingLogger logger, bool useHighResolutionTimer, bool groupCommit)
+    private LoopSetup CreateLoop(EventRecordingLogger logger, bool useHighResolutionTimer, bool groupCommit)
     {
         var options = new PersistenceOptions { DataDir = Dir, JournalGroupCommitMaxWait = TimeSpan.FromHours(1), JournalGroupCommitMaxBatch = 64 };
         var ring = new BoundedJournalRing(4, useHighResolutionTimer);
-        var segmentWriter = new NoOpSegmentWriter();
+        var segmentWriter = new FlushSegmentWriter();
         var host = new FakeEventLoopHost(new PendingAppendRegistry());
-        var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 1024L * 1024L, 1, JournalSegmentProbe.Probe(Dir, 1)), new FixedLogger(logger), CancellationToken.None);
+        var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 1024L * 1024L, 1, JournalSegmentProbe.Probe(Dir, 1)), logger, CancellationToken.None);
         if (groupCommit)
             eventLoop.AttachGroupCommit(new JournalDurabilityGroupCommit(static () => { }, static () => { }, options));
 
         return new LoopSetup(eventLoop, ring, segmentWriter);
     }
 
-    private sealed class FixedLogger : ILogger<JournalEventLoop>
-    {
-        private readonly RecordingLogger _inner;
-
-        internal FixedLogger(RecordingLogger inner)
-        {
-            _inner = inner;
-        }
-
-        public IDisposable? BeginScope<TState>(TState state)
-            where TState : notnull => null;
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-            _inner.Record(logLevel, eventId);
-    }
-
     private sealed class LoopSetup : IDisposable
     {
-        private readonly BoundedJournalRing _ring;
-        private readonly NoOpSegmentWriter _segmentWriter;
+        private readonly FlushSegmentWriter _segmentWriter;
 
-        internal LoopSetup(JournalEventLoop eventLoop, BoundedJournalRing ring, NoOpSegmentWriter segmentWriter)
+        internal LoopSetup(JournalEventLoop eventLoop, BoundedJournalRing ring, FlushSegmentWriter segmentWriter)
         {
             EventLoop = eventLoop;
-            _ring = ring;
+            Ring = ring;
             _segmentWriter = segmentWriter;
         }
 
         internal JournalEventLoop EventLoop { get; }
 
+        internal BoundedJournalRing Ring { get; }
+
         public void Dispose()
         {
-            _ring.Dispose();
+            Ring.Dispose();
             _segmentWriter.Dispose();
         }
-    }
-
-    private sealed class NoOpSegmentWriter : IJournalSegmentWriter
-    {
-        long IJournalSegmentWriter.Length => 0L;
-
-        public void Dispose()
-        {
-        }
-
-        void IJournalSegmentWriter.FlushToDisk()
-        {
-        }
-
-        void IJournalSegmentWriter.OpenSegment(string path, bool append)
-        {
-        }
-
-        void IJournalSegmentWriter.Truncate(long length)
-        {
-        }
-
-        void IJournalSegmentWriter.Write(ReadOnlySpan<byte> buffer, long fileOffset)
-        {
-        }
-    }
-
-    private sealed class RecordingLogger
-    {
-        private readonly ConcurrentQueue<(LogLevel Level, int EventId)> _entries = new();
-
-        internal int Count(int eventId)
-        {
-            var count = 0;
-            foreach (var entry in _entries)
-            {
-                if (entry.EventId == eventId)
-                    count++;
-            }
-
-            return count;
-        }
-
-        internal LogLevel? LevelOf(int eventId)
-        {
-            foreach (var entry in _entries)
-            {
-                if (entry.EventId == eventId)
-                    return entry.Level;
-            }
-
-            return null;
-        }
-
-        internal void Record(LogLevel level, EventId eventId) => _entries.Enqueue((level, eventId.Id));
     }
 }

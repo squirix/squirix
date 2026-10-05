@@ -104,6 +104,27 @@ public sealed class HighResolutionDeadlineWaitTests
         _ = await Assert.That(waiter.IsCompletedSuccessfully).IsTrue();
     }
 
+    /// <summary>A work signal ends a finite wait while its timer is still armed; the following infinite wait cancels that timer and parks until signalled.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InfiniteWaitCancelsArmedTimer(CancellationToken cancellationToken)
+    {
+        using var signal = new AutoResetEvent(false);
+        using var wait = new HighResolutionDeadlineWait(signal, true);
+
+        _ = signal.Set();
+        wait.Wait(5);
+
+        // The armed 5 ms timer fires during this pause; a timer left in the wait set would end the infinite wait.
+        var waiter = Task.Factory.StartNew(() => wait.Wait(Timeout.Infinite), cancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        await Task.Delay(100, cancellationToken);
+        _ = await Assert.That(waiter.IsCompleted).IsFalse();
+
+        _ = signal.Set();
+        await waiter.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        _ = await Assert.That(waiter.IsCompletedSuccessfully).IsTrue();
+    }
+
     /// <summary>An earlier fired timer is re-armed by the next finite wait, so the later wait still honours its own deadline.</summary>
     [Test]
     public async Task ReArmedTimerIgnoresEarlierFire()

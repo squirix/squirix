@@ -6,6 +6,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Replication;
 
@@ -13,7 +14,7 @@ namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Logger double recording the event id, level, exception and formatted message of every entry.</summary>
 [ThreadSafe]
-internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, ILogger<RpcMutationIdempotencyCoordinator>, ILogger<FollowerLog>, ILogger<Ledger>, ILogger<ReplicaGroupCommitter>, ILogger<ServerClientPool>, ILogger<RingAgreement>
+internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, ILogger<RpcMutationIdempotencyCoordinator>, ILogger<FollowerLog>, ILogger<Ledger>, ILogger<ReplicaGroupCommitter>, ILogger<ServerClientPool>, ILogger<RingAgreement>, ILogger<JournalEventLoop>
 {
     private readonly ConcurrentQueue<(int EventId, LogLevel Level, Exception? Cause, string Message)> _events = new();
 
