@@ -39,7 +39,7 @@ public sealed class JournalSnapshotCutStallTests : IsolatedStorageTestBase
             entered,
             static (signal, _, _) => ValueTask.FromResult(signal.TrySetResult()),
             cancellationToken).AsTask();
-        await entered.Task.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        await AwaitDuringStallAsync(entered, "mutation did not enter during the stalled flush", cancellationToken);
         var enteredDuringStall = !cut.IsCompleted;
         journal.Writer.Flush.Release();
         _ = await cut;
@@ -75,7 +75,7 @@ public sealed class JournalSnapshotCutStallTests : IsolatedStorageTestBase
                 _ = s.Appended.TrySetResult();
             },
             cancellationToken).AsTask();
-        await appended.Task.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        await AwaitDuringStallAsync(appended, "mutation did not append during the stalled flush", cancellationToken);
         var appendedDuringStall = !cut.IsCompleted;
         journal.Writer.Flush.Release();
         var watermark = await cut;
@@ -83,5 +83,17 @@ public sealed class JournalSnapshotCutStallTests : IsolatedStorageTestBase
 
         _ = await Assert.That(appendedDuringStall).IsTrue();
         _ = await Assert.That(sequence.Value).IsGreaterThan(watermark);
+    }
+
+    private static async Task AwaitDuringStallAsync(TaskCompletionSource signal, string failure, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await signal.Task.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        }
+        catch (TimeoutException ex)
+        {
+            throw new InvalidOperationException(failure, ex);
+        }
     }
 }
