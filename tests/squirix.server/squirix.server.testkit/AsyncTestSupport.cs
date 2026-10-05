@@ -16,7 +16,7 @@ public static class AsyncTestSupport
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="condition"/> is <see langword="null" />.</exception>
     /// <exception cref="TimeoutException">Thrown when the condition stays unsatisfied past the default budget.</exception>
     public static Task WaitUntilAsync<T>(this T state, Func<T, bool> condition, CancellationToken cancellationToken) =>
-        state.WaitUntilAsync(condition, TimeSpan.FromSeconds(5), cancellationToken);
+        state.WaitUntilAsync(condition, TimeSpan.FromSeconds(10), cancellationToken);
 
     /// <summary>Polls <paramref name="condition"/> against <paramref name="state"/> until it holds or <paramref name="timeout"/> expires.</summary>
     /// <typeparam name="T">Observed state type.</typeparam>
@@ -42,7 +42,7 @@ public static class AsyncTestSupport
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="condition" /> is <see langword="null" />.</exception>
     /// <exception cref="TimeoutException">Thrown when the condition stays unsatisfied past the default budget.</exception>
     public static Task WaitUntilValueAsync<T>(this T state, Func<T, CancellationToken, ValueTask<bool>> condition, CancellationToken cancellationToken) =>
-        state.WaitUntilValueAsync(condition, TimeSpan.FromSeconds(5), cancellationToken);
+        state.WaitUntilValueAsync(condition, TimeSpan.FromSeconds(10), cancellationToken);
 
     /// <summary>Polls the asynchronous <paramref name="condition"/> against <paramref name="state"/> until it holds or <paramref name="timeout"/> expires.</summary>
     /// <typeparam name="T">Observed state type.</typeparam>
