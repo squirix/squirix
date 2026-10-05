@@ -7,7 +7,8 @@ namespace Squirix.Server.Cluster.Transport;
 /// <remarks>
 /// A forwarded call is sent once: the caller retries with its own deadline and operation id, so an entry node never
 /// multiplies a failed forward into more internode traffic. The per-owner permit is a bulkhead sized from the
-/// entry admission limit, so a hung owner pins at most that many entry slots.
+/// entry admission limit, so a hung owner pins at most that many entry slots. With a single attempt the backoff
+/// settings are never used.
 /// </remarks>
 internal static class ForwardingCallPolicyDefaults
 {

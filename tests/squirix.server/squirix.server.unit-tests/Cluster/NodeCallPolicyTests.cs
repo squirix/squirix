@@ -165,10 +165,10 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         _ = await Assert.That(third).IsEqualTo(3);
     }
 
-    /// <summary>Ensures a drain that begins while the permit is held is reported as a drain, not as a busy peer.</summary>
+    /// <summary>Ensures a draining policy refuses with Unavailable before the permit check, not with peer_busy.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task BusyPeerDuringDrainReportsDrain(CancellationToken cancellationToken)
+    public async Task DrainingPolicyRefusesBeforePermitCheck(CancellationToken cancellationToken)
     {
         var timeout = TimeSpan.FromSeconds(5);
         using var meter = new Meter("Squirix");
