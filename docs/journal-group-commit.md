@@ -150,19 +150,18 @@ See [journal-single-owner-wal.md](journal-single-owner-wal.md) for the journal t
 ### Measured on one machine
 
 `DurableMutationGroupCommitBenchmarks`: hosted write path (mutation frame plus idempotency outcome frame), distinct keys,
-256 B values, 200 writes per writer, `MaxBatch = 32`, Windows 11, local NVMe SSD with a write cache (cheap fsync).
-Throughput in writes per second, three iterations, high variance at 256 writers. These numbers were taken with the
-system-tick wait, before the high-resolution batch timer, and are pending a re-measurement:
+256 B values, 8 writers with 200 writes each, `MaxBatch = 32`, benchmark quick mode, Windows 11, local NVMe SSD with a
+write cache (cheap fsync). Throughput in writes per second:
 
 | Writers | Off (`MaxWait = 0`) | `MaxWait = 1 ms` | `MaxWait = 5 ms` |
 | ------- | ------------------- | ---------------- | ---------------- |
-| 8       | ~6,900              | ~290             | ~260             |
-| 64      | ~6,800              | ~5,200           | ~6,000           |
-| 256     | ~8,300              | ~5,300           | ~6,100           |
+| 8       | ~9,600              | ~1,900           | ~640             |
 
-On this machine group commit never beat the default: with 8 writers the batch never fills and every write waits a
-`15.6 ms` timer tick per durability wait; with 64 or more writers batches fill and the gap closes, but fsync is cheap
-enough that sharing it does not pay. Expect a gain only on storage where one fsync costs milliseconds; measure there.
+On this machine group commit still does not beat the default: with 8 writers the batch never fills, so every write
+waits out `MaxWait` per durability wait, and fsync is cheap enough that sharing it would not pay. The high-resolution
+batch timer keeps that wait close to `MaxWait`, where the system timer tick previously stretched it to about `15.6 ms`
+(about 290 and 260 writes per second at `1 ms` and `5 ms`). Expect a gain only on storage where one fsync costs
+milliseconds; measure there.
 
 ### Development benchmarks vs production tuning
 
