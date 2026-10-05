@@ -2,10 +2,10 @@ using System;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
@@ -23,10 +23,10 @@ namespace Squirix.UnitTests;
 [Immutable]
 public sealed class OperationDeadlineTests
 {
-    private static readonly TimeSpan ClockJitter = TimeSpan.FromMilliseconds(50);
-
     private static readonly TimeSpan ShortDeadline = TimeSpan.FromMilliseconds(400);
-    private static readonly TimeSpan LongPerAttempt = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan LongPerAttempt = TimeSpan.FromDays(40);
+    private static readonly TimeSpan LongDeadline = TimeSpan.FromDays(41);
+    private static readonly DateTimeOffset ClockStart = new(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
     private static readonly TimeSpan CompletionBound = TimeSpan.FromSeconds(5);
 
     private enum TransportMode
@@ -44,11 +44,14 @@ public sealed class OperationDeadlineTests
         using var callerSource = new CancellationTokenSource();
         await using var harness = new Harness("deadline-token", ShortDeadline, TransportMode.Hang, TransportMode.Hang);
 
-        var started = Stopwatch.GetTimestamp();
-        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(GetAsync(harness.Cache, callerSource.Token));
+        var operation = GetAsync(harness.Cache, callerSource.Token);
+        _ = await Assert.That(await harness.FirstTransport.WaitForCallAsync()).IsTrue();
+        var pending = !operation.IsCompleted;
+        harness.Clock.Advance(ShortDeadline);
+        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(operation);
 
+        _ = await Assert.That(pending).IsTrue();
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
-        _ = await Assert.That(Stopwatch.GetElapsedTime(started)).IsLessThan(CompletionBound);
     }
 
     /// <summary>Every exported cache operation sends the operation deadline as an absolute UTC call deadline.</summary>
@@ -99,15 +102,13 @@ public sealed class OperationDeadlineTests
     public async Task CallerCancelSurfacesOperationCanceled()
     {
         using var callerSource = new CancellationTokenSource();
-        await using var harness = new Harness("deadline-cancel", TimeSpan.FromSeconds(30), TransportMode.Hang, TransportMode.Hang);
+        await using var harness = new Harness("deadline-cancel", LongDeadline, TransportMode.Hang, TransportMode.Hang);
 
         var operation = GetAsync(harness.Cache, callerSource.Token);
-        _ = await harness.FirstTransport.WaitForCallAsync();
+        _ = await Assert.That(await harness.FirstTransport.WaitForCallAsync()).IsTrue();
         await callerSource.CancelAsync();
-        var started = Stopwatch.GetTimestamp();
-        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(operation);
 
-        _ = await Assert.That(Stopwatch.GetElapsedTime(started)).IsLessThan(CompletionBound);
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(operation);
     }
 
     /// <summary>The deadline budget metric is recorded when the deadline ends a call.</summary>
@@ -118,7 +119,10 @@ public sealed class OperationDeadlineTests
         using var sink = new MeasurementSink("Squirix");
         await using var harness = new Harness(peer, ShortDeadline, TransportMode.Hang, TransportMode.Hang);
 
-        _ = await AsyncAssert.ThrowsAsync<RpcException, bool>(GetAsync(harness.Cache, CancellationToken.None));
+        var operation = GetAsync(harness.Cache, CancellationToken.None);
+        _ = await Assert.That(await harness.FirstTransport.WaitForCallAsync()).IsTrue();
+        harness.Clock.Advance(ShortDeadline);
+        _ = await AsyncAssert.ThrowsAsync<RpcException, bool>(operation);
 
         _ = await Assert.That(sink.HasEvent("squirix_rpc_timeouts_total", ("peer", peer), ("kind", "deadline_budget"))).IsTrue();
     }
@@ -146,9 +150,8 @@ public sealed class OperationDeadlineTests
     {
         await using var harness = new Harness("deadline-options", ShortDeadline, TransportMode.Unavailable, TransportMode.Succeed);
 
-        var before = DateTime.UtcNow;
+        var expectedDeadline = harness.Clock.GetUtcNow().UtcDateTime + ShortDeadline;
         _ = await GetAsync(harness.Cache, CancellationToken.None);
-        var after = DateTime.UtcNow;
 
         var captured = harness.AllCalls();
         _ = await Assert.That(captured.Count).IsGreaterThan(1);
@@ -156,11 +159,9 @@ public sealed class OperationDeadlineTests
         _ = await Assert.That(first).IsNotNull();
         _ = await Assert.That(first!.Value.Kind).IsEqualTo(DateTimeKind.Utc);
 
-        // Each attempt rebuilds the gRPC deadline from the shared budget, so the values agree up to the clock-read jitter.
-        _ = await Assert.That(first.Value).IsGreaterThanOrEqualTo(before + ShortDeadline - ClockJitter);
-        _ = await Assert.That(first.Value).IsLessThanOrEqualTo(after + ShortDeadline + ClockJitter);
+        // Each attempt rebuilds the gRPC deadline from the shared budget; on a frozen clock every attempt sends exactly the operation deadline.
         foreach (var call in captured)
-            _ = await Assert.That((call.Deadline!.Value - first.Value).Duration() < ClockJitter).IsTrue();
+            _ = await Assert.That(call.Deadline).IsEqualTo(expectedDeadline);
     }
 
     /// <summary>Two hung endpoints end with a deadline failure far below the per-attempt timeout.</summary>
@@ -169,11 +170,14 @@ public sealed class OperationDeadlineTests
     {
         await using var harness = new Harness("deadline-hung", ShortDeadline, TransportMode.Hang, TransportMode.Hang);
 
-        var started = Stopwatch.GetTimestamp();
-        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(GetAsync(harness.Cache, CancellationToken.None));
+        var operation = GetAsync(harness.Cache, CancellationToken.None);
+        _ = await Assert.That(await harness.FirstTransport.WaitForCallAsync()).IsTrue();
+        var pending = !operation.IsCompleted;
+        harness.Clock.Advance(ShortDeadline);
+        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(operation);
 
+        _ = await Assert.That(pending).IsTrue();
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
-        _ = await Assert.That(Stopwatch.GetElapsedTime(started)).IsLessThan(CompletionBound);
     }
 
     /// <summary>A mutation keeps one operation id across retries and endpoint failover.</summary>
@@ -196,16 +200,24 @@ public sealed class OperationDeadlineTests
     public async Task QueuedCallExpiresAsDeadlineExceeded()
     {
         using var holderSource = new CancellationTokenSource();
-        await using var harness = new Harness("deadline-queued", TimeSpan.FromSeconds(30), TransportMode.Hang, TransportMode.Hang, 1, true);
+        await using var harness = new Harness("deadline-queued", LongDeadline, TransportMode.Hang, TransportMode.Hang, 1, true);
         var queuedCache = harness.CreateCache(ShortDeadline);
 
         var holder = GetAsync(harness.Cache, holderSource.Token);
-        _ = await harness.FirstTransport.WaitForCallAsync();
+        _ = await Assert.That(await harness.FirstTransport.WaitForCallAsync()).IsTrue();
         var callsBeforeQueued = harness.FirstTransport.Calls.Count;
 
-        var started = Stopwatch.GetTimestamp();
-        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(GetAsync(queuedCache, CancellationToken.None));
-        var elapsed = Stopwatch.GetElapsedTime(started);
+        // The queued call takes its deadline when it starts, so advance until it expires; the holder budget is far longer.
+        // The real-time pause only paces the polling and never decides the outcome.
+        var queued = GetAsync(queuedCache, CancellationToken.None);
+        var guard = TimeProvider.System.GetTimestamp();
+        while (!queued.IsCompleted && TimeProvider.System.GetElapsedTime(guard) < CompletionBound)
+        {
+            harness.Clock.Advance(ShortDeadline);
+            await Task.Delay(TimeSpan.FromMilliseconds(1), TimeProvider.System, CancellationToken.None);
+        }
+
+        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(queued);
 
         await holderSource.CancelAsync();
         _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(holder);
@@ -213,7 +225,6 @@ public sealed class OperationDeadlineTests
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
         _ = await Assert.That(error.Status.Detail).IsEqualTo("Request deadline exceeded.");
         _ = await Assert.That(harness.FirstTransport.Calls.Count).IsEqualTo(callsBeforeQueued);
-        _ = await Assert.That(elapsed).IsLessThan(CompletionBound);
     }
 
     /// <summary>A caller token cancelled while queued on the peer semaphore is cancellation, not a deadline failure.</summary>
@@ -224,10 +235,10 @@ public sealed class OperationDeadlineTests
         using var sink = new MeasurementSink("Squirix");
         using var holderSource = new CancellationTokenSource();
         using var queuedSource = new CancellationTokenSource();
-        await using var harness = new Harness(peer, TimeSpan.FromSeconds(30), TransportMode.Hang, TransportMode.Hang, 1, true);
+        await using var harness = new Harness(peer, LongDeadline, TransportMode.Hang, TransportMode.Hang, 1, true);
 
         var holder = GetAsync(harness.Cache, holderSource.Token);
-        _ = await harness.FirstTransport.WaitForCallAsync();
+        _ = await Assert.That(await harness.FirstTransport.WaitForCallAsync()).IsTrue();
         var callsBeforeQueued = harness.FirstTransport.Calls.Count;
 
         var queued = GetAsync(harness.Cache, queuedSource.Token);
@@ -256,9 +267,10 @@ public sealed class OperationDeadlineTests
 
         internal Harness(string peer, TimeSpan deadline, TransportMode first, TransportMode second, int maxConcurrentPerPeer = 64, bool singleEndpoint = false)
         {
-            FirstTransport = new ScriptedTransport(first);
-            SecondTransport = new ScriptedTransport(second);
-            _policy = new CallPolicy(LongPerAttempt, 3, TimeSpan.Zero, TimeSpan.Zero, maxConcurrentPerPeer, peer);
+            Clock = new FakeTimeProvider(ClockStart);
+            FirstTransport = new ScriptedTransport(first, Clock);
+            SecondTransport = new ScriptedTransport(second, Clock);
+            _policy = new CallPolicy(LongPerAttempt, 3, TimeSpan.Zero, TimeSpan.Zero, maxConcurrentPerPeer, peer, Clock);
             SingleEndpoint = singleEndpoint;
             var firstClient = new SquirixCacheService.SquirixCacheServiceClient(FirstTransport);
             var secondClient = new SquirixCacheService.SquirixCacheServiceClient(SecondTransport);
@@ -272,6 +284,8 @@ public sealed class OperationDeadlineTests
         }
 
         internal RemoteCache<string> Cache { get; }
+
+        internal FakeTimeProvider Clock { get; }
 
         internal ScriptedTransport FirstTransport { get; }
 
@@ -292,19 +306,21 @@ public sealed class OperationDeadlineTests
         internal RemoteCache<string> CreateCache(TimeSpan deadline)
         {
             string[] nodes = SingleEndpoint ? ["node-0"] : ["node-0", "node-1"];
-            return new RemoteCache<string>("demo", new EndpointFailover(nodes, "node-0", deadline, TimeProvider.System), _pool, RemoteClientSessionFactory.CreateSerializer());
+            return new RemoteCache<string>("demo", new EndpointFailover(nodes, "node-0", deadline, Clock), _pool, RemoteClientSessionFactory.CreateSerializer());
         }
     }
 
     private sealed class ScriptedTransport : CallInvoker, IDisposable
     {
         private readonly ConcurrentQueue<CapturedCall> _calls = new();
+        private readonly FakeTimeProvider _clock;
         private readonly TransportMode _mode;
         private readonly SemaphoreSlim _firstCall = new(0);
 
-        internal ScriptedTransport(TransportMode mode)
+        internal ScriptedTransport(TransportMode mode, FakeTimeProvider clock)
         {
             _mode = mode;
+            _clock = clock;
         }
 
         internal List<CapturedCall> Calls => [.. _calls];
@@ -339,7 +355,7 @@ public sealed class OperationDeadlineTests
                     _ = options.CancellationToken.Register(() => completion.TrySetCanceled(options.CancellationToken));
                     break;
                 case TransportMode.GrpcDeadline:
-                    _ = FailAtDeadlineAsync(completion, options.Deadline!.Value);
+                    FailAtDeadline(completion, options.Deadline!.Value);
                     break;
                 case TransportMode.Unavailable:
                     completion.SetException(new RpcException(new Status(StatusCode.Unavailable, "endpoint down")));
@@ -364,20 +380,21 @@ public sealed class OperationDeadlineTests
 
         internal Task<bool> WaitForCallAsync() => _firstCall.WaitAsync(CompletionBound, CancellationToken.None);
 
-        private static async Task FailAtDeadlineAsync<TResponse>(TaskCompletionSource<TResponse> completion, DateTime deadlineUtc)
-        {
-            // A timer can wake a little before the wall clock reaches the deadline; like Grpc.Net.Client, fail only once it has.
-            while (DateTime.UtcNow < deadlineUtc)
-                await Task.Delay(deadlineUtc - DateTime.UtcNow + TimeSpan.FromMilliseconds(1), TimeProvider.System, CancellationToken.None).ConfigureAwait(false);
-
-            _ = completion.TrySetException(new RpcException(new Status(StatusCode.DeadlineExceeded, "Deadline Exceeded")));
-        }
-
         private static string ExtractOperationId<TRequest>(TRequest request) => request switch
         {
             SetEntryAsyncRequest set => set.OperationId,
             _ => string.Empty,
         };
+
+        private void FailAtDeadline<TResponse>(TaskCompletionSource<TResponse> completion, DateTime deadlineUtc)
+        {
+            // Like Grpc.Net.Client, fail only once the wall clock reached the deadline: move the fake clock there first.
+            var remaining = deadlineUtc - _clock.GetUtcNow().UtcDateTime;
+            if (remaining > TimeSpan.Zero)
+                _clock.Advance(remaining);
+
+            _ = completion.TrySetException(new RpcException(new Status(StatusCode.DeadlineExceeded, "Deadline Exceeded")));
+        }
     }
 
     private sealed class EmptyDeserializationContext : DeserializationContext

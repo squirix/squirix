@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 using TUnit.Assertions;
@@ -73,11 +74,12 @@ public sealed class RpcDeadlineContextTests : UnitTestBase
     {
         _ = await Assert.That(RpcDeadlineContext.GetRemainingBudget()).IsNull();
 
-        var deadline = DateTime.UtcNow.AddSeconds(30);
-        using (RpcDeadlineContext.Push(deadline, TimeProvider.System))
+        var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        using (RpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime.AddSeconds(30), clock))
         {
-            var remaining = RpcDeadlineContext.GetRemainingBudget();
-            _ = await Assert.That(remaining is { } budget && budget > TimeSpan.Zero && budget <= TimeSpan.FromSeconds(30)).IsTrue();
+            _ = await Assert.That(RpcDeadlineContext.GetRemainingBudget()).IsEqualTo(TimeSpan.FromSeconds(30));
+            clock.Advance(TimeSpan.FromSeconds(12));
+            _ = await Assert.That(RpcDeadlineContext.GetRemainingBudget()).IsEqualTo(TimeSpan.FromSeconds(18));
         }
 
         _ = await Assert.That(RpcDeadlineContext.GetRemainingBudget()).IsNull();

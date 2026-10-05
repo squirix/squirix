@@ -92,7 +92,7 @@ public sealed class CallPolicyTests
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
     }
 
-    /// <summary>The deadline handed to gRPC is the remaining budget from the current system time, whatever clock the deadline was pushed with.</summary>
+    /// <summary>The deadline handed to gRPC is the remaining budget from the current time of the clock the deadline was pushed with.</summary>
     [Test]
     public async Task ForwardDeadlineFollowsBudget()
     {
@@ -100,10 +100,9 @@ public sealed class CallPolicyTests
         using var scope = RpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
         clock.Advance(TimeSpan.FromMinutes(10));
 
-        var expected = DateTime.UtcNow + TimeSpan.FromMinutes(50);
-        var forwarded = RpcDeadlineContext.ForwardDeadlineUtc;
+        var expected = clock.GetUtcNow().UtcDateTime + TimeSpan.FromMinutes(50);
 
-        _ = await Assert.That(forwarded is { } value && (value - expected).Duration() < TimeSpan.FromSeconds(1)).IsTrue();
+        _ = await Assert.That(RpcDeadlineContext.ForwardDeadlineUtc).IsEqualTo(expected);
     }
 
     /// <summary>The per-attempt timeout runs on the policy clock, with no real delay.</summary>
@@ -168,7 +167,8 @@ public sealed class CallPolicyTests
     public async Task QueuedCallRejectedOnDrainAsync()
     {
         var timeout = TimeSpan.FromSeconds(5);
-        await using var policy = new CallPolicy(timeout, 1, TimeSpan.Zero, TimeSpan.Zero, 1, "c-drain-queue");
+        var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        await using var policy = new CallPolicy(timeout, 1, TimeSpan.Zero, TimeSpan.Zero, 1, "c-drain-queue", clock);
         var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var gate = new EnterReleaseGate(firstEntered, releaseFirst);
@@ -186,11 +186,12 @@ public sealed class CallPolicyTests
         await firstEntered.Task.WaitAsync(timeout, TimeProvider.System, CancellationToken.None);
 
         var queued = policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(2), 0, CancellationToken.None);
-        await Task.Delay(TimeSpan.FromMilliseconds(30), TimeProvider.System, CancellationToken.None);
+        var queuedPending = !queued.IsCompleted;
 
         policy.BeginDrain();
         releaseFirst.SetResult();
 
+        _ = await Assert.That(queuedPending).IsTrue();
         _ = await Assert.That(await first).IsEqualTo(1);
         var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(queued);
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
