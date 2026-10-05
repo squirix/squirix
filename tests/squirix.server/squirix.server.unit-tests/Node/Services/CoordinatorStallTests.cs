@@ -144,9 +144,9 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
 
         // The loop arms its wait, wakes after MinGap on the fake clock, attempts a compaction (skipped while the snapshot is in flight)
         // and arms the next wait; the second armed wait proves the skipped attempt has finished.
-        _ = await clock.TimerCreated.WaitAsync(StallTimeout, cancellationToken);
+        await AssertTimerArmedAsync(clock, cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(1));
-        _ = await clock.TimerCreated.WaitAsync(StallTimeout, cancellationToken);
+        await AssertTimerArmedAsync(clock, cancellationToken);
         var compactedDuringSnapshot = entered.Task.IsCompleted;
         journal.Writer.Flush.Release();
         await snapshot;
@@ -163,6 +163,12 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
     {
         base.DisposeManaged();
         _testMeter.Dispose();
+    }
+
+    private static async Task AssertTimerArmedAsync(TimerSignalClock clock, CancellationToken cancellationToken)
+    {
+        var armed = await clock.TimerCreated.WaitAsync(StallTimeout, cancellationToken);
+        _ = await Assert.That(armed).IsTrue();
     }
 
     private static StrongBox<int> CountCompletions(Coordinator snapshots)
