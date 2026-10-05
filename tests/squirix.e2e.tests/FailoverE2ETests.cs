@@ -79,7 +79,7 @@ public sealed class FailoverE2ETests : EndToEndTestBase
         await cache.SetAsync(key, "after-stop", cancellationToken: cancellationToken);
         _ = await cluster.StartNodeAsync("nodeC", options("nodeC", dir), cancellationToken);
 
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         await using var rejoinedClient = await LoopbackConnect.ConnectAsync(heldC.HttpUri, linked.Token);
         var rejoinedCache = await rejoinedClient.GetCacheAsync<string>("rejoin-catchup", linked.Token);

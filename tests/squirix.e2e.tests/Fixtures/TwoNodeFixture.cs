@@ -45,8 +45,9 @@ public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncInitializer, IAsyncD
     /// <inheritdoc />
     public async Task InitializeAsync()
     {
-        // IAsyncInitializer has no test context to link to, so startup uses its own 30s budget.
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        // IAsyncInitializer has no test context to link to, so startup uses its own budget; it also covers the wait
+        // for a free slot of the concurrent startup limit, so it is generous.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
         _cluster = await HostedCluster.StartTwoNodeAsync(nameof(TwoNodeFixture), cancellationToken: cts.Token);
         _clientA = await _cluster.ConnectClientAsync("nodeA", cts.Token);
         _clientB = await _cluster.ConnectClientAsync("nodeB", cts.Token);
