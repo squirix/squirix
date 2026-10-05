@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Squirix.Server.Attributes;
+using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
@@ -193,15 +194,12 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             // of reading the value its first attempt added and answering that nothing was added. An add over a present key without a
             // recorded outcome is refused before it reaches the journal or the replica group.
             var entry = await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false);
+
+            // The response of an add that took effect, built from the mapped entry, is known before the add is applied.
+            RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(
+                added => added ? AddedResponse(entry) : throw new InvalidOperationException("Only an add that took effect has a predicted outcome."));
             if (await api.TryAddEntryAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, entry, cancellationToken).ConfigureAwait(false))
-            {
-                return new GetOrAddAsyncResponse
-                {
-                    Added = true,
-                    Found = true,
-                    Value = ServerProtoEx.CacheValueToGrpcValue(entry.Value),
-                };
-            }
+                return AddedResponse(entry);
 
             var existing = await api.GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
             return existing.Found
@@ -222,19 +220,17 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         {
             var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
             SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+            RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<CacheRemoveResult<T>>(static result => RemoveResponse(result));
             var result = await _cacheOperations.ForCache(cacheName).RemoveAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, cancellationToken)
                                                .ConfigureAwait(false);
-            var response = new RemoveAsyncResponse { Removed = result.Removed };
-            if (result.Removed)
-                response.PreviousValue = ServerProtoEx.CacheValueToGrpcValue(result.Value);
-
-            return response;
+            return RemoveResponse(result);
         }
 
         internal async Task<RemoveExpirationAsyncResponse> RemoveExpirationAsyncCoreAsync(RemoveExpirationAsyncRequest request, CancellationToken cancellationToken)
         {
             var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
             SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+            RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static found => new RemoveExpirationAsyncResponse { Found = found });
             var found = await _cacheOperations.ForCache(cacheName)
                                               .RemoveExpirationAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, cancellationToken)
                                               .ConfigureAwait(false);
@@ -245,6 +241,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         {
             var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
             SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+            RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static _ => new SetAsyncResponse());
             await _cacheOperations.ForCache(cacheName).SetEntryAsync(
                 RpcMutationContracts.RequireOperationId(request.OperationId),
                 request.Key,
@@ -257,6 +254,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         {
             var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
             SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+            RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static found => new TouchAsyncResponse { Found = found });
             var found = await _cacheOperations.ForCache(cacheName).TouchAsync(
                 RpcMutationContracts.RequireOperationId(request.OperationId),
                 request.Key,
@@ -269,6 +267,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         {
             var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
             SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+            RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static added => new TryAddAsyncResponse { Added = added });
             var added = await _cacheOperations.ForCache(cacheName).TryAddEntryAsync(
                 RpcMutationContracts.RequireOperationId(request.OperationId),
                 request.Key,
@@ -281,12 +280,29 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         {
             var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
             SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+            RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static updated => new UpdateAsyncResponse { Updated = updated });
             var updated = await _cacheOperations.ForCache(cacheName).UpdateAsync(
                 RpcMutationContracts.RequireOperationId(request.OperationId),
                 request.Key,
                 (await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false)).Value,
                 cancellationToken).ConfigureAwait(false);
             return new UpdateAsyncResponse { Updated = updated };
+        }
+
+        private static GetOrAddAsyncResponse AddedResponse(NodeCacheEntry<T> entry) => new()
+        {
+            Added = true,
+            Found = true,
+            Value = ServerProtoEx.CacheValueToGrpcValue(entry.Value),
+        };
+
+        private static RemoveAsyncResponse RemoveResponse(CacheRemoveResult<T> result)
+        {
+            var response = new RemoveAsyncResponse { Removed = result.Removed };
+            if (result.Removed)
+                response.PreviousValue = ServerProtoEx.CacheValueToGrpcValue(result.Value);
+
+            return response;
         }
     }
 }
