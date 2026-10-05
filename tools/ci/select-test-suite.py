@@ -59,7 +59,7 @@ SUITES = {
 #    tests in a job of their own).
 #  - `light-e2e`: `light` plus the multi-node end-to-end tests (ubuntu, outside pull requests); ubuntu runs the server
 #    unit tests alone, so its three jobs (with the server integration tests) end at about the same time.
-#  - `server-unit-e2e`: the server unit tests and the multi-node end-to-end tests (Windows, macOS).
+#  - `server-unit-e2e`: the server unit tests and the multi-node end-to-end tests (Windows; macOS runs the two suites as separate jobs).
 #  - `desktop-integration`: the short suites Windows and macOS run, plus the server integration tests.
 #  - `arm-client`, `arm-server`: every suite ARM covers; nothing waits for ARM, so two jobs are enough.
 GROUPS = {

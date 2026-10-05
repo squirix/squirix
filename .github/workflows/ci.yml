@@ -629,8 +629,9 @@ jobs:
             fail-fast: ${{ github.event_name == 'pull_request' }}
             max-parallel: 6
             matrix:
-                # Two jobs of similar length; see test-ubuntu.
-                suite: [ desktop-integration, server-unit-e2e ]
+                # The server unit tests and the multi-node end-to-end tests run in jobs of their own: on macOS they ended the
+                # push run as one job. Three jobs start together after the build, which stays within the 20 job limit; see test-ubuntu.
+                suite: [ desktop-integration, server-unit, e2e-multi-node ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
