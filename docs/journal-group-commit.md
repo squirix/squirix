@@ -1,7 +1,9 @@
 # Journal group commit
 
 Durable mutations append a journal record and wait for a durability flush before the caller gets its response. Without
-group commit, each mutation pays for its own durability flush (typically one fsync round-trip per commit).
+group commit, each mutation pays for its own durability flush (typically one fsync round-trip per commit). A hosted
+write with an operation id waits for one flush, not two: its outcome frame is appended right behind its mutation frame
+and the same flush covers both.
 
 ## Defaults
 
@@ -42,9 +44,11 @@ Group commit never lets a caller or a reader see a value before its journal byte
 - **Apply after fsync.** A mutation appends, waits for the shared flush, and applies to memory only afterwards, with or
   without an operation id. A reader never sees a value that a crash right now would lose, and a failed fsync never leaves
   the value in memory.
-- **Response after a second fsync (with an operation id).** Every mutation of the v0.1 client carries an operation id, and
-  its outcome is recorded durably before the response is sent
-  (`RpcMutationIdempotencyCoordinator.RecordOutcomeDurablyAsync`).
+- **Response after the outcome is durable (with an operation id).** Every mutation of the v0.1 client carries an
+  operation id, and its outcome is recorded durably before the response is sent. For the v0.1 RPCs the outcome is known
+  before the apply, so its frame is appended right behind the mutation frame and one flush makes both durable; a
+  mutation whose outcome frame cannot be appended with it falls back to recording the outcome after the apply, with a
+  second flush. The journal order guarantees that a durable outcome frame always has its mutation frame durable before it.
 
 Replicated applies are the exception: their durable source is the group log, so they do not wait for the node journal
 before applying, including re-applies of committed entries.
@@ -57,12 +61,13 @@ before applying, including re-applies of committed entries.
 - **Cancellation.** After the append the durability wait cannot be cancelled by the caller. A client deadline shorter than
   `GroupCommitMaxWait` ends the call with `DeadlineExceeded` while the write still commits; a retry with the same
   operation id replays the recorded outcome.
-- **Shutdown and flush failure.** A graceful stop completes pending grouped writes without an operation id successfully:
-  the final flush of the shutdown marker covers their frames. A write with an operation id parked in the durability wait is
-  made durable and applied, but its outcome can no longer be appended, so it ends with `COMMIT_OUTCOME_UNKNOWN` (gRPC
-  `Unavailable`); retry with the same operation id after restart. Any write also ends with `COMMIT_OUTCOME_UNKNOWN` when
-  the stop times out, the final flush fails, or a failure was latched before the marker; the write may or may not be
-  durable.
+- **Shutdown and flush failure.** A graceful stop completes pending grouped writes successfully: the final flush of the
+  shutdown marker covers their frames, including the outcome frame of a write with an operation id that is parked in the
+  durability wait, so that write is applied and answered. A write whose outcome frame was not yet appended when the stop
+  began is made durable and applied, but its outcome can no longer be appended, so it ends with `COMMIT_OUTCOME_UNKNOWN`
+  (gRPC `Unavailable`); retry with the same operation id after restart. Any write also ends with
+  `COMMIT_OUTCOME_UNKNOWN` when the stop times out, the final flush fails, or a failure was latched before the marker; the
+  write may or may not be durable.
 
 ## When to enable group commit
 
@@ -126,8 +131,9 @@ On fast local storage a flush is cheap, so waiting for a batch only adds latency
 
 Effects to account for:
 
-- **Two durability waits per hosted write.** A hosted write waits once for its mutation frame and once for its
-  idempotency outcome frame, so a lone write can pay up to `2 × MaxWait`.
+- **One durability wait per hosted write.** A hosted write waits once, for a flush that covers its mutation frame and its
+  idempotency outcome frame, so a lone write pays up to `1 × MaxWait`. A write that falls back to recording its outcome
+  after the apply waits twice.
 - **Hot key.** Writers on one key are serialized across the fsync, so a hot key completes about one write per batch wait
   and gains nothing; batching needs distinct keys.
 - **Windows timer granularity.** On Windows 10 version 1803 and later (Windows Server 2019 and later) the journal thread
@@ -149,7 +155,8 @@ See [journal-single-owner-wal.md](journal-single-owner-wal.md) for the journal t
 
 ### Measured on one machine
 
-`DurableMutationGroupCommitBenchmarks`: hosted write path (mutation frame plus idempotency outcome frame), distinct keys,
+`DurableMutationGroupCommitBenchmarks`: hosted write path (mutation frame plus idempotency outcome frame, measured with
+two durability waits per write, so the figures overstate the latency cost of one wait), distinct keys,
 256 B values, 8 writers with 200 writes each, `MaxBatch = 32`, benchmark quick mode, Windows 11, local NVMe SSD with a
 write cache (cheap fsync). Throughput in writes per second:
 
