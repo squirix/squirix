@@ -13,9 +13,9 @@ internal readonly record struct DeadlineBudget(TimeProvider Clock, TimeSpan Budg
     /// <summary>Gets the budget left, negative once the deadline passed.</summary>
     internal TimeSpan Remaining => Budget - Clock.GetElapsedTime(StartedTimestamp);
 
-    /// <summary>Gets the absolute deadline to hand to gRPC now: the remaining budget from the current system time, never in the past.</summary>
+    /// <summary>Gets the absolute deadline to hand to gRPC now: the remaining budget from the current wall time of its clock, never in the past.</summary>
     /// <remarks>
-    /// gRPC turns an absolute deadline back into a timeout on the system clock when a call starts, so rebuilding it from the budget at that
+    /// gRPC turns an absolute deadline back into a timeout on the system clock (the production clock) when a call starts, so rebuilding it from the budget at that
     /// moment keeps the gRPC timer and the budget timer expiring together even after a wall-clock step.
     /// </remarks>
     internal DateTime ForwardDeadlineUtc
@@ -23,7 +23,7 @@ internal readonly record struct DeadlineBudget(TimeProvider Clock, TimeSpan Budg
         get
         {
             var remaining = Remaining;
-            return TimeProvider.System.GetUtcNow().UtcDateTime + (remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
+            return Clock.GetUtcNow().UtcDateTime + (remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
         }
     }
 

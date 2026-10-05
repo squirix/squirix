@@ -23,7 +23,6 @@ public sealed class KeyedSingleFlightTests : UnitTestBase
 
         var first = RunFailingAsync();
         var second = RunFailingAsync();
-        await Task.Delay(30, cancellationToken);
         state.Gate.SetResult();
 
         InvalidOperationException? firstException = null;
@@ -76,7 +75,6 @@ public sealed class KeyedSingleFlightTests : UnitTestBase
 
         var first = RunOnceAsync();
         var second = RunOnceAsync();
-        await Task.Delay(30, cancellationToken);
         state.Gate.SetResult();
 
         _ = await Assert.That(state.Executions).IsEqualTo(1);

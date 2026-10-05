@@ -261,7 +261,7 @@ internal sealed class ClientPool : IClientPool
                     break;
 
                 var attemptTimeout = remaining < options.PerAttemptTimeout ? remaining : options.PerAttemptTimeout;
-                var failure = await ConnectOnceAsync(channel, attemptTimeout, cancellationToken).ConfigureAwait(false);
+                var failure = await ConnectOnceAsync(channel, attemptTimeout, time, cancellationToken).ConfigureAwait(false);
                 if (failure == null)
                     return;
 
@@ -290,11 +290,11 @@ internal sealed class ClientPool : IClientPool
             return TimeSpan.FromMilliseconds(finalMs);
         }
 
-        private static async ValueTask<Exception?> ConnectOnceAsync(GrpcChannel channel, TimeSpan attemptTimeout, CancellationToken cancellationToken)
+        private static async ValueTask<Exception?> ConnectOnceAsync(GrpcChannel channel, TimeSpan attemptTimeout, TimeProvider time, CancellationToken cancellationToken)
         {
             // Linked CTS distinguishes caller cancellation from per-attempt connect timeouts.
-            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            attemptCts.CancelAfter(attemptTimeout);
+            using var attemptTimer = new CancellationTokenSource(attemptTimeout, time);
+            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, attemptTimer.Token);
 
             try
             {
