@@ -35,6 +35,8 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
 
     private const int LeakedOnShutdownEventId = 3014;
 
+    private static readonly TimeSpan ShutdownObservationWindow = TimeSpan.FromMilliseconds(500);
+
     private static readonly TimeSpan ShutdownBudget = TimeSpan.FromMilliseconds(250);
 
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
@@ -255,10 +257,16 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         try
         {
             // The durability ack completes, then the apply parks on the gate held here while disposal starts.
+            // The apply is parked on the held gate once it queued there, so a completion that skipped the gate is pool-bound from here.
             journal.Writer.Flush.Release();
+            await journal.Journal.MutationGate.WaitUntilAsync(static g => g.HasWaiters, StallTimeout, cancellationToken);
             completedWhileGated = !await PendingProbe.StaysPendingAsync(put);
             shutdown = journal.ShutdownAsync();
-            disposedWhileGated = !await PendingProbe.StaysPendingAsync(shutdown);
+
+            // Disposal tears the writer down right before it waits for in-flight applies; a wait that returned early still needs a few
+            // thread hops, so this one negative check keeps a real window, which can only pass spuriously, never fail falsely.
+            await journal.Writer.WaitUntilAsync(static w => w.DisposeCount > 0, StallTimeout, cancellationToken);
+            disposedWhileGated = await Task.WhenAny(shutdown, Task.Delay(ShutdownObservationWindow, TimeProvider.System, cancellationToken)) == shutdown;
         }
         finally
         {
@@ -297,6 +305,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         {
             // The durability ack completes, then the apply parks on the gate held here.
             journal.Writer.Flush.Release();
+            await journal.Journal.MutationGate.WaitUntilAsync(static g => g.HasWaiters, StallTimeout, cancellationToken);
             completedWhileGated = !await PendingProbe.StaysPendingAsync(put);
             await journal.ShutdownAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));

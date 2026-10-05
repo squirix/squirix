@@ -57,13 +57,16 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
 
         var original = target.PutAsync(Fingerprint, cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        var allocatedBefore = journal.Journal.NextSequence;
         var retry = target.PutAsync(Fingerprint, cancellationToken);
         var retryCompletedDuringStall = !await PendingProbe.StaysPendingAsync(retry);
+        var retryAllocated = journal.Journal.NextSequence != allocatedBefore;
         journal.Writer.Flush.Release();
         var originalResponse = await original.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         var joinedResponse = await retry.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(retryCompletedDuringStall).IsFalse();
+        _ = await Assert.That(retryAllocated).IsFalse();
         _ = await Assert.That(originalResponse.Added).IsTrue();
         _ = await Assert.That(joinedResponse.Added).IsTrue();
         _ = await Assert.That(target.Executions).IsEqualTo(1);
@@ -115,8 +118,10 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         var original = target.PutAsync(Fingerprint, originalAttempt.Token);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         await originalAttempt.CancelAsync();
+        var allocatedBefore = journal.Journal.NextSequence;
         var firstRetry = target.PutAsync(Fingerprint, firstRetryAttempt.Token);
         var firstRetryCompletedDuringStall = !await PendingProbe.StaysPendingAsync(firstRetry);
+        var firstRetryAllocated = journal.Journal.NextSequence != allocatedBefore;
         await firstRetryAttempt.CancelAsync();
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(firstRetry.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
         var secondRetry = target.PutAsync(Fingerprint, cancellationToken);
@@ -125,6 +130,7 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         _ = await original.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(firstRetryCompletedDuringStall).IsFalse();
+        _ = await Assert.That(firstRetryAllocated).IsFalse();
         _ = await Assert.That(outcome.Added).IsTrue();
         _ = await Assert.That(target.Executions).IsEqualTo(1);
     }
