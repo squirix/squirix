@@ -197,7 +197,8 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             return null;
 
         // Admitted and queued requests of one client share this counter, so a client cannot exceed its limit by queueing.
-        // An entry evicted while this request slept is dead: reserving on it would orphan the count, so it is replaced by the live entry.
+        // An entry retired after this request resolved it is dead: reserving on it would orphan the count, so it is replaced by the live entry.
+        // Only the concurrency limit is strict across a retire; the per-client rate limit is soft, because the request may have taken a token on the old entry.
         var reserved = Interlocked.Increment(ref client.InFlightRef);
         while (reserved < 0)
         {

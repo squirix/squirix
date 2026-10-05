@@ -74,7 +74,7 @@ public sealed class BackpressureClientAdmissionTests : DisposableServerUnitTestB
     [Test]
     public async Task ClientReservationReleasedOnGateDisposal(CancellationToken cancellationToken)
     {
-        var gate = CreateGate(
+        using var gate = CreateGate(
             TimeProvider.System,
             new AdmissionOptions
             {
@@ -224,6 +224,49 @@ public sealed class BackpressureClientAdmissionTests : DisposableServerUnitTestB
 
         _ = await Assert.That(admitted).IsEqualTo(1);
         _ = await Assert.That(limited).IsEqualTo(15);
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
+    }
+
+    /// <summary>Verifies workers churning acquire and release on one client never hold more than the per-client limit at once.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ChurnNeverExceedsClientLimit(CancellationToken cancellationToken)
+    {
+        using var gate = CreateGate(
+            TimeProvider.System,
+            new AdmissionOptions
+            {
+                MaxInFlight = 8,
+                MaxQueue = 8,
+                SlowdownThreshold = 8,
+                MaxSlowdownDelay = TimeSpan.Zero,
+                PerClientMaxInFlight = 1,
+            });
+
+        // Element 0 is the number of leases held right now, element 1 stays 0 unless more than one was ever held at once.
+        var held = new int[2];
+        await Parallel.ForEachAsync(
+            [0, 1, 2, 3, 4, 5, 6, 7],
+            cancellationToken,
+            async (_, token) =>
+            {
+                for (var i = 0; i < 200; i++)
+                {
+                    var (decision, lease) = await gate.AcquireAsync("rest", "get", "rest:client-a", token);
+                    if (!decision.IsAccepted)
+                        continue;
+
+                    var now = Interlocked.Increment(ref held[0]);
+                    if (now > 1)
+                        _ = Interlocked.Exchange(ref held[1], now);
+
+                    await Task.Yield();
+                    _ = Interlocked.Decrement(ref held[0]);
+                    lease.Dispose();
+                }
+            });
+
+        _ = await Assert.That(Volatile.Read(ref held[1])).IsEqualTo(0);
         _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
     }
 
