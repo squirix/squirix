@@ -9,6 +9,10 @@ on:
                 default: 0.1.0-preview.8
                 type: string
 
+env:
+    # No project uses a workload; skip reading the workload manifests at every MSBuild start.
+    MSBuildEnableWorkloadResolver: false
+
 jobs:
     publish:
         runs-on: ubuntu-latest
