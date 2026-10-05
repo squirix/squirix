@@ -40,14 +40,15 @@ internal static class ReplicaGroupFollowers
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(VerificationBound);
         var committer = owner.GetRequiredService<ReplicaGroupCommitter>();
+        var verdict = ReplicaVerification.Pending;
         try
         {
-            while (await committer.VerifyReplicasAsync(deadline.Token) != ReplicaVerification.AllReady)
+            while ((verdict = await committer.VerifyReplicasAsync(deadline.Token)) != ReplicaVerification.AllReady)
                 await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, deadline.Token);
         }
         catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new System.TimeoutException($"The owner did not verify every replica slot within {VerificationBound}.", exception);
+            throw new System.TimeoutException($"The owner did not verify every replica slot within {VerificationBound}; last verdict {verdict}.", exception);
         }
     }
 
