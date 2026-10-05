@@ -1,11 +1,11 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Hosting;
@@ -58,18 +58,17 @@ public sealed class HostLogIsolationTests : NodeIntegrationTestBase
     {
         using var recorderA = new RecordingLoggerProvider();
         using var recorderB = new RecordingLoggerProvider();
-        await using var clusterA = await StartClusterAsync("node-a", Options("log-isolation-stall-a", true, recorderA), cancellationToken);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var clusterA = await StartClusterAsync("node-a", ClockOptions("log-isolation-stall-a", recorderA, clock), cancellationToken);
         await using var clusterB = await StartClusterAsync("node-b", Options("log-isolation-stall-b", true, recorderB), cancellationToken);
         if (clusterA["node-a"].GetRequiredService<JournalCoordinatorHost>().Coordinator is not IJournalStallProbeSource journal)
             throw new InvalidOperationException("the host journal does not expose its stall probe.");
 
         // The node is idle, so its journal thread performs no segment I/O and the test is the only writer of the probe.
-        var started = Stopwatch.GetTimestamp();
         journal.StallProbe.IoStarted(nameof(IJournalSegmentWriter.FlushToDisk));
         try
         {
-            while (Stopwatch.GetElapsedTime(started).TotalMilliseconds <= JournalSlowOperationReporter.WarningThresholdMs)
-                await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken);
+            clock.Advance(TimeSpan.FromMilliseconds(JournalSlowOperationReporter.WarningThresholdMs + 1));
 
             journal.StallProbe.ReportWaitCanceled("durability commit");
         }
@@ -91,6 +90,14 @@ public sealed class HostLogIsolationTests : NodeIntegrationTestBase
         foreach (var entry in recorder.Snapshot())
             _ = await Assert.That(entry.Message).DoesNotContain(otherPath, StringComparison.Ordinal);
     }
+
+    private static IntegrationStartOptions ClockOptions(string scope, RecordingLoggerProvider recorder, TimeProvider clock) => new()
+    {
+        UsePersistence = true,
+        ExtraScope = scope,
+        ServicesConfigure = recorder.Register,
+        TimeProvider = clock,
+    };
 
     private static IntegrationStartOptions Options(string scope, bool clean, RecordingLoggerProvider? recorder) => new()
     {

@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
@@ -69,9 +70,10 @@ public sealed class JournalLatchReadinessTests : NodeIntegrationTestBase
     [Test]
     public async Task StalledJournalIoDegradesReady(CancellationToken cancellationToken)
     {
-        // A one-tick threshold: any operation still in progress when the probe is read counts as stalled.
-        var persistence = new PersistenceOptions { JournalStallDegradedThreshold = TimeSpan.FromTicks(1) };
-        await using var cluster = await StartClusterAsync("node_stall_journal", new IntegrationStartOptions { PersistenceOptions = persistence }, cancellationToken);
+        // The stall is measured on a fake server clock, so the operation counts as stalled exactly when the test advances it.
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var persistence = new PersistenceOptions();
+        await using var cluster = await StartClusterAsync("node_stall_journal", new IntegrationStartOptions { PersistenceOptions = persistence, TimeProvider = clock }, cancellationToken);
         var node = cluster["node_stall_journal"];
         if (node.GetRequiredService<JournalCoordinatorHost>().Coordinator is not IJournalStallProbeSource journal)
             throw new InvalidOperationException("the host journal does not expose its stall probe.");
@@ -83,6 +85,7 @@ public sealed class JournalLatchReadinessTests : NodeIntegrationTestBase
         (HttpStatusCode Status, string Body) stalled;
         try
         {
+            clock.Advance(persistence.JournalStallDegradedThreshold);
             stalled = await GetReadyAsync(node.Uri, cancellationToken);
         }
         finally
