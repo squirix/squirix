@@ -238,7 +238,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
             MaxSlowdownDelay = TimeSpan.Zero,
             MaxQueueWait = TimeSpan.FromSeconds(2),
         };
-        using var gate = new AdmissionGate(backpressureOptions, new BackpressureMetrics(_testMeter));
+        using var gate = new AdmissionGate(backpressureOptions, new BackpressureMetrics(_testMeter), new FakeTimeProvider());
         IBackpressureGate gateForClients = gate;
         var current = new int[1];
         var observedMax = new int[1];
@@ -341,7 +341,8 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(200),
             },
-            new BackpressureMetrics(meter));
+            new BackpressureMetrics(meter),
+            new FakeTimeProvider());
 
         var first = (await gate.AcquireAsync("grpc", "insert", "grpc:client-a", cancellationToken)).Lease;
         using var secondCts = new CancellationTokenSource();
@@ -371,6 +372,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
     [Test]
     public async Task QueueTimeoutRejectsAndEmitsMetrics(CancellationToken cancellationToken)
     {
+        var clock = new FakeTimeProvider();
         using var meter = new Meter("Squirix");
         using var sink = new NodeMeasurementSink(meter);
         using var gate = new AdmissionGate(
@@ -382,11 +384,15 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(40),
             },
-            new BackpressureMetrics(meter));
+            new BackpressureMetrics(meter),
+            clock);
 
         using var lease = (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease;
 
-        var (decision, queuedLease) = await gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken);
+        var queuedTask = gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken).AsTask();
+        _ = await Assert.That(queuedTask.IsCompleted).IsFalse();
+        clock.Advance(TimeSpan.FromMilliseconds(40));
+        var (decision, queuedLease) = await queuedTask.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         queuedLease.Dispose();
 
         _ = await Assert.That(decision.IsAccepted).IsFalse();
@@ -409,7 +415,8 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(500),
             },
-            new BackpressureMetrics(_testMeter));
+            new BackpressureMetrics(_testMeter),
+            new FakeTimeProvider());
 
         var first = (await gate.AcquireAsync("grpc", "insert", "grpc:client-a", cancellationToken)).Lease;
         var queuedTask = gate.AcquireAsync("grpc", "insert", "grpc:client-b", cancellationToken).AsTask();
@@ -438,7 +445,8 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromSeconds(2),
             },
-            new BackpressureMetrics(meter));
+            new BackpressureMetrics(meter),
+            new FakeTimeProvider());
 
         using var heldLease = (await gate.AcquireAsync("rest", "remove", "rest:client-a", cancellationToken)).Lease;
         using var cts = new CancellationTokenSource();
@@ -461,6 +469,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
     [Arguments("queue_wait_timeout")]
     public async Task ClientReservationReleasedOnFailure(string scenario, CancellationToken cancellationToken)
     {
+        var clock = new FakeTimeProvider();
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -468,10 +477,11 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
                 MaxQueue = string.Equals(scenario, "queue_full", StringComparison.Ordinal) ? 0 : 1,
                 SlowdownThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
-                MaxQueueWait = string.Equals(scenario, "queue_wait_timeout", StringComparison.Ordinal) ? TimeSpan.FromMilliseconds(40) : TimeSpan.FromMinutes(1),
+                MaxQueueWait = TimeSpan.FromMinutes(1),
                 PerClientMaxInFlight = 1,
             },
-            new BackpressureMetrics(_testMeter));
+            new BackpressureMetrics(_testMeter),
+            clock);
         var held = (await gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken)).Lease;
         using var cts = new CancellationTokenSource();
         var failing = gate.AcquireAsync("rest", "get", "rest:client-a", cts.Token).AsTask();
@@ -486,7 +496,13 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
         }
         else
         {
-            var (decision, failedLease) = await failing;
+            if (string.Equals(scenario, "queue_wait_timeout", StringComparison.Ordinal))
+            {
+                _ = await Assert.That(failing.IsCompleted).IsFalse();
+                clock.Advance(TimeSpan.FromMinutes(1));
+            }
+
+            var (decision, failedLease) = await failing.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
             failedLease.Dispose();
             rejectReason = decision.RejectReason;
         }
