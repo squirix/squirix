@@ -29,7 +29,6 @@ public sealed class BackpressureHostingTests : IsolatedStorageTestBase
             {
                 backpressure.MaxInFlight = 8;
                 backpressure.SlowdownThreshold = 8;
-                backpressure.RejectThreshold = 8;
                 backpressure.MaxSlowdownDelay = TimeSpan.Zero;
                 backpressure.PerClientMaxInFlight = 1;
             },

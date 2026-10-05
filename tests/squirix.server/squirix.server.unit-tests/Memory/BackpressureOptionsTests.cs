@@ -49,13 +49,12 @@ public sealed class BackpressureOptionsTests
         var options = new AdmissionOptions
         {
             MaxInFlight = 8,
-            SlowdownThreshold = 6,
-            RejectThreshold = 5,
+            SlowdownThreshold = 9,
         };
 
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
 
-        _ = await Assert.That(ex.Message).Contains("RejectThreshold", StringComparison.Ordinal);
+        _ = await Assert.That(ex.Message).Contains("SlowdownThreshold", StringComparison.Ordinal);
     }
 
     /// <summary>Ensures a queue wait above the operational cap is rejected.</summary>

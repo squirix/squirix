@@ -17,15 +17,21 @@ namespace Squirix.Server;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class SquirixServerBackpressureOptions
 {
-    /// <summary>Gets or sets the node-wide maximum number of concurrently admitted requests. Default is <c language="csharp">256</c>; must be greater than zero.</summary>
+    /// <summary>
+    /// Gets or sets the node-wide maximum number of concurrently admitted requests. Default is <c language="csharp">256</c>; must be greater than zero.
+    /// When all slots are taken, further requests wait in the queue (see <see cref="MaxQueue" />) and are rejected once it is full.
+    /// </summary>
     public int MaxInFlight { get; set; } = 256;
 
-    /// <summary>Gets or sets the maximum number of queued requests. Default is <c language="csharp">128</c>; cannot be negative.</summary>
+    /// <summary>
+    /// Gets or sets the maximum number of requests waiting in the queue for a free slot, served in arrival order.
+    /// Default is <c language="csharp">128</c>; cannot be negative. A request arriving at a full queue is rejected immediately.
+    /// </summary>
     public int MaxQueue { get; set; } = 128;
 
     /// <summary>
-    /// Gets or sets the maximum time a request waits in the queue. Default is 250 milliseconds ("00:00:00.250" in settings);
-    /// must be greater than zero and cannot exceed one minute.
+    /// Gets or sets the maximum time a request waits in the queue for a slot, after any slowdown delay. Default is 250 milliseconds
+    /// ("00:00:00.250" in settings); must be greater than zero and cannot exceed one minute.
     /// </summary>
     public TimeSpan MaxQueueWait { get; set; } = TimeSpan.FromMilliseconds(250);
 
@@ -49,7 +55,7 @@ public sealed class SquirixServerBackpressureOptions
     public int? NodeRateLimitPerSecond { get; set; }
 
     /// <summary>
-    /// Gets or sets the maximum number of concurrently admitted requests per client, or <see langword="null" /> for no per-client concurrency limit.
+    /// Gets or sets the maximum number of requests per client that are admitted or waiting in the queue, or <see langword="null" /> for no per-client concurrency limit.
     /// Must be between 1 and <see cref="MaxInFlight" /> when set.
     /// </summary>
     public int? PerClientMaxInFlight { get; set; }
@@ -68,19 +74,13 @@ public sealed class SquirixServerBackpressureOptions
     public int? PerClientRateLimitPerSecond { get; set; }
 
     /// <summary>
-    /// Gets or sets the in-flight count from which a new request is rejected while another request is already waiting in the queue.
-    /// Default is <c language="csharp">256</c>; must be between 1 and <see cref="MaxInFlight" /> and at least <see cref="SlowdownThreshold" />.
-    /// </summary>
-    /// <remarks>
-    /// With an empty queue a request is admitted while a slot is free, or queued (up to <see cref="MaxQueue" /> and
-    /// <see cref="MaxQueueWait" />) once all <see cref="MaxInFlight" /> slots are taken, instead of being rejected.
-    /// </remarks>
-    public int RejectThreshold { get; set; } = 256;
-
-    /// <summary>
     /// Gets or sets the in-flight count at which requests are slowed down. Default is <c language="csharp">192</c>;
     /// must be between 1 and <see cref="MaxInFlight" />.
     /// </summary>
+    /// <remarks>
+    /// The delay grows linearly from near zero at this count to <see cref="MaxSlowdownDelay" /> when <see cref="MaxInFlight" /> slots are taken.
+    /// A request that is slowed down and then queued can wait up to <see cref="MaxSlowdownDelay" /> plus <see cref="MaxQueueWait" />.
+    /// </remarks>
     public int SlowdownThreshold { get; set; } = 192;
 
     internal AdmissionOptions ToAdmissionOptions() => new()
@@ -94,7 +94,6 @@ public sealed class SquirixServerBackpressureOptions
         PerClientMaxInFlight = PerClientMaxInFlight,
         PerClientRateLimitBurst = PerClientRateLimitBurst,
         PerClientRateLimitPerSecond = PerClientRateLimitPerSecond,
-        RejectThreshold = RejectThreshold,
         SlowdownThreshold = SlowdownThreshold,
     };
 }

@@ -181,12 +181,11 @@ Tune limits through `Squirix:Cluster:Backpressure` or `SquirixServerOptions.Back
 Per-client and rate limits are off by default. Every rejection increments `squirix_backpressure_reject_total` with a
 `reason` label (rate-limit rejections also increment `squirix_backpressure_rate_limit_reject_total`):
 
-- `queue_full`: the node queue (`MaxQueue`) is full.
+- `queue_full`: all `MaxInFlight` slots are taken and the node queue holds `MaxQueue` requests.
 - `queue_wait_timeout`: the request waited `MaxQueueWait` without getting a slot.
-- `hard_threshold`: in-flight reached `RejectThreshold` while another request was already queued.
 - `node_rate_limit`: the node rate limit is spent.
 - `client_rate_limit`: the caller's rate limit is spent.
-- `client_concurrency_limit`: the caller is at `PerClientMaxInFlight`.
+- `client_concurrency_limit`: the caller has `PerClientMaxInFlight` requests admitted or queued.
 - `client_queue_full`: the caller is at `PerClientMaxInFlight` and its queue allowance is used up; usually when `MaxQueue` is 0,
   but concurrent over-limit requests from one caller can also hit it.
 - `gate_disposed`: the node was shutting down while the request waited.

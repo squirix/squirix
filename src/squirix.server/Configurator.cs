@@ -90,7 +90,6 @@ public static class Configurator
             PerClientMaxInFlight = source.Backpressure.PerClientMaxInFlight,
             PerClientRateLimitBurst = source.Backpressure.PerClientRateLimitBurst,
             PerClientRateLimitPerSecond = source.Backpressure.PerClientRateLimitPerSecond,
-            RejectThreshold = source.Backpressure.RejectThreshold,
             SlowdownThreshold = source.Backpressure.SlowdownThreshold,
         };
         ArgumentNullException.ThrowIfNull(source.Journal);

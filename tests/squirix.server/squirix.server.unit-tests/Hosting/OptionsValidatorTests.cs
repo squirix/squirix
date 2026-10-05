@@ -30,7 +30,6 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
         {
             MaxInFlight = 10,
             SlowdownThreshold = 1,
-            RejectThreshold = 10,
             MaxQueue = 0,
             MaxQueueWait = TimeSpan.FromMilliseconds(1),
             MaxSlowdownDelay = TimeSpan.Zero,

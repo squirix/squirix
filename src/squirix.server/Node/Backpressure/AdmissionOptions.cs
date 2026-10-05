@@ -38,8 +38,6 @@ internal sealed record AdmissionOptions
 
     internal int? PerClientRateLimitPerSecond { get; init; }
 
-    internal int RejectThreshold { get; init; } = 256;
-
     internal int SlowdownThreshold { get; init; } = 192;
 
     internal void Validate()
@@ -128,10 +126,6 @@ internal sealed record AdmissionOptions
     private void ValidateThresholds()
     {
         ValidateThresholdRange(SlowdownThreshold, "SlowdownThreshold");
-        ValidateThresholdRange(RejectThreshold, "RejectThreshold");
-        if (RejectThreshold < SlowdownThreshold)
-            throw new InvalidOperationException("Backpressure RejectThreshold must be greater than or equal to SlowdownThreshold.");
-
         if (MaxSlowdownDelay < TimeSpan.Zero)
             throw new InvalidOperationException("Backpressure MaxSlowdownDelay cannot be negative.");
 
