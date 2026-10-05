@@ -224,8 +224,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 try
                 {
                     var record = state.Pipeline.AllocateIdempotencyRecord(in ownership, state.OperationId, state.Fingerprint, state.ResponseBytes);
-                    await state.Pipeline.AppendRecordCoreAsync(record, ct).ConfigureAwait(false);
-                    state.Appended?.Invoke();
+                    await state.Pipeline.AppendRecordCoreAsync(record, ct, state.Appended).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -522,10 +521,19 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             return record;
         }
 
-        internal async ValueTask AppendRecordCoreAsync(JournalRecord record, CancellationToken cancellationToken)
+        internal async ValueTask AppendRecordCoreAsync(JournalRecord record, CancellationToken cancellationToken, Action? accepted = null)
         {
             var idempotencyStamped = StampIdempotencyOperationId(record);
             var cacheMutation = record.Operation is JournalOperationKind.Put or JournalOperationKind.Remove;
+            if (cacheMutation && RpcMutationIdempotencyExecutionAmbient.HasAppendedOutcome)
+            {
+                // The scope already appended its outcome frame ahead of this mutation's apply: a further mutation frame would follow its own
+                // outcome in the journal, so recovery could see the outcome without the effects the response describes. Refused before anything
+                // is allocated, enqueued or stamped.
+                record.ReturnToAppendPool();
+                throw new InvalidOperationException("a cache mutation frame was appended after the operation's outcome frame.");
+            }
+
             _owner.DurabilityPipeline.ThrowIfJournalThreadFailed();
             await _owner.StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
@@ -550,6 +558,10 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
                 var startedMs = Environment.TickCount64;
                 await EnqueueAppendAsync(frameBytes, frameLen, idempotencyStamped, cacheMutation, cancellationToken).ConfigureAwait(false);
+
+                // Nothing between the ring enqueue and this callback throws except the typed post-enqueue fault of the write ack, so a caller
+                // that sets a flag here knows exactly whether the frame is on the ring; the metrics below may throw and run after it.
+                accepted?.Invoke();
                 _owner.RecordAppendMetrics(frameLen, startedMs);
             }
             finally
