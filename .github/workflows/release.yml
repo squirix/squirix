@@ -16,6 +16,10 @@ on:
         default: false
         type: boolean
 
+env:
+  # No project uses a workload; skip reading the workload manifests at every MSBuild start.
+  MSBuildEnableWorkloadResolver: false
+
 jobs:
   pack-and-release:
     runs-on: ubuntu-latest

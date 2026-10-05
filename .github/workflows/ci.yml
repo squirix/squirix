@@ -25,6 +25,10 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
     cancel-in-progress: true
 
+env:
+    # No project uses a workload; skip reading the workload manifests at every MSBuild start.
+    MSBuildEnableWorkloadResolver: false
+
 jobs:
     changes:
         name: Detect Changes
