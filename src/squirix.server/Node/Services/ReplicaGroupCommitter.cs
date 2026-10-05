@@ -342,6 +342,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     internal ValueTask<bool> HoldsEntryAsync(PreparedReplicaMutation mutation) => _registry.HoldsEntryAsync(GroupId, mutation);
 
     /// <summary>Drops the started state, so the next attempt rebuilds the pipeline positions from the durable log status.</summary>
+    /// <remarks>Runs under the commit gate.</remarks>
     internal void DropStartedState() => _started = false;
 
     /// <summary>Admits the followers verified outside the gate and commits what the verified slots now cover.</summary>

@@ -19,6 +19,7 @@ internal static class ReplicaGroupCommitterCommits
         /// <returns>The committed outcome payload.</returns>
         /// <exception cref="SquirixException">The outcome is unknown, or the write is refused retryably.</exception>
         /// <exception cref="ServerOpIdMismatchException">The operation identifier is reused with another request.</exception>
+        /// <remarks>Runs under the commit gate.</remarks>
         internal async ValueTask<ReadOnlyMemory<byte>> CommitWithPreAppendResyncAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation)
         {
             try
