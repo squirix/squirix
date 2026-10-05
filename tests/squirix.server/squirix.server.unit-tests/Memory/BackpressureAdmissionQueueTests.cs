@@ -36,7 +36,8 @@ public sealed class BackpressureAdmissionQueueTests : DisposableServerUnitTestBa
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMinutes(1),
             },
-            new BackpressureMetrics(meter));
+            new BackpressureMetrics(meter),
+            new FakeTimeProvider());
         var held = (await gate.AcquireAsync("rest", "get", "rest:client-0", cancellationToken)).Lease;
         var queued1 = StartAcquireAsync(gate, "rest:client-1", cancellationToken);
         var queued2 = StartAcquireAsync(gate, "rest:client-2", cancellationToken);
@@ -195,7 +196,8 @@ public sealed class BackpressureAdmissionQueueTests : DisposableServerUnitTestBa
                 MaxQueueWait = TimeSpan.FromMinutes(1),
                 PerClientMaxInFlight = 1,
             },
-            new BackpressureMetrics(_testMeter));
+            new BackpressureMetrics(_testMeter),
+            new FakeTimeProvider());
         var heldB = (await gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken)).Lease;
         var heldC = (await gate.AcquireAsync("rest", "get", "rest:client-c", cancellationToken)).Lease;
         var queuedA = StartAcquireAsync(gate, "rest:client-a", cancellationToken);

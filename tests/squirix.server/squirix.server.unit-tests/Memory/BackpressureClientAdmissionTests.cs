@@ -75,7 +75,7 @@ public sealed class BackpressureClientAdmissionTests : DisposableServerUnitTestB
     public async Task ClientReservationReleasedOnGateDisposal(CancellationToken cancellationToken)
     {
         using var gate = CreateGate(
-            TimeProvider.System,
+            new FakeTimeProvider(),
             new AdmissionOptions
             {
                 MaxInFlight = 1,

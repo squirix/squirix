@@ -288,12 +288,13 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         var started = Stopwatch.GetTimestamp();
         try
         {
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(_options.MaxQueueWait);
+            // The timeout runs on the gate time provider, like the slowdown delay, so tests can drive it with a fake clock.
+            using var timeoutCts = new CancellationTokenSource(_options.MaxQueueWait, _timeProvider);
+            using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
             try
             {
-                await _slots.WaitAsync(timeoutCts.Token).ConfigureAwait(false);
+                await _slots.WaitAsync(waitCts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
