@@ -204,7 +204,7 @@ internal static class ServerHostingComposition
                 static sp => new RingAgreementHealthCheck(sp.GetRequiredService<RingAgreement>()),
                 HealthStatus.Unhealthy,
                 ["ready"]));
-        _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory);
+        _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory, (args.BackpressureOptions ?? new AdmissionOptions()).MaxInFlight);
         _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
         _ = services.AddSingleton(static _ => new ReplicaRepairService(RepairQueueCapacity));
         _ = services.AddHostedService(static sp => sp.GetRequiredService<ReplicaRepairService>());

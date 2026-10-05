@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Threading;
@@ -88,13 +87,13 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
             var budgetRemaining = ServerRpcDeadlineContext.GetRemainingBudget();
             if (budgetRemaining == null)
-                return await _executor.RunQueuedExecutionAsync(state, action, false, cancellationToken, cancellationToken).ConfigureAwait(false);
+                return await _executor.RunExecutionAsync(state, action, false, cancellationToken, cancellationToken).ConfigureAwait(false);
 
             // The budget counts down on the clock its deadline was pushed with; a spent budget cancels at once.
             var budgetDelay = budgetRemaining.Value > TimeSpan.Zero ? budgetRemaining.Value : TimeSpan.Zero;
             using var budgetTimer = new CancellationTokenSource(budgetDelay, ServerRpcDeadlineContext.CurrentClock ?? TimeProvider.System);
             using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budgetTimer.Token);
-            return await _executor.RunQueuedExecutionAsync(state, action, true, budgetCts.Token, cancellationToken).ConfigureAwait(false);
+            return await _executor.RunExecutionAsync(state, action, true, budgetCts.Token, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -183,28 +182,23 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             _rpcMetrics = rpcMetrics;
         }
 
-        internal async ValueTask<T> RunQueuedExecutionAsync<TState, T>(
+        internal async ValueTask<T> RunExecutionAsync<TState, T>(
             TState state,
             Func<TState, CancellationToken, ValueTask<T>> action,
             bool hasDeadlineBudget,
             CancellationToken effectiveToken,
             CancellationToken cancellationToken)
         {
-            var queueWaitStarted = Stopwatch.GetTimestamp();
-            try
+            // The permit is non-queuing: a caller that cannot take a free slot at once is refused instead of
+            // holding its entry admission slot while it waits on a peer that may be hung. A drain in progress
+            // outranks the busy refusal so callers see the shutdown reason.
+            if (!await _semaphore.WaitAsync(TimeSpan.Zero, CancellationToken.None).ConfigureAwait(false))
             {
-                await _semaphore.WaitAsync(effectiveToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (hasDeadlineBudget && !cancellationToken.IsCancellationRequested)
-            {
-                // The ambient RPC deadline can expire while queued on the per-peer semaphore. Surface it as
-                // the same deadline-budget RpcException the retry loop produces instead of leaking a raw
-                // TaskCanceledException.
-                _rpcMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
-                throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
+                ThrowIfDraining();
+                _metrics.IncrementBusyRejectsTotal(_peer, 1);
+                throw ServerOpContract.TooManyRequests("peer_busy");
             }
 
-            _metrics.ObserveQueueWaitSeconds(_peer, Stopwatch.GetElapsedTime(queueWaitStarted));
             try
             {
                 ThrowIfDraining();

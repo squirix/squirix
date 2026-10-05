@@ -15,11 +15,13 @@ internal static class ServiceRegistration
         /// <param name="cluster">Cluster topology configuration.</param>
         /// <param name="callPolicyFactory">Optional per-endpoint call policy factory.</param>
         /// <param name="peerHandlerFactory">Optional per-peer HTTP handler factory.</param>
+        /// <param name="maxInFlight">Entry node maximum in-flight operations that sizes the per-owner forwarding permits.</param>
         /// <returns><paramref name="services" /> for chaining.</returns>
         internal IServiceCollection AddSquirixClusterTransport(
             TopologyOptions cluster,
             Func<string, ServerCallPolicy>? callPolicyFactory,
-            Func<string, HttpMessageHandler>? peerHandlerFactory)
+            Func<string, HttpMessageHandler>? peerHandlerFactory,
+            int maxInFlight)
         {
             _ = services.AddSingleton(sp => new ClientInterceptor(sp.GetRequiredService<ILogger<ClientInterceptor>>(), cluster.NodeId));
             _ = services.AddSingleton(sp => new ServerInterceptor(sp.GetRequiredService<ILogger<ServerInterceptor>>(), cluster.NodeId));
@@ -34,10 +36,11 @@ internal static class ServiceRegistration
                     CopyPeers(cluster),
                     new ServerClientPoolArgs
                     {
-                        PolicyFactory = callPolicyFactory ?? (_ => new ServerCallPolicy(
+                        PolicyFactory = callPolicyFactory ?? (peer => ForwardingCallPolicyDefaults.Create(
                             sp.GetRequiredService<ServerCallPolicyInstrumentation>(),
-                            timeProvider: sp.GetService<TimeProvider>(),
-                            timeouts: new CallPolicyTimeouts(TimeSpan.FromSeconds(3), TimeSpan.FromMilliseconds(60), TimeSpan.FromMilliseconds(600)))),
+                            peer,
+                            maxInFlight,
+                            sp.GetService<TimeProvider>())),
                         PeerHandlerFactory = peerHandlerFactory,
                         Interceptor = sp.GetRequiredService<ClientInterceptor>(),
                         MtlsOptions = mtlsOptions,

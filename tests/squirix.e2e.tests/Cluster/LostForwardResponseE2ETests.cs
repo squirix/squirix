@@ -16,9 +16,9 @@ namespace Squirix.E2ETests.Cluster;
 /// is replayed, not re-executed, when the client fails over to a third node.
 /// </summary>
 /// <remarks>
-/// The entry node (nodeA) forwards to the owner (nodeB); the owner executes, then every forward from the entry node fails as unreachable, so the entry
-/// node's own retries are exhausted and the client fails over to nodeC. While the response is lost, a direct write to the owner changes the key
-/// as a later writer would; a re-executed mutation would overwrite that write, a replayed one leaves it untouched.
+/// The entry node (nodeA) forwards to the owner (nodeB); the owner executes, then every forward from the entry node fails as unreachable. The entry
+/// node forwards once per client attempt, so the client retries on nodeA with the same operation id and then fails over to nodeC.
+/// While the response is lost, a direct write to the owner changes the key as a later writer would; a re-executed mutation would overwrite that write, a replayed one leaves it untouched.
 /// </remarks>
 public sealed class LostForwardResponseE2ETests : EndToEndTestBase
 {
@@ -125,12 +125,12 @@ public sealed class LostForwardResponseE2ETests : EndToEndTestBase
             }
         }
 
-        /// <summary>Asserts the entry node exhausted its own forwards, so the success came from the client failover, and the owner ran the mutation once.</summary>
+        /// <summary>Asserts the client retried on the entry node (one forward per client attempt) before failing over, and the owner ran the mutation once.</summary>
         /// <returns>A task that completes when the assertions pass.</returns>
         internal async Task AssertFailedOverWithSingleExecutionAsync()
         {
             _ = await Assert.That(_probe.OwnerExecutions(_key)).IsEqualTo(1);
-            _ = await Assert.That(_probe.ForwardAttempts(_key)).IsGreaterThan(1);
+            _ = await Assert.That(_probe.ForwardAttempts(_key)).IsEqualTo(3);
         }
     }
 

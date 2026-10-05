@@ -11,6 +11,7 @@ using Grpc.Core;
 using Rocks;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
@@ -252,6 +253,63 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
         _ = await Assert.That(failure.Status.Detail).IsEqualTo("Server is overloaded (busy).");
         _ = await Assert.That(invoker.Requests.Count).IsEqualTo(1);
+    }
+
+    /// <summary>The forwarding defaults size the per-owner permits as half of the entry admission limit.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ForwardingDefaultsSizeThePermits(CancellationToken cancellationToken)
+    {
+        _ = await Assert.That(ForwardingCallPolicyDefaults.MaxConcurrentPerPeer(256)).IsEqualTo(128);
+        _ = await Assert.That(ForwardingCallPolicyDefaults.MaxConcurrentPerPeer(3)).IsEqualTo(1);
+        _ = await Assert.That(ForwardingCallPolicyDefaults.MaxConcurrentPerPeer(1)).IsEqualTo(1);
+
+        var instrumentation = new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter));
+        await using var policy = ForwardingCallPolicyDefaults.Create(instrumentation, Owner, 2, TimeProvider.System);
+        var runs = new int[1];
+        using var release = new SemaphoreSlim(0);
+        var first = policy.ExecuteAsync(
+            release,
+            static async (gate, ct) =>
+            {
+                await gate.WaitAsync(ct);
+                return 1;
+            },
+            cancellationToken);
+
+        var second = policy.ExecuteAsync(
+            runs,
+            static (counter, _) =>
+            {
+                counter[0]++;
+                return ValueTask.FromResult(2);
+            },
+            cancellationToken);
+        var busy = await NodeAsyncAssert.ThrowsAsync<SquirixException, int>(second);
+        _ = release.Release();
+
+        _ = await Assert.That(busy.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
+        _ = await Assert.That(runs[0]).IsEqualTo(0);
+        _ = await Assert.That(await first).IsEqualTo(1);
+    }
+
+    /// <summary>An Unavailable from the owner is relayed after one attempt and frees the entry slot.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnavailableFromOwnerIsNotRetried(CancellationToken cancellationToken)
+    {
+        var instrumentation = new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter));
+        await using var policy = ForwardingCallPolicyDefaults.Create(instrumentation, Owner, 8, TimeProvider.System);
+        using var gate = new AdmissionGate(new AdmissionOptions { MaxInFlight = 8, MaxQueue = 1, SlowdownThreshold = 1, MaxSlowdownDelay = TimeSpan.Zero }, new BackpressureMetrics(_testMeter), TimeProvider.System);
+        var invoker = new CapturingCallInvoker(failure: static () => new RpcException(new Status(StatusCode.Unavailable, "owner is down")));
+        var forwarder = CreateForwarder(invoker, policy, gate);
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            forwarder.TouchAsync(Owner, new TouchAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken));
+
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(invoker.Requests.Count).IsEqualTo(1);
+        _ = await Assert.That(gate.InFlight).IsEqualTo(0);
     }
 
     /// <inheritdoc />

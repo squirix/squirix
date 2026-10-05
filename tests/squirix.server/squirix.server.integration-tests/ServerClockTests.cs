@@ -15,6 +15,7 @@ using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -24,7 +25,7 @@ namespace Squirix.Server.IntegrationTests;
 
 /// <summary>
 /// A hosted node measures time with the clock registered in its container: journal compaction, admission rate limiting, the
-/// internode call policy and the journal stall probe all run on it, so a test clock drives them without real delays.
+/// forwarding call policy and the journal stall probe all run on it, so a test clock drives them without real delays.
 /// </summary>
 public sealed class ServerClockTests : NodeIntegrationTestBase
 {
@@ -77,10 +78,10 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
         _ = await Assert.That(refilled.IsAccepted).IsTrue();
     }
 
-    /// <summary>The internode call policy the node builds parks its retry backoff on the server clock.</summary>
+    /// <summary>The forwarding call policy the node builds makes one attempt and runs its attempt timeout on the server clock.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task PeerRetryBackoffParksOnServerClock(CancellationToken cancellationToken)
+    public async Task PeerAttemptTimeoutRunsOnServerClock(CancellationToken cancellationToken)
     {
         var clock = new CallerTimerClock();
         await using var cluster = await StartClusterAsync("node_clock_a", "node_clock_b", new IntegrationStartOptions { TimeProvider = clock }, cancellationToken);
@@ -92,18 +93,24 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
         {
             execute = policy.ExecuteAsync(
                 attempts,
-                static (counter, _) => counter.Increment() == 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(7),
+                static async (counter, ct) =>
+                {
+                    _ = counter.Increment();
+                    await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, ct);
+                    return 0;
+                },
                 cancellationToken).AsTask();
         }
 
-        // The first attempt fails synchronously, so the call already parked its backoff on a server clock timer.
-        var backoffTimers = clock.RecordedTimers;
-        clock.Advance(TimeSpan.FromMinutes(1));
-        var result = await execute.WaitAsync(Bound, TimeProvider.System, cancellationToken);
+        // The attempt starts synchronously, so its timeout is already armed on the server clock.
+        var attemptTimers = clock.RecordedTimers;
+        clock.Advance(TimeSpan.FromSeconds(3));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(execute.WaitAsync(Bound, TimeProvider.System, cancellationToken));
 
-        _ = await Assert.That(backoffTimers).IsEqualTo(1);
-        _ = await Assert.That(result).IsEqualTo(7);
-        _ = await Assert.That(attempts.Count).IsEqualTo(2);
+        _ = await Assert.That(attemptTimers).IsEqualTo(1);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(attempts.Count).IsEqualTo(1);
+        _ = await Assert.That(clock.RecordedTimers).IsEqualTo(1);
     }
 
     /// <summary>The snapshot age in the readiness details grows with the server clock the snapshot was stamped with.</summary>
@@ -227,14 +234,14 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
     }
 
     /// <summary>
-    /// A fake clock that counts the backoff timers created by the call flow inside <see cref="RecordCaller" />: those due within a second, which
-    /// leaves out the much longer per-attempt timeout armed on the same clock.
+    /// A fake clock that counts the per-attempt timeout timers created by the call flow inside <see cref="RecordCaller" />: those due exactly at the
+    /// attempt timeout, which leaves out any other timer armed on the same clock.
     /// </summary>
     [ThreadSafe]
     private sealed class CallerTimerClock : FakeTimeProvider
     {
-        /// <summary>The node retries a peer with a backoff of at most 600 ms and gives each attempt 3 s, so this window holds the backoff only.</summary>
-        private static readonly TimeSpan BackoffWindow = TimeSpan.FromSeconds(1);
+        /// <summary>The node gives each forwarded attempt 3 s.</summary>
+        private static readonly TimeSpan AttemptTimeout = TimeSpan.FromSeconds(3);
 
         private readonly AsyncLocal<bool> _recording = new();
         private int _count;
@@ -248,7 +255,7 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
 
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
-            if (_recording.Value && dueTime < BackoffWindow)
+            if (_recording.Value && dueTime == AttemptTimeout)
                 _ = Interlocked.Increment(ref _count);
 
             return base.CreateTimer(callback, state, dueTime, period);
