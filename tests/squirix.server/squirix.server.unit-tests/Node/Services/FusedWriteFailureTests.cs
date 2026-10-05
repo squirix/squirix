@@ -108,7 +108,7 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
         _ = await Assert.That(outcomes).IsEmpty();
     }
 
-    /// <summary>A failure after the outcome frame reached the ring, with no write ack to fault, is an unknown outcome and appends no second outcome frame.</summary>
+    /// <summary>A failure after the outcome frame reached the ring is an unknown outcome, appends no second outcome frame and latches the journal, so memory never lacks what the journal flushes.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task FaultAfterEnqueueAppendsNoFallback(CancellationToken cancellationToken)
@@ -142,7 +142,9 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
             var exported = Export(harness);
 
             _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
-            _ = await Assert.That(outcomes).Count().IsEqualTo(1);
+            _ = await Assert.That(outcomes.Count).IsLessThanOrEqualTo(1);
+            _ = await Assert.That(journal.Journal.GetJournalThreadFailure()).IsNotNull();
+            _ = await Assert.That((await harness.Physical.GetValueAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).Found).IsFalse();
             _ = await Assert.That((await Assert.That(exported).HasSingleItem()).State).IsEqualTo(IdempotencyRecordState.Completed);
         }
         finally
@@ -170,12 +172,18 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
             },
             cancellationToken);
         var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(run);
+        var replayed = await RunAsync(harness, operationId, static () => throw new InvalidOperationException("the retry must not run"), cancellationToken);
         await journal.ShutdownAsync();
         var frames = harness.ReadFrames(cancellationToken);
 
         _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
         _ = await Assert.That(frames).Count().IsEqualTo(2);
         _ = await Assert.That(frames[1].Operation).IsEqualTo(JournalOperationKind.IdempotencyOutcome);
+
+        // The first write was already recorded as completed, so the refusal latches the journal: the retry replays that success, and nothing
+        // more can be written behind it.
+        _ = await Assert.That(replayed).IsEqualTo(new SetAsyncResponse());
+        _ = await Assert.That(journal.Journal.GetJournalThreadFailure()).IsNotNull();
     }
 
     /// <summary>A mutation frame that is not stamped is refused after the outcome frame too.</summary>

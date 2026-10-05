@@ -63,7 +63,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
                 static (s, ownership, ct) => s.Self._journal.AppendRemoveAsync(ownership, s.Journal.CacheKey, ct),
                 static (s, ct) => s.Self._inner.RemoveAsync(s.Memory.OperationId, s.Memory.CacheName, s.Memory.Key, ct),
                 static (_, predicted) => RpcMutationIdempotencyExecutionAmbient.AppendPredictedOutcomeAsync(predicted),
-                static _ => RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply()),
+                static (_, _) => RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply()),
             cancellationToken);
     }
 
@@ -151,7 +151,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
                 static (s, ownership, ct) => s.Self._journal.AppendPutAsync(ownership, s.Journal.CacheKey, s.Journal.Payload, ct),
                 static (s, ct) => s.Self.ApplySetEntryAsync(s.Memory, ct),
                 static (_, predicted) => RpcMutationIdempotencyExecutionAmbient.AppendPredictedOutcomeAsync(predicted),
-                static _ => RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply()),
+                static (_, _) => RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply()),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -174,7 +174,15 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
                 static (s, ownership, ct) => s.Self._journal.AppendPutAsync(ownership, s.Args.CacheKey, s.Args.Payload, ct),
                 static (s, ct) => s.Self._inner.TryAddEntryAsync(s.Args.OperationId, s.Args.CacheName, s.Args.Key, s.Args.Entry, ct),
                 static (_, predicted) => RpcMutationIdempotencyExecutionAmbient.AppendPredictedOutcomeAsync(predicted),
-                static _ => RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply()),
+                static (s, actual) =>
+                {
+                    // The precondition predicted an add under the key lock: an apply that refused it leaves a put frame the memory never took.
+                    // The latch keeps the outcome unconfirmed, so nothing is promoted.
+                    if (actual)
+                        RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply();
+                    else
+                        s.Self._journal.FailJournalPipeline(new InvalidOperationException("an add predicted to take effect was refused by memory after its journal frame entered the ring."));
+                }),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -257,7 +265,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
                 static (s, ownership, ct) => s.Self._journal.AppendPutAsync(ownership, new CacheKey(s.CacheName, s.Key), s.Upsert.Payload, ct),
                 static (s, ct) => ApplyDecidedAsync(s, ct),
                 static (_, predicted) => RpcMutationIdempotencyExecutionAmbient.AppendPredictedOutcomeAsync(predicted),
-                static _ => RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply()),
+                static (_, _) => RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply()),
             cancellationToken).ConfigureAwait(false);
     }
 

@@ -77,7 +77,7 @@ public sealed class DurableMutationPhasesTests : IsolatedStorageTestBase
         _ = await Assert.That(string.Join(',', log)).IsEqualTo("append,afterAppend:7,apply");
     }
 
-    /// <summary>A failure of the after-append phase is an unknown outcome and the apply never runs.</summary>
+    /// <summary>A failure of the after-append phase is an unknown outcome, the apply never runs, and the journal is latched so nothing it appended can be flushed unapplied.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task AfterAppendFailureIsUnknown(CancellationToken cancellationToken)
@@ -103,6 +103,7 @@ public sealed class DurableMutationPhasesTests : IsolatedStorageTestBase
 
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
         _ = await Assert.That(log).IsEmpty();
+        _ = await Assert.That(journal.Journal.GetJournalThreadFailure()).IsNotNull();
     }
 
     private static Task<int> ExecuteAsync(StallableJournal journal, List<string> log, DurableMutationCondition<int> condition, CancellationToken cancellationToken, bool fail = false)
@@ -128,7 +129,7 @@ public sealed class DurableMutationPhasesTests : IsolatedStorageTestBase
                     s.Log.Add($"afterAppend:{predicted}");
                     return ValueTask.CompletedTask;
                 },
-                static s => s.Log.Add("afterApply")),
+                static (s, _) => s.Log.Add("afterApply")),
             cancellationToken).AsTask();
     }
 }

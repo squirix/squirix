@@ -163,7 +163,7 @@ public class DurableMutationGroupCommitBenchmarks
                 static (p, ownership, ct) => p.Journal.AppendPutAsync(ownership, p.Key, p.Payload, ct),
                 static (_, _) => new ValueTask<int>(1),
                 static (_, predicted) => RpcMutationIdempotencyExecutionAmbient.AppendPredictedOutcomeAsync(predicted),
-                static _ => RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply()),
+                static (_, _) => RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply()),
             cancellationToken);
 
     private static int GetOperationsPerWriter() => JournalBenchmarkSupport.ResolveGroupCommitOperationsPerWriter(DefaultOperationsPerWriter);

@@ -27,12 +27,6 @@ internal static partial class ServerLog
         Message = "Durable mutation outcome is unknown after its journal frame entered the ring; the cause is reported here and the caller gets COMMIT_OUTCOME_UNKNOWN")]
     internal static partial void DurableMutationOutcomeUnknown(ILogger logger, Exception exception);
 
-    [LoggerMessage(
-        EventId = 1020,
-        Level = LogLevel.Warning,
-        Message = "The outcome frame could not be appended together with its mutation frame; the outcome is recorded after the memory apply instead")]
-    internal static partial void IdempotencyOutcomeFusionSkipped(ILogger logger, Exception exception);
-
     [LoggerMessage(EventId = 1011, Level = LogLevel.Warning, Message = "Journal failure drained {Count} abandoned appends; {Bytes} bytes quarantined until the I/O thread joins")]
     internal static partial void JournalAbandonedAppendsDrained(ILogger logger, int count, long bytes);
 

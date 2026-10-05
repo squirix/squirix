@@ -119,8 +119,10 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
 
             // The outcome frame went to the journal right after the mutation frame and shared its flush, and the apply recorded the outcome: the
             // response is the one that was appended, so a retry replays exactly what this caller gets.
-            if (scope.FusedResponse is TResponse fusedResponse)
+            if (scope.FusedResponse is { } fused)
             {
+                // Never falls through to a second outcome frame: a response of another type than the RPC's is an unknown outcome.
+                var fusedResponse = fused as TResponse ?? ThrowHelper.Throw<TResponse>(new InvalidOperationException("The fused outcome is not the response type of the RPC."));
                 await scope.ConfirmFusedOutcomeAsync().ConfigureAwait(false);
                 return fusedResponse;
             }
@@ -286,7 +288,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             {
                 // Refused before the frame reached the ring (admission, shutdown, the failure latch): nothing was appended, so the unfused path
                 // appends the outcome after the apply, and a later failure still ends as an unknown outcome through the mutation frame.
-                ServerLog.IdempotencyOutcomeFusionSkipped(_logger, ex);
+                IdempotencyFusionLog.AppendRefused(_logger, ex);
             }
         }
 
@@ -392,7 +394,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
                 var response = project(predicted);
                 if (response.GetType() != _responseType)
                 {
-                    ServerLog.IdempotencyOutcomeFusionSkipped(_logger, new InvalidOperationException("The projected outcome is not the response type of the RPC."));
+                    IdempotencyFusionLog.ProjectionFailed(_logger, new InvalidOperationException("The projected outcome is not the response type of the RPC."));
                     return false;
                 }
 
@@ -402,7 +404,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                ServerLog.IdempotencyOutcomeFusionSkipped(_logger, ex);
+                IdempotencyFusionLog.ProjectionFailed(_logger, ex);
                 return false;
             }
         }

@@ -94,22 +94,22 @@ internal sealed class DurableMutationExecutor
                 {
                     // The optional phase appends what must become durable together with the frame, so one flush covers both.
                     if (plan.HasPrediction && pipeline.AfterAppend is { } afterAppend)
-                        await afterAppend(pipeline.State, plan.Predicted!).ConfigureAwait(false);
-
+                        await RunAfterAppendAsync(afterAppend, pipeline.State, plan.Predicted!).ConfigureAwait(false);
                     await _journal.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
                 }
 
                 // The apply slot stays held across the wait above, so a snapshot cut waits for this write and covers it.
-                var applyState = new KeyedApplyWithState<TState, TResult>(this, state, pipeline.State, pipeline.ApplyMemory, pipeline.AfterApply);
-                return await _journal.ExecuteUnderSnapshotBarrierAsync(
-                        applyState,
+                var result = await _journal.ExecuteUnderSnapshotBarrierAsync(
+                        new KeyedApplyWithState<TState, TResult>(this, state, pipeline.State, pipeline.ApplyMemory),
                         static (s, _, _) =>
                         {
                             s.ExecutionState.MemoryApplyStarted = true;
-                            return s.Mutator.ApplyAfterRingEntryAsync(s.State, s.ApplyMemory, s.AfterApply);
+                            return s.Mutator.ApplyAfterRingEntryAsync(s.State, s.ApplyMemory);
                         },
                         CancellationToken.None)
                     .ConfigureAwait(false);
+                pipeline.AfterApply?.Invoke(pipeline.State, result); // outside the gate, apply slot still held
+                return result;
             }
             catch (Exception ex) when (!state.MemoryApplyStarted)
             {
@@ -137,15 +137,11 @@ internal sealed class DurableMutationExecutor
         return ServerOpContract.CommitOutcomeUnknown();
     }
 
-    private async ValueTask<TResult> ApplyAfterRingEntryAsync<TState, TResult>(
-        TState state,
-        Func<TState, CancellationToken, ValueTask<TResult>> applyMemory,
-        Action<TState>? afterApply)
+    private async ValueTask<TResult> ApplyAfterRingEntryAsync<TState, TResult>(TState state, Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
     {
-        TResult result;
         try
         {
-            result = await applyMemory(state, CancellationToken.None).ConfigureAwait(false);
+            return await applyMemory(state, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -153,9 +149,21 @@ internal sealed class DurableMutationExecutor
             _journal.FailJournalPipeline(new InvalidOperationException("memory apply failed after its journal frame entered the ring.", ex));
             throw;
         }
+    }
 
-        afterApply?.Invoke(state);
-        return result;
+    private async ValueTask RunAfterAppendAsync<TState, TResult>(Func<TState, TResult, ValueTask> afterAppend, TState state, TResult predicted)
+    {
+        try
+        {
+            await afterAppend(state, predicted).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Whatever the phase appended is on the ring behind the mutation frame, so a healthy journal would flush both while this write never
+            // applies: memory and the journal would diverge. Same policy as a failed apply: fail-stop.
+            _journal.FailJournalPipeline(new InvalidOperationException("after-append phase failed after its journal frame entered the ring.", ex));
+            throw;
+        }
     }
 
     private ValueTask<DurableMutationPlan<TResult>> PrepareUnderBarrierAsync<TState, TResult>(
@@ -282,17 +290,13 @@ internal sealed class DurableMutationExecutor
             DurableMutationExecutor mutator,
             KeyedExecutionState executionState,
             TState state,
-            Func<TState, CancellationToken, ValueTask<TResult>> applyMemory,
-            Action<TState>? afterApply)
+            Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
         {
             Mutator = mutator;
             ExecutionState = executionState;
             State = state;
             ApplyMemory = applyMemory;
-            AfterApply = afterApply;
         }
-
-        internal Action<TState>? AfterApply { get; }
 
         internal Func<TState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
 

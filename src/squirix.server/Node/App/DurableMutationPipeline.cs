@@ -17,7 +17,7 @@ internal sealed record DurableMutationPipeline<TState, TResult>
         Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> appendJournal,
         Func<TState, CancellationToken, ValueTask<TResult>> applyMemory,
         Func<TState, TResult, ValueTask>? afterAppend = null,
-        Action<TState>? afterApply = null)
+        Action<TState, TResult>? afterApply = null)
     {
         State = state;
         AppendJournal = appendJournal;
@@ -33,8 +33,11 @@ internal sealed record DurableMutationPipeline<TState, TResult>
     /// </summary>
     internal Func<TState, TResult, ValueTask>? AfterAppend { get; }
 
-    /// <summary>Gets the optional phase that runs right after the memory apply succeeded, never when the apply failed; it must not throw.</summary>
-    internal Action<TState>? AfterApply { get; }
+    /// <summary>
+    /// Gets the optional phase that runs right after the memory apply succeeded, with its actual result, never when the apply failed. It runs outside the
+    /// mutation gate while the apply slot is still held; a failure it throws propagates to the caller.
+    /// </summary>
+    internal Action<TState, TResult>? AfterApply { get; }
 
     /// <summary>Gets the journal append stage; it runs under the mutation gate and passes the given gate ownership to its journal append.</summary>
     internal Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> AppendJournal { get; }

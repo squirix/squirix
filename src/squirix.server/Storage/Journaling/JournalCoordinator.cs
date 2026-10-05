@@ -527,11 +527,13 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             var cacheMutation = record.Operation is JournalOperationKind.Put or JournalOperationKind.Remove;
             if (cacheMutation && RpcMutationIdempotencyExecutionAmbient.HasAppendedOutcome)
             {
-                // The scope already appended its outcome frame ahead of this mutation's apply: a further mutation frame would follow its own
-                // outcome in the journal, so recovery could see the outcome without the effects the response describes. Refused before anything
-                // is allocated, enqueued or stamped.
+                // The scope already appended its outcome frame, and its write was answered and recorded as completed: a further mutation frame
+                // would not be covered by that outcome, so a retry would replay success without it. Refused before the frame is enqueued or
+                // stamped, and the journal is latched, because this is a programming error that must not continue.
                 record.ReturnToAppendPool();
-                throw new InvalidOperationException("a cache mutation frame was appended after the operation's outcome frame.");
+                var refusal = new InvalidOperationException("a cache mutation frame was appended after the operation's outcome frame.");
+                _owner.DurabilityPipeline.FailJournalPipeline(refusal);
+                throw refusal;
             }
 
             _owner.DurabilityPipeline.ThrowIfJournalThreadFailed();
