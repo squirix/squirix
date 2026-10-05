@@ -79,7 +79,7 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
         var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken));
         heldLease.Dispose();
-        _ = await client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync;
+        _ = await client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(held.IsAccepted).IsTrue();
         _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);

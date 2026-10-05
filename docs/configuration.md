@@ -405,7 +405,8 @@ id** resolved for each cache operation:
 | In-process / missing context | `runtime` | No `HttpContext` (host bootstrap, some tests, non-HTTP callers). All such callers share one bucket |
 
 Setting `PerClientMaxInFlight` or `PerClientRateLimitPerSecond` turns on per-caller client ids; without either, all callers
-share one bucket and no caller identity is computed per request.
+share one bucket and no caller identity is computed per request; internal owner calls forwarded from another node are still
+told apart.
 
 v0.1 external auth is JWT-only; there is no API-key principal. A request forwarded to its key owner is admitted on the
 entry node under the caller's own client id, including the slowdown delay and queue wait, and holds that admission for

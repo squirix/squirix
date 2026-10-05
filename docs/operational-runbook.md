@@ -189,8 +189,9 @@ Per-client and rate limits are off by default. Every rejection increments `squir
 - `client_queue_full`: the caller is at `PerClientMaxInFlight` and its queue allowance is used up; usually when `MaxQueue` is 0,
   but concurrent over-limit requests from one caller can also hit it.
 - `forwarded_no_slot`: a request forwarded from another node found no free slot on this node (the owner); it is refused
-  at once, never queued, and the client retries it.
-- `gate_disposed`: the node was shutting down while the request waited.
+  at once, never queued, and the client retries it. A rising count can also mean requests are queued locally on the owner,
+  since a forwarded request never overtakes them.
+- `gate_disposed`: the node was shutting down while the request was being admitted or waited.
 
 Raise a limit only after checking that the node, not one noisy caller, is saturated. A request forwarded between nodes is
 counted against the caller on the entry node only, where it also waits in the queue. The owner treats it as a trusted
