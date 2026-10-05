@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.Utils;
 using TUnit.Core.Interfaces;
@@ -48,5 +49,5 @@ public sealed class IntegrationTwoNodeFixture : NodeIntegrationTestBase, IAsyncI
     }
 
     /// <inheritdoc />
-    public async Task InitializeAsync() => _cluster = await StartClusterAsync("node-a", "node-b");
+    public async Task InitializeAsync() => _cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { TimeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow) });
 }

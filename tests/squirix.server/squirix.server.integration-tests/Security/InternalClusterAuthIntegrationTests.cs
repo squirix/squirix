@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Net.Client;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
@@ -54,7 +55,8 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
     [Test]
     public async Task ForwardingAcceptsJwtOnInternalTransport(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
+        var options = new IntegrationStartOptions { TimeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow) };
+        await using var cluster = await StartClusterAsync("node-a", "node-b", options, cancellationToken);
 
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "cluster-forward");
         const string value = "cluster-forwarded-value";

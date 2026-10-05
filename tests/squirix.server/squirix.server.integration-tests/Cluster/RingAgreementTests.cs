@@ -3,6 +3,7 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
@@ -104,7 +105,8 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
     [Test]
     public async Task IdenticalPeerListsForwardAndStayReady(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartClusterAsync("n1", "n2", cancellationToken: cancellationToken);
+        var options = new IntegrationStartOptions { TimeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow) };
+        await using var cluster = await StartClusterAsync("n1", "n2", options, cancellationToken);
         var key = FindKeyOwnedByInShortRing("n2");
 
         using var channel = CreateGrpcChannel(cluster["n1"].Uri);
