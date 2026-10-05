@@ -48,7 +48,11 @@ internal sealed class FusedWriteHarness
 
     private static readonly Meter SharedMeter = new("fused-write-harness");
 
-    internal FusedWriteHarness(string dir, StallableJournal journal, ILogicalNamespacedCache<object?>? innerOverride = null)
+    internal FusedWriteHarness(
+        string dir,
+        StallableJournal journal,
+        ILogicalNamespacedCache<object?>? innerOverride = null,
+        Func<JournalLoggingCacheDecorator<object?>, ILogicalNamespacedCache<object?>>? chain = null)
     {
         Dir = dir;
         Journal = journal;
@@ -58,7 +62,7 @@ internal sealed class FusedWriteHarness
         Cache = new JournalLoggingCacheDecorator<object?>(innerOverride ?? new ClientCache<object?>(Physical, Physical), journal.Journal, Executor, Clock, Physical.RawReader);
         Store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), Self, new IdempotencyMetrics(SharedMeter), Clock);
         Coordinator = new RpcMutationIdempotencyCoordinator(Store, journal.Journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
-        Adapter = CreateAdapter();
+        Adapter = CreateAdapter(chain?.Invoke(Cache) ?? Cache);
     }
 
     /// <summary>Gets the adapter whose handlers run under the coordinator.</summary>
@@ -205,10 +209,10 @@ internal sealed class FusedWriteHarness
         return (memory, store);
     }
 
-    private SquirixServiceAdapter<object?> CreateAdapter()
+    private SquirixServiceAdapter<object?> CreateAdapter(ILogicalNamespacedCache<object?> api)
     {
         var operations = new IGrpcCacheOperationsCreateExpectations<object?>();
-        _ = operations.Setups.ForCache(CacheName).ReturnValue(new RoutedCacheApi<object?>(Cache, CacheName));
+        _ = operations.Setups.ForCache(CacheName).ReturnValue(new RoutedCacheApi<object?>(api, CacheName));
         var ownership = new INodeOwnershipResolverCreateExpectations();
         _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
         _ = ownership.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Self);

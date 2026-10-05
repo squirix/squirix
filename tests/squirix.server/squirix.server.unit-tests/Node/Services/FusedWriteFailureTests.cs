@@ -77,11 +77,14 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
     }
 
     /// <summary>A journal that refuses the outcome frame between the two appends leaves no outcome frame, and the write is an unknown outcome.</summary>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RefusedOutcomeLeavesNoOutcomeFrame(CancellationToken cancellationToken)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task RefusedOutcomeLeavesNoOutcomeFrame(bool groupCommit, CancellationToken cancellationToken)
     {
-        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
+        await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, cancellationToken);
         var harness = new FusedWriteHarness(Dir, journal);
         var operationId = FusedWriteHarness.OpId(1);
 
@@ -241,6 +244,87 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
         _ = await Assert.That(frames).Count().IsEqualTo(2);
         _ = await Assert.That(frames[0].MutationOperationId).IsNull();
         _ = await Assert.That(frames[1].Operation).IsEqualTo(JournalOperationKind.IdempotencyOutcome);
+    }
+
+    /// <summary>A projection that fails or answers another type leaves the write unfused: one outcome frame after the apply, two flushes, and a retry replays it.</summary>
+    /// <param name="wrongType">Whether the projection answers the wrong response type instead of throwing.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task FailedProjectionFallsBackToOneOutcome(bool wrongType, CancellationToken cancellationToken)
+    {
+        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
+        var harness = new FusedWriteHarness(Dir, journal);
+        var operationId = FusedWriteHarness.OpId(1);
+
+        var flushesBefore = harness.FlushCount;
+        _ = await RunAsync(
+            harness,
+            operationId,
+            () =>
+            {
+                RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(
+                    _ => wrongType ? new TouchAsyncResponse() : throw new InvalidOperationException("projection failed"));
+                return harness.Cache.SetEntryAsync(operationId, FusedWriteHarness.CacheName, FusedWriteHarness.Key, new NodeCacheEntry<object?>("a"), cancellationToken).AsTask();
+            },
+            cancellationToken);
+        var flushes = harness.FlushCount - flushesBefore;
+        var replayed = await RunAsync(harness, operationId, static () => throw new InvalidOperationException("the retry must not run"), cancellationToken);
+        await journal.ShutdownAsync();
+        var outcomes = harness.ReadFrames(cancellationToken).FindAll(static frame => frame.Operation == JournalOperationKind.IdempotencyOutcome);
+
+        _ = await Assert.That(flushes).IsEqualTo(2);
+        _ = await Assert.That(outcomes).Count().IsEqualTo(1);
+        _ = await Assert.That(replayed).IsEqualTo(new SetAsyncResponse());
+        _ = await Assert.That((await harness.Physical.GetValueAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).Found).IsTrue();
+    }
+
+    /// <summary>A write ack that faults for the outcome frame, with group commit on, is an unknown outcome: nothing is applied and no fallback frame follows.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FaultedOutcomeAckIsUnknown(CancellationToken cancellationToken)
+    {
+        await using var journal = await StallableJournal.CreateAsync(Dir, true, cancellationToken);
+        var harness = new FusedWriteHarness(Dir, journal);
+        var operationId = FusedWriteHarness.OpId(1);
+
+        // The mutation frame's write passes; the outcome frame's write blocks and then fails, which faults its write ack after it was enqueued.
+        journal.Writer.Write.ArmAfter(1);
+        var write = RunAsync(harness, operationId, () => SetAsync(harness, operationId, "a"), cancellationToken);
+        await journal.Writer.Write.Entered.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        journal.Writer.Write.ReleaseWithFailure(new IOException("outcome write failed"));
+        var error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(write);
+
+        _ = await Assert.That(error is SquirixException { Code: SquirixErrorCode.CommitOutcomeUnknown } || error is RpcException).IsTrue();
+        _ = await Assert.That((await harness.Physical.GetValueAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).Found).IsFalse();
+        _ = await Assert.That(harness.Store.TryReplay(operationId, Fingerprint, SetAsyncResponse.Parser, out _)).IsFalse();
+    }
+
+    /// <summary>A snapshot cut waits for a parked fused write; when the flush then fails after both frames were written, the write is unknown, nothing is applied, and the cut fails.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CutWhileParkedFailsWithFlush(CancellationToken cancellationToken)
+    {
+        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
+        var harness = new FusedWriteHarness(Dir, journal);
+        var operationId = FusedWriteHarness.OpId(1);
+        journal.Writer.Flush.Arm();
+
+        var write = harness.SetThroughScopeAsync(operationId, "a", cancellationToken);
+        await journal.Writer.Flush.Entered.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        var cut = journal.Journal.ExecuteSnapshotCutAsync(
+            0,
+            static (_, _, _) => ValueTask.FromResult(0),
+            static (_, _, _, _) => ValueTask.FromResult(0),
+            cancellationToken).AsTask();
+        journal.Writer.Flush.ReleaseWithFailure(new IOException("fsync failed"));
+        var writeError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(write);
+        var cutError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(cut);
+
+        _ = await Assert.That(writeError).IsNotNull();
+        _ = await Assert.That(cutError).IsNotNull();
+        _ = await Assert.That((await harness.Physical.GetValueAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).Found).IsFalse();
     }
 
     private static List<PersistedIdempotencyRecord> Export(FusedWriteHarness harness)
