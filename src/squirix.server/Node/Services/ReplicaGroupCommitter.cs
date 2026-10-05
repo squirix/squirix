@@ -106,6 +106,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <remarks>Test seam: production committers keep the system clock.</remarks>
     internal TimeProvider BudgetTimeProvider { private get; init; } = TimeProvider.System;
 
+    /// <summary>Initializes the time source of the shutdown budget that bounds the dispose drain; the system clock unless set.</summary>
+    /// <remarks>Test seam: production committers keep the system clock.</remarks>
+    internal TimeProvider ShutdownTimeProvider { private get; init; } = TimeProvider.System;
+
     /// <summary>Initializes the time source that pins the expiration deadlines of prepared records; the system clock unless set.</summary>
     /// <remarks>Only the prepare of a mutation reads it. Applying a record never does.</remarks>
     internal TimeProvider Clock { private get; init; } = TimeProvider.System;
@@ -152,7 +156,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // the services behind this one (the group logs and the journal). Callers queued behind the stuck holder are still faulted,
         // by disposing the gate: the holder keeps exclusion and can still release.
         AsyncLockHolder drain;
-        using (var budget = new CancellationTokenSource(ShutdownBudget))
+        using (var budget = new CancellationTokenSource(ShutdownBudget, ShutdownTimeProvider))
         {
             try
             {
