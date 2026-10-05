@@ -369,13 +369,18 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     /// so its replacement starting with a full burst changes no admission decision. Retiring uses the same protocol as the
     /// last release of a request, so the per-client concurrency limit stays strict.
     /// </summary>
-    private sealed class ClientSweeper : IDisposable
+    internal sealed class ClientSweeper : IDisposable
     {
         /// <summary>The fewest entries one sweep examines; a sweep examines more when many entries were added since the last one.</summary>
         private const int MinBudget = 256;
 
+        /// <summary>The most entries one sweep examines, so one admission never stalls on a large burst; the rest is swept by the following admissions.</summary>
+        private const int MaxBudget = 16384;
+
         private readonly ConcurrentDictionary<string, ClientState> _clients;
         private readonly TimeProvider _timeProvider;
+
+        /// <summary>Entries still owed a sweep: newly created ones plus the carried-over part of earlier batches, decaying as sweeps pass.</summary>
         private int _added;
         private long _nextTimestamp;
         private int _sweeping;
@@ -433,14 +438,24 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
         /// <summary>
         /// Examines the next batch of entries with a persistent enumerator, so a sweep costs the batch size and never re-walks entries.
-        /// The batch is at least the minimum budget and twice the entries added since the last sweep, so eviction keeps up with churn.
-        /// The enumerator tolerates concurrent changes; a stale entry is harmless, because retiring a removed entry kills only the dead object.
+        /// The batch is twice the owed entries, between the minimum and maximum budget. The owed count then halves, or keeps the unspent
+        /// part when the cap was hit, so a burst whose buckets are still refilling keeps a large budget over the next sweeps; a capped
+        /// sweep also makes the next one due at once, spreading the work over the following admissions.
+        /// The enumerator tolerates concurrent changes; after a dictionary resize it finishes its pass over the old table, which is harmless,
+        /// and a stale entry is harmless too, because retiring a removed entry kills only the dead object.
         /// </summary>
         /// <param name="now">The sweep timestamp of the gate time provider.</param>
         private void SweepBatch(long now)
         {
-            var added = Interlocked.Exchange(ref _added, 0);
-            var budget = Math.Max(MinBudget, added + added);
+            var owed = Interlocked.Exchange(ref _added, 0);
+            var budget = Math.Clamp(Math.Min(owed, MaxBudget) * 2, MinBudget, MaxBudget);
+            var carry = Math.Max(owed / 2, owed - (budget / 2));
+            if (carry > 0)
+                _ = Interlocked.Add(ref _added, carry);
+
+            if (owed > budget / 2)
+                Volatile.Write(ref _nextTimestamp, now);
+
             var enumerator = _enumerator ??= _clients.GetEnumerator();
             for (var examined = 0; examined < budget; examined++)
             {
@@ -448,7 +463,18 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
                 {
                     enumerator.Dispose();
                     _enumerator = null;
-                    return;
+
+                    // A pass that ended exactly at the previous batch boundary starts the next pass in this sweep instead of wasting it.
+                    if (examined != 0)
+                        return;
+
+                    enumerator = _enumerator = _clients.GetEnumerator();
+                    if (!enumerator.MoveNext())
+                    {
+                        enumerator.Dispose();
+                        _enumerator = null;
+                        return;
+                    }
                 }
 
                 var entry = enumerator.Current;
