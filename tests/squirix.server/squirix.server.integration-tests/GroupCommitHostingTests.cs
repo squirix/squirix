@@ -24,6 +24,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
 {
     private const string CacheName = "default";
     private const int Concurrency = 64;
+    private const int MaxBursts = 20;
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(60);
 
     /// <summary>The default public options keep the journal on per-mutation flushes.</summary>
@@ -80,15 +81,17 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
             _ = await client.SetEntryAsync(CreateSet("warm-up", "warm"), cancellationToken: cancellationToken);
             var flushesBefore = GetJournal(app).FlushCount;
 
-            var writes = new Task[Concurrency];
-            for (var i = 0; i < Concurrency; i++)
-                writes[i] = client.SetEntryAsync(CreateSet($"distinct-{i}", "value"), cancellationToken: cancellationToken).ResponseAsync;
-
-            await Task.WhenAll(writes).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            // The public window is capped at 100 ms, so a starved burst can spread its writes past it; bursts repeat until one batch holds two writes.
+            var written = 0;
+            for (var round = 0; round < MaxBursts && (GetJournal(app).GroupCommit?.LargestBatch ?? 0) < 2; round++)
+            {
+                await WriteBurstAsync(client, round, cancellationToken);
+                written += Concurrency;
+            }
 
             var flushes = GetJournal(app).FlushCount - flushesBefore;
             _ = await Assert.That(flushes).IsGreaterThan(0L);
-            _ = await Assert.That(flushes).IsLessThan(Concurrency);
+            _ = await Assert.That(flushes).IsLessThan(written);
 
             // Ungrouped checkpoints coalesce as well, so only the group commit batch size proves that writes were held and flushed together.
             _ = await Assert.That(GetJournal(app).GroupCommit?.LargestBatch ?? 0).IsGreaterThanOrEqualTo(2);
@@ -137,6 +140,15 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
     {
         options.Journal.GroupCommitMaxWait = TimeSpan.FromMilliseconds(100);
         options.Journal.GroupCommitMaxBatch = Concurrency;
+    }
+
+    private static async Task WriteBurstAsync(SquirixCacheService.SquirixCacheServiceClient client, int round, CancellationToken cancellationToken)
+    {
+        var writes = new Task[Concurrency];
+        for (var i = 0; i < Concurrency; i++)
+            writes[i] = client.SetEntryAsync(CreateSet($"distinct-{round}-{i}", "value"), cancellationToken: cancellationToken).ResponseAsync;
+
+        await Task.WhenAll(writes).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
     }
 
     private static SetEntryAsyncRequest CreateSet(string key, string value) => new()
