@@ -117,61 +117,86 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         _ = await Assert.That(attempts.Count).IsEqualTo(1);
     }
 
-    /// <summary>Ensures the per-peer concurrency cap does not allow more concurrent executions than configured.</summary>
+    /// <summary>Ensures a call that finds no free per-peer permit is refused at once without running or waiting.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ConcurrencyCapSerializesExecution(CancellationToken cancellationToken)
+    public async Task ConcurrencyCapRejectsWithoutWaiting(CancellationToken cancellationToken)
     {
         var timeout = TimeSpan.FromSeconds(5);
-        await using var policy = CreatePolicy(new CallPolicyTimeouts(timeout), maxConcurrentPerPeer: 1, peer: "peer-e", timeProvider: TimeProvider.System);
+        using var meter = new Meter("Squirix");
+        using var sink = new NodeMeasurementSink(meter);
+        await using var policy = CreatePolicy(new CallPolicyTimeouts(timeout), maxConcurrentPerPeer: 1, peer: "peer-e", timeProvider: TimeProvider.System, meter: meter);
         var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var peakRunning = new PeakCounter();
-        var sync = new ConcurrencySyncState(firstEntered, releaseFirst, peakRunning);
+        var gate = new EnterReleaseGate(firstEntered, releaseFirst);
+        var rejectedRuns = new InvocationCounter();
 
         var first = policy.ExecuteAsync(
-            sync,
-            static async (s, ct) =>
+            gate,
+            static async (g, ct) =>
             {
-                s.Peak.Record(s.Running.Increment());
-                try
-                {
-                    s.FirstEntered.SetResult();
-                    await s.ReleaseFirst.Task.WaitAsync(Timeout.InfiniteTimeSpan, TimeProvider.System, ct);
-                }
-                finally
-                {
-                    _ = s.Running.Decrement();
-                }
-
+                g.Entered.SetResult();
+                await g.Release.Task.WaitAsync(Timeout.InfiniteTimeSpan, TimeProvider.System, ct);
                 return 1;
             },
             cancellationToken);
         await firstEntered.Task.WaitAsync(timeout, TimeProvider.System, cancellationToken);
 
         var second = policy.ExecuteAsync(
-            sync,
-            static (s, __) =>
+            rejectedRuns,
+            static (counter, __) =>
             {
-                s.Peak.Record(s.Running.Increment());
-                try
-                {
-                    return ValueTask.FromResult(2);
-                }
-                finally
-                {
-                    _ = s.Running.Decrement();
-                }
+                _ = counter.Increment();
+                return ValueTask.FromResult(2);
             },
             cancellationToken);
-        await Task.Delay(TimeSpan.FromMilliseconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(second.IsCompleted).IsFalse();
 
+        _ = await Assert.That(second.IsCompleted).IsTrue();
+        var ex = await NodeAsyncAssert.ThrowsAsync<SquirixException, int>(second);
+        _ = await Assert.That(ex.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
+        _ = await Assert.That(ex.Message).Contains("peer_busy");
+        _ = await Assert.That(rejectedRuns.Count).IsEqualTo(0);
+        _ = await Assert.That(sink.HasEvent("squirix_call_policy_busy_rejects_total", ("peer", "peer-e"), ("scope", "policy"))).IsTrue();
+
+        releaseFirst.SetResult();
+        _ = await Assert.That(await first).IsEqualTo(1);
+
+        var third = await policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(3), cancellationToken);
+        _ = await Assert.That(third).IsEqualTo(3);
+    }
+
+    /// <summary>Ensures a drain that begins while the permit is held is reported as a drain, not as a busy peer.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BusyPeerDuringDrainReportsDrain(CancellationToken cancellationToken)
+    {
+        var timeout = TimeSpan.FromSeconds(5);
+        using var meter = new Meter("Squirix");
+        using var sink = new NodeMeasurementSink(meter);
+        await using var policy = CreatePolicy(new CallPolicyTimeouts(timeout), maxConcurrentPerPeer: 1, peer: "peer-f", timeProvider: TimeProvider.System, meter: meter);
+        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gate = new EnterReleaseGate(firstEntered, releaseFirst);
+
+        var first = policy.ExecuteAsync(
+            gate,
+            static async (g, ct) =>
+            {
+                g.Entered.SetResult();
+                await g.Release.Task.WaitAsync(Timeout.InfiniteTimeSpan, TimeProvider.System, ct);
+                return 1;
+            },
+            cancellationToken);
+        await firstEntered.Task.WaitAsync(timeout, TimeProvider.System, cancellationToken);
+
+        policy.BeginDrain();
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(2), cancellationToken));
         releaseFirst.SetResult();
 
         _ = await Assert.That(await first).IsEqualTo(1);
-        _ = await Assert.That(await second).IsEqualTo(2);
-        _ = await Assert.That(peakRunning.Peak).IsEqualTo(1);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(sink.HasEvent("squirix_call_policy_drain_rejects_total", ("peer", "peer-f"), ("scope", "policy"))).IsTrue();
+        _ = await Assert.That(sink.HasEvent("squirix_call_policy_busy_rejects_total", ("peer", "peer-f"), ("scope", "policy"))).IsFalse();
     }
 
     /// <summary>Ensures outbound call options inherit the ambient deadline budget.</summary>
@@ -361,43 +386,6 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         _ = await Assert.That(attempts.Count).IsEqualTo(2);
     }
 
-    /// <summary>Ensures a call queued behind the concurrency gate is rejected if the drain begins before it starts executing.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task QueuedCallRejectedWhenDrainStartsFirst(CancellationToken cancellationToken)
-    {
-        var timeout = TimeSpan.FromSeconds(5);
-        using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
-        await using var policy = CreatePolicy(new CallPolicyTimeouts(timeout), maxConcurrentPerPeer: 1, peer: "peer-f", timeProvider: TimeProvider.System, meter: meter);
-        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var drainGate = new EnterReleaseGate(firstEntered, releaseFirst);
-
-        var first = policy.ExecuteAsync(
-            drainGate,
-            static async (g, ct) =>
-            {
-                g.Entered.SetResult();
-                await g.Release.Task.WaitAsync(Timeout.InfiniteTimeSpan, TimeProvider.System, ct);
-                return 1;
-            },
-            cancellationToken);
-
-        await firstEntered.Task.WaitAsync(timeout, TimeProvider.System, cancellationToken);
-
-        var queued = policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(2), cancellationToken);
-        await Task.Delay(TimeSpan.FromMilliseconds(30), TimeProvider.System, cancellationToken);
-
-        policy.BeginDrain();
-        releaseFirst.SetResult();
-
-        _ = await Assert.That(await first).IsEqualTo(1);
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(queued);
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(sink.HasEvent("squirix_call_policy_drain_rejects_total", ("peer", "peer-f"), ("scope", "policy"))).IsTrue();
-    }
-
     /// <summary>Ensures transient retries emit retry and backoff metrics.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -433,7 +421,6 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         _ = await Assert.That(value).IsEqualTo(42);
         _ = await Assert.That(sink.HasEvent("squirix_call_policy_retries_total", ("peer", "peer-d"), ("reason", "http_request"))).IsTrue();
         _ = await Assert.That(sink.HasEvent("squirix_call_policy_backoffs_total", ("peer", "peer-d"), ("scope", "policy"))).IsTrue();
-        _ = await Assert.That(sink.HasEvent("squirix_call_policy_queue_wait_seconds", ("peer", "peer-d"))).IsTrue();
     }
 
     /// <summary>Ensures timeout metrics record deadline-budget exhaustion as a separate category.</summary>
@@ -515,6 +502,11 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
             {
                 return; // Drain rejection or shutdown cancellation - legitimate outcome.
             }
+            catch (SquirixException)
+            {
+                // The single permit is held by another hammer caller: a busy refusal is a legitimate outcome here.
+                _ = readySignal.TrySetResult();
+            }
             catch (ObjectDisposedException disposed)
             {
                 // THE regression signature: use-after-dispose of the concurrency semaphore.
@@ -582,25 +574,6 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     }
 
     [Immutable]
-    private sealed class ConcurrencySyncState
-    {
-        internal ConcurrencySyncState(TaskCompletionSource firstEntered, TaskCompletionSource releaseFirst, PeakCounter peak)
-        {
-            FirstEntered = firstEntered;
-            Peak = peak;
-            ReleaseFirst = releaseFirst;
-        }
-
-        internal TaskCompletionSource FirstEntered { get; }
-
-        internal PeakCounter Peak { get; }
-
-        internal TaskCompletionSource ReleaseFirst { get; }
-
-        internal RunningCounter Running { get; } = new();
-    }
-
-    [Immutable]
     private sealed class EnterReleaseGate
     {
         internal EnterReleaseGate(TaskCompletionSource entered, TaskCompletionSource release)
@@ -619,35 +592,6 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         private int _count;
 
         internal int Count => Volatile.Read(ref _count);
-
-        internal int Increment() => Interlocked.Increment(ref _count);
-    }
-
-    private sealed class PeakCounter
-    {
-        private int _peak;
-
-        internal int Peak => Volatile.Read(ref _peak);
-
-        internal void Record(int value)
-        {
-            var current = Volatile.Read(ref _peak);
-            while (value > current)
-            {
-                var observed = Interlocked.CompareExchange(ref _peak, value, current);
-                if (observed == current)
-                    return;
-
-                current = observed;
-            }
-        }
-    }
-
-    private sealed class RunningCounter
-    {
-        private int _count;
-
-        internal int Decrement() => Interlocked.Decrement(ref _count);
 
         internal int Increment() => Interlocked.Increment(ref _count);
     }
