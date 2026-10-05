@@ -31,8 +31,6 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
 
     private const string OtherOperationId = "fedcba9876543210fedcba9876543210";
 
-    private static readonly TimeSpan ObservationWindow = TimeSpan.FromMilliseconds(100);
-
     private static readonly TimeSpan ShouldCompleteTimeout = TimeSpan.FromSeconds(5);
 
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
@@ -170,7 +168,7 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
             var put = target.PutAsync(OperationId, "a", cancellationToken);
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             var add = target.AddAsync(OtherOperationId, "a", preconditionRan, cancellationToken);
-            pendingDuringStall = await IsStillPendingAsync(add, cancellationToken);
+            pendingDuringStall = await PendingProbe.StaysPendingAsync(add);
             preconditionRanDuringStall = preconditionRan.Task.IsCompleted;
             framesDuringStall = journal.ReadStampedPuts(cancellationToken);
             journal.Writer.Flush.Release();
@@ -244,7 +242,7 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
                 static (s, watermark, _) => CaptureAsync(s.Memory, s.captureRan, watermark),
                 static (_, _, barrier, _) => new ValueTask<(ulong Watermark, string Memory)>(barrier),
                 cancellationToken).AsTask();
-            capturedDuringStall = !await IsStillPendingAsync(captureRan.Task, cancellationToken);
+            capturedDuringStall = !await PendingProbe.StaysPendingAsync(captureRan.Task);
             journal.Writer.Flush.Release();
             response = await put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             captured = await cut.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
@@ -293,19 +291,6 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
     {
         base.DisposeManaged();
         _testMeter.Dispose();
-    }
-
-    private static async Task<bool> IsStillPendingAsync(Task operation, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await operation.WaitAsync(ObservationWindow, TimeProvider.System, cancellationToken);
-            return false;
-        }
-        catch (TimeoutException)
-        {
-            return true;
-        }
     }
 
     private static ValueTask<(ulong Watermark, string Memory)> CaptureAsync(AppliedKeys memory, TaskCompletionSource captureRan, ulong watermark)

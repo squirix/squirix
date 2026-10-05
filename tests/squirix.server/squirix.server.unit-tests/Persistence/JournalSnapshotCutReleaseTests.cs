@@ -158,8 +158,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             cancellationToken).AsTask();
         try
         {
-            var first = await Task.WhenAny(snapshotStarted.Task, Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken));
-            _ = await Assert.That(first).IsNotSameReferenceAs(snapshotStarted.Task);
+            _ = await Assert.That(await PendingProbe.StaysPendingAsync(snapshotStarted.Task)).IsTrue();
         }
         finally
         {

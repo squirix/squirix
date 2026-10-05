@@ -21,8 +21,6 @@ public sealed class DurableMutationCutAdmissionTests : IsolatedStorageTestBase
 
     private static readonly string KeyB = CacheKey.Default("b").ToString();
 
-    private static readonly TimeSpan ObservationWindow = TimeSpan.FromMilliseconds(100);
-
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>
@@ -38,6 +36,7 @@ public sealed class DurableMutationCutAdmissionTests : IsolatedStorageTestBase
         var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
         journal.Writer.Flush.Arm();
         bool lateWriterPending;
+        bool lateWriterAllocated;
         (ulong Watermark, ulong LastAllocated, string AppliedAtCapture, bool Pending) cut;
         try
         {
@@ -48,8 +47,10 @@ public sealed class DurableMutationCutAdmissionTests : IsolatedStorageTestBase
                 static (s, sequence, _) => new ValueTask<(ulong, ulong, string, bool)>((sequence, s.Journal.NextSequence - 1UL, s.Memory.Snapshot, s.Journal.InFlightApplyGate.HasPending)),
                 static (_, _, barrier, _) => new ValueTask<(ulong Watermark, ulong LastAllocated, string AppliedAtCapture, bool Pending)>(barrier),
                 cancellationToken).AsTask();
+            var allocatedBefore = journal.Journal.NextSequence;
             var second = memory.PutAsync(executor, journal.Journal, "b", cancellationToken);
-            lateWriterPending = await IsStillPendingAsync(second, cancellationToken);
+            lateWriterPending = await PendingProbe.StaysPendingAsync(second);
+            lateWriterAllocated = journal.Journal.NextSequence != allocatedBefore;
             journal.Writer.Flush.Release();
             _ = await first.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             cut = await cutTask.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
@@ -64,6 +65,7 @@ public sealed class DurableMutationCutAdmissionTests : IsolatedStorageTestBase
         var sequences = journal.ReadPutSequences(cancellationToken);
 
         _ = await Assert.That(lateWriterPending).IsTrue();
+        _ = await Assert.That(lateWriterAllocated).IsFalse();
         _ = await Assert.That(cut.Watermark).IsEqualTo(sequences[KeyA]);
         _ = await Assert.That(cut.LastAllocated).IsEqualTo(sequences[KeyA]);
         _ = await Assert.That(sequences[KeyB]).IsGreaterThan(cut.LastAllocated);
@@ -167,8 +169,10 @@ public sealed class DurableMutationCutAdmissionTests : IsolatedStorageTestBase
                 static (_, sequence, _) => new ValueTask<ulong>(sequence),
                 static (_, _, barrier, _) => new ValueTask<ulong>(barrier),
                 cancellationToken).AsTask();
+            var allocatedBefore = journal.Journal.NextSequence;
             var second = memory.PutAsync(executor, journal.Journal, "b", cancellationToken);
-            _ = await Assert.That(await IsStillPendingAsync(second, cancellationToken)).IsTrue();
+            _ = await Assert.That(await PendingProbe.StaysPendingAsync(second)).IsTrue();
+            _ = await Assert.That(journal.Journal.NextSequence).IsEqualTo(allocatedBefore);
 
             _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(first.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
@@ -186,19 +190,6 @@ public sealed class DurableMutationCutAdmissionTests : IsolatedStorageTestBase
         _ = await Assert.That(executor.HeldKeyCount).IsEqualTo(0);
         _ = await Assert.That(journal.ReadStampedPuts(cancellationToken)).IsEqualTo(StallableJournal.Describe([KeyA, CacheKey.Default("w").ToString()]));
         _ = await Assert.That(memory.Snapshot).IsEmpty();
-    }
-
-    private static async Task<bool> IsStillPendingAsync(Task operation, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await operation.WaitAsync(ObservationWindow, TimeProvider.System, cancellationToken);
-            return false;
-        }
-        catch (TimeoutException)
-        {
-            return true;
-        }
     }
 
     /// <summary>Creates a group commit journal whose segment header and a first frame are already durable.</summary>

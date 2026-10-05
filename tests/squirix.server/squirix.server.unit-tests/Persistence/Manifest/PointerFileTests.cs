@@ -41,9 +41,9 @@ public sealed class PointerFileTests : IsolatedStorageTestBase
             var wait = JournalSegmentLeaseWait.WaitForReleasedAsync(Dir, cancellationToken);
             _ = wait.ContinueWith(static task => _ = task.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
 
-            // While the staging file is still held, the wait must keep polling instead of reporting release.
-            await Task.Delay(TimeSpan.FromMilliseconds(400), TimeProvider.System, cancellationToken);
-            _ = await Assert.That(wait.IsCompleted).IsFalse();
+            // While the staging file is still held, the wait must keep polling instead of reporting release: its first probe runs
+            // synchronously, so a wait that ignored the staging file would already be complete.
+            _ = await Assert.That(await PendingProbe.StaysPendingAsync(wait)).IsTrue();
 
             held.Dispose();
             await wait.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);

@@ -43,6 +43,16 @@ internal sealed class AsyncLock : IDisposable
 
     private Waiter? _tail;
 
+    /// <summary>Gets a value indicating whether at least one acquisition is queued behind the holder.</summary>
+    internal bool HasWaiters
+    {
+        get
+        {
+            lock (_sync)
+                return _head != null;
+        }
+    }
+
     /// <summary>Refuses further acquisitions and faults every queued waiter with <see cref="ObjectDisposedException"/>; idempotent.</summary>
     /// <remarks>The current holder, if any, is unaffected and can still release.</remarks>
     public void Dispose()

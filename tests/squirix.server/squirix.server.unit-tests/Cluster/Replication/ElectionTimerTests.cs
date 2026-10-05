@@ -41,9 +41,10 @@ public sealed class ElectionTimerTests : ServerUnitTestBase
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
             dispose = Task.Factory.StartNew(timer.Dispose, cancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
-            // The callback holds the gate until released, so the dispose cannot have returned yet however the threads are scheduled.
-            await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, cancellationToken);
-            disposedWhileRunning = dispose.IsCompleted;
+            // The callback holds the gate until released, so the dispose cannot return however the threads are scheduled: once it
+            // marked the timer disposed, what is left for it is taking the state lock, disposing the timer and the wait on the gate.
+            await timer.WaitUntilAsync(static t => IsDisposed(t), TimeSpan.FromSeconds(10), cancellationToken);
+            disposedWhileRunning = !await PendingProbe.StaysPendingAsync(dispose);
         }
         finally
         {
@@ -172,5 +173,21 @@ public sealed class ElectionTimerTests : ServerUnitTestBase
 
         time.Advance(TimeSpan.FromMilliseconds(1));
         _ = await Assert.That(firings).IsEqualTo(2);
+    }
+
+    /// <summary>Reports whether the timer was marked disposed; a reset on a live timer re-arms the fake timer before the dispose reaches it, which is harmless as the clock is not advanced again.</summary>
+    /// <param name="timer">The timer to probe.</param>
+    /// <returns><see langword="true" /> once the timer is disposed.</returns>
+    private static bool IsDisposed(ElectionTimer timer)
+    {
+        try
+        {
+            timer.Reset();
+            return false;
+        }
+        catch (ObjectDisposedException)
+        {
+            return true;
+        }
     }
 }

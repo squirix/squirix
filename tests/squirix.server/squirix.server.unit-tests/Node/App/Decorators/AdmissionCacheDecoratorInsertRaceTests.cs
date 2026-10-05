@@ -59,10 +59,9 @@ public sealed class AdmissionCacheDecoratorInsertRaceTests : DisposableServerUni
 
         // The other set writes the larger entry. Without a write gate per key it reaches the inner cache and finishes while the winner is stopped,
         // so the test waits for it to finish before the winner resumes. With a gate it waits for the winner and never reaches the inner cache, so
-        // the wait for that checkpoint is bounded: on a slow machine it can only miss the interleaving, never fail the gated path.
+        // the wait for that checkpoint is bounded by thread pool turns instead of time: it can only miss the interleaving, never fail the gated path.
         var other = SetAsync(cache, key, large, cancellationToken);
-        var reached = await Task.WhenAny(otherStarted.Task, Task.Delay(TimeSpan.FromMilliseconds(200), TimeProvider.System, cancellationToken));
-        if (reached == otherStarted.Task)
+        if (!await PendingProbe.StaysPendingAsync(otherStarted.Task))
             await other;
 
         _ = resume.TrySetResult();

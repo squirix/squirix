@@ -20,8 +20,6 @@ namespace Squirix.Server.UnitTests.Node.App;
 [Immutable]
 public sealed class DurableMutationStallTests : IsolatedStorageTestBase
 {
-    private static readonly TimeSpan CancelObservationWindow = TimeSpan.FromMilliseconds(500);
-
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
     private static readonly TimeSpan UnreachedBatchDeadline = TimeSpan.FromMinutes(10);
@@ -98,7 +96,7 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
         await CancelAfterAppendAsync(journal, caller, cancellationToken);
 
         // The batch deadline is never reached, so only a wait that honored the canceled caller would complete here.
-        var completedAfterCancel = await Task.WhenAny(put, Task.Delay(CancelObservationWindow, TimeProvider.System, cancellationToken)) == put;
+        var completedAfterCancel = !await PendingProbe.StaysPendingAsync(put);
         await journal.ShutdownAsync();
         _ = await put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
@@ -120,7 +118,7 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
         await CancelAfterAppendAsync(journal, caller, cancellationToken);
 
         // The batch deadline is never reached, so only a wait that honored the canceled caller would complete here.
-        var completedAfterCancel = await Task.WhenAny(put, Task.Delay(CancelObservationWindow, TimeProvider.System, cancellationToken)) == put;
+        var completedAfterCancel = !await PendingProbe.StaysPendingAsync(put);
         journal.Journal.FailJournalPipeline(reason);
         var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
 
@@ -153,7 +151,7 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
             caller.Token).AsTask();
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         await caller.CancelAsync();
-        var completedWhileStalled = await Task.WhenAny(put, Task.Delay(CancelObservationWindow, TimeProvider.System, cancellationToken)) == put;
+        var completedWhileStalled = !await PendingProbe.StaysPendingAsync(put);
         journal.Writer.Flush.Release();
         var result = await put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
@@ -234,7 +232,7 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
         await caller.CancelAsync();
 
         // The flush is still blocked: a wait that honored the canceled caller would complete here.
-        var completedWhileStalled = await Task.WhenAny(put, Task.Delay(CancelObservationWindow, TimeProvider.System, cancellationToken)) == put;
+        var completedWhileStalled = !await PendingProbe.StaysPendingAsync(put);
         _ = await Assert.That(completedWhileStalled).IsFalse();
 
         journal.Writer.Flush.Release();

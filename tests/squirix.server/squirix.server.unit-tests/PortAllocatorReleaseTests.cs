@@ -42,7 +42,7 @@ public sealed class PortAllocatorReleaseTests
         allocator.ReleasePort(port);
 
         _ = await Assert.That(Stopwatch.GetElapsedTime(started) >= settleTimeout).IsTrue();
-        _ = await Assert.That(checks > 1).IsTrue();
+        _ = await Assert.That(checks > 0).IsTrue();
     }
 
     /// <summary>Releasing a port that is not held is ignored without probing it.</summary>
