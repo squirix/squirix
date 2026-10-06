@@ -57,6 +57,7 @@ internal sealed class ServerClientPool : IServerClientPool
     private readonly ServerClientPoolMetrics _metrics;
     private readonly string[] _nodeIds;
     private readonly ConcurrentDictionary<string, IServerCallPolicy> _policies = new(StringComparer.Ordinal);
+
     private readonly TimeSpan _shutdownBudget;
     private readonly TimeProvider _timeProvider;
     private int _disposed;
@@ -101,7 +102,7 @@ internal sealed class ServerClientPool : IServerClientPool
     internal IReadOnlyCollection<string> NodeIds { get; }
 
     /// <summary>Gets the task that releases the material hold late after a connection drain timeout; completed when disposal released the hold in time.</summary>
-    internal Task LateMaterialRelease { get; private set; } = Task.CompletedTask;
+    internal Task LateMaterialRelease => _connections.LateRelease;
 
     /// <summary>Gets the number of connections of the owned handlers that are still open.</summary>
     internal int OpenConnections => _connections.Pending;
@@ -307,24 +308,8 @@ internal sealed class ServerClientPool : IServerClientPool
         else
         {
             ServerLog.ClientPoolMaterialLeaked(_logger, _connections.Pending, _shutdownBudget);
-            LateMaterialRelease = ReleaseMaterialWhenDrainedAsync(_materialHold);
+            _connections.ReleaseWhenDrained(_materialHold, _logger);
         }
-    }
-
-    /// <summary>Releases the pool's hold once the connections that outlived the budget are gone; the task never faults, a failure is logged and the hold is kept.</summary>
-    /// <param name="hold">The pool's hold on the material.</param>
-    /// <returns>A task that completes once the hold was released or the wait failed.</returns>
-    private async Task ReleaseMaterialWhenDrainedAsync(MtlsCertificate.Hold hold)
-    {
-        var failure = await _connections.WaitAsync(CancellationToken.None).AsTask().CaptureFailureAsync().ConfigureAwait(false);
-        if (failure != null)
-        {
-            ServerLog.ClientPoolLateMaterialReleaseFailed(_logger, failure);
-            return;
-        }
-
-        hold.Dispose();
-        ServerLog.ClientPoolMaterialReleasedLate(_logger);
     }
 
     private void RegisterPeer(ServerPeer peer, ServerClientPoolArgs args)
