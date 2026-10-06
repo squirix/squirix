@@ -18,8 +18,9 @@ internal interface IJournalMutationAppender
     /// <param name="fingerprint">The mutation fingerprint.</param>
     /// <param name="responseBytes">The serialized response.</param>
     /// <param name="appended">
-    /// Runs under the mutation gate once the frame is accepted (enqueued, and written when group commit is on), so a snapshot cut
-    /// sees the frame and what this does together or neither; not run when the append throws. <see langword="null" /> runs nothing.
+    /// Runs under the mutation gate once the frame is accepted (enqueued, and written when group commit is on), right before the append
+    /// metrics are recorded, so a snapshot cut sees the frame and what this does together or neither. It is not run when the append throws
+    /// before that point; a failure after it (an append subscriber, for example) is still thrown by the append. <see langword="null" /> runs nothing.
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the frame is enqueued; durability is awaited separately.</returns>
