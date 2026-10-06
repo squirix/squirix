@@ -69,34 +69,10 @@ internal sealed class ServerClientPool : IServerClientPool
         ArgumentNullException.ThrowIfNull(logger);
         _logger = logger;
         _metrics = metrics;
-        if (args.ShutdownBudget is { } budget && budget != Timeout.InfiniteTimeSpan && (budget < TimeSpan.Zero || budget > MaxShutdownBudget))
-            throw new ArgumentOutOfRangeException(nameof(args), budget, "The shutdown budget must be between zero and the longest timeout a task wait accepts, or infinite.");
-
-        _shutdownBudget = args.ShutdownBudget ?? DefaultShutdownBudget;
+        _shutdownBudget = ResolveShutdownBudget(args);
         _timeProvider = args.TimeProvider ?? TimeProvider.System;
-        _materialHold = args.Certificate is { Enabled: true } certificate ? certificate.Retain() : null;
-        var nodeIds = new string[peers.Count];
-        try
-        {
-            for (var i = 0; i < peers.Count; i++)
-            {
-                var peer = peers[i];
-                RegisterPeer(peer, args);
-                nodeIds[i] = peer.NodeId;
-            }
-        }
-        catch
-        {
-            foreach (var channel in _channels.Values)
-                _ = Isolated.Run(channel, static created => created.Dispose());
-
-            _materialHold?.Dispose();
-            _closing.Dispose();
-            throw;
-        }
-
-        Array.Sort(nodeIds, StringComparer.Ordinal);
-        _nodeIds = nodeIds;
+        _materialHold = RetainMaterial(args);
+        _nodeIds = RegisterPeers(peers, args);
         NodeIds = _nodeIds;
     }
 
@@ -218,6 +194,29 @@ internal sealed class ServerClientPool : IServerClientPool
         {
             ownedHandler?.Dispose();
         }
+    }
+
+    /// <summary>Takes a hold on the mTLS material when it is enabled.</summary>
+    /// <param name="args">The pool arguments.</param>
+    /// <returns>The hold, or <see langword="null" /> without enabled material.</returns>
+    private static MtlsCertificate.Hold? RetainMaterial(ServerClientPoolArgs args) => args.Certificate is { Enabled: true } certificate ? certificate.Retain() : null;
+
+    /// <summary>Validates the configured shutdown budget or falls back to the default.</summary>
+    /// <param name="args">The pool arguments.</param>
+    /// <returns>The shutdown budget.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The configured budget is negative and not infinite, or above the longest accepted timeout.</exception>
+    private static TimeSpan ResolveShutdownBudget(ServerClientPoolArgs args)
+    {
+        if (args.ShutdownBudget is not { } budget)
+            return DefaultShutdownBudget;
+
+        var valid = budget == Timeout.InfiniteTimeSpan || (budget >= TimeSpan.Zero && budget <= MaxShutdownBudget);
+        return valid
+            ? budget
+            : throw new ArgumentOutOfRangeException(
+                nameof(args),
+                budget,
+                "The shutdown budget must be between zero and the longest timeout a task wait accepts, or infinite.");
     }
 
     private void BeginDrain()
@@ -351,6 +350,41 @@ internal sealed class ServerClientPool : IServerClientPool
         _channels[peer.NodeId] = channel;
         _cacheClients[peer.NodeId] = new SquirixCacheService.SquirixCacheServiceClient(invoker);
         _policies[peer.NodeId] = args.PolicyFactory.Invoke(peer.NodeId);
+    }
+
+    /// <summary>Registers every peer; when one fails, the channels created so far, the material hold and the closing source are released before the failure propagates.</summary>
+    /// <param name="peers">The peers to register.</param>
+    /// <param name="args">The pool arguments.</param>
+    /// <returns>The node ids in ordinal order.</returns>
+    private string[] RegisterPeers(IReadOnlyList<ServerPeer> peers, ServerClientPoolArgs args)
+    {
+        var nodeIds = new string[peers.Count];
+        try
+        {
+            for (var i = 0; i < peers.Count; i++)
+            {
+                RegisterPeer(peers[i], args);
+                nodeIds[i] = peers[i].NodeId;
+            }
+        }
+        catch
+        {
+            ReleaseOnFailure();
+            throw;
+        }
+
+        Array.Sort(nodeIds, StringComparer.Ordinal);
+        return nodeIds;
+    }
+
+    /// <summary>Disposes the created channels, the material hold and the closing source after a failed construction.</summary>
+    private void ReleaseOnFailure()
+    {
+        foreach (var channel in _channels.Values)
+            _ = Isolated.Run(channel, static created => created.Dispose());
+
+        _materialHold?.Dispose();
+        _closing.Dispose();
     }
 
     /// <summary>The part of the shutdown budget left since <paramref name="started" />; never negative.</summary>
