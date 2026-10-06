@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -481,6 +482,39 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         _ = FileEx.TryDeleteFile(_journal.Paths.LogTempPath);
 
         await FollowerLogStartup.OpenGroupAsync(_journal, this, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Records the configured topology in metadata that carries none yet, and refuses a log written for another topology.</summary>
+    /// <param name="fingerprint">The configured topology fingerprint.</param>
+    /// <param name="generation">The configured configuration generation.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the metadata records the configured topology.</returns>
+    /// <exception cref="InvalidDataException">The log was written for a different topology fingerprint or a newer configuration generation.</exception>
+    /// <remarks>
+    /// Without a recorded topology every topology check compares against nothing until the first snapshot, so a follower would accept
+    /// appends from a leader of another topology and a restart would apply entries for keys this node may no longer own.
+    /// </remarks>
+    internal async Task AdoptTopologyAsync(ReadOnlyMemory<byte> fingerprint, ulong generation, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+
+        if (CaptureStatus().IsTopologyMismatch(fingerprint, generation))
+        {
+            throw new InvalidDataException(
+                $"Replica group '{GroupId}' log was written for a different topology (stored fingerprint {Convert.ToHexString(_meta.TopologyFingerprint.Span)} " +
+                $"generation {_meta.ConfigurationGeneration.ToString(CultureInfo.InvariantCulture)}, configured fingerprint {Convert.ToHexString(fingerprint.Span)} " +
+                $"generation {generation.ToString(CultureInfo.InvariantCulture)}); applying it could write keys this node no longer owns. " +
+                "Run 'squirix-server doctor' to inspect the data directory.");
+        }
+
+        if (!_meta.TopologyFingerprint.IsEmpty)
+            return;
+
+        byte[] owned = [.. fingerprint.Span];
+        var candidate = _meta with { TopologyFingerprint = owned, ConfigurationGeneration = generation };
+        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
+        _meta = candidate;
     }
 
     /// <summary>Appends a batch after the readiness, term, and consistency checks.</summary>

@@ -121,7 +121,7 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
     public async Task QuarantinedGroupLosesReadiness(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-readiness-quarantine");
-        await using var registry = new ReplicaGroupRegistry(dir, ["node-a"], 3, ReadOnlyMemory<byte>.Of(9), 1, NullLoggerFactory.Instance);
+        await using var registry = CreateRegistry(dir, CreateTopology(3));
         await registry.OpenAsync(cancellationToken);
         var eligibility = registry.EligibilityFor("node-a");
         eligibility.Quarantine(1);
@@ -140,7 +140,7 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
     public async Task StatusCarriesLogRetention(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-readiness-retention");
-        await using var registry = new ReplicaGroupRegistry(dir, ["node-a"], 3, ReadOnlyMemory<byte>.Of(9), 1, NullLoggerFactory.Instance);
+        await using var registry = CreateRegistry(dir, CreateTopology(3));
         await registry.OpenAsync(cancellationToken);
         _ = registry.TryGetLog("node-a", out var log);
         var entry = new FollowerLogEntry(1, 1, ReadOnlyMemory<byte>.Of(1, 2, 3));
@@ -209,6 +209,16 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
 
         _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
         _ = await Assert.That(result.Description).Contains("not ready", StringComparison.Ordinal);
+    }
+
+    /// <summary>Creates a registry stamped with the fingerprint and generation of <paramref name="topology" />, as node startup does.</summary>
+    /// <param name="dir">The node data directory.</param>
+    /// <param name="topology">The configured topology.</param>
+    /// <returns>The registry, not yet opened.</returns>
+    private static ReplicaGroupRegistry CreateRegistry(string dir, TopologyOptions topology)
+    {
+        byte[] fingerprint = [.. TopologyFingerprint.CreateFromTopology(topology, new MtlsOptions()).Bytes];
+        return new ReplicaGroupRegistry(dir, ["node-a"], topology.ReplicaCount, fingerprint, topology.ConfigurationGeneration, NullLoggerFactory.Instance);
     }
 
     private static TopologyOptions CreateTopology(int replicaCount) => new([new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6131") }])
