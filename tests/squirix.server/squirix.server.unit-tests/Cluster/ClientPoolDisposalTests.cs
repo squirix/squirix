@@ -96,14 +96,64 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         _ = await Assert.That(disposing.IsCompleted).IsFalse();
         await AssertAllDisposedAsync(created, 1);
 
-        clock.Advance(TimeSpan.FromSeconds(10));
-        await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        await AdvanceUntilCompletedAsync(clock, disposing, cancellationToken);
 
         _ = await Assert.That(log.Find(MaterialLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
         _ = await Assert.That(log.FindMessage(MaterialLeakedEventId)).Contains("1 connections were still open", StringComparison.Ordinal);
         DisposeAsLoader(certificate);
         _ = await Assert.That(certificate.IsReleased).IsFalse();
         _ = await Assert.That(certificate.NodeCertificate!.Handle).IsNotEqualTo(nint.Zero);
+    }
+
+    /// <summary>A call drain that uses up the whole shutdown budget still leaves the aborted connections a short grace to dispose: no leak is reported and the hold is released.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AbortedConnectionsGetGrace(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var nodeCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
+        using var certificate = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
+        var log = new EventRecordingLogger();
+        var clock = new FakeTimeProvider();
+        var created = new List<TrackingHandler>();
+        TrackedConnections? tracked = null;
+        var args = new ServerClientPoolArgs
+        {
+            PolicyFactory = static _ => new RecordingPolicy(null),
+            OwnedHandlerFactory = (_, _, connections) =>
+            {
+                tracked = connections;
+                return OpenConnection(connections, created);
+            },
+            MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
+            Certificate = certificate,
+            InterNodeMtlsEnabled = true,
+            ShutdownBudget = TimeSpan.FromSeconds(10),
+            TimeProvider = clock,
+        };
+        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log);
+        var lease = pool.LeaseChannel("n0", cancellationToken);
+        Task disposing;
+        try
+        {
+            disposing = pool.DisposeAsync().AsTask();
+            await AwaitCancellationAsync(lease.Token, cancellationToken);
+            clock.Advance(TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+
+        // The released lease lets the call drain finish; the budget is already gone, so only the grace is left for the connection.
+        _ = await Assert.That(disposing.IsCompleted).IsFalse();
+        tracked!.Exit();
+        await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(log.Find(MaterialLeakedEventId)).IsNull();
+        DisposeAsLoader(certificate);
+        _ = await Assert.That(certificate.IsReleased).IsTrue();
     }
 
     /// <summary>Once the connections that outlived the budget are gone, the pool releases its hold late and the material is freed with the loader's release.</summary>
@@ -135,8 +185,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         };
         var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log);
         var disposing = pool.DisposeAsync().AsTask();
-        clock.Advance(TimeSpan.FromSeconds(10));
-        await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        await AdvanceUntilCompletedAsync(clock, disposing, cancellationToken);
         DisposeAsLoader(certificate);
         _ = await Assert.That(log.Find(MaterialLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
         _ = await Assert.That(certificate.IsReleased).IsFalse();
@@ -330,6 +379,23 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             for (var i = 0; i < supplied.Count; i++)
                 supplied[i].Dispose();
         }
+    }
+
+    /// <summary>Advances the fake clock until <paramref name="task" /> completes; the wait timers register at unpredictable moments, so one advance is not enough.</summary>
+    /// <param name="clock">The fake clock.</param>
+    /// <param name="task">The task to complete.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    private static async Task AdvanceUntilCompletedAsync(FakeTimeProvider clock, Task task, CancellationToken cancellationToken)
+    {
+        var deadline = TimeProvider.System.GetTimestamp() + (5 * TimeProvider.System.TimestampFrequency);
+        while (!task.IsCompleted && TimeProvider.System.GetTimestamp() < deadline)
+        {
+            clock.Advance(TimeSpan.FromSeconds(10));
+            await Task.Delay(1, cancellationToken);
+        }
+
+        await task.WaitAsync(TimeSpan.FromSeconds(1), TimeProvider.System, cancellationToken);
     }
 
     private static async Task AssertAllDisposedAsync(List<TrackingHandler> created, int expectedCount)

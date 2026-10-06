@@ -28,6 +28,9 @@ namespace Squirix.Server.Cluster.Transport;
 [Mutable]
 internal sealed class ServerClientPool : IServerClientPool
 {
+    /// <summary>The least time aborted connections get to dispose, even when the call drain used up the whole shutdown budget.</summary>
+    private static readonly TimeSpan ConnectionAbortGrace = TimeSpan.FromMilliseconds(250);
+
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(10);
 
     /// <summary>The longest finite timeout <see cref="Task.WaitAsync(TimeSpan, TimeProvider)" /> accepts.</summary>
@@ -269,7 +272,12 @@ internal sealed class ServerClientPool : IServerClientPool
         _connections.AbortAll();
         try
         {
-            await _connections.WaitAsync(CancellationToken.None).AsTask().WaitAsync(Remaining(started), _timeProvider, CancellationToken.None).ConfigureAwait(false);
+            // Closing the sockets is not instant; an exhausted budget still leaves the aborted connections a short grace to dispose.
+            var wait = Remaining(started);
+            if (wait != Timeout.InfiniteTimeSpan && wait < ConnectionAbortGrace)
+                wait = ConnectionAbortGrace;
+
+            await _connections.WaitAsync(CancellationToken.None).AsTask().WaitAsync(wait, _timeProvider, CancellationToken.None).ConfigureAwait(false);
             return true;
         }
         catch (TimeoutException)
