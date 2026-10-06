@@ -1,5 +1,5 @@
+using System;
 using System.Collections.Generic;
-using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -9,9 +9,9 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster.Transport;
 
-/// <summary>The connections of a pool's owned handlers: counted from the connect attempt until the stream is disposed, and abortable as a set.</summary>
+/// <summary>The connections of a pool's handlers, owned or factory-supplied: counted from the connect attempt until the stream is disposed, and abortable as a set.</summary>
 /// <remarks>
-/// The count gates the release of the certificate material. Aborting closes the sockets so a stalled handshake fails at once instead of
+/// The count gates the release of the certificate material. Aborting closes the connections so a stalled handshake fails at once instead of
 /// running to the connect timeout; the count still drops only when the owning stream is disposed.
 /// </remarks>
 [Mutable]
@@ -21,7 +21,7 @@ internal sealed class TrackedConnections
 
     private readonly Lock _lock = new();
 
-    private readonly HashSet<Socket> _sockets = [];
+    private readonly HashSet<IDisposable> _connections = [];
 
     private bool _aborted;
 
@@ -31,19 +31,19 @@ internal sealed class TrackedConnections
     /// <summary>Gets the number of connections that are still open.</summary>
     internal int Pending => _gate.Pending;
 
-    /// <summary>Closes the sockets of every open connection and of every connection registered later.</summary>
+    /// <summary>Closes every open connection and every connection registered later.</summary>
     internal void AbortAll()
     {
-        Socket[] sockets;
+        IDisposable[] open;
         lock (_lock)
         {
             _aborted = true;
-            sockets = new Socket[_sockets.Count];
-            _sockets.CopyTo(sockets);
+            open = new IDisposable[_connections.Count];
+            _connections.CopyTo(open);
         }
 
-        for (var i = 0; i < sockets.Length; i++)
-            sockets[i].Dispose();
+        for (var i = 0; i < open.Length; i++)
+            open[i].Dispose();
     }
 
     /// <summary>Refuses new connections.</summary>
@@ -55,20 +55,20 @@ internal sealed class TrackedConnections
     /// <summary>Ends tracking of one connection.</summary>
     internal void Exit() => _gate.Exit();
 
-    /// <summary>Makes the socket abortable; a socket registered after <see cref="AbortAll" /> is closed at once.</summary>
-    /// <param name="socket">The socket of a connection that was admitted.</param>
-    internal void Register(Socket socket)
+    /// <summary>Makes the connection abortable; a connection registered after <see cref="AbortAll" /> is closed at once.</summary>
+    /// <param name="connection">The socket or stream of a connection that was admitted.</param>
+    internal void Register(IDisposable connection)
     {
         bool aborted;
         lock (_lock)
         {
             aborted = _aborted;
             if (!aborted)
-                _ = _sockets.Add(socket);
+                _ = _connections.Add(connection);
         }
 
         if (aborted)
-            socket.Dispose();
+            connection.Dispose();
     }
 
     /// <summary>Releases the hold once every connection ended; the task never faults, a failure is logged and the hold is kept.</summary>
@@ -80,12 +80,12 @@ internal sealed class TrackedConnections
     /// <returns><see langword="true" /> when the connection was admitted and must <see cref="Exit" />.</returns>
     internal bool TryEnter() => _gate.TryEnter();
 
-    /// <summary>Makes the socket no longer abortable.</summary>
-    /// <param name="socket">The socket passed to <see cref="Register" />.</param>
-    internal void Unregister(Socket socket)
+    /// <summary>Makes the connection no longer abortable.</summary>
+    /// <param name="connection">The connection passed to <see cref="Register" />.</param>
+    internal void Unregister(IDisposable connection)
     {
         lock (_lock)
-            _ = _sockets.Remove(socket);
+            _ = _connections.Remove(connection);
     }
 
     /// <summary>Waits until every connection ended.</summary>

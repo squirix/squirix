@@ -24,7 +24,7 @@ internal sealed class ServerClientPoolArgs
     /// </summary>
     internal Func<MtlsCertificate?, string, TrackedConnections, HttpMessageHandler>? OwnedHandlerFactory { get; init; }
 
-    /// <summary>Gets an optional per-peer mTLS handler factory; the handlers it returns stay owned by its caller and are not disposed with the pool.</summary>
+    /// <summary>Gets an optional per-peer mTLS handler factory; the handlers it returns stay owned by its caller and are not disposed with the pool, but a <see cref="System.Net.Http.SocketsHttpHandler" /> among them has its connections tracked and aborted on disposal. The factory must return a fresh, unstarted handler per call: the pool replaces the handler's connect callback, and a handler that already belongs to a pool is rejected.</summary>
     internal Func<string, HttpMessageHandler>? PeerHandlerFactory { get; init; }
 
     internal required Func<string, IServerCallPolicy> PolicyFactory { get; init; }
