@@ -123,6 +123,51 @@ public sealed class ReplicaCommitterRecoveryOrderTests : IsolatedStorageTestBase
         _ = await Assert.That(Volatile.Read(ref probes)).IsGreaterThan(0);
     }
 
+    /// <summary>A verification parked on recovery fails closed when the committer is disposed meanwhile, and probes no follower.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VerifyParkedOnRecoveryFailsAfterDispose(CancellationToken cancellationToken)
+    {
+        var local = new ScriptedApplyCache(ApplyMode.Fail);
+        local.Recover();
+        var recovery = RecoveryLifecycle.Recovering();
+        var probes = 0;
+        await using var registry = await OpenRegistryAsync(cancellationToken);
+        var committer = CreateCommitter(registry, local, recovery, new AcceptingGateway(() => _ = Interlocked.Increment(ref probes)));
+        _ = registry.EligibilityFor(OwnedGroup).TryMarkCatchingUp(1, default);
+
+        var verify = committer.VerifyReplicasAsync(cancellationToken);
+        await recovery.Requested.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        await committer.DisposeAsync();
+        recovery.Release();
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(verify.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+
+        _ = await Assert.That(Volatile.Read(ref probes)).IsEqualTo(0);
+    }
+
+    /// <summary>A write parked on recovery fails closed when the committer is disposed meanwhile, and appends nothing.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CommitParkedOnRecoveryFailsAfterDispose(CancellationToken cancellationToken)
+    {
+        var local = new ScriptedApplyCache(ApplyMode.Fail);
+        local.Recover();
+        var recovery = RecoveryLifecycle.Recovering();
+        await using var registry = await OpenRegistryAsync(cancellationToken);
+        var committer = CreateCommitter(registry, local, recovery);
+
+        var write = committer.CommitTryAddAsync(Guid.NewGuid().ToString("N"), "cache", "k1", Entry(), cancellationToken);
+        await recovery.Requested.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        await committer.DisposeAsync();
+        recovery.Release();
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+
+        _ = await Assert.That(local.EntryReads).IsEqualTo(0);
+        _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(0UL);
+    }
+
     private static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, ScriptedApplyCache local, RecoveryLifecycle recovery, IReplicaRpcGateway? gateway = null) =>
         new(registry, new TwoNodeLocator(), gateway ?? new AcceptingGateway(), local, OwnedGroup, new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {

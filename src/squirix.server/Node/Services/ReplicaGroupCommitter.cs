@@ -220,6 +220,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         await WaitForLocalRecoveryAsync(cancellationToken).ConfigureAwait(false);
+        ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         var starting = EnsureStartedAsync(true, cancellationToken);
         if (await starting.CaptureFailureAsync().ConfigureAwait(false) != null)
@@ -331,6 +332,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         await WaitForLocalRecoveryAsync(cancellationToken).ConfigureAwait(false);
+        ThrowIfDisposed();
         if (!_registry.TryGetLog(GroupId, out var log))
             return ReplicaVerification.Blocked;
 
