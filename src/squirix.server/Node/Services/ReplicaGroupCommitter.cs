@@ -44,6 +44,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private ReplicaGroupCommitPipeline? _pipeline;
 
     private bool _started;
+    private volatile bool _recovered;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitter" /> class.</summary>
     /// <param name="registry">Replica group registry of this node.</param>
@@ -114,9 +115,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <remarks>Only the prepare of a mutation reads it. Applying a record never does.</remarks>
     internal TimeProvider Clock { private get; init; } = TimeProvider.System;
 
-    /// <summary>Gets the journal lifecycle whose startup gate opens once local recovery has replayed the journal into memory.</summary>
+    /// <summary>Initializes the journal lifecycle whose startup gate opens once local recovery has replayed the journal into memory.</summary>
     /// <remarks>Commits and verifications wait for the gate before they read memory, so no decision is prepared against a partly recovered cache.</remarks>
-    internal required IJournalCoordinatorLifecycle Recovery { get; init; }
+    internal required IJournalCoordinatorLifecycle Recovery { private get; init; }
 
     /// <summary>Gets the identifier of the owned replica group, which is this node's identifier.</summary>
     internal string GroupId { get; }
@@ -329,6 +330,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     internal async Task<ReplicaVerification> VerifyReplicasAsync(CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
+        await WaitForLocalRecoveryAsync(cancellationToken).ConfigureAwait(false);
         if (!_registry.TryGetLog(GroupId, out var log))
             return ReplicaVerification.Blocked;
 
@@ -336,7 +338,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (snapshot.Verdict is { } verdict)
             return verdict;
 
-        await WaitForLocalRecoveryAsync(cancellationToken).ConfigureAwait(false);
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         ThrowIfDisposed();
         return await AdmitVerifiedAsync(log, snapshot, cancellationToken).ConfigureAwait(false);
@@ -355,7 +356,14 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes once the journal startup gate is open.</returns>
     /// <remarks>Must run before the commit gate is taken: a commit queued on the gate never waits for recovery while holding it.</remarks>
-    private ValueTask WaitForLocalRecoveryAsync(CancellationToken cancellationToken) => Recovery.WaitForStartupAsync(cancellationToken);
+    private async ValueTask WaitForLocalRecoveryAsync(CancellationToken cancellationToken)
+    {
+        if (_recovered)
+            return;
+
+        await Recovery.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
+        _recovered = true;
+    }
 
     /// <summary>Admits the followers verified outside the gate and commits what the verified slots now cover.</summary>
     /// <param name="log">The owned group log.</param>

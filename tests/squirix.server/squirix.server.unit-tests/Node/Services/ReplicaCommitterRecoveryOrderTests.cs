@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -70,8 +71,60 @@ public sealed class ReplicaCommitterRecoveryOrderTests : IsolatedStorageTestBase
         _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(0UL);
     }
 
-    private static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, ScriptedApplyCache local, RecoveryLifecycle recovery) =>
-        new(registry, new TwoNodeLocator(), new AcceptingGateway(), local, OwnedGroup, new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+    /// <summary>A commit parked on recovery does not hold the commit gate, so another gate taker still runs.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ParkedCommitDoesNotHoldGate(CancellationToken cancellationToken)
+    {
+        var local = new ScriptedApplyCache(ApplyMode.Fail);
+        local.Recover();
+        var recovery = RecoveryLifecycle.Recovering();
+        await using var registry = await OpenRegistryAsync(cancellationToken);
+        await using var committer = CreateCommitter(registry, local, recovery);
+        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
+
+        var write = committer.CommitTryAddAsync(Guid.NewGuid().ToString("N"), "cache", "k1", Entry(), cancellationToken);
+        await recovery.Requested.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+        var outcome = await committer.CompactOwnedLogAsync(new ReplicaLogCompactionPolicy(0, 1), durability.Instance(), cancellationToken)
+                                     .WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(outcome).IsEqualTo(ReplicaLogCompactionOutcome.NotReady);
+        _ = await Assert.That(write.IsCompleted).IsFalse();
+
+        recovery.Release();
+        _ = await write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+    }
+
+    /// <summary>A verification waits for the startup gate before it probes any follower, and probes once the gate opens.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VerifyWaitsForRecoveryBeforeProbing(CancellationToken cancellationToken)
+    {
+        var local = new ScriptedApplyCache(ApplyMode.Fail);
+        local.Recover();
+        var recovery = RecoveryLifecycle.Recovering();
+        var probes = 0;
+        await using var registry = await OpenRegistryAsync(cancellationToken);
+        await using var committer = CreateCommitter(registry, local, recovery, new AcceptingGateway(() => _ = Interlocked.Increment(ref probes)));
+        _ = registry.EligibilityFor(OwnedGroup).TryMarkCatchingUp(1, default);
+
+        var verify = committer.VerifyReplicasAsync(cancellationToken);
+        await recovery.Requested.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(verify.IsCompleted).IsFalse();
+        _ = await Assert.That(Volatile.Read(ref probes)).IsEqualTo(0);
+        _ = await Assert.That(registry.EligibilityFor(OwnedGroup).StateFor(1)).IsEqualTo(ReplicaParticipantState.CatchingUp);
+        _ = await Assert.That(local.EntryReads).IsEqualTo(0);
+
+        recovery.Release();
+        _ = await verify.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(Volatile.Read(ref probes)).IsGreaterThan(0);
+    }
+
+    private static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, ScriptedApplyCache local, RecoveryLifecycle recovery, IReplicaRpcGateway? gateway = null) =>
+        new(registry, new TwoNodeLocator(), gateway ?? new AcceptingGateway(), local, OwnedGroup, new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Recovery = recovery,
             ShutdownBudget = StallTimeout,

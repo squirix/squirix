@@ -40,18 +40,23 @@ public sealed partial class LocalCacheWriterArchitectureTests : ServerUnitTestBa
             "Local cache types are written to only by the local cache, recovery, and the composition roots."),
         new(
             PipelineConstructionPattern,
-            ["Node/Hosting/CachePipelineRegistration.cs"],
-            "The cache pipeline, including its replicated stage, is assembled in one place."),
+            [
+                "Node/Hosting/CachePipelineRegistration.cs",
+                "Node/Services/ReplicatedCache.cs",
+                "Node/App/Decorators/JournalLoggingCacheDecorator.cs",
+                "Node/App/Decorators/JournalPayloadPrepareCacheDecorator.cs",
+                "Node/App/Decorators/OwnerPutPayloadGuardDecorator.cs",
+            ],
+            "The cache pipeline stages are named only by their own files and the one place that assembles them."),
         new(
             CommittedApplyPattern,
-            ["Node/Services/ReplicaLeaderApplier.cs", "Node/Services/ReplicaCacheApplier.cs"],
+            ["Node/Services/ReplicaLeaderApplier.cs"],
             "Committed records reach memory only through the ordered leader applier."),
         new(
             JournalAppendPattern,
             [
                 "Node/App/Decorators/JournalLoggingCacheDecorator.cs",
                 "Node/Observability/TracingJournalCoordinatorDecorator.cs",
-                "Storage/Journaling/",
             ],
             "Journal frames are appended only by the journaling decorator and the journal itself."),
     ];
@@ -62,10 +67,10 @@ public sealed partial class LocalCacheWriterArchitectureTests : ServerUnitTestBa
     [GeneratedRegex(@"\b(?:ILocalCache|ILocalCacheMutationOperations|ILocalCacheRecovery|PhysicalCache|ClientCache)\b", RegexOptions.CultureInvariant, MatchTimeoutMilliseconds)]
     private static partial Regex LocalCacheTypesPattern { get; }
 
-    [GeneratedRegex(@"\bnew\s+(?:ReplicatedCache|JournalLoggingCacheDecorator|JournalPayloadPrepareCacheDecorator|OwnerPutPayloadGuardDecorator|ClientCache)\b", RegexOptions.CultureInvariant, MatchTimeoutMilliseconds)]
+    [GeneratedRegex(@"\b(?:ReplicatedCache|JournalLoggingCacheDecorator|JournalPayloadPrepareCacheDecorator|OwnerPutPayloadGuardDecorator)\b", RegexOptions.CultureInvariant, MatchTimeoutMilliseconds)]
     private static partial Regex PipelineConstructionPattern { get; }
 
-    [GeneratedRegex(@"\bReplicaCacheApplier\s*\.\s*ExecuteAsync\b", RegexOptions.CultureInvariant, MatchTimeoutMilliseconds)]
+    [GeneratedRegex(@"\bReplicaCacheApplier\s*\.\s*(?:ApplyAsync|ExecuteAsync)\b", RegexOptions.CultureInvariant, MatchTimeoutMilliseconds)]
     private static partial Regex CommittedApplyPattern { get; }
 
     [GeneratedRegex(@"\.\s*Append(?:Put|Remove)Async\s*\(", RegexOptions.CultureInvariant, MatchTimeoutMilliseconds)]
@@ -79,7 +84,10 @@ public sealed partial class LocalCacheWriterArchitectureTests : ServerUnitTestBa
         var files = await ServerSourceFiles.EnumerateCsharpFilesAsync();
         var serverRoot = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "squirix.server");
         var violations = new List<string>();
-        var matchedAllowed = new bool[Rules.Length];
+        var matchedAllowed = new bool[Rules.Length][];
+        for (var ruleIndex = 0; ruleIndex < Rules.Length; ruleIndex++)
+            matchedAllowed[ruleIndex] = new bool[Rules[ruleIndex].Allowed.Length];
+
         for (var fileIndex = 0; fileIndex < files.Count; fileIndex++)
         {
             var path = files[fileIndex];
@@ -91,20 +99,27 @@ public sealed partial class LocalCacheWriterArchitectureTests : ServerUnitTestBa
                 if (!rule.Pattern.IsMatch(masked))
                     continue;
 
-                if (rule.Allows(relative))
-                    matchedAllowed[ruleIndex] = true;
+                var entryIndex = rule.AllowedEntryIndex(relative);
+                if (entryIndex >= 0)
+                    matchedAllowed[ruleIndex][entryIndex] = true;
                 else
                     violations.Add($"{relative}: {rule.Reason}");
             }
         }
 
-        for (var ruleIndex = 0; ruleIndex < Rules.Length; ruleIndex++)
-        {
-            if (!matchedAllowed[ruleIndex])
-                violations.Add($"Rule '{Rules[ruleIndex].Pattern}' matches no allowed file and no longer protects anything.");
-        }
+        AddUnmatchedEntries(matchedAllowed, violations);
 
         _ = await Assert.That(violations).IsEmpty().Because(string.Join(Environment.NewLine, violations));
+    }
+
+    private static void AddUnmatchedEntries(bool[][] matchedAllowed, List<string> violations)
+    {
+        for (var ruleIndex = 0; ruleIndex < Rules.Length; ruleIndex++)
+            for (var entryIndex = 0; entryIndex < Rules[ruleIndex].Allowed.Length; entryIndex++)
+            {
+                if (!matchedAllowed[ruleIndex][entryIndex])
+                    violations.Add($"Rule '{Rules[ruleIndex].Pattern}' allows '{Rules[ruleIndex].Allowed[entryIndex]}', which it never matches.");
+            }
     }
 
     /// <summary>A banned-symbol pattern, the source paths allowed to match it, and why the rest may not.</summary>
@@ -114,16 +129,16 @@ public sealed partial class LocalCacheWriterArchitectureTests : ServerUnitTestBa
     [Immutable]
     private readonly record struct WriterRule(Regex Pattern, string[] Allowed, string Reason)
     {
-        internal bool Allows(string relativePath)
+        internal int AllowedEntryIndex(string relativePath)
         {
             for (var index = 0; index < Allowed.Length; index++)
             {
                 var entry = Allowed[index];
                 if (entry.EndsWith('/') ? relativePath.StartsWith(entry, StringComparison.Ordinal) : string.Equals(relativePath, entry, StringComparison.Ordinal))
-                    return true;
+                    return index;
             }
 
-            return false;
+            return -1;
         }
     }
 }
