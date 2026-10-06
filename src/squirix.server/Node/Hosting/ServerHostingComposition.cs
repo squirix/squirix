@@ -180,6 +180,7 @@ internal static class ServerHostingComposition
         new ReplicaTopologyStamp(fingerprint.AsMemory(), sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration),
         sp.GetRequiredService<ILogger<ReplicaGroupCommitter>>())
     {
+        Recovery = sp.GetRequiredService<IJournalCoordinator>(),
         Metrics = sp.GetRequiredService<ReplicationMetrics>(),
         Clock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
     };

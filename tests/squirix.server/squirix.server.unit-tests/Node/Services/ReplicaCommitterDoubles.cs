@@ -6,6 +6,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
 
@@ -110,6 +111,7 @@ internal static class ReplicaCommitterDoubles
         private readonly ApplyMode _mode;
         private readonly VolatileBool _recovered = new();
         private int _applyAttempts;
+        private int _entryReads;
 
         internal ScriptedApplyCache(ApplyMode mode)
         {
@@ -123,7 +125,14 @@ internal static class ReplicaCommitterDoubles
 
         internal Task ApplyEntered => _applyEntered.Task;
 
-        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult<NodeCacheEntry<object?>?>(null);
+        /// <summary>Gets the number of entry reads, which the prepare of a conditional write issues.</summary>
+        internal int EntryReads => Volatile.Read(ref _entryReads);
+
+        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+        {
+            _ = Interlocked.Increment(ref _entryReads);
+            return ValueTask.FromResult<NodeCacheEntry<object?>?>(null);
+        }
 
         public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(new NodeCacheValueResult<object?>(false, null));
@@ -164,5 +173,59 @@ internal static class ReplicaCommitterDoubles
             await new ValueTask(_applyReleased.Task).ConfigureAwait(false);
             throw new InvalidOperationException("Injected memory apply failure after the majority.");
         }
+    }
+
+    /// <summary>
+    /// Journal lifecycle double whose startup gate is open from the start or opens when released; it signals the first wait for it and
+    /// honors cancellation of that wait.
+    /// </summary>
+    [ThreadSafe]
+    internal sealed class RecoveryLifecycle : IJournalCoordinatorLifecycle
+    {
+        private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _requested = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        private RecoveryLifecycle()
+        {
+        }
+
+        public event EventHandler? OnAppended
+        {
+            add => _ = value;
+            remove => _ = value;
+        }
+
+        public int CurrentSegmentIndex => 0;
+
+        public bool IsJournalGroupCommitEnabled => false;
+
+        public ulong NextSequence => 1;
+
+        /// <summary>Gets a task that completes when a caller waited for the startup gate.</summary>
+        public Task Requested => _requested.Task;
+
+        public Exception? GetJournalThreadFailure() => null;
+
+        public ValueTask WaitForStartupAsync(CancellationToken cancellationToken)
+        {
+            _ = _requested.TrySetResult();
+            return new ValueTask(_released.Task.WaitAsync(cancellationToken));
+        }
+
+        /// <summary>Creates a lifecycle whose startup gate is already open.</summary>
+        /// <returns>The lifecycle.</returns>
+        internal static RecoveryLifecycle Recovered()
+        {
+            var lifecycle = new RecoveryLifecycle();
+            lifecycle.Release();
+            return lifecycle;
+        }
+
+        /// <summary>Creates a lifecycle whose startup gate stays closed until <see cref="Release" />.</summary>
+        /// <returns>The lifecycle.</returns>
+        internal static RecoveryLifecycle Recovering() => new();
+
+        /// <summary>Opens the startup gate.</summary>
+        internal void Release() => _ = _released.TrySetResult();
     }
 }
