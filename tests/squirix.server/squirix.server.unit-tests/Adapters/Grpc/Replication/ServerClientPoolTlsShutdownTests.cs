@@ -84,7 +84,7 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
     private static async Task AwaitClientHelloAsync(Task clientHello, Task call, Task stub, CancellationToken cancellationToken)
     {
         var first = await Task.WhenAny(clientHello, call, stub).WaitAsync(Bound, TimeProvider.System, cancellationToken);
-        if (clientHello.IsCompletedSuccessfully)
+        if (ReferenceEquals(first, clientHello) && clientHello.IsCompletedSuccessfully)
             return;
 
         var callEnded = ReferenceEquals(first, call);
