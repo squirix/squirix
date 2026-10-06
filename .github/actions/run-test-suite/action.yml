@@ -127,6 +127,7 @@ runs:
           status=0
           dotnet "$host" \
             "${filter_args[@]}" \
+            --detailed-stacktrace \
             --report-trx --report-trx-filename "$name.trx" \
             --results-directory "$results" \
             "${coverage_args[@]}" \
