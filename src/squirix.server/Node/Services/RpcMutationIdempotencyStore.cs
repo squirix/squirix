@@ -486,6 +486,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     /// <param name="Reservation">The completion of the attempt that acquired a Started record; only that attempt settles it.</param>
     /// <param name="Appended">The outcome of a Started record whose outcome frame is enqueued but not yet durable; a snapshot exports it.</param>
     /// <param name="Stamped">Whether a mutation frame stamped with the operation id was enqueued for this live reservation.</param>
+    [Immutable]
     private readonly record struct StoredRecord(
         PersistedIdempotencyRecord Record,
         long? CreatedTimestamp,

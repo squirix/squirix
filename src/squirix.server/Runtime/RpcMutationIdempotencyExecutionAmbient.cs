@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Runtime;
 
@@ -134,6 +135,7 @@ internal static class RpcMutationIdempotencyExecutionAmbient
 
     /// <summary>Restores the stamping state that was active before <see cref="SuspendStamping" />.</summary>
     /// <param name="Previous">The frame active before the suspension; <see langword="null" /> when no scope was active, which is then the state restored.</param>
+    [Immutable]
     internal readonly record struct SuspendedStamping(ScopeFrame? Previous) : IDisposable
     {
         /// <inheritdoc />
@@ -150,6 +152,7 @@ internal static class RpcMutationIdempotencyExecutionAmbient
         internal bool TakenEffect { get; set; }
     }
 
+    [Immutable]
     internal sealed class ScopeFrame
     {
         internal ScopeFrame(object scope, string operationId, string fingerprint, ScopeFrame? parent, bool stampingSuspended, ScopeState state)

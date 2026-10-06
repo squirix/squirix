@@ -1,4 +1,5 @@
 using System;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 
@@ -43,5 +44,6 @@ internal static class ReplicaFollowerSenders
     /// <param name="CommitBudget">The longest wait for one follower request.</param>
     /// <param name="ShutdownBudget">The committer's shutdown budget; each sender's teardown never waits longer than the coordinator default.</param>
     /// <param name="TimeProvider">The time source of each follower request timeout.</param>
+    [Immutable]
     internal readonly record struct SenderTiming(TimeSpan CommitBudget, TimeSpan ShutdownBudget, TimeProvider TimeProvider);
 }

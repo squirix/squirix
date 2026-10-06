@@ -1,12 +1,14 @@
 using System;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Attributes;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Allocation-free slow fsync, long mutation-gate hold and stalled-wait warnings for the journal.</summary>
+[Immutable]
 internal sealed class JournalSlowOperationReporter
 {
     internal const int WarningThresholdMs = 1000;

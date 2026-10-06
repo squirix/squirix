@@ -273,5 +273,6 @@ internal sealed class IdempotencyExpiryOrder
     /// <param name="Key">The operation identifier.</param>
     /// <param name="Sequence">The insertion sequence of the record; an entry whose key now holds another sequence is stale.</param>
     /// <param name="Stamp">The monotonic creation timestamp; unused for restored records.</param>
+    [Immutable]
     private readonly record struct Entry(string Key, long Sequence, long Stamp);
 }

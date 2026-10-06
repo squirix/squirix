@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Services;
 
@@ -11,6 +12,7 @@ namespace Squirix.Server.Node.Services;
 /// phase of lifecycle services registered earlier runs after this one, so they must not append; with concurrent stops the stopped phases
 /// run concurrently, so a lifecycle service that must append does so in its stop phase.
 /// </summary>
+[Immutable]
 internal sealed class JournalStopService : IHostedLifecycleService
 {
     private readonly Func<ValueTask> _stopJournal;
