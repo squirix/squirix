@@ -100,9 +100,13 @@ public sealed class TestNodeHostShutdownTests
 
     private static void AssertPortReleased(int port)
     {
+        // The bind must fail only while a socket still listens on the port. On BSD/macOS a lingering connection
+        // (TIME_WAIT or an aborted peer) blocks a bind without address reuse, so reuse is enabled there. On Windows
+        // address reuse would let a bind succeed next to a live listener, so the default exclusive behavior stays.
         using var listener = new TcpListener(IPAddress.Loopback, port);
-        listener.Server.ExclusiveAddressUse = true;
-        listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false);
+        if (!OperatingSystem.IsWindows())
+            listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+
         listener.Start();
         listener.Stop();
     }
