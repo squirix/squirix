@@ -46,9 +46,9 @@ internal static class FileHolderDiagnostics
         {
             return QueryHolders(path);
         }
-        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or ArgumentException)
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
         {
-            // The Restart Manager is unavailable or rejected the path; diagnostics must never mask the original failure.
+            // The Restart Manager is unavailable; diagnostics must never mask the original failure.
             return null;
         }
     }

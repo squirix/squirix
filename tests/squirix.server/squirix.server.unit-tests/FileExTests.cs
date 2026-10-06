@@ -147,6 +147,8 @@ public sealed class FileExTests : ServerUnitTestBase
 
         _ = await Assert.That(exception.HResult is -2147024864 or -2147023721 or -2147023720).IsTrue();
         _ = await Assert.That(exception.Message).Contains($"pid {Environment.ProcessId}");
+        var inner = await Assert.That(exception.InnerException).IsTypeOf<IOException>();
+        _ = await Assert.That(inner!.HResult).IsEqualTo(exception.HResult);
         _ = await Assert.That(clock.TimerCreated.CurrentCount).IsEqualTo(0);
         _ = await Assert.That(File.Exists(tempPath)).IsTrue();
         var finalBytes = await File.ReadAllBytesAsync(finalPath, cancellationToken);

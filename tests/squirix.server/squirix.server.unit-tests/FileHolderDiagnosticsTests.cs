@@ -44,7 +44,10 @@ public sealed class FileHolderDiagnosticsTests : ServerUnitTestBase
         var path = Path.Join(dir, "free.bin");
         await File.WriteAllBytesAsync(path, ReadOnlyMemory<byte>.Of(1), cancellationToken);
 
-        _ = await Assert.That(FileHolderDiagnostics.DescribeHolders(path)).IsNull();
+        var description = FileHolderDiagnostics.DescribeHolders(path);
+
+        // An on-close scanner may hold the new file briefly, but this process never does.
+        _ = await Assert.That(description?.Contains($"pid {Environment.ProcessId}", StringComparison.Ordinal) != true).IsTrue();
     }
 
     /// <summary>A missing path has no holder description and does not throw.</summary>

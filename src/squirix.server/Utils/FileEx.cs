@@ -13,6 +13,9 @@ internal static class FileEx
     /// <summary>Maximum number of attempts <see cref="PublishFile" /> makes under a transient Windows sharing failure.</summary>
     internal const int PublishAttempts = 5;
 
+    /// <summary>Text used in place of the holders when none could be determined.</summary>
+    internal const string UnknownHolders = "unknown";
+
     private const int DarwinCloseOnExec = 0x1000000;
 
     private const int FreeBsdCloseOnExec = 0x00100000;
@@ -102,6 +105,7 @@ internal static class FileEx
 
         var attempt = 1;
         string? holders = null;
+        var queried = false;
         while (true)
         {
             try
@@ -116,7 +120,12 @@ internal static class FileEx
             catch (IOException ex) when (IsTransientWindowsSharingFailure(ex))
             {
                 // The holder is most likely still present at the first failure and may be gone once the retries are exhausted.
-                holders ??= FileHolderDiagnostics.DescribeHolders(validatedFinal);
+                if (!queried)
+                {
+                    holders = FileHolderDiagnostics.DescribeHolders(validatedFinal);
+                    queried = true;
+                }
+
                 if (attempt >= PublishAttempts)
                     throw BuildExhaustedException(ex, validatedFinal, FileHolderDiagnostics.DescribeHolders(validatedFinal) ?? holders);
 
@@ -177,7 +186,7 @@ internal static class FileEx
     }
 
     private static IOException BuildExhaustedException(IOException last, string finalPath, string? holders) =>
-        new($"{last.Message} Holders of '{finalPath}': {holders ?? "unknown"}.", last) { HResult = last.HResult };
+        new($"{last.Message} Holders of '{finalPath}': {holders ?? UnknownHolders}.", last) { HResult = last.HResult };
 
     private static bool IsTransientWindowsSharingFailure(IOException exception)
     {
