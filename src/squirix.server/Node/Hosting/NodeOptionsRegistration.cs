@@ -72,8 +72,8 @@ internal static class NodeOptionsRegistration
         // and releases it on host shutdown. AddSingleton(instance) does not transfer disposal ownership in Microsoft DI,
         // which would leak the loaded X509 certificates. The material is shared: the internode client pool retains its
         // own hold for its owned outbound handlers and releases it only once their connections are closed, so the
-        // certificates are freed by the last holder, whichever order the container disposes them in. Kestrel and the
-        // testkit PeerHandlerFactory take no hold.
+        // certificates are freed by the last holder, whichever order the container disposes them in. The testkit peer
+        // handlers take a hold too. Kestrel takes none: the host stops it, awaiting its connections, before DI disposes the material.
         _ = args.Certificate != null ? services.AddSingleton(_ => args.Certificate) : services.AddSingleton(static provider =>
         {
             var registeredCluster = provider.GetRequiredService<TopologyOptions>();

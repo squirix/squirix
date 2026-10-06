@@ -8,8 +8,9 @@ namespace Squirix.Server.Cluster.Transport;
 /// <summary>Loaded cluster mTLS certificate material for later transport wiring.</summary>
 /// <remarks>
 /// The material is shared: the loader owns one hold that <see cref="IDisposable.Dispose" /> releases, and the owned outbound handlers of the
-/// internode client pool take their own hold through <see cref="Retain" />. The certificates are freed once the last hold is released, so the
-/// loader cannot free them under an open outbound handshake. Kestrel and the testkit peer handler factory use the certificates without a hold.
+/// internode client pool take their own hold through <see cref="Retain" />, and so do the testkit peer handlers for as long as they live. The
+/// certificates are freed once the last hold is released, so the loader cannot free them under an open outbound handshake. Kestrel takes no hold:
+/// the host stops Kestrel, which awaits its connections, before DI disposes the material.
 /// </remarks>
 [Mutable]
 internal sealed class MtlsCertificate : IDisposable

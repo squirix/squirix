@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
+using System.IO;
+using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -381,6 +384,61 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         }
     }
 
+    /// <summary>A connection of a handler the factory supplied counts in the pool's gate, and disposal aborts it and releases the material hold.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeDrainsFactoryHandlerConnections(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = LoadCertificate(bundle);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var handler = new SocketsHttpHandler { ConnectCallback = (_, token) => ConnectSignallingAsync(listener, connected, token) };
+        using var client = new HttpClient(handler, false);
+        var args = MtlsArgs(certificate, _ => handler, null);
+        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
+
+        // The listener never answers, so the TLS handshake stays open until the pool aborts the connection.
+        var request = client.GetAsync(new Uri("https://localhost:1/"), cancellationToken);
+        await connected.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(pool.OpenConnections).IsEqualTo(1);
+
+        await pool.DisposeAsync();
+
+        _ = await Assert.That(pool.OpenConnections).IsEqualTo(0);
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request);
+        DisposeAsLoader(certificate);
+        _ = await Assert.That(certificate.IsReleased).IsTrue();
+    }
+
+    /// <summary>A connect callback the factory handler already had keeps dialing, and its connection leaves the gate when the connection ends.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ComposedConnectCallbackStillRedirects(CancellationToken cancellationToken)
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var connections = new TrackedConnections();
+        var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var handler = new SocketsHttpHandler { ConnectCallback = (_, token) => ConnectSignallingAsync(listener, connected, token) };
+        ServerClientPool.TrackFactoryConnections(handler, connections);
+        using var client = new HttpClient(handler, false);
+
+        var request = client.GetAsync(new Uri("https://localhost:1/"), cancellationToken);
+        using var accepted = await listener.AcceptTcpClientAsync(cancellationToken);
+        await connected.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(connections.Pending).IsEqualTo(1);
+
+        // Ending the connection from the server side fails the handshake; the handler disposes the stream, which leaves the gate.
+        accepted.Dispose();
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request);
+        await connections.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(connections.Pending).IsEqualTo(0);
+    }
+
     /// <summary>Advances the fake clock until <paramref name="task" /> completes; the wait timers register at unpredictable moments, so one advance is not enough.</summary>
     /// <param name="clock">The fake clock.</param>
     /// <param name="task">The task to complete.</param>
@@ -414,6 +472,23 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using (token.UnsafeRegister(static state => Complete(state), cancelled))
             await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+    }
+
+    private static async ValueTask<Stream> ConnectSignallingAsync(TcpListener listener, TaskCompletionSource connected, CancellationToken cancellationToken)
+    {
+        var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        try
+        {
+            await socket.ConnectAsync(listener.LocalEndpoint, cancellationToken);
+            var stream = new NetworkStream(socket, true);
+            socket = null;
+            _ = connected.TrySetResult();
+            return stream;
+        }
+        finally
+        {
+            socket?.Dispose();
+        }
     }
 
     private static void Complete(object? state)

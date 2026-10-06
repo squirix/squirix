@@ -144,6 +144,25 @@ internal sealed class ServerClientPool : IServerClientPool
 
     public IServerCallPolicy PolicyFor(string nodeId) => _policies[nodeId];
 
+    /// <summary>Makes the connections of a handler the pool does not own count in the pool's gate, so disposal drains and aborts them before the material is released.</summary>
+    /// <param name="handler">The handler a factory supplied; one that is not, or does not wrap, a <see cref="SocketsHttpHandler" /> stays untracked.</param>
+    /// <param name="connections">The pool's tracked connections.</param>
+    /// <remarks>An existing connect callback keeps dialing; the tracked callback wraps the stream it returns.</remarks>
+    internal static void TrackFactoryConnections(HttpMessageHandler handler, TrackedConnections connections)
+    {
+        var current = handler;
+        while (current is DelegatingHandler { InnerHandler: { } next })
+            current = next;
+
+        if (current is not SocketsHttpHandler socketsHandler)
+            return;
+
+        var inner = socketsHandler.ConnectCallback;
+        socketsHandler.ConnectCallback = inner == null
+            ? (context, cancellationToken) => TrackedConnectionStream.ConnectAsync(connections, context, cancellationToken)
+            : (context, cancellationToken) => TrackedWrappedStream.ConnectAsync(connections, context, inner, cancellationToken);
+    }
+
     private static GrpcChannelOptions CreateChannelOptions(
         string nodeId,
         bool interNodeMtlsEnabled,
@@ -164,6 +183,7 @@ internal sealed class ServerClientPool : IServerClientPool
                 var factoryHandler = peerHandlerFactory?.Invoke(nodeId);
                 if (factoryHandler != null)
                 {
+                    TrackFactoryConnections(factoryHandler, connections);
                     peerHandler = factoryHandler;
                 }
                 else
