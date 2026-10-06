@@ -354,12 +354,13 @@ public abstract class NodeIntegrationTestBase : IDisposable
             // Omitted cluster mTLS still passes explicit empty options: null would fall back to environment-provided mTLS settings.
             MtlsOptions? mtlsOptions;
             MtlsCertificate? mtlsMaterial = null;
+            Func<string, HttpMessageHandler>? peerHandlerFactory = null;
             if (options.OmitClusterMtls)
                 mtlsOptions = new MtlsOptions();
             else
-                (_identity, mtlsOptions, mtlsMaterial) = await ClusterIdentity.ResolveForBindAsync(_identity, config, cancellationToken);
+                (_identity, mtlsOptions, mtlsMaterial, peerHandlerFactory) = await ClusterIdentity.ResolveForBindAsync(_identity, config, options.PartitionFabric, cancellationToken);
 
-            var startOptions = Helpers.CreateStartOptions(options, po, mtlsOptions, mtlsMaterial);
+            var startOptions = Helpers.CreateStartOptions(options, po, mtlsOptions, mtlsMaterial, peerHandlerFactory);
             ListenPortPool.IntegrationTests.ReleasePort(canonicalUri.Port);
             var application = await NodeHost.StartAsync(config, startOptions, cancellationToken);
             return new TestNodeHost(application, canonicalUri, dir, po != null);
@@ -445,10 +446,12 @@ public abstract class NodeIntegrationTestBase : IDisposable
             IntegrationStartOptions options,
             PersistenceOptions? persistenceOptions,
             MtlsOptions? mtlsOptions,
-            MtlsCertificate? certificate)
+            MtlsCertificate? certificate,
+            Func<string, HttpMessageHandler>? peerHandlerFactory)
         {
             return new NodeHostStartOptions
             {
+                PeerHandlerFactory = peerHandlerFactory,
                 ConfigureLogging = static b =>
                 {
                     _ = b.ClearProviders();

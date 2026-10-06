@@ -2,6 +2,7 @@ using System;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit.Mtls;
+using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.Server.TestKit.Hosting;
 
@@ -20,6 +21,13 @@ public class ClusterStartOptions
 
     /// <summary>Gets the internode mTLS profile for this node in negative-path cluster tests.</summary>
     public TestNodeProfile MtlsProfile { get; init; } = TestNodeProfile.Normal;
+
+    /// <summary>
+    /// Gets the fabric the node's internode connections are dialed through. When set, every connection this node opens to a
+    /// remote peer goes through the fabric's proxy for the pair, so tests cut and heal links by node identifier; when
+    /// <see langword="null" />, peers are dialed directly. The fabric must outlive the cluster.
+    /// </summary>
+    public PartitionFabric? PartitionFabric { get; init; }
 
     /// <summary>Gets the replica factor including the original owner.</summary>
     public int ReplicaCount { get; init; } = 1;
