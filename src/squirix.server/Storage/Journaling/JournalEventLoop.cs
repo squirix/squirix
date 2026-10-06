@@ -74,20 +74,11 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     public IJournalEventLoopHost Host { get; }
 
-    /// <summary>Gets the number of durability flushes of pending appended data the journal thread completed through <see cref="FlushToDisk" />. Segment-open and roll header flushes are not counted. Written by the journal thread; read cross-thread.</summary>
-    public long FlushCount => Volatile.Read(ref _flushCount);
-
     /// <summary>Gets the on-disk journal segment count. Written only by the journal thread; read cross-thread.</summary>
     public int JournalSegmentCount => Volatile.Read(ref _journalSegmentCount);
 
     /// <summary>Gets the on-disk journal byte total. Written only by the journal thread; read cross-thread.</summary>
     public long JournalTotalBytes => Volatile.Read(ref _journalTotalBytes);
-
-    /// <summary>
-    /// Gets a value indicating whether the next segment open creates the missing current segment file and counts it. Cleared by the
-    /// journal thread only after that count was added; read cross-thread by append admission.
-    /// </summary>
-    public bool OpenCreatesSegment => Volatile.Read(ref _openCreatesSegment) != 0;
 
     public PersistenceOptions Options { get; }
 
@@ -97,12 +88,6 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     public BoundedJournalRing Ring { get; }
 
-    /// <summary>
-    /// Gets a value indicating whether the next roll target is already on disk and counted with at most a file header, so the next roll
-    /// adds no segment. Cleared by the journal thread when a roll begins; read cross-thread by append admission.
-    /// </summary>
-    public bool RollTargetCounted => Volatile.Read(ref _rollTargetCounted) != 0;
-
     public bool SegmentRollInFlight { get; private set; }
 
     public IJournalSegmentWriter SegmentWriter { get; }
@@ -110,6 +95,21 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     public JournalWriteBatchBuffer WriteBatch { get; }
 
     internal long ActiveSegmentWrittenBytes => Volatile.Read(ref _activeSegmentWrittenBytes);
+
+    /// <summary>Gets the number of durability flushes of pending appended data the journal thread completed through <see cref="FlushToDisk" />. Segment-open and roll header flushes are not counted. Written by the journal thread; read cross-thread.</summary>
+    internal long FlushCount => Volatile.Read(ref _flushCount);
+
+    /// <summary>
+    /// Gets a value indicating whether the next segment open creates the missing current segment file and counts it. Cleared by the
+    /// journal thread only after that count was added; read cross-thread by append admission.
+    /// </summary>
+    internal bool OpenCreatesSegment => Volatile.Read(ref _openCreatesSegment) != 0;
+
+    /// <summary>
+    /// Gets a value indicating whether the next roll target is already on disk and counted with at most a file header, so the next roll
+    /// adds no segment. Cleared by the journal thread when a roll begins; read cross-thread by append admission.
+    /// </summary>
+    internal bool RollTargetCounted => Volatile.Read(ref _rollTargetCounted) != 0;
 
     private JournalEventLoopDrainScheduler DrainScheduler { get; }
 

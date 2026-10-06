@@ -295,12 +295,6 @@ internal sealed class JournalDurabilityCoordinator
         return abandoned;
     }
 
-    internal void ThrowIfJournalThreadExited()
-    {
-        if (!_owner.JournalThread.IsAlive)
-            throw new InvalidOperationException("journal I/O thread exited.");
-    }
-
     internal void ThrowIfJournalThreadFailed()
     {
         if (_owner.GetJournalThreadFailure() is { } failure)
@@ -354,6 +348,12 @@ internal sealed class JournalDurabilityCoordinator
     {
         var remainingMs = deadline - Environment.TickCount64;
         return remainingMs <= 0 ? throw new TimeoutException("Maintenance abort exceeded its bound.") : TimeSpan.FromMilliseconds(remainingMs);
+    }
+
+    private void ThrowIfJournalThreadExited()
+    {
+        if (!_owner.JournalThread.IsAlive)
+            throw new InvalidOperationException("journal I/O thread exited.");
     }
 
     /// <summary>Best-effort maintenance abort publish for observability on a failed pipeline.</summary>

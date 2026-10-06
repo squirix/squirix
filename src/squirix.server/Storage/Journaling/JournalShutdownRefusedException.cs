@@ -10,14 +10,14 @@ namespace Squirix.Server.Storage.Journaling;
 internal sealed class JournalShutdownRefusedException : ObjectDisposedException
 {
     /// <summary>Initializes a new instance of the <see cref="JournalShutdownRefusedException" /> class.</summary>
-    public JournalShutdownRefusedException()
+    internal JournalShutdownRefusedException()
         : base(nameof(JournalCoordinator))
     {
     }
 
     /// <summary>Initializes a new instance of the <see cref="JournalShutdownRefusedException" /> class with the refusing component.</summary>
     /// <param name="message">The name of the component that refused the work, reported as the object name.</param>
-    public JournalShutdownRefusedException(string message)
+    internal JournalShutdownRefusedException(string message)
         : base(message)
     {
     }
@@ -25,7 +25,7 @@ internal sealed class JournalShutdownRefusedException : ObjectDisposedException
     /// <summary>Initializes a new instance of the <see cref="JournalShutdownRefusedException" /> class with a message and inner exception.</summary>
     /// <param name="message">The exception message.</param>
     /// <param name="innerException">The exception that caused the refusal.</param>
-    public JournalShutdownRefusedException(string message, Exception innerException)
+    internal JournalShutdownRefusedException(string message, Exception innerException)
         : base(message, innerException)
     {
     }

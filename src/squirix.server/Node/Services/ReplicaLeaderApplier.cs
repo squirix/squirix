@@ -127,21 +127,6 @@ internal sealed class ReplicaLeaderApplier
         }
     }
 
-    /// <summary>Logs and counts a log record that was refused as inconsistent.</summary>
-    /// <param name="error">Why the record was refused; it names the log index.</param>
-    /// <remarks>
-    /// The same record is refused on every attempt (each write, each readiness pass, each restart step), so it is reported only when it
-    /// differs from the last one reported: the count and the log follow records, not attempts.
-    /// </remarks>
-    internal void ReportInconsistentRecord(InvalidDataException error)
-    {
-        if (string.Equals(Interlocked.Exchange(ref _lastReported, error.Message), error.Message, StringComparison.Ordinal))
-            return;
-
-        ServerLog.ReplicaInconsistentRecord(_log, _groupId, error);
-        _metrics?.ReportInconsistentRecord(_nodeId, _groupId);
-    }
-
     /// <summary>Applies the committed entries memory may lack, so it holds every entry through <paramref name="commitIndex" />.</summary>
     /// <param name="log">The owned group log.</param>
     /// <param name="durableAppliedIndex">The durable applied index of <paramref name="log" />, which seeds the applied index on the first call.</param>
@@ -201,6 +186,21 @@ internal sealed class ReplicaLeaderApplier
 
         if (AppliedIndex < commitIndex)
             throw new InvalidOperationException($"The owned group log retains no entry {AppliedIndex + 1} to apply through its commit index {commitIndex}.");
+    }
+
+    /// <summary>Logs and counts a log record that was refused as inconsistent.</summary>
+    /// <param name="error">Why the record was refused; it names the log index.</param>
+    /// <remarks>
+    /// The same record is refused on every attempt (each write, each readiness pass, each restart step), so it is reported only when it
+    /// differs from the last one reported: the count and the log follow records, not attempts.
+    /// </remarks>
+    private void ReportInconsistentRecord(InvalidDataException error)
+    {
+        if (string.Equals(Interlocked.Exchange(ref _lastReported, error.Message), error.Message, StringComparison.Ordinal))
+            return;
+
+        ServerLog.ReplicaInconsistentRecord(_log, _groupId, error);
+        _metrics?.ReportInconsistentRecord(_nodeId, _groupId);
     }
 
     private Task StartReapplyAsync(IReadOnlyList<FollowerLogEntry> committed, ulong commitIndex) => Task.Factory.StartNew(

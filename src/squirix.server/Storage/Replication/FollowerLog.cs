@@ -2046,120 +2046,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <summary>Snapshot creation, installation, and compaction for a follower log.</summary>
     private static class FollowerLogSnapshot
     {
-        internal static GroupSnapshot BuildSnapshot(FollowerLogJournal journal, IFollowerLogContext owner, ulong lastIncludedIndex)
-        {
-            if (!journal.EntryOffsets.TryGetValue(lastIncludedIndex, out var location))
-                return BuildSnapshotFromBaseline(journal, owner, lastIncludedIndex);
-
-            // The two adjacent ulong arguments are LastIncludedIndex and CommitIndex, in declaration order; both
-            // equal the snapshot boundary for a freshly created snapshot.
-            var outcomes = ExportCoveredOutcomes(owner, lastIncludedIndex, out var capturedUtc);
-            return new GroupSnapshot(
-                owner.GroupId,
-                owner.Meta.TopologyFingerprint,
-                owner.Meta.ConfigurationGeneration,
-                location.Term,
-                lastIncludedIndex,
-                lastIncludedIndex,
-                outcomes,
-                capturedUtc);
-        }
-
-        internal static async Task<GroupCompactionResult> CompactAsync(FollowerLogJournal journal, IFollowerLogContext owner, CancellationToken cancellationToken)
-        {
-            if (!journal.Snapshot.SnapshotExists)
-                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
-
-            var snapshot = await journal.Snapshot.ReadPublishedAsync(cancellationToken).ConfigureAwait(false);
-            if (snapshot == null)
-                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
-
-            var included = snapshot.Value.LastIncludedIndex;
-
-            // The durable prefix is dropped only when the published snapshot covers every committed entry; otherwise
-            // committed frames would be lost without a snapshot to restore them.
-            if (included == 0UL || included < owner.Meta.CommitIndex || included > owner.LastLogIndex || included > owner.Meta.LastAppliedIndex)
-                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
-
-            // Frames in (included, LastAppliedIndex] were released from `Entries` by PruneAppliedEntries, so the
-            // retained tail cannot reproduce them. Compacting here would drop committed frames the snapshot does
-            // not cover and leave a committed gap for recovery.
-            if (included < owner.Meta.LastAppliedIndex)
-                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
-
-            // Validate the published snapshot's identity and topology against the durable local state before any
-            // destructive rewrite. A snapshot that diverges from the replica must not be used to truncate the durable
-            // prefix; the suffix must instead survive as a replicable tail.
-            if (!string.Equals(snapshot.Value.GroupId, owner.GroupId, StringComparison.Ordinal))
-                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotMember);
-
-            if (SnapshotTopologyMismatch(owner, snapshot.Value) is { } topologyRefusal)
-                return new GroupCompactionResult(false, null, topologyRefusal);
-
-            if (journal.EntryOffsets.TryGetValue(included, out var boundary) && boundary.Term != snapshot.Value.LastIncludedTerm)
-                return new GroupCompactionResult(false, null, FollowerLogRefusal.LogMismatch);
-
-            var tail = CollectRetainedTail(journal, included);
-
-            var retainedLogIndexes = CollectRetainedLogIndexes(tail);
-
-            // The capacity refusal must happen before the durable rewrite: once ReplaceLogAsync discards the covered
-            // prefix, a refused restore would leave the journal without its committed frames. Fail readiness like
-            // the post-rewrite refusal path below does.
-            if (!owner.Idempotency.WouldRestoreFit(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc, retainedLogIndexes))
-            {
-                owner.Readiness = FollowerLogReadiness.Failed;
-                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
-            }
-
-            (int Length, List<long> Offsets) result;
-            try
-            {
-                result = await FollowerLogDurable.ReplaceLogAsync(journal, owner, tail, cancellationToken).ConfigureAwait(false);
-            }
-            catch
-            {
-                owner.Readiness = FollowerLogReadiness.Failed;
-                throw;
-            }
-
-            var (length, offsets) = result;
-            ReindexTail(journal, tail, offsets);
-
-            owner.LastLogIndex = tail.Count == 0 ? included : tail[^1].LogIndex;
-            owner.LogLength = length;
-
-            // ReindexTail already left only entries above the boundary, so the paired advance prunes nothing.
-            journal.AdvanceBaseline(new SnapshotBaseline(snapshot.Value.LastIncludedIndex, snapshot.Value.LastIncludedTerm));
-
-            var candidate = owner.Meta with { LastLogIndex = Math.Max(included, owner.LastLogIndex) };
-            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
-            owner.Meta = candidate;
-
-            // The discarded prefix is now owned by the snapshot, which exports only resolved outcomes; any remaining
-            // record at or below `included` has lost its durable journal frame and must be released, while records
-            // carried by the retained tail stay authoritative.
-            try
-            {
-                if (!owner.Idempotency.TryRestoreFromSnapshot(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc, retainedLogIndexes))
-                {
-                    // A refused restore leaves the map holding records whose journal frames were already
-                    // discarded by the rewrite; the refusal path must fail readiness like the catch below.
-                    owner.Readiness = FollowerLogReadiness.Failed;
-                    return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
-                }
-            }
-            catch
-            {
-                // A failed idempotency restore leaves the in-memory map holding discarded-prefix records whose
-                // journal frames no longer exist; mark the log failed so it is never surfaced as Ready.
-                owner.Readiness = FollowerLogReadiness.Failed;
-                throw;
-            }
-
-            return new GroupCompactionResult(true, journal.Snapshot.SnapshotPath, string.Empty);
-        }
-
         /// <summary>Publishes a snapshot through <paramref name="index" /> and compacts the log prefix it covers.</summary>
         /// <param name="journal">The paired in-memory journal state.</param>
         /// <param name="owner">The log being compacted.</param>
@@ -2352,6 +2238,25 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             };
         }
 
+        private static GroupSnapshot BuildSnapshot(FollowerLogJournal journal, IFollowerLogContext owner, ulong lastIncludedIndex)
+        {
+            if (!journal.EntryOffsets.TryGetValue(lastIncludedIndex, out var location))
+                return BuildSnapshotFromBaseline(journal, owner, lastIncludedIndex);
+
+            // The two adjacent ulong arguments are LastIncludedIndex and CommitIndex, in declaration order; both
+            // equal the snapshot boundary for a freshly created snapshot.
+            var outcomes = ExportCoveredOutcomes(owner, lastIncludedIndex, out var capturedUtc);
+            return new GroupSnapshot(
+                owner.GroupId,
+                owner.Meta.TopologyFingerprint,
+                owner.Meta.ConfigurationGeneration,
+                location.Term,
+                lastIncludedIndex,
+                lastIncludedIndex,
+                outcomes,
+                capturedUtc);
+        }
+
         private static GroupSnapshot BuildSnapshotFromBaseline(FollowerLogJournal journal, IFollowerLogContext owner, ulong lastIncludedIndex)
         {
             // The covered index may be the snapshot base itself, whose frame was already compacted away.
@@ -2414,6 +2319,101 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
 
             return tail;
+        }
+
+        private static async Task<GroupCompactionResult> CompactAsync(FollowerLogJournal journal, IFollowerLogContext owner, CancellationToken cancellationToken)
+        {
+            if (!journal.Snapshot.SnapshotExists)
+                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
+
+            var snapshot = await journal.Snapshot.ReadPublishedAsync(cancellationToken).ConfigureAwait(false);
+            if (snapshot == null)
+                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
+
+            var included = snapshot.Value.LastIncludedIndex;
+
+            // The durable prefix is dropped only when the published snapshot covers every committed entry; otherwise
+            // committed frames would be lost without a snapshot to restore them.
+            if (included == 0UL || included < owner.Meta.CommitIndex || included > owner.LastLogIndex || included > owner.Meta.LastAppliedIndex)
+                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
+
+            // Frames in (included, LastAppliedIndex] were released from `Entries` by PruneAppliedEntries, so the
+            // retained tail cannot reproduce them. Compacting here would drop committed frames the snapshot does
+            // not cover and leave a committed gap for recovery.
+            if (included < owner.Meta.LastAppliedIndex)
+                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
+
+            // Validate the published snapshot's identity and topology against the durable local state before any
+            // destructive rewrite. A snapshot that diverges from the replica must not be used to truncate the durable
+            // prefix; the suffix must instead survive as a replicable tail.
+            if (!string.Equals(snapshot.Value.GroupId, owner.GroupId, StringComparison.Ordinal))
+                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotMember);
+
+            if (SnapshotTopologyMismatch(owner, snapshot.Value) is { } topologyRefusal)
+                return new GroupCompactionResult(false, null, topologyRefusal);
+
+            if (journal.EntryOffsets.TryGetValue(included, out var boundary) && boundary.Term != snapshot.Value.LastIncludedTerm)
+                return new GroupCompactionResult(false, null, FollowerLogRefusal.LogMismatch);
+
+            var tail = CollectRetainedTail(journal, included);
+
+            var retainedLogIndexes = CollectRetainedLogIndexes(tail);
+
+            // The capacity refusal must happen before the durable rewrite: once ReplaceLogAsync discards the covered
+            // prefix, a refused restore would leave the journal without its committed frames. Fail readiness like
+            // the post-rewrite refusal path below does.
+            if (!owner.Idempotency.WouldRestoreFit(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc, retainedLogIndexes))
+            {
+                owner.Readiness = FollowerLogReadiness.Failed;
+                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
+            }
+
+            (int Length, List<long> Offsets) result;
+            try
+            {
+                result = await FollowerLogDurable.ReplaceLogAsync(journal, owner, tail, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                owner.Readiness = FollowerLogReadiness.Failed;
+                throw;
+            }
+
+            var (length, offsets) = result;
+            ReindexTail(journal, tail, offsets);
+
+            owner.LastLogIndex = tail.Count == 0 ? included : tail[^1].LogIndex;
+            owner.LogLength = length;
+
+            // ReindexTail already left only entries above the boundary, so the paired advance prunes nothing.
+            journal.AdvanceBaseline(new SnapshotBaseline(snapshot.Value.LastIncludedIndex, snapshot.Value.LastIncludedTerm));
+
+            var candidate = owner.Meta with { LastLogIndex = Math.Max(included, owner.LastLogIndex) };
+            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
+            owner.Meta = candidate;
+
+            // The discarded prefix is now owned by the snapshot, which exports only resolved outcomes; any remaining
+            // record at or below `included` has lost its durable journal frame and must be released, while records
+            // carried by the retained tail stay authoritative.
+            try
+            {
+                if (!owner.Idempotency.TryRestoreFromSnapshot(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc, retainedLogIndexes))
+                {
+                    // A refused restore leaves the map holding records whose journal frames were already
+                    // discarded by the rewrite; the refusal path must fail readiness like the catch below.
+                    owner.Readiness = FollowerLogReadiness.Failed;
+                    return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
+                }
+            }
+            catch
+            {
+                // A failed idempotency restore leaves the in-memory map holding discarded-prefix records whose
+                // journal frames no longer exist; mark the log failed so it is never surfaced as Ready.
+                owner.Readiness = FollowerLogReadiness.Failed;
+                throw;
+            }
+
+            return new GroupCompactionResult(true, journal.Snapshot.SnapshotPath, string.Empty);
         }
 
         private static List<GroupIdempotencyRecord> ExportCoveredOutcomes(IFollowerLogContext owner, ulong lastIncludedIndex, out DateTime capturedUtc)

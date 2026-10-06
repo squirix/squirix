@@ -84,6 +84,7 @@ internal sealed class KeyedAsyncLock<TKey>
     /// <param name="Key">Locked key.</param>
     /// <param name="Entry">Per-key lock entry.</param>
     /// <param name="Holder">Holder of the per-key lock.</param>
+    [Immutable]
     internal readonly record struct Lease(KeyedAsyncLock<TKey> Owner, TKey Key, Entry Entry, AsyncLockHolder Holder) : IDisposable
     {
         /// <inheritdoc />
