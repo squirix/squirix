@@ -69,12 +69,9 @@ internal sealed class ServerClientPool : IServerClientPool
         ArgumentNullException.ThrowIfNull(logger);
         _logger = logger;
         _metrics = metrics;
-        if (args.ShutdownBudget is { } budget && budget != Timeout.InfiniteTimeSpan && (budget < TimeSpan.Zero || budget > MaxShutdownBudget))
-            throw new ArgumentOutOfRangeException(nameof(args), budget, "The shutdown budget must be between zero and the longest timeout a task wait accepts, or infinite.");
-
-        _shutdownBudget = args.ShutdownBudget ?? DefaultShutdownBudget;
+        _shutdownBudget = ResolveShutdownBudget(args);
         _timeProvider = args.TimeProvider ?? TimeProvider.System;
-        _materialHold = args.Certificate is { Enabled: true } certificate ? certificate.Retain() : null;
+        _materialHold = RetainMaterial(args);
         _nodeIds = RegisterPeers(peers, args);
         NodeIds = _nodeIds;
     }
@@ -197,6 +194,17 @@ internal sealed class ServerClientPool : IServerClientPool
         {
             ownedHandler?.Dispose();
         }
+    }
+
+    private static MtlsCertificate.Hold? RetainMaterial(ServerClientPoolArgs args) => args.Certificate is { Enabled: true } certificate ? certificate.Retain() : null;
+
+    private static TimeSpan ResolveShutdownBudget(ServerClientPoolArgs args)
+    {
+        if (args.ShutdownBudget is not { } budget)
+            return DefaultShutdownBudget;
+
+        var valid = budget == Timeout.InfiniteTimeSpan || (budget >= TimeSpan.Zero && budget <= MaxShutdownBudget);
+        return valid ? budget : throw new ArgumentOutOfRangeException(nameof(args), budget, "The shutdown budget must be between zero and the longest timeout a task wait accepts, or infinite.");
     }
 
     private void BeginDrain()
