@@ -1,6 +1,7 @@
 using System;
 using System.Net.Http;
 using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -53,6 +54,30 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
         _ = await Assert.That(clientCertificate).IsEqualTo(material.NodeCertificate);
     }
 
+    /// <summary>Ensures the outbound handlers prebuild the client certificate context on Unix and leave it unset on Windows.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MtlsHandlerPrebuildsClientContext(CancellationToken cancellationToken)
+    {
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var material = MtlsCertificate.Load(
+            new MtlsOptions
+            {
+                CaPath = bundle.CaPath,
+                CertPfxPath = bundle.PfxPath,
+                InternalListenPort = 6103,
+            },
+            6001,
+            true,
+            "node-a");
+
+        using var testKitHandler = TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
+        using var productHandler = ServerClientPool.ServerGrpcEndpoints.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b", new TrackedConnections());
+
+        await AssertClientContextAsync(testKitHandler, material.NodeCertificate!);
+        await AssertClientContextAsync(productHandler, material.NodeCertificate!);
+    }
+
     /// <summary>Ensures the outbound handler rejects missing peer server certificates.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="InvalidOperationException">Thrown when the remote certificate validation callback was not configured.</exception>
@@ -74,5 +99,17 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
         var callback = ThrowHelper.Required(handler.SslOptions.RemoteCertificateValidationCallback, "Remote certificate validation callback was not configured.");
 
         _ = await Assert.That(callback(this, null, null, SslPolicyErrors.None)).IsFalse();
+    }
+
+    private static async Task AssertClientContextAsync(SocketsHttpHandler handler, X509Certificate2 certificate)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            _ = await Assert.That(handler.SslOptions.ClientCertificateContext).IsNull();
+            return;
+        }
+
+        var context = await Assert.That(handler.SslOptions.ClientCertificateContext).IsNotNull();
+        _ = await Assert.That(context.TargetCertificate).IsEqualTo(certificate);
     }
 }

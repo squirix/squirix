@@ -31,6 +31,9 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
     /// <summary>Bounds the waits on the stub peer; disposal aborts the stalled connection at once.</summary>
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(30);
 
+    /// <summary>Bounds the wait for the call's own failure once the stub ended first; the call fails right after the connection closes.</summary>
+    private static readonly TimeSpan CallFailureGuard = TimeSpan.FromSeconds(5);
+
     /// <summary>
     /// Disposal returns only after the stalled handshake's connection is closed, and releases the pool's hold on the material only then, so the
     /// certificates are never freed under a handshake that still reads them.
@@ -58,10 +61,10 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
             InterNodeMtlsEnabled = true,
             MtlsOptions = new MtlsOptions { InternalListenPort = port },
         };
-        var pool = new ServerClientPool([peer], args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
+        await using var pool = new ServerClientPool([peer], args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
         var gateway = new ReplicaRpcGateway(pool);
         var call = gateway.AppendEntriesAsync(PeerNodeId, new ReplicaRpcHeader(LocalNodeId, ReadOnlyMemory<byte>.Empty, 1, 1, LocalNodeId, LocalNodeId), new FollowerBatch([], LocalNodeId, 1, 0, 0, 0), cancellationToken);
-        await clientHello.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
+        await AwaitClientHelloAsync(clientHello.Task, call, stub, cancellationToken);
 
         await pool.DisposeAsync();
 
@@ -72,6 +75,41 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
         await connectionClosed.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(call);
         await stub;
+    }
+
+    /// <summary>Waits for the ClientHello, failing with the real cause when the call or the stub ends first; the bound is only a hang guard.</summary>
+    /// <param name="clientHello">Completed once the first handshake bytes arrived at the stub, or faulted when the stub failed.</param>
+    /// <param name="call">The replication call under test.</param>
+    /// <param name="stub">The stub peer task.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="InvalidOperationException">The call or the stub ended before the ClientHello reached the stub.</exception>
+    private static async Task AwaitClientHelloAsync(Task clientHello, Task call, Task stub, CancellationToken cancellationToken)
+    {
+        var first = await Task.WhenAny(clientHello, call, stub).WaitAsync(Bound, TimeProvider.System, cancellationToken);
+        if (ReferenceEquals(first, clientHello) && clientHello.IsCompletedSuccessfully)
+            return;
+
+        var callEnded = ReferenceEquals(first, call);
+        var cause = first.Exception?.GetBaseException();
+        var callText = string.Empty;
+        if (!callEnded)
+        {
+            try
+            {
+                _ = await Task.WhenAny(call).WaitAsync(CallFailureGuard, TimeProvider.System, cancellationToken);
+            }
+            catch (TimeoutException)
+            {
+                // The call is still running; there is no failure to report yet.
+            }
+
+            callText = $" | Call: {call.Exception?.GetBaseException().ToString() ?? "still running or completed without an error"}";
+        }
+
+        throw new InvalidOperationException(
+            $"The {(callEnded ? "call" : "stub peer")} ended before the ClientHello reached the stub: {cause?.ToString() ?? "completed without an error"}{callText}",
+            cause);
     }
 
     /// <summary>Releases the loader's hold the way the DI container does on host shutdown.</summary>
@@ -91,28 +129,38 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
     /// <exception cref="InvalidOperationException">The listener bound no TCP port, or the client closed the connection before sending anything.</exception>
     private static async Task RunStubPeerAsync(TaskCompletionSource<int> listening, TaskCompletionSource clientHello, TaskCompletionSource connectionClosed, CancellationToken cancellationToken)
     {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        _ = listening.TrySetResult(listener.LocalEndpoint is IPEndPoint endpoint ? endpoint.Port : throw new InvalidOperationException("The stub peer did not bind a TCP port."));
-
-        using var client = await listener.AcceptSocketAsync(cancellationToken);
-        var buffer = new byte[1024];
-        var read = await client.ReceiveAsync(buffer, SocketFlags.None, cancellationToken);
-        if (read == 0)
-            throw new InvalidOperationException("The client closed the connection before sending a ClientHello.");
-
-        _ = clientHello.TrySetResult();
         try
         {
-            do
-                read = await client.ReceiveAsync(buffer, SocketFlags.None, cancellationToken);
-            while (read > 0);
-        }
-        catch (SocketException)
-        {
-            // A reset is as good as an orderly close: the client is gone either way.
-        }
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            _ = listening.TrySetResult(listener.LocalEndpoint is IPEndPoint endpoint ? endpoint.Port : throw new InvalidOperationException("The stub peer did not bind a TCP port."));
 
-        _ = connectionClosed.TrySetResult();
+            using var client = await listener.AcceptSocketAsync(cancellationToken);
+            var buffer = new byte[1024];
+            var read = await client.ReceiveAsync(buffer, SocketFlags.None, cancellationToken);
+            if (read == 0)
+                throw new InvalidOperationException("The client closed the connection before sending a ClientHello.");
+
+            _ = clientHello.TrySetResult();
+            try
+            {
+                do
+                    read = await client.ReceiveAsync(buffer, SocketFlags.None, cancellationToken);
+                while (read > 0);
+            }
+            catch (SocketException)
+            {
+                // A reset is as good as an orderly close: the client is gone either way.
+            }
+
+            _ = connectionClosed.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            _ = listening.TrySetException(exception);
+            _ = clientHello.TrySetException(exception);
+            _ = connectionClosed.TrySetException(exception);
+            throw;
+        }
     }
 }
