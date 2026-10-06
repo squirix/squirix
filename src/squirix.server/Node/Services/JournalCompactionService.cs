@@ -233,10 +233,9 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
                 await Task.Delay(backoff, _timeProvider, cancellationToken).ConfigureAwait(false);
             }
         }
-        catch (OperationCanceledException ex)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Background compaction loop exits when the host token is Canceled; not an error for this service.
-            ServerLog.CompactionLoopCanceled(_log, ex);
+            ServerLog.CompactionLoopStopped(_log);
         }
         finally
         {

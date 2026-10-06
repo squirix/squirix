@@ -55,9 +55,9 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         {
             await RunSnapshotLoopAsync(stoppingToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            ServerLog.SnapshotTriggerCanceled(_log);
+            // Host shutdown; the finally block reports the stop.
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or UnauthorizedAccessException)
         {

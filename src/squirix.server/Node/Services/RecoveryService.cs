@@ -83,10 +83,10 @@ internal sealed class RecoveryService<T> : IHostedService
             // ApplicationStopping is signaled before hosted-service StopAsync, which cancels replay.
             await _replayTask.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException ex)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Host shutdown cancelled in-flight replay or the stop token expired.
-            ServerLog.RecoveryReplayInterrupted(_log, ex);
+            // Replay handles its own shutdown cancellation, so only the stop budget can end this wait early.
+            ServerLog.RecoveryReplayStopTimedOut(_log);
         }
     }
 
@@ -256,10 +256,9 @@ internal sealed class RecoveryService<T> : IHostedService
         {
             await ReplayAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Host shutdown path.
-            ServerLog.RecoveryReplayInterrupted(_log, ex);
+            ServerLog.RecoveryReplayInterrupted(_log);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException)
         {

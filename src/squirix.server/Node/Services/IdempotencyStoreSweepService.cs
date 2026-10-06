@@ -36,10 +36,9 @@ internal sealed class IdempotencyStoreSweepService : BackgroundService
             while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
                 _store.SweepExpired();
         }
-        catch (OperationCanceledException ex)
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            // Expected on host stop/dispose; do not fault BackgroundService (StopHost).
-            ServerLog.IdempotencySweepCanceled(_log, ex);
+            ServerLog.IdempotencySweepStopped(_log);
         }
     }
 }
