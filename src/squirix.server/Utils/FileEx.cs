@@ -79,16 +79,17 @@ internal static class FileEx
     /// When <see langword="true" />, metadata differences between source and destination are ignored during
     /// <see cref="File.Replace(string, string, string?, bool)" />.
     /// </param>
-    /// <returns>Always <see langword="true" /> when publication succeeds; failures throw.</returns>
+    /// <returns>The attempts made and, when a sharing failure was observed, the holders of <paramref name="finalPath" />; failures throw.</returns>
     /// <remarks>
     /// On Windows, a destination that is transiently held open (for example by an on-close scanner or a lingering handle)
     /// makes the replace fail with an <see cref="IOException" /> whose HResult is <c language="csharp">0x80070020</c> (sharing violation),
     /// <c language="csharp">0x80070497</c> (unable to remove the replaced file), or <c language="csharp">0x80070498</c> (unable to move the replacement file).
     /// Only these failures are retried, up to <see cref="PublishAttempts" /> attempts spaced by <see cref="PublishRetryDelay" />;
-    /// the exception of the last attempt propagates unchanged. Every other failure surfaces on the first attempt.
+    /// the last attempt's failure propagates as an <see cref="IOException" /> with the same HResult whose message names the holders of the destination.
+    /// Every other failure surfaces on the first attempt.
     /// The temp file is never deleted by this method, so the caller keeps ownership of it on failure.
     /// </remarks>
-    internal static bool PublishFile(
+    internal static PublishResult PublishFile(
         string tempPath,
         string finalPath,
         TimeProvider timeProvider,
@@ -100,6 +101,7 @@ internal static class FileEx
         var validatedBackup = backupPath == null ? null : FilePathValidator.ResolveValidatedFilePath(backupPath);
 
         var attempt = 1;
+        string? holders = null;
         while (true)
         {
             try
@@ -111,8 +113,13 @@ internal static class FileEx
 
                 break;
             }
-            catch (IOException ex) when (attempt < PublishAttempts && IsTransientWindowsSharingFailure(ex))
+            catch (IOException ex) when (IsTransientWindowsSharingFailure(ex))
             {
+                // The holder is most likely still present at the first failure and may be gone once the retries are exhausted.
+                holders ??= FileHolderDiagnostics.DescribeHolders(validatedFinal);
+                if (attempt >= PublishAttempts)
+                    throw BuildExhaustedException(ex, validatedFinal, FileHolderDiagnostics.DescribeHolders(validatedFinal) ?? holders);
+
                 attempt++;
                 WaitBeforeRetry(timeProvider, PublishRetryDelay);
             }
@@ -120,7 +127,7 @@ internal static class FileEx
 
         // Temp, final, and backup always share a directory; flushing the destination's parent directory is enough to make the rename's directory entry durable.
         FlushDirectoryEntry(validatedFinal);
-        return true;
+        return new PublishResult(attempt, holders);
     }
 
     /// <summary>Attempts to delete a file at the given <paramref name="path" />.</summary>
@@ -168,6 +175,9 @@ internal static class FileEx
             _ => 0,
         };
     }
+
+    private static IOException BuildExhaustedException(IOException last, string finalPath, string? holders) =>
+        new($"{last.Message} Holders of '{finalPath}': {holders ?? "unknown"}.", last) { HResult = last.HResult };
 
     private static bool IsTransientWindowsSharingFailure(IOException exception)
     {

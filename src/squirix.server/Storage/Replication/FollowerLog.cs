@@ -119,6 +119,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <inheritdoc />
     IFollowerLogFaultHooks IFollowerLogDurability.Faults => _faults;
 
+    /// <inheritdoc />
+    ILogger IFollowerLogDurability.Log => _log;
+
     public string GroupId { get; }
 
     /// <inheritdoc />
@@ -1009,7 +1012,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             List<FollowerLogEntry> tail,
             CancellationToken cancellationToken)
         {
-            var work = new ReplaceDurableWork(owner.Acks, owner.Durability, journal.Paths.LogTempPath, journal.Paths.LogPath, tail, owner.Faults);
+            var work = new ReplaceDurableWork(owner.Acks, owner.Durability, journal.Paths.LogTempPath, journal.Paths.LogPath, tail, owner.Faults, owner.Log);
             cancellationToken.ThrowIfCancellationRequested();
             Task durable;
             try
@@ -1213,6 +1216,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             private readonly GroupLogDurability _durability;
             private readonly IFollowerLogFaultHooks _faults;
             private readonly string _finalPath;
+            private readonly ILogger _log;
             private readonly List<FollowerLogEntry> _tail;
             private readonly string _tempPath;
             private byte[]? _headerBuffer;
@@ -1223,9 +1227,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 string tempPath,
                 string finalPath,
                 List<FollowerLogEntry> tail,
-                IFollowerLogFaultHooks faults)
+                IFollowerLogFaultHooks faults,
+                ILogger log)
                 : base(acks)
             {
+                _log = log;
                 _durability = durability;
                 _tempPath = tempPath;
                 _finalPath = finalPath;
@@ -1267,8 +1273,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                     var (offsets, length) = WriteTail(_headerBuffer, headerLength, total, options);
                     Offsets.AddRange(offsets);
                     Length = length;
-                    _durability.Replace(_tempPath, _finalPath, length);
+                    var result = _durability.Replace(_tempPath, _finalPath, length);
                     published = true;
+                    if (result.Attempts > 1)
+                        ServerLog.DurablePublishRetried(_log, _finalPath, result.Attempts, result.Holders ?? "unknown");
                 }
                 finally
                 {

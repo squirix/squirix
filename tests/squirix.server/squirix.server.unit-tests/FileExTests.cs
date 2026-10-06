@@ -41,7 +41,10 @@ public sealed class FileExTests : ServerUnitTestBase
         var finalPath = Path.Join(dir, "final.bin");
         await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(7, 8, 9), cancellationToken);
 
-        _ = await Assert.That(FileEx.PublishFile(tempPath, finalPath, TimeProvider.System)).IsTrue();
+        var result = FileEx.PublishFile(tempPath, finalPath, TimeProvider.System);
+
+        _ = await Assert.That(result.Attempts).IsEqualTo(1);
+        _ = await Assert.That(result.Holders).IsNull();
         _ = await Assert.That(File.Exists(tempPath)).IsFalse();
         _ = await Assert.That(File.Exists(finalPath)).IsTrue();
         var finalBytes = await File.ReadAllBytesAsync(finalPath, cancellationToken);
@@ -60,7 +63,9 @@ public sealed class FileExTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(finalPath, ReadOnlyMemory<byte>.Of(10, 20), cancellationToken);
         await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(30, 40), cancellationToken);
 
-        _ = await Assert.That(FileEx.PublishFile(tempPath, finalPath, TimeProvider.System, backupPath)).IsTrue();
+        var result = FileEx.PublishFile(tempPath, finalPath, TimeProvider.System, backupPath);
+
+        _ = await Assert.That(result.Attempts).IsEqualTo(1);
 
         _ = await Assert.That(File.Exists(tempPath)).IsFalse();
         _ = await Assert.That(File.Exists(finalPath)).IsTrue();
@@ -98,7 +103,10 @@ public sealed class FileExTests : ServerUnitTestBase
             holder.Dispose();
             clock.Advance(FileEx.PublishRetryDelay);
 
-            _ = await Assert.That(await publish).IsTrue();
+            var result = await publish;
+
+            _ = await Assert.That(result.Attempts).IsEqualTo(2);
+            _ = await Assert.That(result.Holders).Contains($"pid {Environment.ProcessId}");
         }
         finally
         {
@@ -138,6 +146,7 @@ public sealed class FileExTests : ServerUnitTestBase
         var exception = await NodeAsyncAssert.ThrowsAsync<IOException>(publish);
 
         _ = await Assert.That(exception.HResult is -2147024864 or -2147023721 or -2147023720).IsTrue();
+        _ = await Assert.That(exception.Message).Contains($"pid {Environment.ProcessId}");
         _ = await Assert.That(clock.TimerCreated.CurrentCount).IsEqualTo(0);
         _ = await Assert.That(File.Exists(tempPath)).IsTrue();
         var finalBytes = await File.ReadAllBytesAsync(finalPath, cancellationToken);
@@ -160,7 +169,9 @@ public sealed class FileExTests : ServerUnitTestBase
         using var holder = File.OpenHandle(finalPath, FileMode.Open, FileAccess.Read, FileShare.Read);
         var clock = new DueTimerClock(FileEx.PublishRetryDelay);
 
-        _ = await Assert.That(FileEx.PublishFile(tempPath, finalPath, clock)).IsTrue();
+        var result = FileEx.PublishFile(tempPath, finalPath, clock);
+
+        _ = await Assert.That(result.Attempts).IsEqualTo(1);
 
         _ = await Assert.That(clock.TimerCreated.CurrentCount).IsEqualTo(0);
         var finalBytes = await File.ReadAllBytesAsync(finalPath, cancellationToken);
@@ -213,7 +224,7 @@ public sealed class FileExTests : ServerUnitTestBase
         }
     }
 
-    private static Task<bool> StartPublishAsync(string tempPath, string finalPath, TimeProvider clock, CancellationToken cancellationToken)
+    private static Task<PublishResult> StartPublishAsync(string tempPath, string finalPath, TimeProvider clock, CancellationToken cancellationToken)
     {
         return Task.Factory.StartNew(
             static state => state is PublishRequest request

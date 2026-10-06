@@ -47,6 +47,7 @@ internal sealed class GroupLogDurability : IDisposable
     /// <param name="tempPath">The fully written temporary log path.</param>
     /// <param name="finalPath">The live log path.</param>
     /// <param name="length">The exact length of the replacement log.</param>
+    /// <returns>The publication outcome, including the attempts made and the holders observed during a sharing failure.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the replacement path has no containing directory.</exception>
     /// <exception cref="AggregateException">Thrown when reopening the published log fails during recovery.</exception>
     /// <remarks>
@@ -57,7 +58,7 @@ internal sealed class GroupLogDurability : IDisposable
     /// failure reopens the newly published one; either way the caller must still fail readiness, because the
     /// compaction result was not confirmed durable.
     /// </remarks>
-    internal void Replace(string tempPath, string finalPath, long length)
+    internal PublishResult Replace(string tempPath, string finalPath, long length)
     {
         // A pure argument error must leave the live handle attached: validating after Dispose would strand the
         // instance without a handle even though no file operation was attempted. The temp file is removed here, so
@@ -75,8 +76,10 @@ internal sealed class GroupLogDurability : IDisposable
         var published = false;
         try
         {
-            published = FileEx.PublishFile(validatedTemp, validatedFinal, TimeProvider.System);
+            var result = FileEx.PublishFile(validatedTemp, validatedFinal, TimeProvider.System);
+            published = true;
             Open(validatedFinal, length);
+            return result;
         }
         catch (Exception failure) when (File.Exists(validatedFinal))
         {
