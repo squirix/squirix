@@ -449,6 +449,9 @@ internal sealed class ServerClientPool : IServerClientPool
             ArgumentNullException.ThrowIfNull(trustAnchor);
             ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
 
+            // Unix builds the client chain on the first handshake and may fetch intermediates over the network; an offline context built once avoids that.
+            // Schannel resolves the chain locally and rejects the context of a non-persisted key, so Windows keeps the plain certificate.
+            var clientCertificateContext = OperatingSystem.IsWindows() ? null : SslStreamCertificateContext.Create(clientCertificate, [trustAnchor], true);
             return new SocketsHttpHandler
             {
                 UseProxy = false,
@@ -458,6 +461,8 @@ internal sealed class ServerClientPool : IServerClientPool
                 SslOptions = new SslClientAuthenticationOptions
                 {
                     ClientCertificates = [clientCertificate],
+                    ClientCertificateContext = clientCertificateContext,
+                    CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
                     ApplicationProtocols = Http2PreferredProtocols,
                     RemoteCertificateValidationCallback = (_, certificate, _, _) => ValidatePeerServerCertificate(certificate, trustAnchor, expectedPeerNodeId),
                 },

@@ -1,6 +1,7 @@
 using System;
 using System.Net.Http;
 using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -51,6 +52,34 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
         _ = await Assert.That(certificates.Count).IsEqualTo(1);
         var clientCertificate = await Assert.That(certificates[0]).IsNotNull();
         _ = await Assert.That(clientCertificate).IsEqualTo(material.NodeCertificate);
+    }
+
+    /// <summary>Ensures the outbound handler carries a prebuilt offline client certificate context and never checks revocation online.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MtlsHandlerUsesOfflineCertContext(CancellationToken cancellationToken)
+    {
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var material = MtlsCertificate.Load(
+            new MtlsOptions
+            {
+                CaPath = bundle.CaPath,
+                CertPfxPath = bundle.PfxPath,
+                InternalListenPort = 6103,
+            },
+            6001,
+            true,
+            "node-a");
+
+        using var handler = TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
+
+        if (!OperatingSystem.IsWindows())
+        {
+            var context = await Assert.That(handler.SslOptions.ClientCertificateContext).IsNotNull();
+            _ = await Assert.That(context.TargetCertificate).IsEqualTo(material.NodeCertificate);
+        }
+
+        _ = await Assert.That(handler.SslOptions.CertificateRevocationCheckMode).IsEqualTo(X509RevocationMode.NoCheck);
     }
 
     /// <summary>Ensures the outbound handler rejects missing peer server certificates.</summary>

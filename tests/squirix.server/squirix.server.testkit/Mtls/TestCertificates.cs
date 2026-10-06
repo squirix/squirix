@@ -52,6 +52,7 @@ public static class TestCertificates
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
 
         var validator = new PeerCertificateValidator(trustAnchor, expectedPeerNodeId);
+        var clientCertificateContext = !OperatingSystem.IsWindows() && clientCertificates is [X509Certificate2 first, ..] ? SslStreamCertificateContext.Create(first, [trustAnchor], true) : null;
         return new SocketsHttpHandler
         {
             UseProxy = false,
@@ -59,6 +60,8 @@ public static class TestCertificates
             SslOptions = new SslClientAuthenticationOptions
             {
                 ClientCertificates = clientCertificates,
+                ClientCertificateContext = clientCertificateContext,
+                CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
                 ApplicationProtocols = Http2PreferredProtocols,
                 RemoteCertificateValidationCallback = validator.Validate,
             },
