@@ -190,7 +190,7 @@ internal static class JournalCompactor
         var backupJournalPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.bak");
         var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.tmp");
         _ = FileEx.TryDeleteFile(backupJournalPath);
-        _ = FileEx.PublishFile(tmpPath, path, backupJournalPath);
+        _ = FileEx.PublishFile(tmpPath, path, TimeProvider.System, backupJournalPath);
 
         var newManifest = new State
         {

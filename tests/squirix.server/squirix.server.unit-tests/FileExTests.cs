@@ -41,7 +41,10 @@ public sealed class FileExTests : ServerUnitTestBase
         var finalPath = Path.Join(dir, "final.bin");
         await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(7, 8, 9), cancellationToken);
 
-        _ = await Assert.That(FileEx.PublishFile(tempPath, finalPath)).IsTrue();
+        var result = FileEx.PublishFile(tempPath, finalPath, TimeProvider.System);
+
+        _ = await Assert.That(result.Attempts).IsEqualTo(1);
+        _ = await Assert.That(result.Holders).IsNull();
         _ = await Assert.That(File.Exists(tempPath)).IsFalse();
         _ = await Assert.That(File.Exists(finalPath)).IsTrue();
         var finalBytes = await File.ReadAllBytesAsync(finalPath, cancellationToken);
@@ -60,7 +63,9 @@ public sealed class FileExTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(finalPath, ReadOnlyMemory<byte>.Of(10, 20), cancellationToken);
         await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(30, 40), cancellationToken);
 
-        _ = await Assert.That(FileEx.PublishFile(tempPath, finalPath, backupPath)).IsTrue();
+        var result = FileEx.PublishFile(tempPath, finalPath, TimeProvider.System, backupPath);
+
+        _ = await Assert.That(result.Attempts).IsEqualTo(1);
 
         _ = await Assert.That(File.Exists(tempPath)).IsFalse();
         _ = await Assert.That(File.Exists(finalPath)).IsTrue();
@@ -70,4 +75,168 @@ public sealed class FileExTests : ServerUnitTestBase
         var backupBytes = await File.ReadAllBytesAsync(backupPath, cancellationToken);
         await SequenceAssert.EqualAsync<byte>([10, 20], backupBytes);
     }
+
+    /// <summary>PublishFile waits out a transient Windows sharing violation and then publishes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PublishFileWaitsOutSharingViolation(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        using var dir = new TempDirectory("squirix-fileex-sharing");
+        var tempPath = Path.Join(dir, "temp.bin");
+        var finalPath = Path.Join(dir, "final.bin");
+        await File.WriteAllBytesAsync(finalPath, ReadOnlyMemory<byte>.Of(1, 2), cancellationToken);
+        await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(3, 4), cancellationToken);
+        var holder = File.OpenHandle(finalPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        try
+        {
+            var clock = new DueTimerClock(FileEx.PublishRetryDelay);
+            var publish = StartPublishAsync(tempPath, finalPath, clock, cancellationToken);
+            if (ReferenceEquals(await Task.WhenAny(publish, clock.TimerCreated.WaitAsync(cancellationToken)), publish))
+            {
+                _ = await publish;
+                Assert.Fail("Publish completed without waiting for a retry.");
+            }
+
+            holder.Dispose();
+            clock.Advance(FileEx.PublishRetryDelay);
+
+            var result = await publish;
+
+            _ = await Assert.That(result.Attempts).IsEqualTo(2);
+            _ = await Assert.That(result.Holders).Contains($"pid {Environment.ProcessId}");
+        }
+        finally
+        {
+            holder.Dispose();
+        }
+
+        _ = await Assert.That(File.Exists(tempPath)).IsFalse();
+        var finalBytes = await File.ReadAllBytesAsync(finalPath, cancellationToken);
+        await SequenceAssert.EqualAsync<byte>([3, 4], finalBytes);
+    }
+
+    /// <summary>PublishFile gives up after the bounded number of attempts and leaves temp and final untouched.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PublishFileFailsAfterBoundedRetries(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        using var dir = new TempDirectory("squirix-fileex-bounded");
+        var tempPath = Path.Join(dir, "temp.bin");
+        var finalPath = Path.Join(dir, "final.bin");
+        await File.WriteAllBytesAsync(finalPath, ReadOnlyMemory<byte>.Of(1, 2), cancellationToken);
+        await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(3, 4), cancellationToken);
+        using var holder = File.OpenHandle(finalPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var clock = new DueTimerClock(FileEx.PublishRetryDelay);
+        var publish = StartPublishAsync(tempPath, finalPath, clock, cancellationToken);
+
+        for (var i = 0; i < FileEx.PublishAttempts - 1 && !publish.IsCompleted; i++)
+        {
+            if (ReferenceEquals(await Task.WhenAny(publish, clock.TimerCreated.WaitAsync(cancellationToken)), publish))
+                break;
+
+            clock.Advance(FileEx.PublishRetryDelay);
+        }
+
+        var exception = await NodeAsyncAssert.ThrowsAsync<IOException>(publish);
+
+        _ = await Assert.That(exception.HResult is -2147024864 or -2147023721 or -2147023720).IsTrue();
+        _ = await Assert.That(exception.Message).Contains($"pid {Environment.ProcessId}");
+        var inner = await Assert.That(exception.InnerException).IsTypeOf<IOException>();
+        _ = await Assert.That(inner!.HResult).IsEqualTo(exception.HResult);
+        _ = await Assert.That(clock.TimerCreated.CurrentCount).IsEqualTo(0);
+        _ = await Assert.That(File.Exists(tempPath)).IsTrue();
+        var finalBytes = await File.ReadAllBytesAsync(finalPath, cancellationToken);
+        await SequenceAssert.EqualAsync<byte>([1, 2], finalBytes);
+    }
+
+    /// <summary>PublishFile over a destination held open by a reader needs no retry on Unix.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PublishFileOpenReaderNoRetryOnUnix(CancellationToken cancellationToken)
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var dir = new TempDirectory("squirix-fileex-unix-reader");
+        var tempPath = Path.Join(dir, "temp.bin");
+        var finalPath = Path.Join(dir, "final.bin");
+        await File.WriteAllBytesAsync(finalPath, ReadOnlyMemory<byte>.Of(1, 2), cancellationToken);
+        await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(3, 4), cancellationToken);
+        using var holder = File.OpenHandle(finalPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var clock = new DueTimerClock(FileEx.PublishRetryDelay);
+
+        var result = FileEx.PublishFile(tempPath, finalPath, clock);
+
+        _ = await Assert.That(result.Attempts).IsEqualTo(1);
+
+        _ = await Assert.That(clock.TimerCreated.CurrentCount).IsEqualTo(0);
+        var finalBytes = await File.ReadAllBytesAsync(finalPath, cancellationToken);
+        await SequenceAssert.EqualAsync<byte>([3, 4], finalBytes);
+    }
+
+    /// <summary>PublishFile surfaces a missing temp file immediately without waiting.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PublishFileDoesNotRetryMissingTemp(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-fileex-missing-temp");
+        var tempPath = Path.Join(dir, "temp.bin");
+        var finalPath = Path.Join(dir, "final.bin");
+        await File.WriteAllBytesAsync(finalPath, ReadOnlyMemory<byte>.Of(1, 2), cancellationToken);
+        var clock = new DueTimerClock(FileEx.PublishRetryDelay);
+        var publish = StartPublishAsync(tempPath, finalPath, clock, cancellationToken);
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(publish);
+
+        _ = await Assert.That(clock.TimerCreated.CurrentCount).IsEqualTo(0);
+    }
+
+    /// <summary>PublishFile surfaces an access denied failure immediately without waiting.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PublishFileDoesNotRetryAccessDenied(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        using var dir = new TempDirectory("squirix-fileex-access-denied");
+        var tempPath = Path.Join(dir, "temp.bin");
+        var finalPath = Path.Join(dir, "final.bin");
+        await File.WriteAllBytesAsync(finalPath, ReadOnlyMemory<byte>.Of(1, 2), cancellationToken);
+        await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(3, 4), cancellationToken);
+        File.SetAttributes(finalPath, FileAttributes.ReadOnly);
+        try
+        {
+            var clock = new DueTimerClock(FileEx.PublishRetryDelay);
+            var publish = StartPublishAsync(tempPath, finalPath, clock, cancellationToken);
+
+            _ = await NodeAsyncAssert.ThrowsAsync<UnauthorizedAccessException>(publish);
+
+            _ = await Assert.That(clock.TimerCreated.CurrentCount).IsEqualTo(0);
+        }
+        finally
+        {
+            File.SetAttributes(finalPath, FileAttributes.Normal);
+        }
+    }
+
+    private static Task<PublishResult> StartPublishAsync(string tempPath, string finalPath, TimeProvider clock, CancellationToken cancellationToken)
+    {
+        return Task.Factory.StartNew(
+            static state => state is PublishRequest request
+                ? FileEx.PublishFile(request.TempPath, request.FinalPath, request.Clock)
+                : throw new InvalidOperationException("Unexpected publish state."),
+            new PublishRequest(tempPath, finalPath, clock),
+            cancellationToken,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+    }
+
+    private sealed record PublishRequest(string TempPath, string FinalPath, TimeProvider Clock);
 }

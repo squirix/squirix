@@ -51,7 +51,7 @@ public sealed class GroupLogDurabilityTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(1, 2, 3), cancellationToken);
 
         using var durability = new GroupLogDurability();
-        durability.Replace(tempPath, finalPath, 3L);
+        _ = durability.Replace(tempPath, finalPath, 3L);
 
         // The durable handle must now point at the replacement, so a flush succeeds.
         durability.Flush();

@@ -140,7 +140,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
                     RandomAccess.FlushToDisk(handle);
             }
 
-            _ = FileEx.PublishFile(_snapshotTempPath, _snapshotPath);
+            _ = FileEx.PublishFile(_snapshotTempPath, _snapshotPath, TimeProvider.System);
             published = true;
         }
         finally

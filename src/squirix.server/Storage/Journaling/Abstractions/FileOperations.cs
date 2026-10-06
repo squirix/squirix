@@ -1,3 +1,4 @@
+using System;
 using Squirix.Server.Attributes;
 using Squirix.Server.Utils;
 
@@ -8,7 +9,7 @@ internal sealed class FileOperations : IStorageFileOperations
 {
     public bool PublishSnapshot(string tempPath, string finalPath)
     {
-        _ = FileEx.PublishFile(tempPath, finalPath, ignoreMetadataErrors: true);
+        _ = FileEx.PublishFile(tempPath, finalPath, TimeProvider.System, ignoreMetadataErrors: true);
         return true;
     }
 

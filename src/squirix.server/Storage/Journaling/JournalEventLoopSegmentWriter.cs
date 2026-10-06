@@ -538,7 +538,7 @@ internal sealed class JournalEventLoopSegmentWriter
             // manifest publication succeeds, so a failed roll leaves the writer, path, and offsets consistent.
             var tmpPath = JournalReadPath.BuildRollTempPath(_owner.Options.DataDir, targetSegmentIndex);
             WriteRollTargetHeaderFile(tmpPath);
-            _ = FileEx.PublishFile(tmpPath, targetPath);
+            _ = FileEx.PublishFile(tmpPath, targetPath, TimeProvider.System);
         }
     }
 

@@ -119,6 +119,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <inheritdoc />
     IFollowerLogFaultHooks IFollowerLogDurability.Faults => _faults;
 
+    /// <inheritdoc />
+    ILogger IFollowerLogDurability.Log => _log;
+
     public string GroupId { get; }
 
     /// <inheritdoc />
@@ -996,7 +999,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             var encodedLength = GroupLogCodec.ComputeMetaEncodedLength(in meta);
             var buffer = ArrayPool<byte>.Shared.Rent(encodedLength);
             GroupLogCodec.EncodeMeta(in meta, buffer.AsSpan(0, encodedLength));
-            var work = new MetaDurableWork(owner.Acks, journal.Paths.MetadataTempPath, journal.Paths.MetadataPath, buffer, encodedLength, owner.Faults);
+            var work = new MetaDurableWork(owner.Acks, journal.Paths.MetadataTempPath, journal.Paths.MetadataPath, buffer, encodedLength, owner.Faults, owner.Log);
 
             // The buffer is returned only inside MetaDurableWork.Execute; a non-cancelable scheduling token
             // after the explicit check guarantees the worker always runs and the buffer is always returned.
@@ -1009,7 +1012,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             List<FollowerLogEntry> tail,
             CancellationToken cancellationToken)
         {
-            var work = new ReplaceDurableWork(owner.Acks, owner.Durability, journal.Paths.LogTempPath, journal.Paths.LogPath, tail, owner.Faults);
+            var work = new ReplaceDurableWork(owner.Acks, owner.Durability, journal.Paths.LogTempPath, journal.Paths.LogPath, tail, owner.Faults, owner.Log);
             cancellationToken.ThrowIfCancellationRequested();
             Task durable;
             try
@@ -1168,10 +1171,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             private readonly byte[] _buffer;
             private readonly IFollowerLogFaultHooks _faults;
             private readonly int _length;
+            private readonly ILogger _log;
             private readonly string _metaPath;
             private readonly string _metaTempPath;
 
-            internal MetaDurableWork(FollowerLogAckRegistry acks, string metaTempPath, string metaPath, byte[] buffer, int length, IFollowerLogFaultHooks faults)
+            internal MetaDurableWork(FollowerLogAckRegistry acks, string metaTempPath, string metaPath, byte[] buffer, int length, IFollowerLogFaultHooks faults, ILogger log)
                 : base(acks)
             {
                 _metaTempPath = metaTempPath;
@@ -1179,6 +1183,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 _buffer = buffer;
                 _length = length;
                 _faults = faults;
+                _log = log;
             }
 
             protected override void Run()
@@ -1194,7 +1199,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                             RandomAccess.FlushToDisk(handle);
                     }
 
-                    _ = FileEx.PublishFile(_metaTempPath, _metaPath);
+                    var result = FileEx.PublishFile(_metaTempPath, _metaPath, TimeProvider.System);
+                    if (result.Attempts > 1)
+                        ServerLog.DurablePublishRetried(_log, _metaPath, result.Attempts, result.Holders ?? FileEx.UnknownHolders);
                 }
                 finally
                 {
@@ -1213,6 +1220,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             private readonly GroupLogDurability _durability;
             private readonly IFollowerLogFaultHooks _faults;
             private readonly string _finalPath;
+            private readonly ILogger _log;
             private readonly List<FollowerLogEntry> _tail;
             private readonly string _tempPath;
             private byte[]? _headerBuffer;
@@ -1223,9 +1231,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 string tempPath,
                 string finalPath,
                 List<FollowerLogEntry> tail,
-                IFollowerLogFaultHooks faults)
+                IFollowerLogFaultHooks faults,
+                ILogger log)
                 : base(acks)
             {
+                _log = log;
                 _durability = durability;
                 _tempPath = tempPath;
                 _finalPath = finalPath;
@@ -1267,8 +1277,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                     var (offsets, length) = WriteTail(_headerBuffer, headerLength, total, options);
                     Offsets.AddRange(offsets);
                     Length = length;
-                    _durability.Replace(_tempPath, _finalPath, length);
+                    var result = _durability.Replace(_tempPath, _finalPath, length);
                     published = true;
+                    if (result.Attempts > 1)
+                        ServerLog.DurablePublishRetried(_log, _finalPath, result.Attempts, result.Holders ?? FileEx.UnknownHolders);
                 }
                 finally
                 {
