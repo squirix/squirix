@@ -113,38 +113,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         try
         {
             for (var i = 0; i < _groupIds.Length; i++)
-            {
-                FollowerLog? log = null;
-                try
-                {
-                    log = new FollowerLog(_root, _groupIds[i], GroupComposition.Create(_groupIds[i]), _loggerFactory.CreateLogger<FollowerLog>(), _options);
-                    await log.OpenAsync(cancellationToken).ConfigureAwait(false);
-
-                    // Refused before the committer applies anything from the log.
-                    await log.AdoptTopologyAsync(_fingerprint, _generation, cancellationToken).ConfigureAwait(false);
-                    var eligibility = new ReplicaEligibility(_replicaCount);
-
-                    // A group with no durable progress starts with every member ready: there is nothing
-                    // to disagree about, and verified appends keep the quorum honest afterwards. Any
-                    // durable state means a restart, which stays recovering until a repair session
-                    // verifies it.
-                    var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-                    if (status is { LastLogIndex: 0, CommitIndex: 0 } && log.SnapshotPath == null)
-                    {
-                        var zero = new ReplicaProgress(1, 0, 0, 0, 0, _fingerprint, _generation, 0);
-                        for (var r = 0; r < eligibility.ReplicaCount; r++)
-                            _ = eligibility.TryMarkReady(r, in zero, in zero);
-                    }
-
-                    groups.Add(_groupIds[i], new GroupState(log, eligibility));
-                    log = null;
-                }
-                finally
-                {
-                    if (log != null)
-                        await log.DisposeAsync().ConfigureAwait(false);
-                }
-            }
+                groups.Add(_groupIds[i], await OpenGroupAsync(_groupIds[i], cancellationToken).ConfigureAwait(false));
         }
         catch
         {
@@ -191,6 +160,45 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
             ArgumentException.ThrowIfNullOrWhiteSpace(groupIds[i]);
             if (!seen.Add(groupIds[i]))
                 throw new ArgumentException("Replica group identifiers must be distinct.", nameof(groupIds));
+        }
+    }
+
+    /// <summary>Creates and opens the log of one group, adopts the configured topology, and builds its participation gate.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The opened group state; the log is disposed when opening fails.</returns>
+    private async Task<GroupState> OpenGroupAsync(string groupId, CancellationToken cancellationToken)
+    {
+        FollowerLog? log = null;
+        try
+        {
+            log = new FollowerLog(_root, groupId, GroupComposition.Create(groupId), _loggerFactory.CreateLogger<FollowerLog>(), _options);
+            await log.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+            // Refused before the committer applies anything from the log.
+            await log.AdoptTopologyAsync(_fingerprint, _generation, cancellationToken).ConfigureAwait(false);
+            var eligibility = new ReplicaEligibility(_replicaCount);
+
+            // A group with no durable progress starts with every member ready: there is nothing
+            // to disagree about, and verified appends keep the quorum honest afterwards. Any
+            // durable state means a restart, which stays recovering until a repair session
+            // verifies it.
+            var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+            if (status is { LastLogIndex: 0, CommitIndex: 0 } && log.SnapshotPath == null)
+            {
+                var zero = new ReplicaProgress(1, 0, 0, 0, 0, _fingerprint, _generation, 0);
+                for (var r = 0; r < eligibility.ReplicaCount; r++)
+                    _ = eligibility.TryMarkReady(r, in zero, in zero);
+            }
+
+            var state = new GroupState(log, eligibility);
+            log = null;
+            return state;
+        }
+        finally
+        {
+            if (log != null)
+                await log.DisposeAsync().ConfigureAwait(false);
         }
     }
 
