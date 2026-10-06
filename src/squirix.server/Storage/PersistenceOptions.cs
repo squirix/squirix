@@ -11,10 +11,10 @@ internal sealed record PersistenceOptions
     internal const int MaxGroupCommitBatch = 4096;
 
     /// <summary>Largest accepted group commit wait.</summary>
-    internal static readonly TimeSpan MaxGroupCommitWait = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan MaxGroupCommitWait = TimeSpan.FromMilliseconds(100);
 
     /// <summary>Smallest accepted positive group commit wait.</summary>
-    internal static readonly TimeSpan MinGroupCommitWait = TimeSpan.FromMilliseconds(1);
+    private static readonly TimeSpan MinGroupCommitWait = TimeSpan.FromMilliseconds(1);
 
     /// <summary>Gets the root directory for durable storage, journal, snapshot, and manifest files.</summary>
     [JsonPropertyName("dataDir")]
