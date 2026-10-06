@@ -75,28 +75,7 @@ internal sealed class ServerClientPool : IServerClientPool
         _shutdownBudget = args.ShutdownBudget ?? DefaultShutdownBudget;
         _timeProvider = args.TimeProvider ?? TimeProvider.System;
         _materialHold = args.Certificate is { Enabled: true } certificate ? certificate.Retain() : null;
-        var nodeIds = new string[peers.Count];
-        try
-        {
-            for (var i = 0; i < peers.Count; i++)
-            {
-                var peer = peers[i];
-                RegisterPeer(peer, args);
-                nodeIds[i] = peer.NodeId;
-            }
-        }
-        catch
-        {
-            foreach (var channel in _channels.Values)
-                _ = Isolated.Run(channel, static created => created.Dispose());
-
-            _materialHold?.Dispose();
-            _closing.Dispose();
-            throw;
-        }
-
-        Array.Sort(nodeIds, StringComparer.Ordinal);
-        _nodeIds = nodeIds;
+        _nodeIds = RegisterPeers(peers, args);
         NodeIds = _nodeIds;
     }
 
@@ -351,6 +330,40 @@ internal sealed class ServerClientPool : IServerClientPool
         _channels[peer.NodeId] = channel;
         _cacheClients[peer.NodeId] = new SquirixCacheService.SquirixCacheServiceClient(invoker);
         _policies[peer.NodeId] = args.PolicyFactory.Invoke(peer.NodeId);
+    }
+
+    /// <summary>Registers every peer; when one fails, the channels created so far, the material hold and the closing source are released before the failure propagates.</summary>
+    /// <param name="peers">The peers to register.</param>
+    /// <param name="args">The pool arguments.</param>
+    /// <returns>The node ids in ordinal order.</returns>
+    private string[] RegisterPeers(IReadOnlyList<ServerPeer> peers, ServerClientPoolArgs args)
+    {
+        var nodeIds = new string[peers.Count];
+        try
+        {
+            for (var i = 0; i < peers.Count; i++)
+            {
+                RegisterPeer(peers[i], args);
+                nodeIds[i] = peers[i].NodeId;
+            }
+        }
+        catch
+        {
+            ReleaseOnFailure();
+            throw;
+        }
+
+        Array.Sort(nodeIds, StringComparer.Ordinal);
+        return nodeIds;
+    }
+
+    private void ReleaseOnFailure()
+    {
+        foreach (var channel in _channels.Values)
+            _ = Isolated.Run(channel, static created => created.Dispose());
+
+        _materialHold?.Dispose();
+        _closing.Dispose();
     }
 
     /// <summary>The part of the shutdown budget left since <paramref name="started" />; never negative.</summary>

@@ -2,6 +2,7 @@ using System;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Transport;
 
@@ -12,31 +13,34 @@ namespace Squirix.Server.Cluster.Transport;
 /// certificates are freed once the last hold is released, so the loader cannot free them under an open outbound handshake. Kestrel takes no hold:
 /// the host stops Kestrel before DI disposes the material.
 /// </remarks>
-[Mutable]
+[Immutable]
 internal sealed class MtlsCertificate : IDisposable
 {
-    private volatile int _holds;
+    private readonly ReferenceCount _holds;
 
-    private int _loaderReleased;
+    /// <summary>The loader's own hold; <see langword="null" /> for disabled material.</summary>
+    private readonly Hold? _loader;
 
     private MtlsCertificate(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
     {
         Enabled = true;
         NodeCertificate = nodeCertificate;
         TrustAnchor = trustAnchor;
-        _holds = 1;
+        _holds = new ReferenceCount();
+        _loader = new Hold(this);
     }
 
     private MtlsCertificate()
     {
         Enabled = false;
+        _holds = new ReferenceCount(0);
     }
 
     /// <summary>Gets a value indicating whether cluster mTLS material was loaded.</summary>
     internal bool Enabled { get; }
 
     /// <summary>Gets a value indicating whether every hold was released and the certificates were freed; always <see langword="true" /> for disabled material.</summary>
-    internal bool IsReleased => _holds == 0;
+    internal bool IsReleased => _holds.IsReleased;
 
     /// <summary>Gets the local node certificate including its private key.</summary>
     internal X509Certificate2? NodeCertificate { get; }
@@ -48,13 +52,7 @@ internal sealed class MtlsCertificate : IDisposable
     private static MtlsCertificate Disabled { get; } = new();
 
     /// <summary>Releases the loader's hold; the certificates are freed once no other hold remains. Repeated calls do nothing.</summary>
-    void IDisposable.Dispose()
-    {
-        if (!Enabled || Interlocked.Exchange(ref _loaderReleased, 1) == 1)
-            return;
-
-        Release();
-    }
+    void IDisposable.Dispose() => _loader?.Dispose();
 
     /// <summary>Creates enabled certificate material from an already-loaded node certificate and trust anchor.</summary>
     /// <param name="nodeCertificate">The local node certificate including its private key.</param>
@@ -97,22 +95,14 @@ internal sealed class MtlsCertificate : IDisposable
         if (!Enabled)
             throw new InvalidOperationException("Disabled cluster mTLS material cannot be retained.");
 
-        var holds = _holds;
-        while (true)
-        {
-            ObjectDisposedException.ThrowIf(holds == 0, this);
-            var seen = Interlocked.CompareExchange(ref _holds, holds + 1, holds);
-            if (seen == holds)
-                return new Hold(this);
-
-            holds = seen;
-        }
+        ObjectDisposedException.ThrowIf(!_holds.TryRetain(), this);
+        return new Hold(this);
     }
 
     /// <summary>Drops one hold and frees the certificates when it was the last one.</summary>
     private void Release()
     {
-        if (Interlocked.Decrement(ref _holds) != 0)
+        if (!_holds.Release())
             return;
 
         NodeCertificate?.Dispose();
