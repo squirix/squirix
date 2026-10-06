@@ -119,6 +119,9 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
                 {
                     log = new FollowerLog(_root, _groupIds[i], GroupComposition.Create(_groupIds[i]), _loggerFactory.CreateLogger<FollowerLog>(), _options);
                     await log.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+                    // Refused before the committer applies anything from the log.
+                    await log.AdoptTopologyAsync(_fingerprint, _generation, cancellationToken).ConfigureAwait(false);
                     var eligibility = new ReplicaEligibility(_replicaCount);
 
                     // A group with no durable progress starts with every member ready: there is nothing

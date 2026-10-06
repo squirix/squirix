@@ -237,6 +237,11 @@ Startup errors:
   release. Start the node with the replica count the directory was activated with, or on an empty data directory.` An
   RF=1 start found a stamp, so the directory was activated as RF>1 and holds replica group logs. Restore the replica
   count the directory was activated with, or start the RF=1 node on an empty data directory.
+- `Replica group '{group}' log was written for a different topology (stored fingerprint {hex} generation {g},
+  configured fingerprint {hex} generation {g}); applying it could write keys this node no longer owns. Run
+  'squirix-server doctor' to inspect the data directory.` The stamp matched, but a group log records another topology,
+  for example a group directory copied from another node. Run `squirix-server doctor`, then start the node on an empty
+  data directory.
 
 `squirix-server doctor` reports the stamp next to the configured topology, a stamp under an RF=1 configuration, and
 RF=1 journal state under an RF>1 configuration, without starting the node; it exits with code 1 when it reports a mismatch. Without `--data-dir` or
