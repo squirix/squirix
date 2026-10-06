@@ -140,7 +140,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         }
         catch (Exception ex) when (ex is OperationCanceledException or IOException or UnauthorizedAccessException or InvalidOperationException or InvalidDataException)
         {
-            return RecordCompactionFailure();
+            return RecordCompactionFailure(ex);
         }
         finally
         {
@@ -161,11 +161,11 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             _ = wake.TrySetResult();
     }
 
-    private AttemptResult RecordCompactionFailure()
+    private AttemptResult RecordCompactionFailure(Exception exception)
     {
         _consecutiveFailures++;
         ChangeState(RunState.Failed);
-        ServerLog.CompactionFailed(_log);
+        ServerLog.CompactionFailed(_log, exception);
         return AttemptResult.Failed;
     }
 
