@@ -41,6 +41,7 @@ public static class TestCertificates
     public static SocketsHttpHandler CreateDefaultChannelHandler() => new();
 
     /// <summary>Creates an outbound cluster mTLS HTTP handler with explicit client certificate material.</summary>
+    /// <remarks>On Unix the first collection entry must carry a private key (context creation throws otherwise); other entries are ignored.</remarks>
     /// <param name="clientCertificates">Client certificates presented to the peer.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
@@ -52,7 +53,9 @@ public static class TestCertificates
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
 
         var validator = new PeerCertificateValidator(trustAnchor, expectedPeerNodeId);
-        var clientCertificateContext = !OperatingSystem.IsWindows() && clientCertificates is [X509Certificate2 first, ..] ? SslStreamCertificateContext.Create(first, [trustAnchor], true) : null;
+
+        // Mirrors the product handler: on Unix a prebuilt offline context removes the per-handshake chain build; Windows needs none and fails for ephemeral keys.
+        var clientCertificateContext = !OperatingSystem.IsWindows() && clientCertificates is [X509Certificate2 first, ..] ? SslStreamCertificateContext.Create(first, null, true) : null;
         return new SocketsHttpHandler
         {
             UseProxy = false,
@@ -61,7 +64,6 @@ public static class TestCertificates
             {
                 ClientCertificates = clientCertificates,
                 ClientCertificateContext = clientCertificateContext,
-                CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
                 ApplicationProtocols = Http2PreferredProtocols,
                 RemoteCertificateValidationCallback = validator.Validate,
             },

@@ -365,38 +365,8 @@ internal sealed class ServerClientPool : IServerClientPool
         return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
 
-    /// <summary>Resolves gRPC channel addresses for internode cluster transport.</summary>
-    private static class ClusterPeerChannelAddress
-    {
-        /// <summary>Resolves the gRPC endpoint used for internode cluster calls.</summary>
-        /// <param name="peer">Configured cluster peer.</param>
-        /// <param name="options">Cluster mTLS options for the local node.</param>
-        /// <param name="mtlsEnabled">Whether internode mTLS transport is active.</param>
-        /// <returns>The HTTPS gRPC address for pooled cluster clients.</returns>
-        /// <exception cref="ArgumentNullException">Thrown when <paramref name="peer" /> or <paramref name="options" /> is null.</exception>
-        /// <exception cref="InvalidOperationException">Thrown when internode mTLS is enabled but the internal listen port or peer URI is invalid.</exception>
-        internal static Uri Resolve(ServerPeer peer, MtlsOptions options, bool mtlsEnabled)
-        {
-            ArgumentNullException.ThrowIfNull(peer);
-            ArgumentNullException.ThrowIfNull(options);
-
-            if (!mtlsEnabled)
-                return peer.Uri;
-
-            if (peer.InterNodeUri is { } uri)
-                return uri;
-
-            if (options.InternalListenPort <= 0)
-                throw new InvalidOperationException("Cluster mTLS internal listen port must be configured for internode transport.");
-
-            const string message = "Cluster peer URI is invalid.";
-            var primaryUri = peer.Uri;
-            return peer.Uri.IsAbsoluteUri ? new UriBuilder(primaryUri.Scheme, primaryUri.Host, options.InternalListenPort).Uri : throw new InvalidOperationException(message);
-        }
-    }
-
     /// <summary>Validates and configures gRPC transport endpoints for server-to-server transport.</summary>
-    private static class ServerGrpcEndpoints
+    internal static class ServerGrpcEndpoints
     {
         /// <summary>Bounds a connect attempt, TLS handshake included, so a peer that accepts but never answers cannot hold a connection open past shutdown.</summary>
         private static readonly TimeSpan InterNodeConnectTimeout = TimeSpan.FromSeconds(5);
@@ -410,6 +380,38 @@ internal sealed class ServerClientPool : IServerClientPool
         /// <returns>A handler owned by the caller.</returns>
         internal static SocketsHttpHandler CreateOwnedHandler(MtlsCertificate? certificate, string expectedPeerNodeId, TrackedConnections connections) =>
             certificate == null ? CreateChannelHandler(connections) : CreateMtlsHandler(certificate, expectedPeerNodeId, connections);
+
+        /// <summary>Creates an outbound cluster mTLS HTTP handler with explicit client certificate material.</summary>
+        /// <param name="clientCertificate">Client certificate presented to the peer.</param>
+        /// <param name="trustAnchor">Configured cluster trust root.</param>
+        /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
+        /// <param name="connections">The pool's tracked connections of the handler.</param>
+        /// <returns>A handler configured for internode mutual TLS.</returns>
+        internal static SocketsHttpHandler CreateMtlsHandler(X509Certificate2 clientCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId, TrackedConnections connections)
+        {
+            ArgumentNullException.ThrowIfNull(clientCertificate);
+            ArgumentNullException.ThrowIfNull(trustAnchor);
+            ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
+
+            // On Unix, SslStream builds a client certificate chain on every handshake before the ClientHello, inside the connect timeout.
+            // A context prebuilt offline once per peer removes that work and never fetches anything.
+            // Windows starts mutual auth anonymously and needs no context; supplying one up front fails for ephemeral keys.
+            var clientCertificateContext = OperatingSystem.IsWindows() ? null : SslStreamCertificateContext.Create(clientCertificate, null, true);
+            return new SocketsHttpHandler
+            {
+                UseProxy = false,
+                EnableMultipleHttp2Connections = true,
+                ConnectTimeout = InterNodeConnectTimeout,
+                ConnectCallback = (context, cancellationToken) => TrackedConnectionStream.ConnectAsync(connections, context, cancellationToken),
+                SslOptions = new SslClientAuthenticationOptions
+                {
+                    ClientCertificates = [clientCertificate],
+                    ClientCertificateContext = clientCertificateContext,
+                    ApplicationProtocols = Http2PreferredProtocols,
+                    RemoteCertificateValidationCallback = (_, certificate, _, _) => ValidatePeerServerCertificate(certificate, trustAnchor, expectedPeerNodeId),
+                },
+            };
+        }
 
         /// <summary>Creates the default HTTP handler for HTTPS gRPC channels.</summary>
         /// <param name="connections">The pool's tracked connections.</param>
@@ -437,38 +439,6 @@ internal sealed class ServerClientPool : IServerClientPool
             return missingMaterial ? throw new InvalidOperationException(message) : CreateMtlsHandler(certificate.NodeCertificate!, certificate.TrustAnchor!, expectedPeerNodeId, connections);
         }
 
-        /// <summary>Creates an outbound cluster mTLS HTTP handler with explicit client certificate material.</summary>
-        /// <param name="clientCertificate">Client certificate presented to the peer.</param>
-        /// <param name="trustAnchor">Configured cluster trust root.</param>
-        /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-        /// <param name="connections">The pool's tracked connections of the handler.</param>
-        /// <returns>A handler configured for internode mutual TLS.</returns>
-        private static SocketsHttpHandler CreateMtlsHandler(X509Certificate2 clientCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId, TrackedConnections connections)
-        {
-            ArgumentNullException.ThrowIfNull(clientCertificate);
-            ArgumentNullException.ThrowIfNull(trustAnchor);
-            ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
-
-            // Unix builds the client chain on the first handshake and may fetch intermediates over the network; an offline context built once avoids that.
-            // Schannel resolves the chain locally and rejects the context of a non-persisted key, so Windows keeps the plain certificate.
-            var clientCertificateContext = OperatingSystem.IsWindows() ? null : SslStreamCertificateContext.Create(clientCertificate, [trustAnchor], true);
-            return new SocketsHttpHandler
-            {
-                UseProxy = false,
-                EnableMultipleHttp2Connections = true,
-                ConnectTimeout = InterNodeConnectTimeout,
-                ConnectCallback = (context, cancellationToken) => TrackedConnectionStream.ConnectAsync(connections, context, cancellationToken),
-                SslOptions = new SslClientAuthenticationOptions
-                {
-                    ClientCertificates = [clientCertificate],
-                    ClientCertificateContext = clientCertificateContext,
-                    CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
-                    ApplicationProtocols = Http2PreferredProtocols,
-                    RemoteCertificateValidationCallback = (_, certificate, _, _) => ValidatePeerServerCertificate(certificate, trustAnchor, expectedPeerNodeId),
-                },
-            };
-        }
-
         /// <summary>Validates a peer server certificate against the configured cluster trust root.</summary>
         /// <param name="serverCertificate">The presented peer server certificate.</param>
         /// <param name="trustAnchor">Configured cluster trust root.</param>
@@ -481,6 +451,36 @@ internal sealed class ServerClientPool : IServerClientPool
 
             using var certificate = new X509Certificate2(serverCertificate);
             return MtlsClientCertificateValidator.ValidateForExpectedNodeId(certificate, trustAnchor, expectedPeerNodeId);
+        }
+    }
+
+    /// <summary>Resolves gRPC channel addresses for internode cluster transport.</summary>
+    private static class ClusterPeerChannelAddress
+    {
+        /// <summary>Resolves the gRPC endpoint used for internode cluster calls.</summary>
+        /// <param name="peer">Configured cluster peer.</param>
+        /// <param name="options">Cluster mTLS options for the local node.</param>
+        /// <param name="mtlsEnabled">Whether internode mTLS transport is active.</param>
+        /// <returns>The HTTPS gRPC address for pooled cluster clients.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="peer" /> or <paramref name="options" /> is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when internode mTLS is enabled but the internal listen port or peer URI is invalid.</exception>
+        internal static Uri Resolve(ServerPeer peer, MtlsOptions options, bool mtlsEnabled)
+        {
+            ArgumentNullException.ThrowIfNull(peer);
+            ArgumentNullException.ThrowIfNull(options);
+
+            if (!mtlsEnabled)
+                return peer.Uri;
+
+            if (peer.InterNodeUri is { } uri)
+                return uri;
+
+            if (options.InternalListenPort <= 0)
+                throw new InvalidOperationException("Cluster mTLS internal listen port must be configured for internode transport.");
+
+            const string message = "Cluster peer URI is invalid.";
+            var primaryUri = peer.Uri;
+            return peer.Uri.IsAbsoluteUri ? new UriBuilder(primaryUri.Scheme, primaryUri.Host, options.InternalListenPort).Uri : throw new InvalidOperationException(message);
         }
     }
 

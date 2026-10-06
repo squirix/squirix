@@ -54,10 +54,10 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
         _ = await Assert.That(clientCertificate).IsEqualTo(material.NodeCertificate);
     }
 
-    /// <summary>Ensures the outbound handler carries a prebuilt offline client certificate context and never checks revocation online.</summary>
+    /// <summary>Ensures the outbound handlers prebuild the client certificate context on Unix and leave it unset on Windows.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task MtlsHandlerUsesOfflineCertContext(CancellationToken cancellationToken)
+    public async Task MtlsHandlerPrebuildsClientContext(CancellationToken cancellationToken)
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var material = MtlsCertificate.Load(
@@ -71,15 +71,11 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
             true,
             "node-a");
 
-        using var handler = TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
+        using var testKitHandler = TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
+        using var productHandler = ServerClientPool.ServerGrpcEndpoints.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b", new TrackedConnections());
 
-        if (!OperatingSystem.IsWindows())
-        {
-            var context = await Assert.That(handler.SslOptions.ClientCertificateContext).IsNotNull();
-            _ = await Assert.That(context.TargetCertificate).IsEqualTo(material.NodeCertificate);
-        }
-
-        _ = await Assert.That(handler.SslOptions.CertificateRevocationCheckMode).IsEqualTo(X509RevocationMode.NoCheck);
+        await AssertClientContextAsync(testKitHandler, material.NodeCertificate!);
+        await AssertClientContextAsync(productHandler, material.NodeCertificate!);
     }
 
     /// <summary>Ensures the outbound handler rejects missing peer server certificates.</summary>
@@ -103,5 +99,17 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
         var callback = ThrowHelper.Required(handler.SslOptions.RemoteCertificateValidationCallback, "Remote certificate validation callback was not configured.");
 
         _ = await Assert.That(callback(this, null, null, SslPolicyErrors.None)).IsFalse();
+    }
+
+    private static async Task AssertClientContextAsync(SocketsHttpHandler handler, X509Certificate2 certificate)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            _ = await Assert.That(handler.SslOptions.ClientCertificateContext).IsNull();
+            return;
+        }
+
+        var context = await Assert.That(handler.SslOptions.ClientCertificateContext).IsNotNull();
+        _ = await Assert.That(context.TargetCertificate).IsEqualTo(certificate);
     }
 }
