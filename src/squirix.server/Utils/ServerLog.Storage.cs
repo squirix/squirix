@@ -12,8 +12,8 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 1004, Level = LogLevel.Information, Message = "Compaction done at {Utc}")]
     internal static partial void CompactionDone(ILogger logger, DateTime utc);
 
-    [LoggerMessage(EventId = 1005, Level = LogLevel.Error, Message = "Compaction failed")]
-    internal static partial void CompactionFailed(ILogger logger);
+    [LoggerMessage(EventId = 1005, Level = LogLevel.Error, Message = "Journal compaction failed; it retries after a backoff")]
+    internal static partial void CompactionFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(EventId = 1003, Level = LogLevel.Information, Message = "Compaction start: snapshotIndex={Index}, tailSegments={Segments}, tailBytes={Bytes}")]
     internal static partial void CompactionStart(ILogger logger, int index, int segments, long bytes);

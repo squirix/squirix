@@ -134,13 +134,13 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             return segment <= 0 || !TailLargeEnough(segment, out var segments, out var bytes) ? AttemptResult.Skipped
                 : await RunCompactionAsync(snapshotIndex, segment, segments, bytes, cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             return AttemptResult.Skipped;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or InvalidDataException)
+        catch (Exception ex) when (ex is OperationCanceledException or IOException or UnauthorizedAccessException or InvalidOperationException or InvalidDataException)
         {
-            return RecordCompactionFailure();
+            return RecordCompactionFailure(ex);
         }
         finally
         {
@@ -161,11 +161,11 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             _ = wake.TrySetResult();
     }
 
-    private AttemptResult RecordCompactionFailure()
+    private AttemptResult RecordCompactionFailure(Exception exception)
     {
         _consecutiveFailures++;
         ChangeState(RunState.Failed);
-        ServerLog.CompactionFailed(_log);
+        ServerLog.CompactionFailed(_log, exception);
         return AttemptResult.Failed;
     }
 
@@ -233,10 +233,9 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
                 await Task.Delay(backoff, _timeProvider, cancellationToken).ConfigureAwait(false);
             }
         }
-        catch (OperationCanceledException ex)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Background compaction loop exits when the host token is Canceled; not an error for this service.
-            ServerLog.CompactionLoopCanceled(_log, ex);
+            ServerLog.CompactionLoopStopped(_log);
         }
         finally
         {

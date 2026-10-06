@@ -6,11 +6,14 @@ namespace Squirix.Server.Utils;
 /// <summary>Diagnostic logs for best-effort background, dispose, and metrics paths.</summary>
 internal static partial class ServerLog
 {
-    [LoggerMessage(EventId = 3025, Level = LogLevel.Debug, Message = "Journal recovery replay interrupted (host shutdown)")]
-    internal static partial void RecoveryReplayInterrupted(ILogger logger, Exception exception);
+    [LoggerMessage(EventId = 3025, Level = LogLevel.Debug, Message = "Journal recovery replay stopped before it finished because the host is shutting down; the next start replays the journal again")]
+    internal static partial void RecoveryReplayInterrupted(ILogger logger);
 
-    [LoggerMessage(EventId = 3026, Level = LogLevel.Debug, Message = "Idempotency store background sweep canceled")]
-    internal static partial void IdempotencySweepCanceled(ILogger logger, Exception exception);
+    [LoggerMessage(EventId = 3029, Level = LogLevel.Warning, Message = "Host stop budget expired while journal recovery replay was still running; shutdown continues without waiting for it")]
+    internal static partial void RecoveryReplayStopTimedOut(ILogger logger);
+
+    [LoggerMessage(EventId = 3026, Level = LogLevel.Debug, Message = "Idempotency store expiry sweep stopped because the host is shutting down")]
+    internal static partial void IdempotencySweepStopped(ILogger logger);
 
     [LoggerMessage(EventId = 3027, Level = LogLevel.Debug, Message = "Journal segment metric probe failed for {File}")]
     internal static partial void JournalMetricFileProbeFailed(ILogger logger, Exception exception, string file);
@@ -21,8 +24,8 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 3028, Level = LogLevel.Information, Message = "Journal group commit batch deadline uses the system clock tick: the high-resolution timer is unavailable on this Windows version, so a short MaxWait may be rounded up to about 15.6 ms")]
     internal static partial void JournalHighResolutionTimerUnavailable(ILogger logger);
 
-    [LoggerMessage(EventId = 3010, Level = LogLevel.Debug, Message = "Journal compaction background loop canceled")]
-    internal static partial void CompactionLoopCanceled(ILogger logger, Exception exception);
+    [LoggerMessage(EventId = 3010, Level = LogLevel.Debug, Message = "Journal compaction loop stopped because the host is shutting down")]
+    internal static partial void CompactionLoopStopped(ILogger logger);
 
     [LoggerMessage(EventId = 3011, Level = LogLevel.Debug, Message = "Journal producers did not quiesce within the shutdown budget")]
     internal static partial void JournalProducerQuiescenceTimedOut(ILogger logger);
