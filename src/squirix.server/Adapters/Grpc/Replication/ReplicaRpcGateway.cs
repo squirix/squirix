@@ -27,8 +27,9 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway
     public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
-        var client = new SquirixReplicationService.SquirixReplicationServiceClient(_pool.OpenChannel(nodeId));
-        var response = await client.AppendReplicaEntriesAsync(MapRequest(in header, in batch), cancellationToken: cancellationToken).ResponseAsync.ConfigureAwait(false);
+        using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
+        var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
+        var response = await client.AppendReplicaEntriesAsync(MapRequest(in header, in batch), cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
         return new FollowerLogAppendResult(response.Success, response.RefusalCode, response.Term, response.LastLogIndex);
     }
 

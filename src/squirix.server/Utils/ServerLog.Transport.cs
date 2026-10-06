@@ -15,8 +15,16 @@ internal static partial class ServerLog
     [LoggerMessage(
         EventId = 5003,
         Level = LogLevel.Warning,
-        Message = "Server client pool did not drain within the shutdown budget of {Budget}; peers still busy: {BusyPeers}. Their channels are disposed anyway")]
-    internal static partial void ClientPoolDrainTimedOut(ILogger logger, TimeSpan budget, string busyPeers);
+        Message = "Server client pool did not drain within the shutdown budget of {Budget}; replication calls still in flight: {ReplicationCalls}; " +
+                  "peers still busy: {BusyPeers}. Their channels are disposed anyway")]
+    internal static partial void ClientPoolDrainTimedOut(ILogger logger, TimeSpan budget, int replicationCalls, string busyPeers);
+
+    [LoggerMessage(
+        EventId = 5005,
+        Level = LogLevel.Error,
+        Message = "Server client pool transport material leaked: {Connections} connections were still open after the shutdown budget of {Budget}; " +
+                  "the node certificate stays loaded instead of being freed under an open handshake")]
+    internal static partial void ClientPoolMaterialLeaked(ILogger logger, int connections, TimeSpan budget);
 
     [LoggerMessage(
         EventId = 5004,

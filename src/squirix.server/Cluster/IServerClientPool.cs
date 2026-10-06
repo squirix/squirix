@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using Grpc.Net.Client;
+using System.Threading;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.Cluster;
@@ -12,9 +12,11 @@ internal interface IServerClientPool : IAsyncDisposable
 
     IServerCallPolicy PolicyFor(string nodeId);
 
-    /// <summary>Gets the pooled gRPC channel for one peer, shared by cache and replication clients.</summary>
+    /// <summary>Leases the pooled gRPC channel of one peer for a single call that bypasses the peer's call policy.</summary>
     /// <param name="nodeId">Target peer node identifier.</param>
-    /// <returns>The pooled channel.</returns>
+    /// <param name="cancellationToken">The caller's token; the lease links it with the pool's disposal.</param>
+    /// <returns>The lease; dispose it once the call completed.</returns>
     /// <exception cref="KeyNotFoundException">Thrown when the peer is not pooled.</exception>
-    GrpcChannel OpenChannel(string nodeId);
+    /// <exception cref="ObjectDisposedException">Thrown when the pool started to dispose.</exception>
+    ServerChannelLease LeaseChannel(string nodeId, CancellationToken cancellationToken);
 }

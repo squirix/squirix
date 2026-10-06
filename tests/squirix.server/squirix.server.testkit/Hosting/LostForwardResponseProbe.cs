@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Grpc.Net.Client;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Utils;
@@ -143,7 +142,7 @@ internal sealed class LostForwardResponseProbe
 
         public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId) => new LossyClient(_inner.ForNode(nodeId), _probe);
 
-        public GrpcChannel OpenChannel(string nodeId) => _inner.OpenChannel(nodeId);
+        public ServerChannelLease LeaseChannel(string nodeId, CancellationToken cancellationToken) => _inner.LeaseChannel(nodeId, cancellationToken);
 
         public IServerCallPolicy PolicyFor(string nodeId) => _inner.PolicyFor(nodeId);
     }

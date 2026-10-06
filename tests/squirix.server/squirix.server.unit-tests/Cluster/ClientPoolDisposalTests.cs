@@ -12,6 +12,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -25,7 +26,81 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 {
     private const int DrainTimedOutEventId = 5003;
 
+    private const int MaterialLeakedEventId = 5005;
+
     private const string PoolDisposalsTotalInstrumentName = "squirix_peer_pool_disposals_total";
+
+    /// <summary>Disposal refuses new channel leases and cancels the leased calls, then waits for the leases to end before it disposes the channels.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeAwaitsLeasedCalls(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = LoadCertificate(bundle);
+        var created = new List<TrackingHandler>();
+        var pool = new ServerClientPool(BuildPeers(1), MtlsArgs(certificate, null, (_, _, _) => Track(created)), new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
+        var lease = pool.LeaseChannel("n0", cancellationToken);
+        Task disposing;
+        try
+        {
+            disposing = pool.DisposeAsync().AsTask();
+
+            _ = await Assert.That(disposing.IsCompleted).IsFalse();
+            await AwaitCancellationAsync(lease.Token, cancellationToken);
+            _ = await Assert.That(disposing.IsCompleted).IsFalse();
+            _ = await Assert.That(created[0].Disposed).IsFalse();
+            _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(pool, static p => _ = p.LeaseChannel("n0", CancellationToken.None));
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+
+        await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        await AssertAllDisposedAsync(created, 1);
+        _ = await Assert.That(certificate.IsReleased).IsFalse();
+        DisposeAsLoader(certificate);
+        _ = await Assert.That(certificate.IsReleased).IsTrue();
+    }
+
+    /// <summary>A connection that outlives the shutdown budget keeps the material loaded: disposal returns, logs the leak and never frees the certificates.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeKeepsMaterialPastBudget(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = LoadCertificate(bundle);
+        var log = new EventRecordingLogger();
+        var clock = new FakeTimeProvider();
+        var created = new List<TrackingHandler>();
+        var args = new ServerClientPoolArgs
+        {
+            PolicyFactory = static _ => new RecordingPolicy(null),
+            OwnedHandlerFactory = (_, _, connections) => OpenConnection(connections, created),
+            MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
+            Certificate = certificate,
+            InterNodeMtlsEnabled = true,
+            ShutdownBudget = TimeSpan.FromSeconds(10),
+            TimeProvider = clock,
+        };
+        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log);
+
+        var disposing = pool.DisposeAsync().AsTask();
+        _ = await Assert.That(disposing.IsCompleted).IsFalse();
+        await AssertAllDisposedAsync(created, 1);
+
+        clock.Advance(TimeSpan.FromSeconds(10));
+        await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(log.Find(MaterialLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(log.FindMessage(MaterialLeakedEventId)).Contains("1 connections were still open", StringComparison.Ordinal);
+        DisposeAsLoader(certificate);
+        _ = await Assert.That(certificate.IsReleased).IsFalse();
+        _ = await Assert.That(certificate.NodeCertificate!.Handle).IsNotEqualTo(nint.Zero);
+    }
 
     /// <summary>
     /// A peer whose drain never ends does not hold disposal past the shutdown budget: the timeout is logged and every channel is still
@@ -46,7 +121,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             var args = new ServerClientPoolArgs
             {
                 PolicyFactory = nodeId => string.Equals(nodeId, "n0", StringComparison.Ordinal) ? stuck : healthy,
-                OwnedHandlerFactory = (_, _) => Track(created),
+                OwnedHandlerFactory = (_, _, _) => Track(created),
                 ShutdownBudget = TimeSpan.FromSeconds(10),
                 TimeProvider = clock,
             };
@@ -127,7 +202,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         var args = new ServerClientPoolArgs
         {
             PolicyFactory = static _ => new RecordingPolicy(null),
-            OwnedHandlerFactory = (_, _) => Track(created),
+            OwnedHandlerFactory = (_, _, _) => Track(created),
         };
         var pool = new ServerClientPool(BuildPeers(3), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
         await pool.DisposeAsync();
@@ -144,7 +219,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var certificate = LoadCertificate(bundle);
         var created = new List<TrackingHandler>();
-        var args = MtlsArgs(certificate, null, (_, _) => Track(created));
+        var args = MtlsArgs(certificate, null, (_, _, _) => Track(created));
         var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
         await pool.DisposeAsync();
 
@@ -184,13 +259,38 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             _ = await Assert.That(created[i].Disposed).IsTrue();
     }
 
+    /// <summary>Waits until <paramref name="token" /> is cancelled; the pool cancels leased calls through callbacks that run off the disposing thread.</summary>
+    /// <param name="token">The lease token.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    private static async Task AwaitCancellationAsync(CancellationToken token, CancellationToken cancellationToken)
+    {
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using (token.UnsafeRegister(static state => Complete(state), cancelled))
+            await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+    }
+
+    private static void Complete(object? state)
+    {
+        if (state is TaskCompletionSource source)
+            _ = source.TrySetResult();
+    }
+
+    /// <summary>Releases the loader's hold the way the DI container does on host shutdown.</summary>
+    /// <param name="material">The material.</param>
+    private static void DisposeAsLoader(MtlsCertificate material)
+    {
+        IDisposable loader = material;
+        loader.Dispose();
+    }
+
     private static MtlsCertificate LoadCertificate(MtlsTestCertificateBundle bundle) =>
         MtlsCertificate.Load(new MtlsOptions { CaPath = bundle.CaPath, CertPfxPath = bundle.PfxPath, InternalListenPort = 6601 }, 6001, true, "node-a");
 
     private static ServerClientPoolArgs MtlsArgs(
         MtlsCertificate certificate,
         Func<string, HttpMessageHandler>? peerHandlerFactory,
-        Func<MtlsCertificate?, string, HttpMessageHandler>? ownedHandlerFactory) => new()
+        Func<MtlsCertificate?, string, QuiescenceGate, HttpMessageHandler>? ownedHandlerFactory) => new()
         {
             PolicyFactory = static _ => new RecordingPolicy(null),
             PeerHandlerFactory = peerHandlerFactory,
@@ -199,6 +299,16 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             Certificate = certificate,
             InterNodeMtlsEnabled = true,
         };
+
+    /// <summary>Creates a tracked handler with one connection that never closes, as a handshake stalled past the shutdown budget.</summary>
+    /// <param name="connections">The pool's connection gate.</param>
+    /// <param name="created">The handlers created so far.</param>
+    /// <returns>The handler.</returns>
+    private static TrackingHandler OpenConnection(QuiescenceGate connections, List<TrackingHandler> created)
+    {
+        connections.Enter();
+        return Track(created);
+    }
 
     private static TrackingHandler Track(List<TrackingHandler> created)
     {

@@ -19,6 +19,12 @@ using Squirix.Transport.Grpc.Cache;
 namespace Squirix.Server.Cluster.Transport;
 
 /// <summary>Holds gRPC clients per peer and an execution policy per peer.</summary>
+/// <remarks>
+/// Disposal runs in a fixed order under one shutdown budget: new leases are refused and in-flight calls cancelled and awaited, then the channels
+/// and their handlers are disposed, then every tracked connection (an open TLS handshake included) is awaited, and only then is the pool's hold on
+/// the mTLS material released. A connection that outlives the budget keeps the material loaded, which is logged, rather than freeing the node
+/// certificate under a handshake that still reads it.
+/// </remarks>
 [Mutable]
 internal sealed class ServerClientPool : IServerClientPool
 {
@@ -29,8 +35,22 @@ internal sealed class ServerClientPool : IServerClientPool
 
     private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new(StringComparer.Ordinal);
 
+    /// <summary>In-flight calls that lease a channel outside the peer policies; drained before the channels are disposed.</summary>
+    private readonly QuiescenceGate _calls = new();
+
     private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new(StringComparer.Ordinal);
+
+    /// <summary>Cancels every leased call once disposal starts.</summary>
+    private readonly CancellationTokenSource _closing = new();
+
+    /// <summary>Open connections of the owned handlers, each from its connect attempt until its stream is disposed; drained before the material is released.</summary>
+    private readonly QuiescenceGate _connections = new();
+
     private readonly ILogger<ServerClientPool> _logger;
+
+    /// <summary>The pool's hold on the mTLS material its owned handlers present; <see langword="null" /> without enabled material.</summary>
+    private readonly MtlsCertificateHold? _materialHold;
+
     private readonly ServerClientPoolMetrics _metrics;
     private readonly string[] _nodeIds;
     private readonly ConcurrentDictionary<string, IServerCallPolicy> _policies = new(StringComparer.Ordinal);
@@ -49,13 +69,25 @@ internal sealed class ServerClientPool : IServerClientPool
 
         _shutdownBudget = args.ShutdownBudget ?? DefaultShutdownBudget;
         _timeProvider = args.TimeProvider ?? TimeProvider.System;
+        _materialHold = args.Certificate is { Enabled: true } certificate ? certificate.Retain() : null;
         var nodeIds = new string[peers.Count];
-
-        for (var i = 0; i < peers.Count; i++)
+        try
         {
-            var peer = peers[i];
-            RegisterPeer(peer, args);
-            nodeIds[i] = peer.NodeId;
+            for (var i = 0; i < peers.Count; i++)
+            {
+                var peer = peers[i];
+                RegisterPeer(peer, args);
+                nodeIds[i] = peer.NodeId;
+            }
+        }
+        catch
+        {
+            foreach (var channel in _channels.Values)
+                _ = Isolated.Run(channel, static created => created.Dispose());
+
+            _materialHold?.Dispose();
+            _closing.Dispose();
+            throw;
         }
 
         Array.Sort(nodeIds, StringComparer.Ordinal);
@@ -70,27 +102,35 @@ internal sealed class ServerClientPool : IServerClientPool
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
-        // The peers drain in parallel under one budget, so a stuck peer cannot hold up host shutdown; channels are disposed either way.
-        BeginDrain();
-        var drains = new Task[_nodeIds.Length];
-        for (var i = 0; i < _nodeIds.Length; i++)
-            drains[i] = DisposePolicyAsync(_nodeIds[i]);
-
-        try
-        {
-            await Task.WhenAll(drains).WaitAsync(_shutdownBudget, _timeProvider).ConfigureAwait(false);
-        }
-        catch (TimeoutException)
-        {
-            ServerLog.ClientPoolDrainTimedOut(_logger, _shutdownBudget, BusyPeers(drains));
-        }
-
+        var started = _timeProvider.GetTimestamp();
+        var callsDrained = await DrainCallsAsync(started).ConfigureAwait(false);
         DisposeChannels();
+        var connectionsDrained = await DrainConnectionsAsync(started).ConfigureAwait(false);
+        ReleaseMaterial(connectionsDrained);
+
+        // A lease that outlived the budget still links its token to this source; it is left alone rather than disposed under the call.
+        if (callsDrained)
+            _closing.Dispose();
     }
 
     public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId) => _cacheClients[nodeId];
 
-    public GrpcChannel OpenChannel(string nodeId) => _channels[nodeId];
+    public ServerChannelLease LeaseChannel(string nodeId, CancellationToken cancellationToken)
+    {
+        var channel = _channels[nodeId];
+        if (!_calls.TryEnter())
+            throw new ObjectDisposedException(nameof(ServerClientPool), "The server client pool is disposing and leases no channel.");
+
+        try
+        {
+            return new ServerChannelLease(channel, CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _closing.Token), _calls);
+        }
+        catch
+        {
+            _calls.Exit();
+            throw;
+        }
+    }
 
     public IServerCallPolicy PolicyFor(string nodeId) => _policies[nodeId];
 
@@ -99,7 +139,8 @@ internal sealed class ServerClientPool : IServerClientPool
         bool interNodeMtlsEnabled,
         MtlsCertificate? certificate,
         Func<string, HttpMessageHandler>? peerHandlerFactory,
-        Func<MtlsCertificate?, string, HttpMessageHandler> ownedHandlerFactory)
+        Func<MtlsCertificate?, string, QuiescenceGate, HttpMessageHandler> ownedHandlerFactory,
+        QuiescenceGate connections)
     {
         HttpMessageHandler? ownedHandler = null;
         try
@@ -117,13 +158,13 @@ internal sealed class ServerClientPool : IServerClientPool
                 }
                 else
                 {
-                    ownedHandler = ownedHandlerFactory.Invoke(certificate, nodeId);
+                    ownedHandler = ownedHandlerFactory.Invoke(certificate, nodeId, connections);
                     peerHandler = ownedHandler;
                 }
             }
             else
             {
-                ownedHandler = ownedHandlerFactory.Invoke(null, nodeId);
+                ownedHandler = ownedHandlerFactory.Invoke(null, nodeId, connections);
                 peerHandler = ownedHandler;
             }
 
@@ -131,7 +172,8 @@ internal sealed class ServerClientPool : IServerClientPool
             {
                 HttpHandler = peerHandler,
 
-                // The channel disposes the handler the pool created; a peerHandlerFactory handler stays owned by the factory's caller.
+                // The channel disposes the handler the pool created; a peerHandlerFactory handler stays owned by the factory's caller. The
+                // certificates an owned handler presents stay loaded through the pool's material hold until its connections are gone.
                 DisposeHttpClient = ownedHandler != null,
                 MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
@@ -153,8 +195,8 @@ internal sealed class ServerClientPool : IServerClientPool
 
     private string BusyPeers(Task[] drains)
     {
-        var busy = new List<string>(drains.Length);
-        for (var i = 0; i < drains.Length; i++)
+        var busy = new List<string>(_nodeIds.Length);
+        for (var i = 0; i < _nodeIds.Length; i++)
         {
             if (!drains[i].IsCompleted)
                 busy.Add(_nodeIds[i]);
@@ -176,6 +218,49 @@ internal sealed class ServerClientPool : IServerClientPool
         }
     }
 
+    /// <summary>Refuses new leases, cancels the leased calls and waits for them and the peer policies to drain.</summary>
+    /// <param name="started">The timestamp disposal started at.</param>
+    /// <returns><see langword="true" /> when every call ended within the budget.</returns>
+    private async Task<bool> DrainCallsAsync(long started)
+    {
+        // The peers drain in parallel under one budget, so a stuck peer cannot hold up host shutdown; channels are disposed either way.
+        BeginDrain();
+        _calls.Close();
+        await _closing.CancelAsync().ConfigureAwait(false);
+        var drains = new Task[_nodeIds.Length + 1];
+        for (var i = 0; i < _nodeIds.Length; i++)
+            drains[i] = DisposePolicyAsync(_nodeIds[i]);
+
+        drains[_nodeIds.Length] = _calls.WaitAsync(CancellationToken.None).AsTask();
+        try
+        {
+            await Task.WhenAll(drains).WaitAsync(Remaining(started), _timeProvider, CancellationToken.None).ConfigureAwait(false);
+            return true;
+        }
+        catch (TimeoutException)
+        {
+            ServerLog.ClientPoolDrainTimedOut(_logger, _shutdownBudget, _calls.Pending, BusyPeers(drains));
+            return false;
+        }
+    }
+
+    /// <summary>Refuses new connections and waits for the open ones, handshakes included, to close.</summary>
+    /// <param name="started">The timestamp disposal started at.</param>
+    /// <returns><see langword="true" /> when every connection closed within the budget.</returns>
+    private async Task<bool> DrainConnectionsAsync(long started)
+    {
+        _connections.Close();
+        try
+        {
+            await _connections.WaitAsync(CancellationToken.None).AsTask().WaitAsync(Remaining(started), _timeProvider, CancellationToken.None).ConfigureAwait(false);
+            return true;
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
+    }
+
     private async Task DisposePolicyAsync(string nodeId)
     {
         var failure = await _policies[nodeId].CaptureFailureAsync().ConfigureAwait(false);
@@ -183,12 +268,25 @@ internal sealed class ServerClientPool : IServerClientPool
             ServerLog.ClientPoolPolicyDisposeFailed(_logger, failure, nodeId);
     }
 
+    /// <summary>Releases the pool's hold on the mTLS material, or keeps it when a connection may still read the certificates.</summary>
+    /// <param name="connectionsDrained">Whether every tracked connection closed.</param>
+    private void ReleaseMaterial(bool connectionsDrained)
+    {
+        if (_materialHold == null)
+            return;
+
+        if (connectionsDrained)
+            _materialHold.Dispose();
+        else
+            ServerLog.ClientPoolMaterialLeaked(_logger, _connections.Pending, _shutdownBudget);
+    }
+
     private void RegisterPeer(ServerPeer peer, ServerClientPoolArgs args)
     {
         var mtlsOptions = args.MtlsOptions ?? new MtlsOptions();
         var address = ClusterPeerChannelAddress.Resolve(peer, mtlsOptions, args.InterNodeMtlsEnabled);
         var ownedHandlerFactory = args.OwnedHandlerFactory ?? ServerGrpcEndpoints.CreateOwnedHandler;
-        var options = CreateChannelOptions(peer.NodeId, args.InterNodeMtlsEnabled, args.Certificate, args.PeerHandlerFactory, ownedHandlerFactory);
+        var options = CreateChannelOptions(peer.NodeId, args.InterNodeMtlsEnabled, args.Certificate, args.PeerHandlerFactory, ownedHandlerFactory, _connections);
         var channel = GrpcChannel.ForAddress(address, options);
         var invoker = channel.CreateCallInvoker();
         if (args.InternalOwnerInterceptor != null)
@@ -199,6 +297,18 @@ internal sealed class ServerClientPool : IServerClientPool
         _channels[peer.NodeId] = channel;
         _cacheClients[peer.NodeId] = new SquirixCacheService.SquirixCacheServiceClient(invoker);
         _policies[peer.NodeId] = args.PolicyFactory.Invoke(peer.NodeId);
+    }
+
+    /// <summary>The part of the shutdown budget left since <paramref name="started" />; never negative.</summary>
+    /// <param name="started">The timestamp disposal started at.</param>
+    /// <returns>The remaining budget.</returns>
+    private TimeSpan Remaining(long started)
+    {
+        if (_shutdownBudget == Timeout.InfiniteTimeSpan)
+            return _shutdownBudget;
+
+        var remaining = _shutdownBudget - _timeProvider.GetElapsedTime(started);
+        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
 
     /// <summary>Resolves gRPC channel addresses for internode cluster transport.</summary>
@@ -234,43 +344,52 @@ internal sealed class ServerClientPool : IServerClientPool
     /// <summary>Validates and configures gRPC transport endpoints for server-to-server transport.</summary>
     private static class ServerGrpcEndpoints
     {
+        /// <summary>Bounds a connect attempt, TLS handshake included, so a peer that accepts but never answers cannot hold a connection open past shutdown.</summary>
+        private static readonly TimeSpan InterNodeConnectTimeout = TimeSpan.FromSeconds(5);
+
         private static readonly List<SslApplicationProtocol> Http2PreferredProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11];
 
         /// <summary>Creates the handler a pool owns for one peer: mTLS when <paramref name="certificate" /> is supplied, plain HTTPS otherwise.</summary>
         /// <param name="certificate">Loaded cluster mTLS material, or <see langword="null" /> for plain HTTPS.</param>
         /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
+        /// <param name="connections">The pool's connection gate that tracks the handler's connections.</param>
         /// <returns>A handler owned by the caller.</returns>
-        internal static SocketsHttpHandler CreateOwnedHandler(MtlsCertificate? certificate, string expectedPeerNodeId) =>
-            certificate == null ? CreateChannelHandler() : CreateMtlsHandler(certificate, expectedPeerNodeId);
+        internal static SocketsHttpHandler CreateOwnedHandler(MtlsCertificate? certificate, string expectedPeerNodeId, QuiescenceGate connections) =>
+            certificate == null ? CreateChannelHandler(connections) : CreateMtlsHandler(certificate, expectedPeerNodeId, connections);
 
         /// <summary>Creates the default HTTP handler for HTTPS gRPC channels.</summary>
+        /// <param name="connections">The pool's connection gate that tracks the handler's connections.</param>
         /// <returns>A handler suitable for secure gRPC transport that opens more HTTP/2 connections once the stream limit is reached.</returns>
-        private static SocketsHttpHandler CreateChannelHandler() => new()
+        private static SocketsHttpHandler CreateChannelHandler(QuiescenceGate connections) => new()
         {
             EnableMultipleHttp2Connections = true,
+            ConnectTimeout = InterNodeConnectTimeout,
+            ConnectCallback = (context, cancellationToken) => TrackedConnectionStream.ConnectAsync(connections, context, cancellationToken),
         };
 
         /// <summary>Creates an outbound cluster mTLS HTTP handler that presents the local node certificate.</summary>
         /// <param name="certificate">Loaded cluster mTLS certificate.</param>
         /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
+        /// <param name="connections">The pool's connection gate that tracks the handler's connections.</param>
         /// <returns>A handler configured for internode mutual TLS.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="certificate" /> is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown when cluster mTLS certificate is not loaded.</exception>
-        private static SocketsHttpHandler CreateMtlsHandler(MtlsCertificate certificate, string expectedPeerNodeId)
+        private static SocketsHttpHandler CreateMtlsHandler(MtlsCertificate certificate, string expectedPeerNodeId, QuiescenceGate connections)
         {
             ArgumentNullException.ThrowIfNull(certificate);
             ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
             var missingMaterial = !certificate.Enabled || certificate.NodeCertificate == null || certificate.TrustAnchor == null;
             const string message = "Cluster mTLS certificate must be loaded before creating the outbound handler.";
-            return missingMaterial ? throw new InvalidOperationException(message) : CreateMtlsHandler(certificate.NodeCertificate!, certificate.TrustAnchor!, expectedPeerNodeId);
+            return missingMaterial ? throw new InvalidOperationException(message) : CreateMtlsHandler(certificate.NodeCertificate!, certificate.TrustAnchor!, expectedPeerNodeId, connections);
         }
 
         /// <summary>Creates an outbound cluster mTLS HTTP handler with explicit client certificate material.</summary>
         /// <param name="clientCertificate">Client certificate presented to the peer.</param>
         /// <param name="trustAnchor">Configured cluster trust root.</param>
         /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
+        /// <param name="connections">The pool's connection gate that tracks the handler's connections.</param>
         /// <returns>A handler configured for internode mutual TLS.</returns>
-        private static SocketsHttpHandler CreateMtlsHandler(X509Certificate2 clientCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
+        private static SocketsHttpHandler CreateMtlsHandler(X509Certificate2 clientCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId, QuiescenceGate connections)
         {
             ArgumentNullException.ThrowIfNull(clientCertificate);
             ArgumentNullException.ThrowIfNull(trustAnchor);
@@ -280,6 +399,8 @@ internal sealed class ServerClientPool : IServerClientPool
             {
                 UseProxy = false,
                 EnableMultipleHttp2Connections = true,
+                ConnectTimeout = InterNodeConnectTimeout,
+                ConnectCallback = (context, cancellationToken) => TrackedConnectionStream.ConnectAsync(connections, context, cancellationToken),
                 SslOptions = new SslClientAuthenticationOptions
                 {
                     ClientCertificates = [clientCertificate],
