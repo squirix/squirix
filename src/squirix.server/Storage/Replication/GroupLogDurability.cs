@@ -75,7 +75,7 @@ internal sealed class GroupLogDurability : IDisposable
         var published = false;
         try
         {
-            published = FileEx.PublishFile(validatedTemp, validatedFinal, timeProvider: TimeProvider.System);
+            published = FileEx.PublishFile(validatedTemp, validatedFinal, TimeProvider.System);
             Open(validatedFinal, length);
         }
         catch (Exception failure) when (File.Exists(validatedFinal))

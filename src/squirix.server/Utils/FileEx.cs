@@ -73,12 +73,12 @@ internal static class FileEx
     /// <summary>Publishes a temp file as the final durable file, replacing an existing destination when present.</summary>
     /// <param name="tempPath">Path to the fully written temp file.</param>
     /// <param name="finalPath">Destination path that should reference <paramref name="tempPath" /> after completion.</param>
+    /// <param name="timeProvider">Clock used to wait between attempts.</param>
     /// <param name="backupPath">Optional backup path used when <paramref name="finalPath" /> already exists.</param>
     /// <param name="ignoreMetadataErrors">
     /// When <see langword="true" />, metadata differences between source and destination are ignored during
     /// <see cref="File.Replace(string, string, string?, bool)" />.
     /// </param>
-    /// <param name="timeProvider">Clock used to wait between attempts; <see cref="TimeProvider.System" /> when <see langword="null" />.</param>
     /// <returns>Always <see langword="true" /> when publication succeeds; failures throw.</returns>
     /// <remarks>
     /// On Windows, a destination that is transiently held open (for example by an on-close scanner or a lingering handle)
@@ -91,9 +91,9 @@ internal static class FileEx
     internal static bool PublishFile(
         string tempPath,
         string finalPath,
+        TimeProvider timeProvider,
         string? backupPath = null,
-        bool ignoreMetadataErrors = false,
-        TimeProvider? timeProvider = null)
+        bool ignoreMetadataErrors = false)
     {
         var validatedTemp = FilePathValidator.ResolveValidatedFilePath(tempPath);
         var validatedFinal = FilePathValidator.ResolveValidatedFilePath(finalPath);
@@ -114,7 +114,7 @@ internal static class FileEx
             catch (IOException ex) when (attempt < PublishAttempts && IsTransientWindowsSharingFailure(ex))
             {
                 attempt++;
-                WaitBeforeRetry(timeProvider ?? TimeProvider.System, PublishRetryDelay);
+                WaitBeforeRetry(timeProvider, PublishRetryDelay);
             }
         }
 

@@ -84,7 +84,7 @@ internal sealed class ActivatedTopologyStampStore
                     RandomAccess.FlushToDisk(handle);
                 }
 
-                _ = FileEx.PublishFile(_tempPath, StampPath, timeProvider: TimeProvider.System);
+                _ = FileEx.PublishFile(_tempPath, StampPath, TimeProvider.System);
                 published = true;
             }
             finally

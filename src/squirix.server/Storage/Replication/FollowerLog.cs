@@ -1194,7 +1194,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                             RandomAccess.FlushToDisk(handle);
                     }
 
-                    _ = FileEx.PublishFile(_metaTempPath, _metaPath);
+                    _ = FileEx.PublishFile(_metaTempPath, _metaPath, TimeProvider.System);
                 }
                 finally
                 {
