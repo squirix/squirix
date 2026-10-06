@@ -1,18 +1,29 @@
 using System;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Transport;
 
 /// <summary>Loaded cluster mTLS certificate material for later transport wiring.</summary>
-[Immutable]
+/// <remarks>
+/// The material is shared: the loader owns one hold that <see cref="IDisposable.Dispose" /> releases, and every transport that hands the
+/// certificates to a TLS stack takes its own hold through <see cref="Retain" />. The certificates are freed once the last hold is released, so
+/// no holder can free them under another holder's open handshake.
+/// </remarks>
+[Mutable]
 internal sealed class MtlsCertificate : IDisposable
 {
+    private int _holds;
+
+    private int _loaderReleased;
+
     private MtlsCertificate(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
     {
         Enabled = true;
         NodeCertificate = nodeCertificate;
         TrustAnchor = trustAnchor;
+        _holds = 1;
     }
 
     private MtlsCertificate()
@@ -23,6 +34,9 @@ internal sealed class MtlsCertificate : IDisposable
     /// <summary>Gets a value indicating whether cluster mTLS material was loaded.</summary>
     internal bool Enabled { get; }
 
+    /// <summary>Gets a value indicating whether every hold was released and the certificates were freed; always <see langword="true" /> for disabled material.</summary>
+    internal bool IsReleased => Volatile.Read(ref _holds) == 0;
+
     /// <summary>Gets the local node certificate including its private key.</summary>
     internal X509Certificate2? NodeCertificate { get; }
 
@@ -32,14 +46,13 @@ internal sealed class MtlsCertificate : IDisposable
     /// <summary>Gets a disabled material instance with no loaded certificates.</summary>
     private static MtlsCertificate Disabled { get; } = new();
 
-    /// <inheritdoc />
+    /// <summary>Releases the loader's hold; the certificates are freed once no other hold remains. Repeated calls do nothing.</summary>
     void IDisposable.Dispose()
     {
-        if (!Enabled)
+        if (!Enabled || Interlocked.Exchange(ref _loaderReleased, 1) == 1)
             return;
 
-        NodeCertificate?.Dispose();
-        TrustAnchor?.Dispose();
+        Release();
     }
 
     /// <summary>Creates enabled certificate material from an already-loaded node certificate and trust anchor.</summary>
@@ -72,6 +85,37 @@ internal sealed class MtlsCertificate : IDisposable
         MtlsCertificateLoader.EnsureNodeCertificateChainsToTrustAnchor(nodeCertificate, trustAnchor);
         MtlsCertificateLoader.EnsureNodeCertificateMatchesNodeId(nodeCertificate, localNodeId);
         return Create(nodeCertificate, trustAnchor);
+    }
+
+    /// <summary>Takes one more hold on the certificates so they stay loaded until the hold is disposed.</summary>
+    /// <returns>The hold; dispose it once the certificates are no longer referenced.</returns>
+    /// <exception cref="InvalidOperationException">The material is disabled and has no certificates to hold.</exception>
+    /// <exception cref="ObjectDisposedException">Every hold was already released and the certificates are freed.</exception>
+    internal MtlsCertificateHold Retain()
+    {
+        if (!Enabled)
+            throw new InvalidOperationException("Disabled cluster mTLS material cannot be retained.");
+
+        var holds = Volatile.Read(ref _holds);
+        while (true)
+        {
+            ObjectDisposedException.ThrowIf(holds == 0, this);
+            var seen = Interlocked.CompareExchange(ref _holds, holds + 1, holds);
+            if (seen == holds)
+                return new MtlsCertificateHold(this);
+
+            holds = seen;
+        }
+    }
+
+    /// <summary>Drops one hold and frees the certificates when it was the last one.</summary>
+    internal void Release()
+    {
+        if (Interlocked.Decrement(ref _holds) != 0)
+            return;
+
+        NodeCertificate?.Dispose();
+        TrustAnchor?.Dispose();
     }
 
     /// <summary>Loads cluster mTLS certificates from explicit file paths.</summary>
