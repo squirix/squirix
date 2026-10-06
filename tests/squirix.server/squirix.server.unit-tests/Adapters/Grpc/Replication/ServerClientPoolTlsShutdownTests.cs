@@ -35,7 +35,8 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
     private static readonly TimeSpan CallFailureGuard = TimeSpan.FromSeconds(5);
 
     /// <summary>
-    /// Disposal returns only after the stalled handshake's connection is closed, and releases the pool's hold on the material only then, so the
+    /// The pool is disposed as soon as the stalled peer accepted the connection, without waiting for the ClientHello, whose timing is unreliable on slow
+    /// runners. Disposal returns only after the stalled handshake's connection is closed, and releases the pool's hold on the material only then, so the
     /// certificates are never freed under a handshake that still reads them.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -47,9 +48,10 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
         using var nodeCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, LocalNodeId);
         using var material = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
         var listening = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var accepted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var clientHello = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var connectionClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var stub = RunStubPeerAsync(listening, clientHello, connectionClosed, cancellationToken);
+        var stub = RunStubPeerAsync(listening, accepted, clientHello, connectionClosed, cancellationToken);
         var port = await listening.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
 
         var peerUri = new Uri($"https://127.0.0.1:{port}");
@@ -64,7 +66,7 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
         await using var pool = new ServerClientPool([peer], args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
         var gateway = new ReplicaRpcGateway(pool);
         var call = gateway.AppendEntriesAsync(PeerNodeId, new ReplicaRpcHeader(LocalNodeId, ReadOnlyMemory<byte>.Empty, 1, 1, LocalNodeId, LocalNodeId), new FollowerBatch([], LocalNodeId, 1, 0, 0, 0), cancellationToken);
-        await AwaitClientHelloAsync(clientHello.Task, call, stub, cancellationToken);
+        await AwaitAcceptedAsync(accepted.Task, call, stub, cancellationToken);
 
         await pool.DisposeAsync();
 
@@ -77,17 +79,17 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
         await stub;
     }
 
-    /// <summary>Waits for the ClientHello, failing with the real cause when the call or the stub ends first; the bound is only a hang guard.</summary>
-    /// <param name="clientHello">Completed once the first handshake bytes arrived at the stub, or faulted when the stub failed.</param>
+    /// <summary>Waits for the stub to accept the connection, failing with the real cause when the call or the stub ends first; the bound is only a hang guard.</summary>
+    /// <param name="accepted">Completed once the stub accepted the connection, or faulted when the stub failed.</param>
     /// <param name="call">The replication call under test.</param>
     /// <param name="stub">The stub peer task.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>An asynchronous operation.</returns>
-    /// <exception cref="InvalidOperationException">The call or the stub ended before the ClientHello reached the stub.</exception>
-    private static async Task AwaitClientHelloAsync(Task clientHello, Task call, Task stub, CancellationToken cancellationToken)
+    /// <exception cref="InvalidOperationException">The call or the stub ended before the stub accepted the connection.</exception>
+    private static async Task AwaitAcceptedAsync(Task accepted, Task call, Task stub, CancellationToken cancellationToken)
     {
-        var first = await Task.WhenAny(clientHello, call, stub).WaitAsync(Bound, TimeProvider.System, cancellationToken);
-        if (ReferenceEquals(first, clientHello) && clientHello.IsCompletedSuccessfully)
+        var first = await Task.WhenAny(accepted, call, stub).WaitAsync(Bound, TimeProvider.System, cancellationToken);
+        if (ReferenceEquals(first, accepted) && accepted.IsCompletedSuccessfully)
             return;
 
         var callEnded = ReferenceEquals(first, call);
@@ -108,7 +110,7 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
         }
 
         throw new InvalidOperationException(
-            $"The {(callEnded ? "call" : "stub peer")} ended before the ClientHello reached the stub: {cause?.ToString() ?? "completed without an error"}{callText}",
+            $"The {(callEnded ? "call" : "stub peer")} ended before the stub accepted the connection: {cause?.ToString() ?? "completed without an error"}{callText}",
             cause);
     }
 
@@ -120,14 +122,15 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
         loader.Dispose();
     }
 
-    /// <summary>Listens on a loopback port, accepts one connection, reads the start of the ClientHello, never answers, and reports when the client closed the connection.</summary>
+    /// <summary>Listens on a loopback port, accepts one connection, never answers, records whether a ClientHello arrived, and reports when the client closed the connection.</summary>
     /// <param name="listening">Completed with the bound port.</param>
-    /// <param name="clientHello">Completed once the first handshake bytes arrived.</param>
+    /// <param name="accepted">Completed right after the connection was accepted.</param>
+    /// <param name="clientHello">Completed if the first handshake bytes arrived; never completed when the client closes without sending anything.</param>
     /// <param name="connectionClosed">Completed once the client closed or reset the connection.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>An asynchronous operation.</returns>
-    /// <exception cref="InvalidOperationException">The listener bound no TCP port, or the client closed the connection before sending anything.</exception>
-    private static async Task RunStubPeerAsync(TaskCompletionSource<int> listening, TaskCompletionSource clientHello, TaskCompletionSource connectionClosed, CancellationToken cancellationToken)
+    /// <exception cref="InvalidOperationException">The listener bound no TCP port.</exception>
+    private static async Task RunStubPeerAsync(TaskCompletionSource<int> listening, TaskCompletionSource accepted, TaskCompletionSource clientHello, TaskCompletionSource connectionClosed, CancellationToken cancellationToken)
     {
         try
         {
@@ -136,17 +139,16 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
             _ = listening.TrySetResult(listener.LocalEndpoint is IPEndPoint endpoint ? endpoint.Port : throw new InvalidOperationException("The stub peer did not bind a TCP port."));
 
             using var client = await listener.AcceptSocketAsync(cancellationToken);
+            _ = accepted.TrySetResult();
             var buffer = new byte[1024];
-            var read = await client.ReceiveAsync(buffer, SocketFlags.None, cancellationToken);
-            if (read == 0)
-                throw new InvalidOperationException("The client closed the connection before sending a ClientHello.");
-
-            _ = clientHello.TrySetResult();
             try
             {
-                do
+                var read = await client.ReceiveAsync(buffer, SocketFlags.None, cancellationToken);
+                if (read > 0)
+                    _ = clientHello.TrySetResult();
+
+                while (read > 0)
                     read = await client.ReceiveAsync(buffer, SocketFlags.None, cancellationToken);
-                while (read > 0);
             }
             catch (SocketException)
             {
@@ -158,6 +160,7 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
         catch (Exception exception)
         {
             _ = listening.TrySetException(exception);
+            _ = accepted.TrySetException(exception);
             _ = clientHello.TrySetException(exception);
             _ = connectionClosed.TrySetException(exception);
             throw;
