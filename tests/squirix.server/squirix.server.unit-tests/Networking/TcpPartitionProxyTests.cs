@@ -125,8 +125,7 @@ public sealed class TcpPartitionProxyTests
         _ = await Assert.That(proxy.ActiveConnections).IsEqualTo(0);
         _ = await Assert.That(await ProxyTestSockets.IsClosedAsync(live, cancellationToken)).IsTrue();
 
-        using var refused = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
-        _ = await Assert.That(await ProxyTestSockets.IsRefusedAsync(refused, cancellationToken)).IsTrue();
+        _ = await Assert.That(await ProxyTestSockets.ConnectIsRefusedAsync(proxy.ListenEndPoint, cancellationToken)).IsTrue();
         _ = await Assert.That(proxy.RefusedConnections).IsEqualTo(1);
         _ = await Assert.That(proxy.AcceptedConnections).IsEqualTo(1);
 
@@ -234,9 +233,7 @@ public sealed class TcpPartitionProxyTests
     public async Task UpstreamConnectFailureResetsClient(CancellationToken cancellationToken)
     {
         await using var proxy = await TcpPartitionProxy.StartAsync(ProxyTestSockets.ReserveClosedEndPoint(), cancellationToken);
-        using var client = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
-
-        _ = await Assert.That(await ProxyTestSockets.IsRefusedAsync(client, cancellationToken)).IsTrue();
+        _ = await Assert.That(await ProxyTestSockets.ConnectIsRefusedAsync(proxy.ListenEndPoint, cancellationToken)).IsTrue();
 
         _ = await Assert.That(proxy.UpstreamConnectFailures).IsEqualTo(1);
         _ = await Assert.That(proxy.RefusedConnections).IsEqualTo(0);

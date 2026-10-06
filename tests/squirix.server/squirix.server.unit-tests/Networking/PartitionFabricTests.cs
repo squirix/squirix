@@ -39,8 +39,7 @@ public sealed class PartitionFabricTests
         _ = await Assert.That(fabric["a", "c"].ActiveConnections).IsEqualTo(0);
         _ = await Assert.That(await ProxyTestSockets.IsClosedAsync(live, cancellationToken)).IsTrue();
 
-        using var refused = await ProxyTestSockets.ConnectAsync(fabric["c", "a"].ListenEndPoint, cancellationToken);
-        _ = await Assert.That(await ProxyTestSockets.IsRefusedAsync(refused, cancellationToken)).IsTrue();
+        _ = await Assert.That(await ProxyTestSockets.ConnectIsRefusedAsync(fabric["c", "a"].ListenEndPoint, cancellationToken)).IsTrue();
 
         using var served = await ProxyTestSockets.ConnectAsync(fabric["a", "b"].ListenEndPoint, cancellationToken);
         _ = await served.SendAsync(Payload, SocketFlags.None, cancellationToken);

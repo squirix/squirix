@@ -100,6 +100,23 @@ internal static class ProxyTestSockets
         return await IsClosedAsync(socket, cancellationToken);
     }
 
+    /// <summary>Connects and tells whether the proxy refuses the connection, whether the reset lands during the connect or after it.</summary>
+    /// <param name="endPoint">The proxy endpoint to dial.</param>
+    /// <param name="cancellationToken">Bounds the connect and the probe.</param>
+    /// <returns><see langword="true" /> when the connect fails with a reset or refusal, or the connection is reset without an echo.</returns>
+    internal static async Task<bool> ConnectIsRefusedAsync(IPEndPoint endPoint, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var socket = await ConnectAsync(endPoint, cancellationToken);
+            return await IsRefusedAsync(socket, cancellationToken);
+        }
+        catch (SocketException)
+        {
+            return true;
+        }
+    }
+
     internal static async Task<byte[]> ReceiveExactlyAsync(Socket socket, int count, CancellationToken cancellationToken)
     {
         var buffer = new byte[count];
