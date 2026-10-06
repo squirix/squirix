@@ -53,11 +53,15 @@ internal static class ReplicaOwnerTestKit
     internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway) => CreateCommitter(registry, gateway, new StubCache());
 
     internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, ILogicalNamespacedCache<object?> cache, ILogger<ReplicaGroupCommitter>? log = null) =>
-        new(registry, new ThreeNodeLocator(), gateway, cache, "n1", new ReplicaTopologyStamp(Fingerprint, 1), log ?? NullLogger<ReplicaGroupCommitter>.Instance);
+        new(registry, new ThreeNodeLocator(), gateway, cache, "n1", new ReplicaTopologyStamp(Fingerprint, 1), log ?? NullLogger<ReplicaGroupCommitter>.Instance)
+        {
+            Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+        };
 
     internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, TimeSpan commitBudget) =>
         new(registry, new ThreeNodeLocator(), gateway, new StubCache(), "n1", new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
+            Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             CommitBudget = commitBudget,
         };
 
@@ -67,7 +71,7 @@ internal static class ReplicaOwnerTestKit
         ILogicalNamespacedCache<object?> cache,
         TimeProvider clock,
         ReplicationMetrics? metrics = null) =>
-        new(registry, new ThreeNodeLocator(), gateway, cache, "n1", new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance) { Clock = clock, Metrics = metrics };
+        new(registry, new ThreeNodeLocator(), gateway, cache, "n1", new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance) { Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), Clock = clock, Metrics = metrics };
 
     internal static Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, CancellationToken cancellationToken) => OpenRegistryAsync(dir, null, cancellationToken);
 
