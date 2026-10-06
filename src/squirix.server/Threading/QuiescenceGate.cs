@@ -43,6 +43,16 @@ internal sealed class QuiescenceGate
         }
     }
 
+    /// <summary>Gets the number of in-flight operations.</summary>
+    internal int Pending
+    {
+        get
+        {
+            lock (_lock)
+                return _count;
+        }
+    }
+
     /// <summary>Refuses <see cref="TryEnter"/> until the matching <see cref="Open"/>; closings nest, so the gate reopens when every closer has opened it.</summary>
     internal void Close()
     {
