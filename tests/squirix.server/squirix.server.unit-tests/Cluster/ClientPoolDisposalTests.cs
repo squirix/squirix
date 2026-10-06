@@ -344,6 +344,59 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         await AssertAllDisposedAsync(created, 3);
     }
 
+    /// <summary>A shutdown budget that is negative but not infinite, or above the longest accepted timeout, is rejected.</summary>
+    /// <param name="budgetMilliseconds">The budget in milliseconds.</param>
+    [Test]
+    [Arguments(-2.0)]
+    [Arguments(4_294_967_296.0)]
+    public async Task InvalidShutdownBudgetThrows(double budgetMilliseconds)
+    {
+        using var meter = new Meter("Squirix");
+        var args = new ServerClientPoolArgs
+        {
+            PolicyFactory = static _ => new RecordingPolicy(null),
+            ShutdownBudget = TimeSpan.FromMilliseconds(budgetMilliseconds),
+        };
+        var metrics = new ServerClientPoolMetrics(meter);
+
+        var failure = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
+            (args, metrics),
+            static state => _ = new ServerClientPool(BuildPeers(1), state.args, state.metrics, NullLogger<ServerClientPool>.Instance));
+
+        _ = await Assert.That(failure.ParamName).IsEqualTo("args");
+    }
+
+    /// <summary>A registration failure releases the material hold and disposes the channels created before it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RegistrationFailureReleasesHolds(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = LoadCertificate(bundle);
+        var created = new List<TrackingHandler>();
+        var calls = 0;
+        var args = new ServerClientPoolArgs
+        {
+            PolicyFactory = _ => ++calls == 2 ? throw new InvalidOperationException("policy failure") : new RecordingPolicy(null),
+            OwnedHandlerFactory = (_, _, _) => Track(created),
+            MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
+            Certificate = certificate,
+            InterNodeMtlsEnabled = true,
+        };
+        var metrics = new ServerClientPoolMetrics(meter);
+        var peers = BuildPeers(2);
+
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(
+            (peers, args, metrics),
+            static state => _ = new ServerClientPool(state.peers, state.args, state.metrics, NullLogger<ServerClientPool>.Instance));
+
+        await AssertAllDisposedAsync(created, 2);
+        _ = await Assert.That(certificate.IsReleased).IsFalse();
+        DisposeAsLoader(certificate);
+        _ = await Assert.That(certificate.IsReleased).IsTrue();
+    }
+
     /// <summary>Disposing the pool must dispose every mTLS handler the pool created from the node certificate.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

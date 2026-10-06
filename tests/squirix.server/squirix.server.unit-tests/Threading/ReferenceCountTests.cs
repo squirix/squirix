@@ -36,6 +36,37 @@ public sealed class ReferenceCountTests : ServerUnitTestBase
         _ = await Assert.That(count.Release()).IsTrue();
     }
 
+    /// <summary>A racing release of the initial reference never lets a concurrent retain succeed after the count reached zero, and exactly one release reports zero.</summary>
+    [Test]
+    public async Task RacingReleaseReachesZeroOnce()
+    {
+        const int workers = 8;
+        var race = new Race(new ReferenceCount(), workers + 1);
+        var threads = new Thread[workers];
+        for (var i = 0; i < workers; i++)
+        {
+            threads[i] = new Thread(static state =>
+            {
+                if (state is Race running)
+                    running.RunWorker();
+            });
+            threads[i].Start(race);
+        }
+
+        race.RunReleaser();
+        for (var i = 0; i < workers; i++)
+            threads[i].Join();
+
+        _ = await Assert.That(race.Zeroes).IsEqualTo(1);
+        _ = await Assert.That(race.Count.IsReleased).IsTrue();
+        _ = await Assert.That(race.Count.TryRetain()).IsFalse();
+    }
+
+    /// <summary>A negative initial count is rejected.</summary>
+    [Test]
+    public void NegativeInitialCountThrows() =>
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(static () => _ = new ReferenceCount(-1));
+
     /// <summary>A new count holds one reference that is not released yet.</summary>
     [Test]
     public async Task NewCountHoldsOneReference()
@@ -87,5 +118,39 @@ public sealed class ReferenceCountTests : ServerUnitTestBase
 
         _ = await Assert.That(count.IsReleased).IsTrue();
         _ = await Assert.That(count.TryRetain()).IsFalse();
+    }
+
+    private sealed class Race
+    {
+        private readonly Barrier _start;
+
+        private int _zeroes;
+
+        internal Race(ReferenceCount count, int participants)
+        {
+            Count = count;
+            _start = new Barrier(participants);
+        }
+
+        internal ReferenceCount Count { get; }
+
+        internal int Zeroes => Volatile.Read(ref _zeroes);
+
+        internal void RunReleaser()
+        {
+            _ = _start.SignalAndWait(TimeSpan.FromSeconds(30), CancellationToken.None);
+            if (Count.Release())
+                _ = Interlocked.Increment(ref _zeroes);
+        }
+
+        internal void RunWorker()
+        {
+            _ = _start.SignalAndWait(TimeSpan.FromSeconds(30), CancellationToken.None);
+            while (Count.TryRetain())
+            {
+                if (Count.Release())
+                    _ = Interlocked.Increment(ref _zeroes);
+            }
+        }
     }
 }

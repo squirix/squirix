@@ -6,7 +6,6 @@ namespace Squirix.Server.Threading;
 
 /// <summary>A thread-safe reference count that can be retained while it is positive and reports the release that brings it to zero.</summary>
 /// <remarks>Once the count reached zero it stays there: <see cref="TryRetain" /> fails, so a resource freed by the last release is never handed out again.</remarks>
-[Mutable]
 [ThreadSafe]
 internal sealed class ReferenceCount
 {
@@ -29,14 +28,18 @@ internal sealed class ReferenceCount
     /// <exception cref="InvalidOperationException">No reference is left to release.</exception>
     internal bool Release()
     {
-        var count = Interlocked.Decrement(ref _count);
-        if (count < 0)
+        var count = _count;
+        while (true)
         {
-            _ = Interlocked.Increment(ref _count);
-            throw new InvalidOperationException("The reference count has no reference left to release.");
-        }
+            if (count == 0)
+                throw new InvalidOperationException("The reference count has no reference left to release.");
 
-        return count == 0;
+            var seen = Interlocked.CompareExchange(ref _count, count - 1, count);
+            if (seen == count)
+                return count == 1;
+
+            count = seen;
+        }
     }
 
     /// <summary>Adds one reference unless the count already reached zero.</summary>
@@ -44,7 +47,7 @@ internal sealed class ReferenceCount
     internal bool TryRetain()
     {
         var count = _count;
-        while (count != 0)
+        while (count > 0)
         {
             var seen = Interlocked.CompareExchange(ref _count, count + 1, count);
             if (seen == count)

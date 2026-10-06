@@ -196,15 +196,27 @@ internal sealed class ServerClientPool : IServerClientPool
         }
     }
 
+    /// <summary>Takes a hold on the mTLS material when it is enabled.</summary>
+    /// <param name="args">The pool arguments.</param>
+    /// <returns>The hold, or <see langword="null" /> without enabled material.</returns>
     private static MtlsCertificate.Hold? RetainMaterial(ServerClientPoolArgs args) => args.Certificate is { Enabled: true } certificate ? certificate.Retain() : null;
 
+    /// <summary>Validates the configured shutdown budget or falls back to the default.</summary>
+    /// <param name="args">The pool arguments.</param>
+    /// <returns>The shutdown budget.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The configured budget is negative and not infinite, or above the longest accepted timeout.</exception>
     private static TimeSpan ResolveShutdownBudget(ServerClientPoolArgs args)
     {
         if (args.ShutdownBudget is not { } budget)
             return DefaultShutdownBudget;
 
         var valid = budget == Timeout.InfiniteTimeSpan || (budget >= TimeSpan.Zero && budget <= MaxShutdownBudget);
-        return valid ? budget : throw new ArgumentOutOfRangeException(nameof(args), budget, "The shutdown budget must be between zero and the longest timeout a task wait accepts, or infinite.");
+        return valid
+            ? budget
+            : throw new ArgumentOutOfRangeException(
+                nameof(args),
+                budget,
+                "The shutdown budget must be between zero and the longest timeout a task wait accepts, or infinite.");
     }
 
     private void BeginDrain()
@@ -365,6 +377,7 @@ internal sealed class ServerClientPool : IServerClientPool
         return nodeIds;
     }
 
+    /// <summary>Disposes the created channels, the material hold and the closing source after a failed construction.</summary>
     private void ReleaseOnFailure()
     {
         foreach (var channel in _channels.Values)
