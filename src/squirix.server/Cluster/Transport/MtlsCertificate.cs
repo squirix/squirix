@@ -14,7 +14,7 @@ namespace Squirix.Server.Cluster.Transport;
 [Mutable]
 internal sealed class MtlsCertificate : IDisposable
 {
-    private int _holds;
+    private volatile int _holds;
 
     private int _loaderReleased;
 
@@ -35,7 +35,7 @@ internal sealed class MtlsCertificate : IDisposable
     internal bool Enabled { get; }
 
     /// <summary>Gets a value indicating whether every hold was released and the certificates were freed; always <see langword="true" /> for disabled material.</summary>
-    internal bool IsReleased => Volatile.Read(ref _holds) == 0;
+    internal bool IsReleased => _holds == 0;
 
     /// <summary>Gets the local node certificate including its private key.</summary>
     internal X509Certificate2? NodeCertificate { get; }
@@ -96,7 +96,7 @@ internal sealed class MtlsCertificate : IDisposable
         if (!Enabled)
             throw new InvalidOperationException("Disabled cluster mTLS material cannot be retained.");
 
-        var holds = Volatile.Read(ref _holds);
+        var holds = _holds;
         while (true)
         {
             ObjectDisposedException.ThrowIf(holds == 0, this);
@@ -124,7 +124,7 @@ internal sealed class MtlsCertificate : IDisposable
     {
         private readonly MtlsCertificate _material;
 
-        private int _released;
+        private volatile int _released;
 
         internal Hold(MtlsCertificate material)
         {
@@ -133,7 +133,7 @@ internal sealed class MtlsCertificate : IDisposable
         }
 
         /// <summary>Gets a value indicating whether this hold was already released.</summary>
-        internal bool IsReleased => Volatile.Read(ref _released) == 1;
+        internal bool IsReleased => _released == 1;
 
         /// <summary>Releases the hold; the certificates are freed when it was the last one. Repeated calls do nothing.</summary>
         public void Dispose()

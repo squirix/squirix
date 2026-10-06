@@ -57,6 +57,10 @@ internal sealed class ServerClientPool : IServerClientPool
     private readonly ServerClientPoolMetrics _metrics;
     private readonly string[] _nodeIds;
     private readonly ConcurrentDictionary<string, IServerCallPolicy> _policies = new(StringComparer.Ordinal);
+
+    /// <summary>The state disposal sets once the pool is shutting down; held in a separate object so the pool itself stays immutable.</summary>
+    private readonly ShutdownState _shutdown = new();
+
     private readonly TimeSpan _shutdownBudget;
     private readonly TimeProvider _timeProvider;
     private int _disposed;
@@ -101,7 +105,7 @@ internal sealed class ServerClientPool : IServerClientPool
     internal IReadOnlyCollection<string> NodeIds { get; }
 
     /// <summary>Gets the task that releases the material hold late after a connection drain timeout; completed when disposal released the hold in time.</summary>
-    internal Task LateMaterialRelease { get; private set; } = Task.CompletedTask;
+    internal Task LateMaterialRelease => _shutdown.LateMaterialRelease;
 
     /// <summary>Gets the number of connections of the owned handlers that are still open.</summary>
     internal int OpenConnections => _connections.Pending;
@@ -307,7 +311,7 @@ internal sealed class ServerClientPool : IServerClientPool
         else
         {
             ServerLog.ClientPoolMaterialLeaked(_logger, _connections.Pending, _shutdownBudget);
-            LateMaterialRelease = ReleaseMaterialWhenDrainedAsync(_materialHold);
+            _shutdown.LateMaterialRelease = ReleaseMaterialWhenDrainedAsync(_materialHold);
         }
     }
 
@@ -469,5 +473,12 @@ internal sealed class ServerClientPool : IServerClientPool
             using var certificate = new X509Certificate2(serverCertificate);
             return MtlsClientCertificateValidator.ValidateForExpectedNodeId(certificate, trustAnchor, expectedPeerNodeId);
         }
+    }
+
+    /// <summary>The shutdown outcome of one pool; written once by the single disposal and read afterwards.</summary>
+    [Mutable]
+    private sealed class ShutdownState
+    {
+        internal Task LateMaterialRelease { get; set; } = Task.CompletedTask;
     }
 }

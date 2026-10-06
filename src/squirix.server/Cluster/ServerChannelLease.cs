@@ -9,7 +9,7 @@ namespace Squirix.Server.Cluster;
 /// <summary>One outbound call's lease on a pooled channel; the pool drains every lease before it disposes the channel.</summary>
 /// <remarks>Dispose the lease exactly once, with <see langword="using" />, after the call completed. Issue calls with <see cref="Token" />, which the pool cancels when it starts to dispose.</remarks>
 [Immutable]
-internal readonly struct ServerChannelLease : IDisposable
+internal readonly record struct ServerChannelLease : IDisposable
 {
     private readonly CancellationTokenSource? _cancellation;
 
