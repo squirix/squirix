@@ -27,6 +27,18 @@ internal static partial class ServerLog
     internal static partial void ClientPoolMaterialLeaked(ILogger logger, int connections, TimeSpan budget);
 
     [LoggerMessage(
+        EventId = 5007,
+        Level = LogLevel.Information,
+        Message = "Server client pool released the transport material that was leaked at shutdown: every open connection has since closed")]
+    internal static partial void ClientPoolMaterialReleasedLate(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 5008,
+        Level = LogLevel.Error,
+        Message = "Server client pool could not wait for its leaked connections to close; the transport material stays loaded")]
+    internal static partial void ClientPoolLateMaterialReleaseFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(
         EventId = 5006,
         Level = LogLevel.Warning,
         Message = "A callback registered on a leased replication call threw while the server client pool cancelled its leases; disposal continues")]

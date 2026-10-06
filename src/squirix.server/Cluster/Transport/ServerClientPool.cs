@@ -22,7 +22,7 @@ namespace Squirix.Server.Cluster.Transport;
 /// <remarks>
 /// Disposal runs in a fixed order under one shutdown budget: new leases are refused and in-flight calls cancelled and awaited, then the channels
 /// and their handlers are disposed, then every tracked connection (an open TLS handshake included) is awaited, and only then is the pool's hold on
-/// the mTLS material released. A connection that outlives the budget keeps the material loaded, which is logged, rather than freeing the node
+/// the mTLS material released. A connection that outlives the budget keeps the material loaded until the connection ends, which is logged, rather than freeing the node
 /// certificate under a handshake that still reads it.
 /// </remarks>
 [Mutable]
@@ -96,6 +96,9 @@ internal sealed class ServerClientPool : IServerClientPool
     }
 
     internal IReadOnlyCollection<string> NodeIds { get; }
+
+    /// <summary>Gets the task that releases the material hold late after a connection drain timeout; completed when disposal released the hold in time.</summary>
+    internal Task LateMaterialRelease { get; private set; } = Task.CompletedTask;
 
     /// <summary>Gets the number of connections of the owned handlers that are still open.</summary>
     internal int OpenConnections => _connections.Pending;
@@ -290,9 +293,30 @@ internal sealed class ServerClientPool : IServerClientPool
             return;
 
         if (connectionsDrained)
+        {
             _materialHold.Dispose();
+        }
         else
+        {
             ServerLog.ClientPoolMaterialLeaked(_logger, _connections.Pending, _shutdownBudget);
+            LateMaterialRelease = ReleaseMaterialWhenDrainedAsync(_materialHold);
+        }
+    }
+
+    /// <summary>Releases the pool's hold once the connections that outlived the budget are gone; the task never faults, a failure is logged and the hold is kept.</summary>
+    /// <param name="hold">The pool's hold on the material.</param>
+    /// <returns>A task that completes once the hold was released or the wait failed.</returns>
+    private async Task ReleaseMaterialWhenDrainedAsync(MtlsCertificate.Hold hold)
+    {
+        var failure = await _connections.WaitAsync(CancellationToken.None).AsTask().CaptureFailureAsync().ConfigureAwait(false);
+        if (failure != null)
+        {
+            ServerLog.ClientPoolLateMaterialReleaseFailed(_logger, failure);
+            return;
+        }
+
+        hold.Dispose();
+        ServerLog.ClientPoolMaterialReleasedLate(_logger);
     }
 
     private void RegisterPeer(ServerPeer peer, ServerClientPoolArgs args)

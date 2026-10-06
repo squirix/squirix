@@ -29,6 +29,8 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
     private const int MaterialLeakedEventId = 5005;
 
+    private const int MaterialReleasedLateEventId = 5007;
+
     private const string PoolDisposalsTotalInstrumentName = "squirix_peer_pool_disposals_total";
 
     /// <summary>Disposal refuses new channel leases and cancels the leased calls, then waits for the leases to end before it disposes the channels.</summary>
@@ -102,6 +104,50 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         DisposeAsLoader(certificate);
         _ = await Assert.That(certificate.IsReleased).IsFalse();
         _ = await Assert.That(certificate.NodeCertificate!.Handle).IsNotEqualTo(nint.Zero);
+    }
+
+    /// <summary>Once the connections that outlived the budget are gone, the pool releases its hold late and the material is freed with the loader's release.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LeakedMaterialReleasedOnDrain(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var nodeCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
+        using var certificate = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
+        var log = new EventRecordingLogger();
+        var clock = new FakeTimeProvider();
+        var created = new List<TrackingHandler>();
+        TrackedConnections? tracked = null;
+        var args = new ServerClientPoolArgs
+        {
+            PolicyFactory = static _ => new RecordingPolicy(null),
+            OwnedHandlerFactory = (_, _, connections) =>
+            {
+                tracked = connections;
+                return OpenConnection(connections, created);
+            },
+            MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
+            Certificate = certificate,
+            InterNodeMtlsEnabled = true,
+            ShutdownBudget = TimeSpan.FromSeconds(10),
+            TimeProvider = clock,
+        };
+        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log);
+        var disposing = pool.DisposeAsync().AsTask();
+        clock.Advance(TimeSpan.FromSeconds(10));
+        await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        DisposeAsLoader(certificate);
+        _ = await Assert.That(log.Find(MaterialLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(certificate.IsReleased).IsFalse();
+        _ = await Assert.That(pool.LateMaterialRelease.IsCompleted).IsFalse();
+
+        tracked!.Exit();
+        await pool.LateMaterialRelease.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(certificate.IsReleased).IsTrue();
+        _ = await Assert.That(log.Find(MaterialReleasedLateEventId)?.Level).IsEqualTo(LogLevel.Information);
+        _ = await Assert.That(certificate.NodeCertificate!.Handle).IsEqualTo(nint.Zero);
     }
 
     /// <summary>A callback registered on a lease token that throws does not stop disposal: the channels are disposed and the material hold is released.</summary>
