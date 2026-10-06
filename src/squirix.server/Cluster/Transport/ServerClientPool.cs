@@ -236,13 +236,6 @@ internal sealed class ServerClientPool : IServerClientPool
     {
         private static readonly List<SslApplicationProtocol> Http2PreferredProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11];
 
-        /// <summary>Creates the default HTTP handler for HTTPS gRPC channels.</summary>
-        /// <returns>A handler suitable for secure gRPC transport that opens more HTTP/2 connections once the stream limit is reached.</returns>
-        internal static SocketsHttpHandler CreateChannelHandler() => new()
-        {
-            EnableMultipleHttp2Connections = true,
-        };
-
         /// <summary>Creates the handler a pool owns for one peer: mTLS when <paramref name="certificate" /> is supplied, plain HTTPS otherwise.</summary>
         /// <param name="certificate">Loaded cluster mTLS material, or <see langword="null" /> for plain HTTPS.</param>
         /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
@@ -250,13 +243,20 @@ internal sealed class ServerClientPool : IServerClientPool
         internal static SocketsHttpHandler CreateOwnedHandler(MtlsCertificate? certificate, string expectedPeerNodeId) =>
             certificate == null ? CreateChannelHandler() : CreateMtlsHandler(certificate, expectedPeerNodeId);
 
+        /// <summary>Creates the default HTTP handler for HTTPS gRPC channels.</summary>
+        /// <returns>A handler suitable for secure gRPC transport that opens more HTTP/2 connections once the stream limit is reached.</returns>
+        private static SocketsHttpHandler CreateChannelHandler() => new()
+        {
+            EnableMultipleHttp2Connections = true,
+        };
+
         /// <summary>Creates an outbound cluster mTLS HTTP handler that presents the local node certificate.</summary>
         /// <param name="certificate">Loaded cluster mTLS certificate.</param>
         /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
         /// <returns>A handler configured for internode mutual TLS.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="certificate" /> is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown when cluster mTLS certificate is not loaded.</exception>
-        internal static SocketsHttpHandler CreateMtlsHandler(MtlsCertificate certificate, string expectedPeerNodeId)
+        private static SocketsHttpHandler CreateMtlsHandler(MtlsCertificate certificate, string expectedPeerNodeId)
         {
             ArgumentNullException.ThrowIfNull(certificate);
             ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);

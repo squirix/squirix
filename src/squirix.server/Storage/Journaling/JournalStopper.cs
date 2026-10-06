@@ -50,19 +50,6 @@ internal sealed class JournalStopper
         return remaining > floor ? remaining : floor;
     }
 
-    /// <summary>
-    /// Releases every caller the journal can still reach, pending or in flight, so none outlives a failed stop on a stuck disk. The accepted
-    /// frames stay tracked: a live journal thread still writes them, and a later attempt still drains them.
-    /// </summary>
-    /// <returns>The number of released callers whose durable write never completed.</returns>
-    internal int FaultReachableWaiters()
-    {
-        // The frames of these callers may or may not become durable, so they see a commit-unknown failure.
-        var faulted = _owner.GroupCommit?.CancelPending(new JournalShutdownRefusedException(nameof(JournalCoordinator))) ?? 0;
-        _owner.PendingAppends.FaultWaiters(new JournalShutdownRefusedException(nameof(JournalCoordinator)));
-        return faulted + _owner.DurabilityPipeline.FailPendingDurabilityAcks(new JournalShutdownRefusedException(nameof(JournalCoordinator)));
-    }
-
     /// <summary>Runs or joins a stop attempt.</summary>
     /// <param name="budget">Shared budget of the stop stages; each stage still gets its own floor once the budget is spent.</param>
     /// <returns>The running attempt when one is in flight, the outcome of the attempt that stopped the journal when it is stopped, otherwise a new attempt.</returns>
@@ -115,6 +102,19 @@ internal sealed class JournalStopper
     }
 
     private static TimeSpan StageWait(long deadline, TimeSpan floor) => ShutdownStageWait(deadline, Environment.TickCount64, floor);
+
+    /// <summary>
+    /// Releases every caller the journal can still reach, pending or in flight, so none outlives a failed stop on a stuck disk. The accepted
+    /// frames stay tracked: a live journal thread still writes them, and a later attempt still drains them.
+    /// </summary>
+    /// <returns>The number of released callers whose durable write never completed.</returns>
+    private int FaultReachableWaiters()
+    {
+        // The frames of these callers may or may not become durable, so they see a commit-unknown failure.
+        var faulted = _owner.GroupCommit?.CancelPending(new JournalShutdownRefusedException(nameof(JournalCoordinator))) ?? 0;
+        _owner.PendingAppends.FaultWaiters(new JournalShutdownRefusedException(nameof(JournalCoordinator)));
+        return faulted + _owner.DurabilityPipeline.FailPendingDurabilityAcks(new JournalShutdownRefusedException(nameof(JournalCoordinator)));
+    }
 
     private bool HasAttempted()
     {
