@@ -17,6 +17,7 @@ using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -24,7 +25,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
-/// <summary>The journal compaction <c language="text">MinGap</c> gate measures time on the server clock.</summary>
+/// <summary>Journal compaction scheduling on the server clock: the <c language="text">MinGap</c> gate and failure backoff.</summary>
 [Immutable]
 public sealed class JournalCompactionClockTests : IsolatedStorageTestBase
 {
@@ -70,6 +71,39 @@ public sealed class JournalCompactionClockTests : IsolatedStorageTestBase
 
         _ = await Assert.That(firstRun).IsTrue();
         _ = await Assert.That(secondRun).IsTrue();
+    }
+
+    /// <summary>Cancellation the host did not request fails the attempt and backs off instead of passing for a skip.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ForeignCancellationBacksOff(CancellationToken cancellationToken)
+    {
+        var persistence = new PersistenceOptions { DataDir = Dir };
+        using var store = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        await store.WriteAsync(
+            new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = new SnapshotRef { Index = 1, Path = "snap-earlier", CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 } },
+            cancellationToken);
+        var maintenance = new IExclusiveMaintenanceExecutorCreateExpectations();
+        _ = maintenance.Setups.ExecuteMaintenanceExclusiveAsync(Arg.Any<Func<CancellationToken, ValueTask>>(), Arg.Any<CancellationToken>())
+                       .Callback(static (_, _) => ValueTask.FromException(new OperationCanceledException()));
+        var clock = new TimerSignalClock();
+        await using var journal = new SnapshotCutJournal(1, 2);
+        var cluster = new TopologyOptions([]) { ClusterId = "c", NodeId = "n", Uri = new Uri("https://localhost:1") };
+        using var compaction = new JournalCompactionService<object?>(
+            NullLogger<JournalCompactionService<object?>>.Instance,
+            Options.Create(new JournalCompactionOptions { Enabled = true, MinGap = MinGap, MinTailBytes = 0, MinTailSegments = 0 }),
+            new JournalCompactionDependencies(CreateCoordinator(journal, store), maintenance.Instance(), store, StoreFactory.CreateReader(), persistence, cluster, clock),
+            new CompactionMetrics(_testMeter));
+
+        await compaction.StartAsync(cancellationToken);
+        var armed = await clock.TimerCreated.WaitAsync(Bound, cancellationToken);
+        clock.Advance(MinGap * 1.2);
+
+        // The backoff waits on the fake clock, which no longer advances, so the state stays put.
+        await compaction.WaitUntilAsync(static c => c.State == RunState.BackingOff, Bound, cancellationToken);
+        await compaction.StopAsync(cancellationToken);
+
+        _ = await Assert.That(armed).IsTrue();
     }
 
     /// <inheritdoc />

@@ -134,11 +134,11 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             return segment <= 0 || !TailLargeEnough(segment, out var segments, out var bytes) ? AttemptResult.Skipped
                 : await RunCompactionAsync(snapshotIndex, segment, segments, bytes, cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             return AttemptResult.Skipped;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or InvalidDataException)
+        catch (Exception ex) when (ex is OperationCanceledException or IOException or UnauthorizedAccessException or InvalidOperationException or InvalidDataException)
         {
             return RecordCompactionFailure();
         }
