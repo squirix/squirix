@@ -470,6 +470,9 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             };
 
             var mtlsProfile = options?.MtlsProfile ?? TestNodeProfile.Normal;
+            if (identity == null && options?.PartitionFabric != null)
+                throw new InvalidOperationException("A partition fabric needs a topology with remote peers: the node would otherwise dial its peers directly.");
+
             var (mtlsOptions, material, factory) = identity == null ? new NodeMtlsStartup(null, null, null)
                 : await identity.ResolveNodeStartupForBindAsync(clusterConfig, mtlsProfile, options?.PartitionFabric, cancellationToken).ConfigureAwait(false);
 

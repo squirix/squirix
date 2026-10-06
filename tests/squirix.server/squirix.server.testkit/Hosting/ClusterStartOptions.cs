@@ -27,6 +27,11 @@ public class ClusterStartOptions
     /// remote peer goes through the fabric's proxy for the pair, so tests cut and heal links by node identifier; when
     /// <see langword="null" />, peers are dialed directly. The fabric must outlive the cluster.
     /// </summary>
+    /// <remarks>
+    /// The node must use internode mTLS (a topology with remote peers); starting a node with a fabric on any other
+    /// path throws <see cref="InvalidOperationException" />. The outbound handlers are owned by the cluster identity,
+    /// not by the node, so a stopped node's proxied links stay open until the identity is disposed.
+    /// </remarks>
     public PartitionFabric? PartitionFabric { get; init; }
 
     /// <summary>Gets the replica factor including the original owner.</summary>

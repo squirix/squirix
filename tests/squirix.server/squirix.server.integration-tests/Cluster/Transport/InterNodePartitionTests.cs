@@ -61,10 +61,27 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
         var acceptedBefore = toC.AcceptedConnections;
         var forwardedBefore = toC.BytesForwarded(ProxyDirection.ClientToUpstream);
         fabric.HealAll();
-        _ = await client.GetValueAsync(request, new CallOptions(cancellationToken: cancellationToken));
+        await GetValueWhenServedAsync(client, request, cancellationToken);
 
         _ = await Assert.That(toC.AcceptedConnections).IsGreaterThan(acceptedBefore);
         _ = await Assert.That(toC.BytesForwarded(ProxyDirection.ClientToUpstream)).IsGreaterThan(forwardedBefore);
+    }
+
+    private static async Task GetValueWhenServedAsync(SquirixCacheService.SquirixCacheServiceClient client, GetValueAsyncRequest request, CancellationToken cancellationToken)
+    {
+        // A request that still hit a reset connection fails once; every retry is a real dial, so the loop cannot spin hot and only the test token bounds it.
+        while (true)
+        {
+            try
+            {
+                _ = await client.GetValueAsync(request, new CallOptions(cancellationToken: cancellationToken));
+                return;
+            }
+            catch (RpcException exception) when (exception.StatusCode == StatusCode.Unavailable)
+            {
+                // Retry: the link is healed, so a later dial is bridged.
+            }
+        }
     }
 
     private static async Task ExpectUnavailableAsync(SquirixCacheService.SquirixCacheServiceClient client, GetValueAsyncRequest request, CancellationToken cancellationToken)

@@ -24,9 +24,9 @@ public sealed class PartitionFabricTests
     {
         await using var echo = EchoUpstream.Start();
         await using var fabric = await CreateTriangleAsync(echo.EndPoint, cancellationToken);
-        using var live = await TcpPartitionProxyTests.ConnectAsync(fabric["a", "c"].ListenEndPoint, cancellationToken);
+        using var live = await ProxyTestSockets.ConnectAsync(fabric["a", "c"].ListenEndPoint, cancellationToken);
         _ = await live.SendAsync(Payload, SocketFlags.None, cancellationToken);
-        _ = await TcpPartitionProxyTests.ReceiveExactlyAsync(live, Payload.Length, cancellationToken);
+        _ = await ProxyTestSockets.ReceiveExactlyAsync(live, Payload.Length, cancellationToken);
 
         await fabric.IsolateAsync("c");
 
@@ -37,14 +37,14 @@ public sealed class PartitionFabricTests
         _ = await Assert.That(fabric["a", "b"].IsPartitioned).IsFalse();
         _ = await Assert.That(fabric["b", "a"].IsPartitioned).IsFalse();
         _ = await Assert.That(fabric["a", "c"].ActiveConnections).IsEqualTo(0);
-        _ = await Assert.That(await TcpPartitionProxyTests.IsClosedAsync(live, cancellationToken)).IsTrue();
+        _ = await Assert.That(await ProxyTestSockets.IsClosedAsync(live, cancellationToken)).IsTrue();
 
-        using var refused = await TcpPartitionProxyTests.ConnectAsync(fabric["c", "a"].ListenEndPoint, cancellationToken);
-        _ = await Assert.That(await TcpPartitionProxyTests.IsRefusedAsync(refused, cancellationToken)).IsTrue();
+        using var refused = await ProxyTestSockets.ConnectAsync(fabric["c", "a"].ListenEndPoint, cancellationToken);
+        _ = await Assert.That(await ProxyTestSockets.IsRefusedAsync(refused, cancellationToken)).IsTrue();
 
-        using var served = await TcpPartitionProxyTests.ConnectAsync(fabric["a", "b"].ListenEndPoint, cancellationToken);
+        using var served = await ProxyTestSockets.ConnectAsync(fabric["a", "b"].ListenEndPoint, cancellationToken);
         _ = await served.SendAsync(Payload, SocketFlags.None, cancellationToken);
-        var echoed = await TcpPartitionProxyTests.ReceiveExactlyAsync(served, Payload.Length, cancellationToken);
+        var echoed = await ProxyTestSockets.ReceiveExactlyAsync(served, Payload.Length, cancellationToken);
         await SequenceAssert.EqualAsync(Payload, echoed);
 
         fabric.HealAll();
@@ -60,6 +60,13 @@ public sealed class PartitionFabricTests
         await using var echo = EchoUpstream.Start();
         await using var fabric = await CreateTriangleAsync(echo.EndPoint, cancellationToken);
 
+        using var ab = await ProxyTestSockets.ConnectAsync(fabric["a", "b"].ListenEndPoint, cancellationToken);
+        using var ba = await ProxyTestSockets.ConnectAsync(fabric["b", "a"].ListenEndPoint, cancellationToken);
+        using var ac = await ProxyTestSockets.ConnectAsync(fabric["a", "c"].ListenEndPoint, cancellationToken);
+        using var ca = await ProxyTestSockets.ConnectAsync(fabric["c", "a"].ListenEndPoint, cancellationToken);
+        using var bc = await ProxyTestSockets.ConnectAsync(fabric["b", "c"].ListenEndPoint, cancellationToken);
+        using var cb = await ProxyTestSockets.ConnectAsync(fabric["c", "b"].ListenEndPoint, cancellationToken);
+
         fabric.HoldDirection("a", "b");
 
         _ = await Assert.That(fabric["a", "b"].IsHeld(ProxyDirection.ClientToUpstream)).IsTrue();
@@ -69,10 +76,49 @@ public sealed class PartitionFabricTests
         _ = await Assert.That(fabric["a", "c"].IsHeld(ProxyDirection.ClientToUpstream)).IsFalse();
         _ = await Assert.That(fabric["c", "a"].IsHeld(ProxyDirection.UpstreamToClient)).IsFalse();
 
+        foreach (var socket in new[] { ab, ba, ac, ca, bc, cb })
+            _ = await socket.SendAsync(Payload, SocketFlags.None, cancellationToken);
+
+        await fabric["a", "b"].WaitUntilHeldAsync(ProxyDirection.ClientToUpstream, cancellationToken);
+        await fabric["b", "a"].WaitUntilHeldAsync(ProxyDirection.UpstreamToClient, cancellationToken);
+        foreach (var socket in new[] { ac, ca, bc, cb })
+        {
+            var echoed = await ProxyTestSockets.ReceiveExactlyAsync(socket, Payload.Length, cancellationToken);
+            await SequenceAssert.EqualAsync(Payload, echoed);
+        }
+
+        _ = await Assert.That(fabric["a", "b"].BytesForwarded(ProxyDirection.ClientToUpstream)).IsEqualTo(0);
+        await fabric["b", "a"].WaitForForwardedAsync(ProxyDirection.ClientToUpstream, Payload.Length, cancellationToken);
+        _ = await Assert.That(fabric["b", "a"].BytesForwarded(ProxyDirection.UpstreamToClient)).IsEqualTo(0);
+
         fabric.ReleaseDirection("a", "b");
 
         _ = await Assert.That(fabric["a", "b"].IsHeld(ProxyDirection.ClientToUpstream)).IsFalse();
         _ = await Assert.That(fabric["b", "a"].IsHeld(ProxyDirection.UpstreamToClient)).IsFalse();
+        foreach (var socket in new[] { ab, ba })
+        {
+            var echoed = await ProxyTestSockets.ReceiveExactlyAsync(socket, Payload.Length, cancellationToken);
+            await SequenceAssert.EqualAsync(Payload, echoed);
+        }
+    }
+
+    /// <summary>Disposing the fabric disposes every proxy, so a link that was started is closed afterwards.</summary>
+    /// <param name="cancellationToken">The test cancellation token; bounds the waits only.</param>
+    [Test]
+    public async Task DisposeAsyncDisposesEveryProxy(CancellationToken cancellationToken)
+    {
+        await using var echo = EchoUpstream.Start();
+        var fabric = await CreateTriangleAsync(echo.EndPoint, cancellationToken);
+        var first = fabric["a", "b"];
+        var last = fabric["c", "b"];
+        using var live = await ProxyTestSockets.ConnectAsync(last.ListenEndPoint, cancellationToken);
+        await last.WaitForConnectionAsync(1, cancellationToken);
+
+        await fabric.DisposeAsync();
+
+        _ = await Assert.That(first.ActiveConnections).IsEqualTo(0);
+        _ = await Assert.That(last.ActiveConnections).IsEqualTo(0);
+        _ = await Assert.That(await ProxyTestSockets.IsClosedAsync(live, cancellationToken)).IsTrue();
     }
 
     /// <summary>A pair keeps one proxy across repeated starts, refuses a different upstream, and unknown pairs fail loudly.</summary>

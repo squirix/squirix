@@ -65,8 +65,12 @@ public sealed class PartitionFabric : IAsyncDisposable
             _proxies.Clear();
         }
 
+        // Every proxy is disposed even when another one fails; the combined task then rethrows a failure.
+        var disposals = new Task[proxies.Length];
         for (var i = 0; i < proxies.Length; i++)
-            await proxies[i].DisposeAsync().ConfigureAwait(false);
+            disposals[i] = proxies[i].DisposeAsync().AsTask();
+
+        await Task.WhenAll(disposals).ConfigureAwait(false);
     }
 
     /// <summary>Returns the proxy for the pair, starting one in front of <paramref name="upstream" /> when the pair is new.</summary>
@@ -162,6 +166,9 @@ public sealed class PartitionFabric : IAsyncDisposable
         }
     }
 
+    private static InvalidOperationException UpstreamMismatch(ProxyKey key, TcpPartitionProxy existing, IPEndPoint requested) =>
+        new($"The link {key.From} -> {key.To} already has a proxy in front of {existing.Upstream}, not {requested}.");
+
     private TcpPartitionProxy[] Snapshot()
     {
         lock (_gate)
@@ -180,7 +187,7 @@ public sealed class PartitionFabric : IAsyncDisposable
                 if (_proxies.TryGetValue(key, out var raced))
                 {
                     surplus = created;
-                    return raced;
+                    return raced.Upstream.Equals(upstream) ? raced : throw UpstreamMismatch(key, raced, upstream);
                 }
 
                 _proxies.Add(key, created);
@@ -211,7 +218,7 @@ public sealed class PartitionFabric : IAsyncDisposable
             }
 
             if (!existing.Upstream.Equals(upstream))
-                throw new InvalidOperationException($"The link {key.From} -> {key.To} already has a proxy in front of {existing.Upstream}, not {upstream}.");
+                throw UpstreamMismatch(key, existing, upstream);
 
             proxy = existing;
             return true;

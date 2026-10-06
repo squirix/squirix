@@ -20,6 +20,8 @@ namespace Squirix.Server.TestKit.Mtls;
 [Mutable]
 public sealed class ClusterIdentity : IDisposable
 {
+    private const string FabricWithoutMtlsMessage = "A partition fabric needs a topology with internode mTLS: the node would otherwise dial its peers directly.";
+
     private readonly Dictionary<string, HeldPort> _internalPorts = [with(StringComparer.Ordinal)];
     private readonly List<X509Certificate2> _ownedCertificates = [];
     private readonly PeerHandlers _peerHandlers = new();
@@ -85,6 +87,7 @@ public sealed class ClusterIdentity : IDisposable
     /// <param name="fabric">Fabric the node dials its remote peers through, or <see langword="null" /> for direct dialing.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options, material, and the per-peer outbound handler factory (<see langword="null" /> without a fabric).</returns>
+    /// <exception cref="InvalidOperationException">Thrown when <paramref name="fabric" /> is set but the topology has no internode mTLS.</exception>
     internal static async Task<(ClusterIdentity? Identity, MtlsOptions? Options, MtlsCertificate? Certificate, Func<string, HttpMessageHandler>? PeerHandlerFactory)> ResolveForBindAsync(
         ClusterIdentity? identity,
         TopologyOptions cluster,
@@ -92,7 +95,7 @@ public sealed class ClusterIdentity : IDisposable
         CancellationToken cancellationToken = default)
     {
         if (!MtlsTopology.RequiresInterNodeMtls(cluster))
-            return (identity, null, null, null);
+            return fabric == null ? (identity, null, null, null) : throw new InvalidOperationException(FabricWithoutMtlsMessage);
 
         identity ??= new ClusterIdentity();
         var (options, certificate, factory) = await identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.Normal, fabric, cancellationToken).ConfigureAwait(false);
@@ -294,12 +297,13 @@ public sealed class ClusterIdentity : IDisposable
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="cluster" /> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="profile" /> is not supported.</exception>
     /// <exception cref="ObjectDisposedException">Thrown when this identity has already been disposed.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when <paramref name="fabric" /> is set but the topology has no internode mTLS.</exception>
     private async Task<NodeMtlsStartup> ResolveNodeStartupAsync(TopologyOptions cluster, TestNodeProfile profile, PartitionFabric? fabric, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(cluster);
 
         if (!MtlsTopology.RequiresInterNodeMtls(cluster))
-            return new NodeMtlsStartup(null, null, null);
+            return fabric == null ? new NodeMtlsStartup(null, null, null) : throw new InvalidOperationException(FabricWithoutMtlsMessage);
 
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 1, this);
         _bundle ??= new TestBundle();

@@ -356,9 +356,16 @@ public abstract class NodeIntegrationTestBase : IDisposable
             MtlsCertificate? mtlsMaterial = null;
             Func<string, HttpMessageHandler>? peerHandlerFactory = null;
             if (options.OmitClusterMtls)
+            {
+                if (options.PartitionFabric != null)
+                    throw new InvalidOperationException("A partition fabric needs internode mTLS: the node would otherwise dial its peers directly.");
+
                 mtlsOptions = new MtlsOptions();
+            }
             else
+            {
                 (_identity, mtlsOptions, mtlsMaterial, peerHandlerFactory) = await ClusterIdentity.ResolveForBindAsync(_identity, config, options.PartitionFabric, cancellationToken);
+            }
 
             var startOptions = Helpers.CreateStartOptions(options, po, mtlsOptions, mtlsMaterial, peerHandlerFactory);
             ListenPortPool.IntegrationTests.ReleasePort(canonicalUri.Port);

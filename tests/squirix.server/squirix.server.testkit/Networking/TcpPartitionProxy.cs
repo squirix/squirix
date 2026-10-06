@@ -29,20 +29,17 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
     private const int BufferSize = 16 * 1024;
 
     private readonly Task _acceptLoop;
+    private readonly HashSet<Task> _bridges = [];
     private readonly ChangeSignal _changed = new();
     private readonly DirectionGate _clientToUpstream;
     private readonly HashSet<ProxiedConnection> _connections = [];
+    private readonly Counters _counters = new();
     private readonly Lock _gate = new();
     private readonly Socket _listener;
     private readonly CancellationTokenSource _stopping = new();
     private readonly DirectionGate _upstreamToClient;
-    private long _acceptedConnections;
-    private long _clientToUpstreamBytes;
     private int _disposed;
     private int _partitioned;
-    private long _refusedConnections;
-    private long _upstreamConnectFailures;
-    private long _upstreamToClientBytes;
 
     private TcpPartitionProxy(IPEndPoint upstream)
     {
@@ -67,7 +64,7 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
     }
 
     /// <summary>Gets the number of connections bridged to <see cref="Upstream" /> since start, including closed ones.</summary>
-    public long AcceptedConnections => Interlocked.Read(ref _acceptedConnections);
+    public long AcceptedConnections => _counters.Accepted;
 
     /// <summary>Gets the number of connections currently bridged to <see cref="Upstream" />.</summary>
     public int ActiveConnections
@@ -85,14 +82,14 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
     /// <summary>Gets the loopback endpoint clients connect to.</summary>
     public IPEndPoint ListenEndPoint { get; }
 
-    /// <summary>Gets the number of connections reset while partitioned.</summary>
-    public long RefusedConnections => Interlocked.Read(ref _refusedConnections);
+    /// <summary>Gets the number of connections reset because the proxy was partitioned; upstream connect failures are counted by <see cref="UpstreamConnectFailures" />.</summary>
+    public long RefusedConnections => _counters.Refused;
 
     /// <summary>Gets the endpoint accepted connections are bridged to.</summary>
     public IPEndPoint Upstream { get; }
 
     /// <summary>Gets the number of accepted connections whose upstream connect failed.</summary>
-    public long UpstreamConnectFailures => Interlocked.Read(ref _upstreamConnectFailures);
+    public long UpstreamConnectFailures => _counters.ConnectFailures;
 
     /// <summary>Binds an ephemeral loopback port in front of <paramref name="upstream" /> and starts accepting connections.</summary>
     /// <param name="upstream">The listener accepted connections are bridged to.</param>
@@ -110,12 +107,7 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
     /// <param name="direction">The direction to read.</param>
     /// <returns>The forwarded byte count.</returns>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="direction" /> is not a named direction.</exception>
-    public long BytesForwarded(ProxyDirection direction) => direction switch
-    {
-        ProxyDirection.ClientToUpstream => Interlocked.Read(ref _clientToUpstreamBytes),
-        ProxyDirection.UpstreamToClient => Interlocked.Read(ref _upstreamToClientBytes),
-        _ => throw new ArgumentOutOfRangeException(nameof(direction), direction, "Unsupported proxy direction."),
-    };
+    public long BytesForwarded(ProxyDirection direction) => _counters.Forwarded(direction);
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
@@ -125,13 +117,22 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
 
         await _stopping.CancelAsync().ConfigureAwait(false);
         _listener.Dispose();
-        Task[] aborted;
+        ProxiedConnection[] connections;
         lock (_gate)
-            aborted = AbortConnectionsLocked();
+            connections = [.. _connections];
+
+        var aborted = AbortConnections(connections);
 
 #pragma warning disable VSTHRD003 // The accept loop is started by this proxy's constructor and ends once the listener above is closed.
         await _acceptLoop.ConfigureAwait(false);
 #pragma warning restore VSTHRD003
+
+        // The accept loop has ended, so no bridge is added after this snapshot; each one is cancelled through the stopping token.
+        Task[] bridges;
+        lock (_gate)
+            bridges = [.. _bridges];
+
+        await Task.WhenAll(bridges).ConfigureAwait(false);
         await Task.WhenAll(aborted).ConfigureAwait(false);
         _stopping.Dispose();
     }
@@ -159,89 +160,59 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
     public Task PartitionAsync()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 1, this);
-        Task[] aborted;
+        ProxiedConnection[] connections;
         lock (_gate)
         {
             Volatile.Write(ref _partitioned, 1);
-            aborted = AbortConnectionsLocked();
+            connections = [.. _connections];
         }
 
-        return Task.WhenAll(aborted);
+        return Task.WhenAll(AbortConnections(connections));
     }
 
     /// <summary>Lets the pumps of <paramref name="direction" /> write again.</summary>
     /// <param name="direction">The direction to release.</param>
     public void Release(ProxyDirection direction) => GateFor(direction).Release();
 
+    /// <summary>Waits until exactly <paramref name="activeConnections" /> connections are bridged.</summary>
+    /// <param name="activeConnections">The bridged connection count to wait for.</param>
+    /// <param name="cancellationToken">Bounds the wait.</param>
+    /// <returns>A task that completes once <see cref="ActiveConnections" /> equals the count.</returns>
+    public Task WaitForActiveConnectionsAsync(int activeConnections, CancellationToken cancellationToken) =>
+        _changed.WaitUntilAsync(() => ActiveConnections == activeConnections, cancellationToken);
+
     /// <summary>Waits until at least <paramref name="acceptedConnections" /> connections were bridged to <see cref="Upstream" />.</summary>
     /// <param name="acceptedConnections">The bridged connection count to reach.</param>
     /// <param name="cancellationToken">Bounds the wait.</param>
     /// <returns>A task that completes once the count is reached.</returns>
-    public async Task WaitForConnectionAsync(long acceptedConnections, CancellationToken cancellationToken)
-    {
-        while (true)
-        {
-            var next = _changed.Next;
-            if (AcceptedConnections >= acceptedConnections)
-                return;
+    public Task WaitForConnectionAsync(long acceptedConnections, CancellationToken cancellationToken) =>
+        _changed.WaitUntilAsync(() => AcceptedConnections >= acceptedConnections, cancellationToken);
 
-            await next.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-    }
+    /// <summary>Waits until at least <paramref name="bytes" /> bytes were forwarded in <paramref name="direction" />.</summary>
+    /// <param name="direction">The direction to observe.</param>
+    /// <param name="bytes">The forwarded byte count to reach.</param>
+    /// <param name="cancellationToken">Bounds the wait.</param>
+    /// <returns>A task that completes once the count is reached.</returns>
+    public Task WaitForForwardedAsync(ProxyDirection direction, long bytes, CancellationToken cancellationToken) =>
+        _changed.WaitUntilAsync(() => BytesForwarded(direction) >= bytes, cancellationToken);
 
     /// <summary>Waits until a pump of <paramref name="direction" /> is parked on its held gate with bytes pending.</summary>
     /// <param name="direction">The held direction.</param>
     /// <param name="cancellationToken">Bounds the wait.</param>
     /// <returns>A task that completes once a pump is parked.</returns>
-    public async Task WaitUntilHeldAsync(ProxyDirection direction, CancellationToken cancellationToken)
+    public Task WaitUntilHeldAsync(ProxyDirection direction, CancellationToken cancellationToken)
     {
         var gate = GateFor(direction);
-        while (true)
-        {
-            var next = _changed.Next;
-            if (gate.ParkedPumps > 0)
-                return;
-
-            await next.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
+        return _changed.WaitUntilAsync(() => gate.ParkedPumps > 0, cancellationToken);
     }
 
-    /// <summary>Closes a socket with a reset instead of a graceful FIN; a socket the peer already reset fails the linger change and is simply disposed.</summary>
-    /// <param name="socket">The socket to reset.</param>
-    private static void ResetAndClose(Socket socket)
+    private static Task[] AbortConnections(ProxiedConnection[] connections)
     {
-        try
+        var tasks = new Task[connections.Length];
+        for (var i = 0; i < connections.Length; i++)
         {
-            socket.LingerState = new LingerOption(true, 0);
-        }
-        catch (Exception exception) when (exception is SocketException or ObjectDisposedException)
-        {
-            // Nothing to linger on: the peer is gone, and disposing below is all that is left.
-        }
-
-        socket.Dispose();
-    }
-
-    /// <summary>Sends every byte of <paramref name="data" />; closing the socket is the only way to abort it, so no token is taken.</summary>
-    /// <param name="destination">The socket to write to.</param>
-    /// <param name="data">The bytes to send.</param>
-    private static async ValueTask SendAllAsync(Socket destination, ReadOnlyMemory<byte> data)
-    {
-        while (!data.IsEmpty)
-        {
-            var sent = await destination.SendAsync(data, SocketFlags.None, CancellationToken.None).ConfigureAwait(false);
-            data = data[sent..];
-        }
-    }
-
-    private Task[] AbortConnectionsLocked()
-    {
-        var tasks = new Task[_connections.Count];
-        var i = 0;
-        foreach (var connection in _connections)
-        {
-            connection.Abort();
-            tasks[i++] = connection.Completion;
+            connections[i].Abort();
+            tasks[i] = connections[i].Completion;
         }
 
         return tasks;
@@ -269,6 +240,11 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
             {
                 return;
             }
+            catch (SocketException exception) when (exception.SocketErrorCode is SocketError.ConnectionReset or SocketError.ConnectionAborted)
+            {
+                // The client gave up before it was accepted; the next one is unaffected.
+                continue;
+            }
 
             if (IsPartitioned)
             {
@@ -276,59 +252,71 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
                 continue;
             }
 
-            await BridgeAsync(client, token).ConfigureAwait(false);
+            // Each connection bridges on its own task, so a slow upstream connect never delays the next accept.
+            var bridge = BridgeAsync(client, token);
+            lock (_gate)
+            {
+                _ = _bridges.RemoveWhere(static task => task.IsCompleted);
+                if (!bridge.IsCompleted)
+                    _ = _bridges.Add(bridge);
+            }
         }
-    }
-
-    private void AddForwarded(ProxyDirection direction, int bytes)
-    {
-        if (direction == ProxyDirection.ClientToUpstream)
-            _ = Interlocked.Add(ref _clientToUpstreamBytes, bytes);
-        else
-            _ = Interlocked.Add(ref _upstreamToClientBytes, bytes);
     }
 
     private async Task BridgeAsync(Socket client, CancellationToken token)
     {
-        client.NoDelay = true;
-        var upstream = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        Socket? pending = null;
+        Socket upstream;
         try
         {
-            await upstream.ConnectAsync(Upstream, token).ConfigureAwait(false);
+            client.NoDelay = true;
+            pending = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+            await pending.ConnectAsync(Upstream, token).ConfigureAwait(false);
+            upstream = pending;
+            pending = null;
         }
-        catch (SocketException)
+        catch (Exception exception) when (exception is SocketException or ObjectDisposedException or OperationCanceledException)
         {
-            _ = Interlocked.Increment(ref _upstreamConnectFailures);
-            upstream.Dispose();
-            Refuse(client);
+            if (exception is SocketException && !token.IsCancellationRequested && pending is { Connected: false })
+                _counters.CountConnectFailure();
+
+            SocketOps.ResetAndClose(client);
             return;
         }
-        catch (OperationCanceledException)
+        finally
         {
-            upstream.Dispose();
-            Refuse(client);
-            return;
+            pending?.Dispose();
         }
 
+        var bridged = false;
+        bool partitioned;
         lock (_gate)
         {
-            if (IsPartitioned || Volatile.Read(ref _disposed) == 1)
+            partitioned = IsPartitioned;
+            if (!partitioned && Volatile.Read(ref _disposed) == 0)
             {
-                ResetAndClose(upstream);
-                Refuse(client);
-                return;
+                // The pumps start under the gate so a concurrent partition snapshot always sees a started
+                // connection whose completion it can await. The pumps' first socket read returns pending on
+                // a live socket; a pump that ends synchronously re-enters this gate to remove itself.
+                var connection = new ProxiedConnection(client, upstream);
+                _ = _connections.Add(connection);
+                _counters.CountAccepted();
+                connection.Start(this);
+                bridged = true;
             }
-
-            // The pumps start under the gate so a concurrent partition snapshot always sees a started
-            // connection whose completion it can await. The pumps' first socket read returns pending on
-            // a live socket; a pump that ends synchronously re-enters this gate to remove itself.
-            var connection = new ProxiedConnection(client, upstream);
-            _ = _connections.Add(connection);
-            connection.Start(this);
-            _ = Interlocked.Increment(ref _acceptedConnections);
         }
 
-        _changed.Pulse();
+        if (bridged)
+        {
+            _changed.Pulse();
+            return;
+        }
+
+        SocketOps.ResetAndClose(upstream);
+        if (partitioned)
+            Refuse(client);
+        else
+            SocketOps.ResetAndClose(client);
     }
 
     private DirectionGate GateFor(ProxyDirection direction) => direction switch
@@ -361,8 +349,9 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
                 if (!await gate.WaitOpenAsync(connection).ConfigureAwait(false))
                     return;
 
-                await SendAllAsync(destination, buffer.AsMemory(0, read)).ConfigureAwait(false);
-                AddForwarded(direction, read);
+                await SocketOps.SendAllAsync(destination, buffer.AsMemory(0, read)).ConfigureAwait(false);
+                _counters.AddForwarded(direction, read);
+                _changed.Pulse();
             }
         }
         catch (Exception exception) when (exception is SocketException or ObjectDisposedException)
@@ -378,8 +367,8 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
 
     private void Refuse(Socket client)
     {
-        _ = Interlocked.Increment(ref _refusedConnections);
-        ResetAndClose(client);
+        _counters.CountRefused();
+        SocketOps.ResetAndClose(client);
         _changed.Pulse();
     }
 
@@ -389,6 +378,38 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
             _ = _connections.Remove(connection);
 
         _changed.Pulse();
+    }
+
+    /// <summary>Socket teardown and write helpers shared by the accept loop, the pumps, and the connections.</summary>
+    private static class SocketOps
+    {
+        /// <summary>Closes a socket with a reset instead of a graceful FIN; a socket the peer already reset fails the linger change and is simply disposed.</summary>
+        /// <param name="socket">The socket to reset.</param>
+        internal static void ResetAndClose(Socket socket)
+        {
+            try
+            {
+                socket.LingerState = new LingerOption(true, 0);
+            }
+            catch (Exception exception) when (exception is SocketException or ObjectDisposedException)
+            {
+                // Nothing to linger on: the peer is gone, and disposing below is all that is left.
+            }
+
+            socket.Dispose();
+        }
+
+        /// <summary>Sends every byte of <paramref name="data" />; closing the socket is the only way to abort it, so no token is taken.</summary>
+        /// <param name="destination">The socket to write to.</param>
+        /// <param name="data">The bytes to send.</param>
+        internal static async ValueTask SendAllAsync(Socket destination, ReadOnlyMemory<byte> data)
+        {
+            while (!data.IsEmpty)
+            {
+                var sent = await destination.SendAsync(data, SocketFlags.None, CancellationToken.None).ConfigureAwait(false);
+                data = data[sent..];
+            }
+        }
     }
 
     /// <summary>A completion swapped on every pulse, so a waiter that captures it before checking its condition cannot miss an update.</summary>
@@ -410,6 +431,22 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
             }
         }
 
+        /// <summary>Waits until <paramref name="condition" /> holds, re-checking it after every pulse.</summary>
+        /// <param name="condition">The condition to wait for.</param>
+        /// <param name="cancellationToken">Bounds the wait.</param>
+        /// <returns>A task that completes once the condition holds.</returns>
+        internal async Task WaitUntilAsync(Func<bool> condition, CancellationToken cancellationToken)
+        {
+            while (true)
+            {
+                var next = Next;
+                if (condition())
+                    return;
+
+                await next.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
         internal void Pulse()
         {
             TaskCompletionSource completed;
@@ -421,6 +458,44 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
 
             completed.SetResult();
         }
+    }
+
+    /// <summary>The proxy's observable counters.</summary>
+    [Mutable]
+    private sealed class Counters
+    {
+        private long _accepted;
+        private long _clientToUpstreamBytes;
+        private long _connectFailures;
+        private long _refused;
+        private long _upstreamToClientBytes;
+
+        internal long Accepted => Interlocked.Read(ref _accepted);
+
+        internal long ConnectFailures => Interlocked.Read(ref _connectFailures);
+
+        internal long Refused => Interlocked.Read(ref _refused);
+
+        internal void AddForwarded(ProxyDirection direction, int bytes)
+        {
+            if (direction == ProxyDirection.ClientToUpstream)
+                _ = Interlocked.Add(ref _clientToUpstreamBytes, bytes);
+            else
+                _ = Interlocked.Add(ref _upstreamToClientBytes, bytes);
+        }
+
+        internal void CountAccepted() => _ = Interlocked.Increment(ref _accepted);
+
+        internal void CountConnectFailure() => _ = Interlocked.Increment(ref _connectFailures);
+
+        internal void CountRefused() => _ = Interlocked.Increment(ref _refused);
+
+        internal long Forwarded(ProxyDirection direction) => direction switch
+        {
+            ProxyDirection.ClientToUpstream => Interlocked.Read(ref _clientToUpstreamBytes),
+            ProxyDirection.UpstreamToClient => Interlocked.Read(ref _upstreamToClientBytes),
+            _ => throw new ArgumentOutOfRangeException(nameof(direction), direction, "Unsupported proxy direction."),
+        };
     }
 
     /// <summary>A per-direction gate the pumps await before each write.</summary>
@@ -536,8 +611,8 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
                 return;
 
             _aborted.SetResult();
-            ResetAndClose(_client);
-            ResetAndClose(_upstream);
+            SocketOps.ResetAndClose(_client);
+            SocketOps.ResetAndClose(_upstream);
         }
 
         internal void Start(TcpPartitionProxy owner) => Completion = RunAsync(owner);

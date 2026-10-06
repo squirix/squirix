@@ -1,6 +1,3 @@
-using System;
-using System.Buffers;
-using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -24,11 +21,12 @@ public sealed class TcpPartitionProxyTests
     {
         await using var echo = EchoUpstream.Start();
         await using var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
-        using var client = await ConnectAsync(proxy.ListenEndPoint, cancellationToken);
+        using var client = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
 
         _ = await client.SendAsync(Payload, SocketFlags.None, cancellationToken);
-        var echoed = await ReceiveExactlyAsync(client, Payload.Length, cancellationToken);
-        await proxy.WaitForConnectionAsync(1, cancellationToken);
+        var echoed = await ProxyTestSockets.ReceiveExactlyAsync(client, Payload.Length, cancellationToken);
+        await proxy.WaitForForwardedAsync(ProxyDirection.ClientToUpstream, Payload.Length, cancellationToken);
+        await proxy.WaitForForwardedAsync(ProxyDirection.UpstreamToClient, Payload.Length, cancellationToken);
 
         await SequenceAssert.EqualAsync(Payload, echoed);
         _ = await Assert.That(proxy.BytesForwarded(ProxyDirection.ClientToUpstream)).IsEqualTo(Payload.Length);
@@ -45,7 +43,7 @@ public sealed class TcpPartitionProxyTests
     {
         await using var echo = EchoUpstream.Start();
         await using var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
-        using var client = await ConnectAsync(proxy.ListenEndPoint, cancellationToken);
+        using var client = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
 
         proxy.Hold(ProxyDirection.ClientToUpstream);
         _ = await client.SendAsync(Payload, SocketFlags.None, cancellationToken);
@@ -56,12 +54,58 @@ public sealed class TcpPartitionProxyTests
         _ = await Assert.That(proxy.BytesForwarded(ProxyDirection.ClientToUpstream)).IsEqualTo(0);
 
         proxy.Release(ProxyDirection.ClientToUpstream);
-        var echoed = await ReceiveExactlyAsync(client, Payload.Length, cancellationToken);
+        var echoed = await ProxyTestSockets.ReceiveExactlyAsync(client, Payload.Length, cancellationToken);
+        await proxy.WaitForForwardedAsync(ProxyDirection.ClientToUpstream, Payload.Length, cancellationToken);
 
         _ = await Assert.That(proxy.IsHeld(ProxyDirection.ClientToUpstream)).IsFalse();
         await SequenceAssert.EqualAsync(Payload, echoed);
         _ = await Assert.That(echo.Received).IsEqualTo(Payload.Length);
         _ = await Assert.That(proxy.BytesForwarded(ProxyDirection.ClientToUpstream)).IsEqualTo(Payload.Length);
+    }
+
+    /// <summary>A held upstream-to-client direction lets the request reach the upstream but parks the reply until release.</summary>
+    /// <param name="cancellationToken">The test cancellation token; bounds the waits only.</param>
+    [Test]
+    public async Task HoldUpstreamToClientParksReplies(CancellationToken cancellationToken)
+    {
+        await using var echo = EchoUpstream.Start();
+        await using var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
+        using var client = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
+
+        proxy.Hold(ProxyDirection.UpstreamToClient);
+        _ = await client.SendAsync(Payload, SocketFlags.None, cancellationToken);
+        await proxy.WaitUntilHeldAsync(ProxyDirection.UpstreamToClient, cancellationToken);
+        await proxy.WaitForForwardedAsync(ProxyDirection.ClientToUpstream, Payload.Length, cancellationToken);
+
+        _ = await Assert.That(echo.Received).IsEqualTo(Payload.Length);
+        _ = await Assert.That(proxy.IsHeld(ProxyDirection.ClientToUpstream)).IsFalse();
+        _ = await Assert.That(proxy.BytesForwarded(ProxyDirection.UpstreamToClient)).IsEqualTo(0);
+
+        proxy.Release(ProxyDirection.UpstreamToClient);
+        var echoed = await ProxyTestSockets.ReceiveExactlyAsync(client, Payload.Length, cancellationToken);
+
+        await SequenceAssert.EqualAsync(Payload, echoed);
+    }
+
+    /// <summary>Healing releases a gate a pump is parked on without aborting the connection.</summary>
+    /// <param name="cancellationToken">The test cancellation token; bounds the waits only.</param>
+    [Test]
+    public async Task HealReleasesParkedPump(CancellationToken cancellationToken)
+    {
+        await using var echo = EchoUpstream.Start();
+        await using var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
+        using var client = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
+
+        proxy.Hold(ProxyDirection.ClientToUpstream);
+        _ = await client.SendAsync(Payload, SocketFlags.None, cancellationToken);
+        await proxy.WaitUntilHeldAsync(ProxyDirection.ClientToUpstream, cancellationToken);
+
+        proxy.Heal();
+        var echoed = await ProxyTestSockets.ReceiveExactlyAsync(client, Payload.Length, cancellationToken);
+
+        _ = await Assert.That(proxy.IsHeld(ProxyDirection.ClientToUpstream)).IsFalse();
+        _ = await Assert.That(proxy.ActiveConnections).IsEqualTo(1);
+        await SequenceAssert.EqualAsync(Payload, echoed);
     }
 
     /// <summary>A partition resets the live connections and every new one until the proxy heals.</summary>
@@ -71,25 +115,25 @@ public sealed class TcpPartitionProxyTests
     {
         await using var echo = EchoUpstream.Start();
         await using var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
-        using var live = await ConnectAsync(proxy.ListenEndPoint, cancellationToken);
+        using var live = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
         _ = await live.SendAsync(Payload, SocketFlags.None, cancellationToken);
-        _ = await ReceiveExactlyAsync(live, Payload.Length, cancellationToken);
+        _ = await ProxyTestSockets.ReceiveExactlyAsync(live, Payload.Length, cancellationToken);
 
         await proxy.PartitionAsync();
 
         _ = await Assert.That(proxy.IsPartitioned).IsTrue();
         _ = await Assert.That(proxy.ActiveConnections).IsEqualTo(0);
-        _ = await Assert.That(await IsClosedAsync(live, cancellationToken)).IsTrue();
+        _ = await Assert.That(await ProxyTestSockets.IsClosedAsync(live, cancellationToken)).IsTrue();
 
-        using var refused = await ConnectAsync(proxy.ListenEndPoint, cancellationToken);
-        _ = await Assert.That(await IsRefusedAsync(refused, cancellationToken)).IsTrue();
+        using var refused = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
+        _ = await Assert.That(await ProxyTestSockets.IsRefusedAsync(refused, cancellationToken)).IsTrue();
         _ = await Assert.That(proxy.RefusedConnections).IsEqualTo(1);
         _ = await Assert.That(proxy.AcceptedConnections).IsEqualTo(1);
 
         proxy.Heal();
-        using var healed = await ConnectAsync(proxy.ListenEndPoint, cancellationToken);
+        using var healed = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
         _ = await healed.SendAsync(Payload, SocketFlags.None, cancellationToken);
-        var echoed = await ReceiveExactlyAsync(healed, Payload.Length, cancellationToken);
+        var echoed = await ProxyTestSockets.ReceiveExactlyAsync(healed, Payload.Length, cancellationToken);
 
         _ = await Assert.That(proxy.IsPartitioned).IsFalse();
         await SequenceAssert.EqualAsync(Payload, echoed);
@@ -104,7 +148,7 @@ public sealed class TcpPartitionProxyTests
     {
         await using var echo = EchoUpstream.Start();
         await using var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
-        using var client = await ConnectAsync(proxy.ListenEndPoint, cancellationToken);
+        using var client = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
 
         proxy.Hold(ProxyDirection.ClientToUpstream);
         _ = await client.SendAsync(Payload, SocketFlags.None, cancellationToken);
@@ -114,7 +158,7 @@ public sealed class TcpPartitionProxyTests
 
         _ = await Assert.That(proxy.ActiveConnections).IsEqualTo(0);
         _ = await Assert.That(echo.Received).IsEqualTo(0);
-        _ = await Assert.That(await IsClosedAsync(client, cancellationToken)).IsTrue();
+        _ = await Assert.That(await ProxyTestSockets.IsClosedAsync(client, cancellationToken)).IsTrue();
     }
 
     /// <summary>Disposal with bridged connections completes and leaves the clients closed.</summary>
@@ -124,87 +168,79 @@ public sealed class TcpPartitionProxyTests
     {
         await using var echo = EchoUpstream.Start();
         var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
-        using var first = await ConnectAsync(proxy.ListenEndPoint, cancellationToken);
-        using var second = await ConnectAsync(proxy.ListenEndPoint, cancellationToken);
+        using var first = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
+        using var second = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
         _ = await first.SendAsync(Payload, SocketFlags.None, cancellationToken);
-        _ = await ReceiveExactlyAsync(first, Payload.Length, cancellationToken);
+        _ = await ProxyTestSockets.ReceiveExactlyAsync(first, Payload.Length, cancellationToken);
         await proxy.WaitForConnectionAsync(2, cancellationToken);
 
         await proxy.DisposeAsync();
         await proxy.DisposeAsync();
 
         _ = await Assert.That(proxy.ActiveConnections).IsEqualTo(0);
-        _ = await Assert.That(await IsClosedAsync(first, cancellationToken)).IsTrue();
-        _ = await Assert.That(await IsClosedAsync(second, cancellationToken)).IsTrue();
+        _ = await Assert.That(await ProxyTestSockets.IsClosedAsync(first, cancellationToken)).IsTrue();
+        _ = await Assert.That(await ProxyTestSockets.IsClosedAsync(second, cancellationToken)).IsTrue();
     }
 
-    internal static async Task<Socket> ConnectAsync(IPEndPoint endPoint, CancellationToken cancellationToken)
+    /// <summary>A client that resets before it is bridged does not stop the proxy from bridging the next connection.</summary>
+    /// <param name="cancellationToken">The test cancellation token; bounds the waits only.</param>
+    [Test]
+    public async Task ClientResetBeforeBridgingKeepsAccepting(CancellationToken cancellationToken)
     {
-        var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-        try
-        {
-            await socket.ConnectAsync(endPoint, cancellationToken);
-            return socket;
-        }
-        catch
-        {
-            socket.Dispose();
-            throw;
-        }
+        await using var echo = EchoUpstream.Start();
+        await using var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
+        using (var doomed = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken))
+            doomed.LingerState = new LingerOption(true, 0);
+
+        using var next = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
+        _ = await next.SendAsync(Payload, SocketFlags.None, cancellationToken);
+        var echoed = await ProxyTestSockets.ReceiveExactlyAsync(next, Payload.Length, cancellationToken);
+
+        await SequenceAssert.EqualAsync(Payload, echoed);
+        _ = await Assert.That(proxy.RefusedConnections).IsEqualTo(0);
     }
 
-    /// <summary>Tells whether the peer closed or reset the connection instead of sending more bytes.</summary>
-    /// <param name="socket">The connected socket to read from.</param>
-    /// <param name="cancellationToken">Bounds the read.</param>
-    /// <returns><see langword="true" /> when the read ends with a FIN or a reset.</returns>
-    internal static async Task<bool> IsClosedAsync(Socket socket, CancellationToken cancellationToken)
+    /// <summary>A FIN in one direction keeps the other direction forwarding, and the connection closes once both ended.</summary>
+    /// <param name="cancellationToken">The test cancellation token; bounds the waits only.</param>
+    [Test]
+    public async Task HalfCloseKeepsOtherDirectionOpen(CancellationToken cancellationToken)
     {
-        var buffer = ArrayPool<byte>.Shared.Rent(1);
-        try
-        {
-            return await socket.ReceiveAsync(buffer.AsMemory(0, 1), SocketFlags.None, cancellationToken) == 0;
-        }
-        catch (SocketException)
-        {
-            return true;
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
+        using var listener = ProxyTestSockets.Listen();
+        await using var proxy = await TcpPartitionProxy.StartAsync(ProxyTestSockets.LocalEndPointOf(listener), cancellationToken);
+        using var client = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
+        await proxy.WaitForConnectionAsync(1, cancellationToken);
+        using var upstream = await listener.AcceptAsync(cancellationToken);
+
+        client.Shutdown(SocketShutdown.Send);
+
+        _ = await Assert.That(await ProxyTestSockets.IsClosedAsync(upstream, cancellationToken)).IsTrue();
+        _ = await upstream.SendAsync(Payload, SocketFlags.None, cancellationToken);
+        var received = await ProxyTestSockets.ReceiveExactlyAsync(client, Payload.Length, cancellationToken);
+
+        await SequenceAssert.EqualAsync(Payload, received);
+        _ = await Assert.That(proxy.ActiveConnections).IsEqualTo(1);
+
+        upstream.Shutdown(SocketShutdown.Send);
+        _ = await Assert.That(await ProxyTestSockets.IsClosedAsync(client, cancellationToken)).IsTrue();
+        await proxy.WaitForActiveConnectionsAsync(0, cancellationToken);
+
+        _ = await Assert.That(proxy.ActiveConnections).IsEqualTo(0);
+        _ = await Assert.That(proxy.RefusedConnections).IsEqualTo(0);
     }
 
-    /// <summary>Tells whether a freshly connected socket is reset by the proxy instead of being served.</summary>
-    /// <param name="socket">The connected socket to probe.</param>
-    /// <param name="cancellationToken">Bounds the probe.</param>
-    /// <returns><see langword="true" /> when the send or the following read fails or ends without an echo.</returns>
-    internal static async Task<bool> IsRefusedAsync(Socket socket, CancellationToken cancellationToken)
+    /// <summary>An unreachable upstream resets the client and counts as a connect failure, not as a partition refusal.</summary>
+    /// <param name="cancellationToken">The test cancellation token; bounds the waits only.</param>
+    [Test]
+    public async Task UpstreamConnectFailureResetsClient(CancellationToken cancellationToken)
     {
-        try
-        {
-            _ = await socket.SendAsync(Payload, SocketFlags.None, cancellationToken);
-        }
-        catch (SocketException)
-        {
-            return true;
-        }
+        await using var proxy = await TcpPartitionProxy.StartAsync(ProxyTestSockets.ReserveClosedEndPoint(), cancellationToken);
+        using var client = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
 
-        return await IsClosedAsync(socket, cancellationToken);
-    }
+        _ = await Assert.That(await ProxyTestSockets.IsRefusedAsync(client, cancellationToken)).IsTrue();
 
-    internal static async Task<byte[]> ReceiveExactlyAsync(Socket socket, int count, CancellationToken cancellationToken)
-    {
-        var buffer = new byte[count];
-        var filled = 0;
-        while (filled < count)
-        {
-            var read = await socket.ReceiveAsync(buffer.AsMemory(filled), SocketFlags.None, cancellationToken);
-            if (read == 0)
-                throw new InvalidOperationException($"The connection closed after {filled} of {count} bytes.");
-
-            filled += read;
-        }
-
-        return buffer;
+        _ = await Assert.That(proxy.UpstreamConnectFailures).IsEqualTo(1);
+        _ = await Assert.That(proxy.RefusedConnections).IsEqualTo(0);
+        _ = await Assert.That(proxy.AcceptedConnections).IsEqualTo(0);
+        _ = await Assert.That(proxy.ActiveConnections).IsEqualTo(0);
     }
 }
