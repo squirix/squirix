@@ -68,9 +68,11 @@ internal static class NodeOptionsRegistration
             sp.GetRequiredService<IOptions<MtlsOptions>>(),
             sp.GetRequiredService<IValidateOptions<MtlsOptions>>()));
 
-        // Register through the factory overload so the DI container owns and disposes the certificate material on
-        // host shutdown. AddSingleton(instance) does not transfer disposal ownership in Microsoft DI, which would
-        // leak the loaded X509 certificates.
+        // Register through the factory overload so the DI container owns the loader's hold on the certificate material
+        // and releases it on host shutdown. AddSingleton(instance) does not transfer disposal ownership in Microsoft DI,
+        // which would leak the loaded X509 certificates. The material is shared: the internode client pool retains its
+        // own hold and releases it only once its outbound connections are closed, so the certificates are freed by the
+        // last holder, whichever order the container disposes them in.
         _ = args.Certificate != null ? services.AddSingleton(_ => args.Certificate) : services.AddSingleton(static provider =>
         {
             var registeredCluster = provider.GetRequiredService<TopologyOptions>();
