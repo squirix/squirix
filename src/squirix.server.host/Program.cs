@@ -230,8 +230,8 @@ internal static class Program
         {
             await Console.Out.WriteLineAsync("[Squirix.Server] Server is ready.").ConfigureAwait(false);
             await Console.Out.WriteLineAsync($"  URL: {options.Uri}").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"  Health endpoint: {options.Uri}/health").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"  Metrics endpoint: {options.Uri}/metrics").ConfigureAwait(false);
+            await Console.Out.WriteLineAsync($"  Health endpoint: {new Uri(options.Uri, "/health")}").ConfigureAwait(false);
+            await Console.Out.WriteLineAsync($"  Metrics endpoint: {new Uri(options.Uri, "/metrics")}").ConfigureAwait(false);
             await Console.Out.WriteLineAsync($"  Node ID: {options.NodeId}").ConfigureAwait(false);
             _ = await WritePersistenceStatusAsync(options, cancellationToken).ConfigureAwait(false);
             await Console.Out.WriteLineAsync($"  Settings: {ResolveSettingsPath(command) ?? "<defaults>"}").ConfigureAwait(false);
