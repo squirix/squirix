@@ -28,7 +28,7 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
 
     private const string PeerNodeId = "node-b";
 
-    /// <summary>Bounds the waits on the stub peer; the connect timeout of the pool ends the stalled handshake within seconds.</summary>
+    /// <summary>Bounds the waits on the stub peer; disposal aborts the stalled connection at once.</summary>
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(30);
 
     /// <summary>
@@ -53,7 +53,7 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
         var peer = new ServerPeer { NodeId = PeerNodeId, Uri = peerUri, InterNodeUri = peerUri };
         var args = new ServerClientPoolArgs
         {
-            PolicyFactory = static _ => new IdlePolicy(),
+            PolicyFactory = static _ => new IdleCallPolicy(),
             Certificate = material,
             InterNodeMtlsEnabled = true,
             MtlsOptions = new MtlsOptions { InternalListenPort = port },
@@ -65,11 +65,12 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
 
         await pool.DisposeAsync();
 
-        await connectionClosed.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(call);
+        _ = await Assert.That(pool.OpenConnections).IsEqualTo(0).Because("Disposal must return only once the stalled connection was torn down.");
         _ = await Assert.That(material.IsReleased).IsFalse().Because("The loader still holds the material after the pool released its hold.");
         DisposeAsLoader(material);
         _ = await Assert.That(material.IsReleased).IsTrue().Because("The pool must have released its hold once the stalled connection closed.");
+        await connectionClosed.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(call);
         await stub;
     }
 
@@ -113,18 +114,5 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
         }
 
         _ = connectionClosed.TrySetResult();
-    }
-
-    /// <summary>A call policy no call goes through; replication calls lease the channel directly.</summary>
-    private sealed class IdlePolicy : IServerCallPolicy
-    {
-        public void BeginDrain()
-        {
-        }
-
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-
-        public ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken) =>
-            throw new NotSupportedException("IdlePolicy does not execute calls.");
     }
 }

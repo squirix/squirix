@@ -44,12 +44,12 @@ internal sealed class ServerClientPool : IServerClientPool
     private readonly CancellationTokenSource _closing = new();
 
     /// <summary>Open connections of the owned handlers, each from its connect attempt until its stream is disposed; drained before the material is released.</summary>
-    private readonly QuiescenceGate _connections = new();
+    private readonly TrackedConnections _connections = new();
 
     private readonly ILogger<ServerClientPool> _logger;
 
     /// <summary>The pool's hold on the mTLS material its owned handlers present; <see langword="null" /> without enabled material.</summary>
-    private readonly MtlsCertificateHold? _materialHold;
+    private readonly MtlsCertificate.Hold? _materialHold;
 
     private readonly ServerClientPoolMetrics _metrics;
     private readonly string[] _nodeIds;
@@ -97,6 +97,9 @@ internal sealed class ServerClientPool : IServerClientPool
 
     internal IReadOnlyCollection<string> NodeIds { get; }
 
+    /// <summary>Gets the number of connections of the owned handlers that are still open.</summary>
+    internal int OpenConnections => _connections.Pending;
+
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
@@ -139,8 +142,8 @@ internal sealed class ServerClientPool : IServerClientPool
         bool interNodeMtlsEnabled,
         MtlsCertificate? certificate,
         Func<string, HttpMessageHandler>? peerHandlerFactory,
-        Func<MtlsCertificate?, string, QuiescenceGate, HttpMessageHandler> ownedHandlerFactory,
-        QuiescenceGate connections)
+        Func<MtlsCertificate?, string, TrackedConnections, HttpMessageHandler> ownedHandlerFactory,
+        TrackedConnections connections)
     {
         HttpMessageHandler? ownedHandler = null;
         try
@@ -205,6 +208,14 @@ internal sealed class ServerClientPool : IServerClientPool
         return string.Join(", ", busy);
     }
 
+    private async Task CancelLeasesAsync()
+    {
+        // A callback registered on a lease token may throw; the remaining callbacks have run and disposal must still release the channels and the material.
+        var failure = await _closing.CancelAsync().CaptureFailureAsync().ConfigureAwait(false);
+        if (failure != null)
+            ServerLog.ClientPoolLeaseCancelFailed(_logger, failure);
+    }
+
     private void DisposeChannels()
     {
         for (var i = 0; i < _nodeIds.Length; i++)
@@ -226,7 +237,7 @@ internal sealed class ServerClientPool : IServerClientPool
         // The peers drain in parallel under one budget, so a stuck peer cannot hold up host shutdown; channels are disposed either way.
         BeginDrain();
         _calls.Close();
-        await _closing.CancelAsync().ConfigureAwait(false);
+        await CancelLeasesAsync().ConfigureAwait(false);
         var drains = new Task[_nodeIds.Length + 1];
         for (var i = 0; i < _nodeIds.Length; i++)
             drains[i] = DisposePolicyAsync(_nodeIds[i]);
@@ -250,6 +261,9 @@ internal sealed class ServerClientPool : IServerClientPool
     private async Task<bool> DrainConnectionsAsync(long started)
     {
         _connections.Close();
+
+        // The channels are gone, so a connection still open is a handshake that no call waits for; closing its socket ends it at once.
+        _connections.AbortAll();
         try
         {
             await _connections.WaitAsync(CancellationToken.None).AsTask().WaitAsync(Remaining(started), _timeProvider, CancellationToken.None).ConfigureAwait(false);
@@ -352,15 +366,15 @@ internal sealed class ServerClientPool : IServerClientPool
         /// <summary>Creates the handler a pool owns for one peer: mTLS when <paramref name="certificate" /> is supplied, plain HTTPS otherwise.</summary>
         /// <param name="certificate">Loaded cluster mTLS material, or <see langword="null" /> for plain HTTPS.</param>
         /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-        /// <param name="connections">The pool's connection gate that tracks the handler's connections.</param>
+        /// <param name="connections">The pool's tracked connections of the handler.</param>
         /// <returns>A handler owned by the caller.</returns>
-        internal static SocketsHttpHandler CreateOwnedHandler(MtlsCertificate? certificate, string expectedPeerNodeId, QuiescenceGate connections) =>
+        internal static SocketsHttpHandler CreateOwnedHandler(MtlsCertificate? certificate, string expectedPeerNodeId, TrackedConnections connections) =>
             certificate == null ? CreateChannelHandler(connections) : CreateMtlsHandler(certificate, expectedPeerNodeId, connections);
 
         /// <summary>Creates the default HTTP handler for HTTPS gRPC channels.</summary>
-        /// <param name="connections">The pool's connection gate that tracks the handler's connections.</param>
+        /// <param name="connections">The pool's tracked connections.</param>
         /// <returns>A handler suitable for secure gRPC transport that opens more HTTP/2 connections once the stream limit is reached.</returns>
-        private static SocketsHttpHandler CreateChannelHandler(QuiescenceGate connections) => new()
+        private static SocketsHttpHandler CreateChannelHandler(TrackedConnections connections) => new()
         {
             EnableMultipleHttp2Connections = true,
             ConnectTimeout = InterNodeConnectTimeout,
@@ -370,11 +384,11 @@ internal sealed class ServerClientPool : IServerClientPool
         /// <summary>Creates an outbound cluster mTLS HTTP handler that presents the local node certificate.</summary>
         /// <param name="certificate">Loaded cluster mTLS certificate.</param>
         /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-        /// <param name="connections">The pool's connection gate that tracks the handler's connections.</param>
+        /// <param name="connections">The pool's tracked connections of the handler.</param>
         /// <returns>A handler configured for internode mutual TLS.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="certificate" /> is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown when cluster mTLS certificate is not loaded.</exception>
-        private static SocketsHttpHandler CreateMtlsHandler(MtlsCertificate certificate, string expectedPeerNodeId, QuiescenceGate connections)
+        private static SocketsHttpHandler CreateMtlsHandler(MtlsCertificate certificate, string expectedPeerNodeId, TrackedConnections connections)
         {
             ArgumentNullException.ThrowIfNull(certificate);
             ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
@@ -387,9 +401,9 @@ internal sealed class ServerClientPool : IServerClientPool
         /// <param name="clientCertificate">Client certificate presented to the peer.</param>
         /// <param name="trustAnchor">Configured cluster trust root.</param>
         /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-        /// <param name="connections">The pool's connection gate that tracks the handler's connections.</param>
+        /// <param name="connections">The pool's tracked connections of the handler.</param>
         /// <returns>A handler configured for internode mutual TLS.</returns>
-        private static SocketsHttpHandler CreateMtlsHandler(X509Certificate2 clientCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId, QuiescenceGate connections)
+        private static SocketsHttpHandler CreateMtlsHandler(X509Certificate2 clientCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId, TrackedConnections connections)
         {
             ArgumentNullException.ThrowIfNull(clientCertificate);
             ArgumentNullException.ThrowIfNull(trustAnchor);

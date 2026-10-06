@@ -51,6 +51,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(call);
         await parking.Cancelled.WaitAsync(cancellationToken);
         _ = await Assert.That(parking.Disposed).IsTrue();
+        _ = await Assert.That(parking.DisposedAfterCancel).IsTrue().Because("The handler must outlive the call it was cancelled under.");
     }
 
     /// <summary>A call issued after the pool started to dispose is refused without reaching the transport.</summary>
@@ -76,7 +77,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
     {
         var args = new ServerClientPoolArgs
         {
-            PolicyFactory = static _ => new IdlePolicy(),
+            PolicyFactory = static _ => new IdleCallPolicy(),
             OwnedHandlerFactory = (_, _, _) => handler,
         };
         var peer = new ServerPeer { NodeId = PeerNodeId, Uri = new Uri("https://localhost:6500") };
@@ -84,19 +85,6 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
     }
 
     private static ReplicaRpcHeader Header() => new(PeerNodeId, ReadOnlyMemory<byte>.Empty, 1, 1, PeerNodeId, PeerNodeId);
-
-    /// <summary>A call policy no call goes through; replication calls lease the channel directly.</summary>
-    private sealed class IdlePolicy : IServerCallPolicy
-    {
-        public void BeginDrain()
-        {
-        }
-
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-
-        public ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken) =>
-            throw new NotSupportedException("IdlePolicy does not execute calls.");
-    }
 
     /// <summary>Parks every request until its token is cancelled, then fails it as the transport would.</summary>
     private sealed class ParkingHandler : HttpMessageHandler
@@ -113,10 +101,16 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
 
         internal bool Disposed { get; private set; }
 
+        /// <summary>Gets a value indicating whether the parked request had already observed its cancellation when the handler was disposed.</summary>
+        internal bool DisposedAfterCancel { get; private set; }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing)
+            {
+                DisposedAfterCancel = _cancelled.Task.IsCompleted;
                 Disposed = true;
+            }
 
             base.Dispose(disposing);
         }

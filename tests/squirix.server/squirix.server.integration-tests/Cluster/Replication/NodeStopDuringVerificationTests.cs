@@ -11,13 +11,14 @@ using TUnit.Core;
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
 /// <summary>
-/// A restarted group owner probes its followers right away; stopping it while those probes are still in their TLS handshakes must end the
+/// Smoke test, not a deterministic reproduction of the handshake race: a restarted group owner probes its followers right away; stopping it while those probes are still in their TLS handshakes must end the
 /// outbound handshakes before the node frees its certificate material, so the stop returns and the process survives.
 /// </summary>
 public sealed class NodeStopDuringVerificationTests : NodeIntegrationTestBase
 {
     private const string CacheName = "node-stop-verification";
     private const int Iterations = 3;
+    private const int MaterialLeakedEventId = 5005;
     private const string OwnerId = "node-a";
     private const string SurvivorId = "node-b";
 
@@ -27,16 +28,17 @@ public sealed class NodeStopDuringVerificationTests : NodeIntegrationTestBase
     public async Task StopWhileProbesHandshakeReturns(CancellationToken cancellationToken)
     {
         const string scope = "node-stop-verification";
-        await using var cluster = await StartClusterAsync(OwnerId, SurvivorId, "node-c", Options(scope, true), cancellationToken);
+        using var recorder = new RecordingLoggerProvider();
+        await using var cluster = await StartClusterAsync(OwnerId, SurvivorId, "node-c", Options(scope, true, recorder), cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[OwnerId], cancellationToken);
 
         for (var i = 0; i < Iterations; i++)
         {
-            _ = await cluster.RestartNodeAsync(OwnerId, Options(scope, false), cancellationToken);
+            _ = await cluster.RestartNodeAsync(OwnerId, Options(scope, false, recorder), cancellationToken);
             await cluster.StopNodeAsync(OwnerId);
         }
 
-        _ = await cluster.StartNodeAsync(OwnerId, Options(scope, false), cancellationToken);
+        _ = await cluster.StartNodeAsync(OwnerId, Options(scope, false, recorder), cancellationToken);
         var survivor = cluster[SurvivorId];
         await ReplicaGroupFollowers.AwaitVerifiedAsync(survivor, cancellationToken);
         var key = survivor.FindKeyOwnedBy(CacheName, SurvivorId);
@@ -46,13 +48,15 @@ public sealed class NodeStopDuringVerificationTests : NodeIntegrationTestBase
 
         var stored = await survivor.GetCache<object?>(CacheName).GetEntryAsync(CacheName, key, cancellationToken);
         _ = await Assert.That(stored?.Value).IsEqualTo("after-stops").Because("The cluster must stay writable after the owner was stopped mid-handshake.");
+        _ = await Assert.That(recorder.Find(MaterialLeakedEventId)).IsNull().Because("Every outbound connection must have closed within the shutdown budget.");
     }
 
-    private static IntegrationStartOptions Options(string scope, bool clean) => new()
+    private static IntegrationStartOptions Options(string scope, bool clean, RecordingLoggerProvider recorder) => new()
     {
         ReplicaCount = 3,
         UsePersistence = true,
         CleanTestDir = clean,
         ExtraScope = scope,
+        ServicesConfigure = recorder.Register,
     };
 }

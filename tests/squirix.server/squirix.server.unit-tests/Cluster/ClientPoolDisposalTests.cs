@@ -12,7 +12,6 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
-using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -25,6 +24,8 @@ namespace Squirix.Server.UnitTests.Cluster;
 public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 {
     private const int DrainTimedOutEventId = 5003;
+
+    private const int LeaseCancelFailedEventId = 5006;
 
     private const int MaterialLeakedEventId = 5005;
 
@@ -72,7 +73,8 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
     {
         using var meter = new Meter("Squirix");
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var certificate = LoadCertificate(bundle);
+        using var nodeCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
+        using var certificate = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
         var log = new EventRecordingLogger();
         var clock = new FakeTimeProvider();
         var created = new List<TrackingHandler>();
@@ -100,6 +102,38 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         DisposeAsLoader(certificate);
         _ = await Assert.That(certificate.IsReleased).IsFalse();
         _ = await Assert.That(certificate.NodeCertificate!.Handle).IsNotEqualTo(nint.Zero);
+    }
+
+    /// <summary>A callback registered on a lease token that throws does not stop disposal: the channels are disposed and the material hold is released.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeSurvivesThrowingLeaseCallback(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = LoadCertificate(bundle);
+        var log = new EventRecordingLogger();
+        var created = new List<TrackingHandler>();
+        var pool = new ServerClientPool(BuildPeers(1), MtlsArgs(certificate, null, (_, _, _) => Track(created)), new ServerClientPoolMetrics(meter), log);
+        var lease = pool.LeaseChannel("n0", cancellationToken);
+        Task disposing;
+        try
+        {
+            await using var registration = lease.Token.Register(static () => throw new InvalidOperationException("callback failure"));
+            disposing = pool.DisposeAsync().AsTask();
+            await AwaitCancellationAsync(lease.Token, cancellationToken);
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+
+        await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        await AssertAllDisposedAsync(created, 1);
+        _ = await Assert.That(log.Find(LeaseCancelFailedEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        DisposeAsLoader(certificate);
+        _ = await Assert.That(certificate.IsReleased).IsTrue().Because("The pool must have released its hold despite the throwing callback.");
     }
 
     /// <summary>
@@ -290,7 +324,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
     private static ServerClientPoolArgs MtlsArgs(
         MtlsCertificate certificate,
         Func<string, HttpMessageHandler>? peerHandlerFactory,
-        Func<MtlsCertificate?, string, QuiescenceGate, HttpMessageHandler>? ownedHandlerFactory) => new()
+        Func<MtlsCertificate?, string, TrackedConnections, HttpMessageHandler>? ownedHandlerFactory) => new()
         {
             PolicyFactory = static _ => new RecordingPolicy(null),
             PeerHandlerFactory = peerHandlerFactory,
@@ -304,7 +338,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
     /// <param name="connections">The pool's connection gate.</param>
     /// <param name="created">The handlers created so far.</param>
     /// <returns>The handler.</returns>
-    private static TrackingHandler OpenConnection(QuiescenceGate connections, List<TrackingHandler> created)
+    private static TrackingHandler OpenConnection(TrackedConnections connections, List<TrackingHandler> created)
     {
         connections.Enter();
         return Track(created);

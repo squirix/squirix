@@ -5,7 +5,6 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Transport;
 
@@ -17,44 +16,55 @@ namespace Squirix.Server.Cluster.Transport;
 [Mutable]
 internal sealed class TrackedConnectionStream : NetworkStream
 {
-    private readonly QuiescenceGate _connections;
+    private readonly TrackedConnections _connections;
+
+    private readonly Socket _socket;
 
     private int _released;
 
-    private TrackedConnectionStream(Socket socket, QuiescenceGate connections)
+    private TrackedConnectionStream(Socket socket, TrackedConnections connections)
         : base(socket, true)
     {
+        _socket = socket;
         _connections = connections;
     }
 
     /// <summary>Connects to the peer as the runtime default does (TCP, no delay, dual-stack DNS endpoint) and tracks the connection in <paramref name="connections" />.</summary>
-    /// <param name="connections">The pool's connection gate.</param>
+    /// <param name="connections">The pool's connections.</param>
     /// <param name="context">The connection request.</param>
     /// <param name="cancellationToken">Cancels the connect attempt.</param>
     /// <returns>The tracked connection stream, which owns the socket.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="connections" /> or <paramref name="context" /> is null.</exception>
     /// <exception cref="ObjectDisposedException">The pool started to dispose and admits no new connection.</exception>
-    internal static async ValueTask<Stream> ConnectAsync(QuiescenceGate connections, SocketsHttpConnectionContext context, CancellationToken cancellationToken)
+    internal static async ValueTask<Stream> ConnectAsync(TrackedConnections connections, SocketsHttpConnectionContext context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(connections);
         ArgumentNullException.ThrowIfNull(context);
         if (!connections.TryEnter())
             throw new ObjectDisposedException(nameof(ServerClientPool), "The server client pool is disposing and admits no new connection.");
 
-        Socket? socket = new(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        Socket? socket = null;
+        var created = false;
         try
         {
+            socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+            connections.Register(socket);
             await socket.ConnectAsync(context.DnsEndPoint, cancellationToken).ConfigureAwait(false);
             var stream = new TrackedConnectionStream(socket, connections);
-            socket = null;
+            created = true;
             return stream;
         }
         finally
         {
-            // Still set when the connect or the stream failed: the socket never reached a stream, so the gate is left here.
-            if (socket != null)
+            // Whatever failed, no stream exists to leave the gate later, so the entry is left here.
+            if (!created)
             {
-                socket.Dispose();
+                if (socket != null)
+                {
+                    connections.Unregister(socket);
+                    socket.Dispose();
+                }
+
                 connections.Exit();
             }
         }
@@ -70,7 +80,10 @@ internal sealed class TrackedConnectionStream : NetworkStream
         finally
         {
             if (Interlocked.Exchange(ref _released, 1) == 0)
+            {
+                _connections.Unregister(_socket);
                 _connections.Exit();
+            }
         }
     }
 }

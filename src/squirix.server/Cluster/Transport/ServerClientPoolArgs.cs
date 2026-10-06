@@ -2,7 +2,6 @@ using System;
 using System.Net.Http;
 using Grpc.Core.Interceptors;
 using Squirix.Server.Attributes;
-using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Transport;
 
@@ -23,7 +22,7 @@ internal sealed class ServerClientPoolArgs
     /// Gets an optional replacement for the handlers the pool creates and owns itself, given the mTLS material
     /// (<see langword="null" /> for plain HTTPS), the peer node id and the pool's connection gate (test seam for handler ownership).
     /// </summary>
-    internal Func<MtlsCertificate?, string, QuiescenceGate, HttpMessageHandler>? OwnedHandlerFactory { get; init; }
+    internal Func<MtlsCertificate?, string, TrackedConnections, HttpMessageHandler>? OwnedHandlerFactory { get; init; }
 
     /// <summary>Gets an optional per-peer mTLS handler factory; the handlers it returns stay owned by its caller and are not disposed with the pool.</summary>
     internal Func<string, HttpMessageHandler>? PeerHandlerFactory { get; init; }

@@ -27,6 +27,12 @@ internal static partial class ServerLog
     internal static partial void ClientPoolMaterialLeaked(ILogger logger, int connections, TimeSpan budget);
 
     [LoggerMessage(
+        EventId = 5006,
+        Level = LogLevel.Warning,
+        Message = "A callback registered on a leased replication call threw while the server client pool cancelled its leases; disposal continues")]
+    internal static partial void ClientPoolLeaseCancelFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(
         EventId = 5004,
         Level = LogLevel.Error,
         Message = "Cluster ring mismatch with peer {PeerNodeId} ({Direction}): local ring fingerprint {LocalFingerprint}, peer ring fingerprint {PeerFingerprint}. " +
