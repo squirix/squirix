@@ -67,6 +67,44 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
         _ = await Assert.That(toC.BytesForwarded(ProxyDirection.ClientToUpstream)).IsGreaterThan(forwardedBefore);
     }
 
+    /// <summary>Stopping a node drops every bridged link it takes part in, and the restarted node dials and serves through fresh handlers.</summary>
+    /// <param name="cancellationToken">The test cancellation token; bounds the waits only.</param>
+    [Test]
+    public async Task StoppedNodeLinksCloseAndRestart(CancellationToken cancellationToken)
+    {
+        await using var fabric = new PartitionFabric();
+        var options = new IntegrationStartOptions { ReplicaCount = 3, UsePersistence = true, PartitionFabric = fabric, ExtraScope = CacheName };
+        await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", options, cancellationToken);
+        var nodeA = cluster["node-a"];
+        await ReplicaGroupFollowers.AwaitVerifiedAsync(nodeA, cancellationToken);
+        await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster["node-c"], cancellationToken);
+
+        var client = nodeA.GetRequiredService<IServerClientPool>().ForNode("node-c");
+        var request = new GetValueAsyncRequest { CacheName = CacheName, Key = nodeA.FindKeyOwnedBy(CacheName, "node-c") };
+        _ = await client.GetValueAsync(request, new CallOptions(cancellationToken: cancellationToken));
+        var toC = fabric["node-a", "node-c"];
+        _ = await Assert.That(toC.ActiveConnections).IsGreaterThan(0);
+
+        await cluster.StopNodeAsync("node-c");
+
+        await toC.WaitForActiveConnectionsAsync(0, cancellationToken);
+        await fabric["node-b", "node-c"].WaitForActiveConnectionsAsync(0, cancellationToken);
+        await fabric["node-c", "node-a"].WaitForActiveConnectionsAsync(0, cancellationToken);
+        await fabric["node-c", "node-b"].WaitForActiveConnectionsAsync(0, cancellationToken);
+
+        var fromC = fabric["node-c", "node-a"];
+        var acceptedBefore = fromC.AcceptedConnections;
+        var restarted = await cluster.RestartNodeAsync("node-c", options, cancellationToken);
+        await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster["node-c"], cancellationToken);
+        await GetValueWhenServedAsync(client, request, cancellationToken);
+
+        var fromRestarted = restarted.GetRequiredService<IServerClientPool>().ForNode("node-a");
+        _ = await fromRestarted.GetValueAsync(
+            new GetValueAsyncRequest { CacheName = CacheName, Key = nodeA.FindKeyOwnedBy(CacheName, "node-a") },
+            new CallOptions(cancellationToken: cancellationToken));
+        _ = await Assert.That(fromC.AcceptedConnections).IsGreaterThan(acceptedBefore);
+    }
+
     private static async Task GetValueWhenServedAsync(SquirixCacheService.SquirixCacheServiceClient client, GetValueAsyncRequest request, CancellationToken cancellationToken)
     {
         // A request that still hit a reset connection fails once; every retry is a real dial, so the loop cannot spin hot and only the test token bounds it.

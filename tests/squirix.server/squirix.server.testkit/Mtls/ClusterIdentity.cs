@@ -24,10 +24,12 @@ public sealed class ClusterIdentity : IDisposable
 
     private readonly Dictionary<string, HeldPort> _internalPorts = [with(StringComparer.Ordinal)];
     private readonly List<X509Certificate2> _ownedCertificates = [];
-    private readonly PeerHandlers _peerHandlers = new();
     private TestBundle? _bundle;
     private X509Certificate2? _untrustedCertificateAuthority;
     private int _disposed;
+
+    /// <summary>Gets the outbound handlers of the nodes started from this identity, released when a node's host is disposed.</summary>
+    internal PeerHandlerRegistry NodeHandlers { get; } = new();
 
     /// <inheritdoc />
     public void Dispose()
@@ -39,7 +41,7 @@ public sealed class ClusterIdentity : IDisposable
             held.Dispose();
 
         // Peer handlers present the client certificates released below, so they go first.
-        _peerHandlers.Dispose();
+        NodeHandlers.DisposeAll();
 
         for (var i = _ownedCertificates.Count - 1; i >= 0; i--)
             _ownedCertificates[i].Dispose();
@@ -202,17 +204,17 @@ public sealed class ClusterIdentity : IDisposable
         return peers;
     }
 
-    private NodeMtlsStartup CreateExpiredPeerStartup(string nodeId, MtlsOptions options, MtlsCertificate material, ConnectRedirect? redirect)
+    private NodeMtlsStartup CreateExpiredPeerStartup(string nodeId, MtlsOptions options, MtlsCertificate material, PeerHandlers owner, ConnectRedirect? redirect)
     {
         var clusterCa = _bundle!.GetClusterCertificateAuthority();
         var notBefore = new DateTimeOffset(clusterCa.NotBefore.AddHours(1).ToUniversalTime());
         var notAfter = DateTimeOffset.UtcNow.AddHours(-1);
         var expiredCertificate = TrackCertificate(TestCertificates.CreatePeerCertificate(clusterCa, nodeId, notBefore, notAfter));
         var clientCertificate = TrackCertificate(TestCertificates.LoadExportableCertificate(expiredCertificate));
-        return new NodeMtlsStartup(options, material, new HandlerFactory(_peerHandlers, clientCertificate, material.TrustAnchor!, redirect).Create);
+        return new NodeMtlsStartup(options, material, new HandlerFactory(owner, clientCertificate, material.TrustAnchor!, redirect).Create);
     }
 
-    private NodeMtlsStartup CreateUntrustedInboundServerStartup(string nodeId, MtlsOptions options, MtlsCertificate material, ConnectRedirect? redirect)
+    private NodeMtlsStartup CreateUntrustedInboundServerStartup(string nodeId, MtlsOptions options, MtlsCertificate material, PeerHandlers owner, ConnectRedirect? redirect)
     {
         var untrustedCa = GetOrCreateUntrustedCertificateAuthority();
         var untrustedServerCertificate = TrackCertificate(TestCertificates.CreatePeerCertificate(untrustedCa, nodeId));
@@ -225,7 +227,7 @@ public sealed class ClusterIdentity : IDisposable
         try
         {
             certificate = MtlsCertificate.Create(serverCertificate, trustAnchor);
-            var startup = redirect == null ? new NodeMtlsStartup(options, certificate, null) : redirect.CreateStartup(_peerHandlers, options, certificate);
+            var startup = redirect == null ? new NodeMtlsStartup(options, certificate, null) : redirect.CreateStartup(owner, options, certificate);
             certificate = null;
             return startup;
         }
@@ -235,11 +237,11 @@ public sealed class ClusterIdentity : IDisposable
         }
     }
 
-    private NodeMtlsStartup CreateUntrustedOutboundStartup(string nodeId, MtlsOptions options, MtlsCertificate material, ConnectRedirect? redirect)
+    private NodeMtlsStartup CreateUntrustedOutboundStartup(string nodeId, MtlsOptions options, MtlsCertificate material, PeerHandlers owner, ConnectRedirect? redirect)
     {
         var untrustedCa = GetOrCreateUntrustedCertificateAuthority();
         var untrustedClientCertificate = TrackCertificate(TestCertificates.CreatePeerCertificate(untrustedCa, nodeId));
-        return new NodeMtlsStartup(options, material, new HandlerFactory(_peerHandlers, untrustedClientCertificate, material.TrustAnchor!, redirect).Create);
+        return new NodeMtlsStartup(options, material, new HandlerFactory(owner, untrustedClientCertificate, material.TrustAnchor!, redirect).Create);
     }
 
     private HeldPort GetOrAllocateInternalPort(string nodeId, HashSet<int> excludedPorts)
@@ -311,15 +313,22 @@ public sealed class ClusterIdentity : IDisposable
         var (options, certificate) = await _bundle.CreateNodeAsync(cluster.NodeId, port, cancellationToken).ConfigureAwait(false);
 
         var redirect = fabric == null ? null : await ConnectRedirect.CreateAsync(cluster, fabric, cancellationToken).ConfigureAwait(false);
-        return profile switch
+        var owner = NodeHandlers.Begin(cluster.NodeId);
+        var startup = profile switch
         {
-            TestNodeProfile.Normal => redirect == null ? new NodeMtlsStartup(options, certificate, null) : redirect.CreateStartup(_peerHandlers, options, certificate),
-            TestNodeProfile.NoOutboundClientCertificate => new NodeMtlsStartup(options, certificate, new NoClientCertificateHandlerFactory(_peerHandlers, certificate.TrustAnchor!, redirect).Create),
-            TestNodeProfile.UntrustedOutboundClientCertificate => CreateUntrustedOutboundStartup(cluster.NodeId, options, certificate, redirect),
-            TestNodeProfile.UntrustedInboundServerCertificate => CreateUntrustedInboundServerStartup(cluster.NodeId, options, certificate, redirect),
-            TestNodeProfile.ExpiredPeerCertificate => CreateExpiredPeerStartup(cluster.NodeId, options, certificate, redirect),
+            TestNodeProfile.Normal => redirect == null ? new NodeMtlsStartup(options, certificate, null) : redirect.CreateStartup(owner, options, certificate),
+            TestNodeProfile.NoOutboundClientCertificate => new NodeMtlsStartup(options, certificate, new NoClientCertificateHandlerFactory(owner, certificate.TrustAnchor!, redirect).Create),
+            TestNodeProfile.UntrustedOutboundClientCertificate => CreateUntrustedOutboundStartup(cluster.NodeId, options, certificate, owner, redirect),
+            TestNodeProfile.UntrustedInboundServerCertificate => CreateUntrustedInboundServerStartup(cluster.NodeId, options, certificate, owner, redirect),
+            TestNodeProfile.ExpiredPeerCertificate => CreateExpiredPeerStartup(cluster.NodeId, options, certificate, owner, redirect),
             _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Unsupported mTLS test node profile."),
         };
+
+        // The handlers present or trust the startup's certificate material, so it stays loaded until they are disposed.
+        if (startup.PeerHandlerFactory != null && startup.Certificate is { Enabled: true } shared)
+            owner.Hold(shared.Retain());
+
+        return startup;
     }
 
     private X509Certificate2 TrackCertificate(X509Certificate2 certificate)
@@ -454,50 +463,6 @@ public sealed class ClusterIdentity : IDisposable
         {
             var handler = _owner.Track(TestCertificates.CreateCaTrustingHandlerNoClientCert(_trustAnchor, peerNodeId));
             return _redirect == null ? handler : _redirect.Apply(handler, peerNodeId);
-        }
-    }
-
-    /// <summary>Per-peer handlers the outbound handler factories create; the cluster client pool leaves them to the factory's owner.</summary>
-    [Mutable]
-    private sealed class PeerHandlers : IDisposable
-    {
-        private readonly Lock _gate = new();
-        private readonly List<HttpMessageHandler> _handlers = [];
-        private int _disposed;
-
-        /// <inheritdoc />
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) == 1)
-                return;
-
-            lock (_gate)
-            {
-                for (var i = _handlers.Count - 1; i >= 0; i--)
-                    _handlers[i].Dispose();
-
-                _handlers.Clear();
-            }
-        }
-
-        /// <summary>Takes ownership of a handler created for one peer.</summary>
-        /// <param name="handler">The handler created for one peer.</param>
-        /// <returns>The same handler, disposed when the owning identity is disposed.</returns>
-        /// <exception cref="ObjectDisposedException">Thrown when the owning identity has already been disposed.</exception>
-        internal SocketsHttpHandler Track(SocketsHttpHandler handler)
-        {
-            lock (_gate)
-            {
-                if (Volatile.Read(ref _disposed) == 1)
-                {
-                    handler.Dispose();
-                    throw new ObjectDisposedException(nameof(ClusterIdentity));
-                }
-
-                _handlers.Add(handler);
-            }
-
-            return handler;
         }
     }
 

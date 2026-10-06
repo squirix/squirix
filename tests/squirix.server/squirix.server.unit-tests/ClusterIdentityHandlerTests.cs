@@ -53,4 +53,38 @@ public sealed class ClusterIdentityHandlerTests
             identity.Dispose();
         }
     }
+
+    /// <summary>Releasing a node disposes its handlers and their hold on the shared material while the identity lives, and the next startup creates fresh ones.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReleaseDisposesNodeHandlers(CancellationToken cancellationToken)
+    {
+        using var primaryA = ListenPortPool.ServerUnitTests.HoldPort();
+        using var primaryB = ListenPortPool.ServerUnitTests.HoldPort();
+        using var identity = new ClusterIdentity();
+        var shared = identity;
+        var peers = ClusterIdentity.CreatePeers(
+            [new ClusterNode("nodeA", primaryA.HttpUri), new ClusterNode("nodeB", primaryB.HttpUri)],
+            ref shared);
+        var cluster = new TopologyOptions(peers) { NodeId = "nodeA", Uri = primaryA.HttpUri };
+        var startup = await identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.NoOutboundClientCertificate, cancellationToken);
+        var material = ThrowHelper.Required(startup.Certificate, "Expected loaded mTLS material.");
+        var factory = ThrowHelper.Required(startup.PeerHandlerFactory, "Expected the custom outbound handler factory.");
+        var handler = ThrowHelper.Required(await Assert.That(factory.Invoke("nodeB")).IsTypeOf<SocketsHttpHandler>(), "Expected a sockets handler.");
+
+        // The loader's release leaves the material loaded while the handlers still hold it.
+        IDisposable loader = material;
+        loader.Dispose();
+        _ = await Assert.That(material.IsReleased).IsFalse();
+
+        identity.NodeHandlers.Release("nodeA");
+
+        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(handler, static h => h.MaxConnectionsPerServer = 3);
+        _ = await Assert.That(material.IsReleased).IsTrue();
+
+        var next = await identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.NoOutboundClientCertificate, cancellationToken);
+        using var nextMaterial = next.Certificate;
+        var fresh = ThrowHelper.Required(await Assert.That(next.PeerHandlerFactory?.Invoke("nodeB")).IsTypeOf<SocketsHttpHandler>(), "Expected a fresh sockets handler.");
+        fresh.MaxConnectionsPerServer = 2;
+    }
 }

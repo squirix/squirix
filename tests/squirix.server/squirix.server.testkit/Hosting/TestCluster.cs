@@ -480,7 +480,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             ListenPortPool.ReleaseHeldPrimary(self.Uri);
             var app = await NodeHost.StartAsync(clusterConfig, nodeHostStartOptions, cancellationToken).ConfigureAwait(false);
 
-            return new TestNodeHost(app, self.Uri, persistenceOptions?.DataDir ?? string.Empty, persistenceOptions != null, callerOwnedIdentity ? null : identity);
+            return new TestNodeHost(app, self.Uri, persistenceOptions?.DataDir ?? string.Empty, persistenceOptions != null, callerOwnedIdentity ? identity?.NodeHandlers.CreateScope(self.NodeId) : identity);
         }
         catch
         {

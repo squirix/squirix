@@ -370,7 +370,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             var startOptions = Helpers.CreateStartOptions(options, po, mtlsOptions, mtlsMaterial, peerHandlerFactory);
             ListenPortPool.IntegrationTests.ReleasePort(canonicalUri.Port);
             var application = await NodeHost.StartAsync(config, startOptions, cancellationToken);
-            return new TestNodeHost(application, canonicalUri, dir, po != null);
+            return new TestNodeHost(application, canonicalUri, dir, po != null, peerHandlerFactory == null ? null : _identity?.NodeHandlers.CreateScope(config.NodeId));
         }
         catch
         {
