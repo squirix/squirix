@@ -31,6 +31,9 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
     /// <summary>Bounds the waits on the stub peer; disposal aborts the stalled connection at once.</summary>
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(30);
 
+    /// <summary>Bounds the wait for the call's own failure once the stub ended first; the call fails right after the connection closes.</summary>
+    private static readonly TimeSpan CallFailureGuard = TimeSpan.FromSeconds(5);
+
     /// <summary>
     /// Disposal returns only after the stalled handshake's connection is closed, and releases the pool's hold on the material only then, so the
     /// certificates are never freed under a handshake that still reads them.
@@ -89,8 +92,23 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
 
         var callEnded = ReferenceEquals(first, call);
         var cause = first.Exception?.GetBaseException();
+        var callText = string.Empty;
+        if (!callEnded)
+        {
+            try
+            {
+                _ = await Task.WhenAny(call).WaitAsync(CallFailureGuard, TimeProvider.System, cancellationToken);
+            }
+            catch (TimeoutException)
+            {
+                // The call is still running; there is no failure to report yet.
+            }
+
+            callText = $" | Call: {call.Exception?.GetBaseException().ToString() ?? "still running or completed without an error"}";
+        }
+
         throw new InvalidOperationException(
-            $"The {(callEnded ? "call" : "stub peer")} ended before the ClientHello reached the stub: {cause?.ToString() ?? "completed without an error"}",
+            $"The {(callEnded ? "call" : "stub peer")} ended before the ClientHello reached the stub: {cause?.ToString() ?? "completed without an error"}{callText}",
             cause);
     }
 
