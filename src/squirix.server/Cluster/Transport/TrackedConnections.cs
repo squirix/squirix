@@ -9,7 +9,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster.Transport;
 
-/// <summary>The connections of a pool's owned handlers: counted from the connect attempt until the stream is disposed, and abortable as a set.</summary>
+/// <summary>The connections of a pool's handlers, owned or factory-supplied: counted from the connect attempt until the stream is disposed, and abortable as a set.</summary>
 /// <remarks>
 /// The count gates the release of the certificate material. Aborting closes the connections so a stalled handshake fails at once instead of
 /// running to the connect timeout; the count still drops only when the owning stream is disposed.

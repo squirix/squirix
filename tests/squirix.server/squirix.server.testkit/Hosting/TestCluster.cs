@@ -473,14 +473,18 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             if (identity == null && options?.PartitionFabric != null)
                 throw new InvalidOperationException("A partition fabric needs a topology with remote peers: the node would otherwise dial its peers directly.");
 
-            var (mtlsOptions, material, factory) = identity == null ? new NodeMtlsStartup(null, null, null)
+            var startup = identity == null ? new NodeMtlsStartup(null, null, null)
                 : await identity.ResolveNodeStartupForBindAsync(clusterConfig, mtlsProfile, options?.PartitionFabric, cancellationToken).ConfigureAwait(false);
 
-            var nodeHostStartOptions = CreateOptions(options, persistenceOptions, factory, mtlsOptions, material);
+            var nodeHostStartOptions = CreateOptions(options, persistenceOptions, startup.PeerHandlerFactory, startup.Options, startup.Certificate);
             ListenPortPool.ReleaseHeldPrimary(self.Uri);
             var app = await NodeHost.StartAsync(clusterConfig, nodeHostStartOptions, cancellationToken).ConfigureAwait(false);
 
-            return new TestNodeHost(app, self.Uri, persistenceOptions?.DataDir ?? string.Empty, persistenceOptions != null, callerOwnedIdentity ? identity?.NodeHandlers.CreateScope(self.NodeId) : identity);
+            IDisposable? scope = identity;
+            if (callerOwnedIdentity)
+                scope = startup.Owner == null ? null : identity?.NodeHandlers.CreateScope(startup.Owner);
+
+            return new TestNodeHost(app, self.Uri, persistenceOptions?.DataDir ?? string.Empty, persistenceOptions != null, scope);
         }
         catch
         {

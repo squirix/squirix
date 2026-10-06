@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
@@ -46,7 +47,7 @@ internal sealed class ServerClientPool : IServerClientPool
     /// <summary>Cancels every leased call once disposal starts.</summary>
     private readonly CancellationTokenSource _closing = new();
 
-    /// <summary>Open connections of the owned handlers, each from its connect attempt until its stream is disposed; drained before the material is released.</summary>
+    /// <summary>Open connections of the pool's handlers, owned or factory-supplied, each from its connect attempt until its stream is disposed; drained before the material is released.</summary>
     private readonly TrackedConnections _connections = new();
 
     private readonly ILogger<ServerClientPool> _logger;
@@ -104,7 +105,7 @@ internal sealed class ServerClientPool : IServerClientPool
     /// <summary>Gets the task that releases the material hold late after a connection drain timeout; completed when disposal released the hold in time.</summary>
     internal Task LateMaterialRelease => _connections.LateRelease;
 
-    /// <summary>Gets the number of connections of the owned handlers that are still open.</summary>
+    /// <summary>Gets the number of connections of the pool's handlers, owned or factory-supplied, that are still open.</summary>
     internal int OpenConnections => _connections.Pending;
 
     public async ValueTask DisposeAsync()
@@ -148,6 +149,7 @@ internal sealed class ServerClientPool : IServerClientPool
     /// <param name="handler">The handler a factory supplied; one that is not, or does not wrap, a <see cref="SocketsHttpHandler" /> stays untracked.</param>
     /// <param name="connections">The pool's tracked connections.</param>
     /// <remarks>An existing connect callback keeps dialing; the tracked callback wraps the stream it returns.</remarks>
+    /// <exception cref="InvalidOperationException">The handler's connect callback already tracks the connections of a pool, so a factory returned one handler twice.</exception>
     internal static void TrackFactoryConnections(HttpMessageHandler handler, TrackedConnections connections)
     {
         var current = handler;
@@ -158,9 +160,10 @@ internal sealed class ServerClientPool : IServerClientPool
             return;
 
         var inner = socketsHandler.ConnectCallback;
-        socketsHandler.ConnectCallback = inner == null
-            ? (context, cancellationToken) => TrackedConnectionStream.ConnectAsync(connections, context, cancellationToken)
-            : (context, cancellationToken) => TrackedWrappedStream.ConnectAsync(connections, context, inner, cancellationToken);
+        if (inner?.Target is TrackingConnectCallback)
+            throw new InvalidOperationException("The peer handler factory returned a handler that already belongs to a pool; it must create a fresh handler per call.");
+
+        socketsHandler.ConnectCallback = new TrackingConnectCallback(connections, inner).ConnectAsync;
     }
 
     private static GrpcChannelOptions CreateChannelOptions(
@@ -474,5 +477,24 @@ internal sealed class ServerClientPool : IServerClientPool
             using var certificate = new X509Certificate2(serverCertificate);
             return MtlsClientCertificateValidator.ValidateForExpectedNodeId(certificate, trustAnchor, expectedPeerNodeId);
         }
+    }
+
+    /// <summary>The connect callback the pool installs on a factory-supplied handler; its type marks a handler that already belongs to a pool.</summary>
+    [Immutable]
+    private sealed class TrackingConnectCallback
+    {
+        private readonly TrackedConnections _connections;
+        private readonly Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>>? _inner;
+
+        internal TrackingConnectCallback(TrackedConnections connections, Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>>? inner)
+        {
+            _connections = connections;
+            _inner = inner;
+        }
+
+        internal ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext context, CancellationToken cancellationToken) =>
+            _inner == null
+                ? TrackedConnectionStream.ConnectAsync(_connections, context, cancellationToken)
+                : TrackedWrappedStream.ConnectAsync(_connections, context, _inner, cancellationToken);
     }
 }

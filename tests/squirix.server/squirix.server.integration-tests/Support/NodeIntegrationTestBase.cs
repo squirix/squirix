@@ -337,7 +337,6 @@ public abstract class NodeIntegrationTestBase : IDisposable
 
         try
         {
-            var name = TestPersistenceScope.ResolvePersistenceScopeSegment(testName);
             PersistenceOptions? po = null;
             var dir = string.Empty;
             if (options.UsePersistence || options.PersistenceOptions != null)
@@ -345,7 +344,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 po = await GetPersistenceOptionsAsync(
                     options.PersistenceOptions,
                     selfNodeId,
-                    Helpers.BuildTestScope(name, options.ExtraScope),
+                    Helpers.BuildTestScope(TestPersistenceScope.ResolvePersistenceScopeSegment(testName), options.ExtraScope),
                     options.CleanTestDir,
                     cancellationToken);
                 dir = po.DataDir;
@@ -355,6 +354,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             MtlsOptions? mtlsOptions;
             MtlsCertificate? mtlsMaterial = null;
             Func<string, HttpMessageHandler>? peerHandlerFactory = null;
+            IDisposable? handlerScope = null;
             if (options.OmitClusterMtls)
             {
                 if (options.PartitionFabric != null)
@@ -364,13 +364,13 @@ public abstract class NodeIntegrationTestBase : IDisposable
             }
             else
             {
-                (_identity, mtlsOptions, mtlsMaterial, peerHandlerFactory) = await ClusterIdentity.ResolveForBindAsync(_identity, config, options.PartitionFabric, cancellationToken);
+                (_identity, mtlsOptions, mtlsMaterial, peerHandlerFactory, handlerScope) = await ClusterIdentity.ResolveForBindAsync(_identity, config, options.PartitionFabric, cancellationToken);
             }
 
             var startOptions = Helpers.CreateStartOptions(options, po, mtlsOptions, mtlsMaterial, peerHandlerFactory);
             ListenPortPool.IntegrationTests.ReleasePort(canonicalUri.Port);
             var application = await NodeHost.StartAsync(config, startOptions, cancellationToken);
-            return new TestNodeHost(application, canonicalUri, dir, po != null, peerHandlerFactory == null ? null : _identity?.NodeHandlers.CreateScope(config.NodeId));
+            return new TestNodeHost(application, canonicalUri, dir, po != null, handlerScope);
         }
         catch
         {

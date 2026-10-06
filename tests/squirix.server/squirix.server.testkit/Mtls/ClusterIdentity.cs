@@ -88,20 +88,20 @@ public sealed class ClusterIdentity : IDisposable
     /// <param name="cluster">Cluster topology for the node.</param>
     /// <param name="fabric">Fabric the node dials its remote peers through, or <see langword="null" /> for direct dialing.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Options, material, and the per-peer outbound handler factory (<see langword="null" /> without a fabric).</returns>
+    /// <returns>Options, material, the per-peer outbound handler factory (<see langword="null" /> without a fabric), and the scope that releases the factory's handlers when the node's host is disposed.</returns>
     /// <exception cref="InvalidOperationException">Thrown when <paramref name="fabric" /> is set but the topology has no internode mTLS.</exception>
-    internal static async Task<(ClusterIdentity? Identity, MtlsOptions? Options, MtlsCertificate? Certificate, Func<string, HttpMessageHandler>? PeerHandlerFactory)> ResolveForBindAsync(
+    internal static async Task<(ClusterIdentity? Identity, MtlsOptions? Options, MtlsCertificate? Certificate, Func<string, HttpMessageHandler>? PeerHandlerFactory, IDisposable? HandlerScope)> ResolveForBindAsync(
         ClusterIdentity? identity,
         TopologyOptions cluster,
         PartitionFabric? fabric,
         CancellationToken cancellationToken = default)
     {
         if (!MtlsTopology.RequiresInterNodeMtls(cluster))
-            return fabric == null ? (identity, null, null, null) : throw new InvalidOperationException(FabricWithoutMtlsMessage);
+            return fabric == null ? (identity, null, null, null, null) : throw new InvalidOperationException(FabricWithoutMtlsMessage);
 
         identity ??= new ClusterIdentity();
-        var (options, certificate, factory) = await identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.Normal, fabric, cancellationToken).ConfigureAwait(false);
-        return (identity, options, certificate, factory);
+        var startup = await identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.Normal, fabric, cancellationToken).ConfigureAwait(false);
+        return (identity, startup.Options, startup.Certificate, startup.PeerHandlerFactory, startup.Owner == null ? null : identity.NodeHandlers.CreateScope(startup.Owner));
     }
 
     internal static async Task<(ClusterIdentity? Identity, MtlsOptions? Options, MtlsCertificate? Certificate)> ResolveForNodeAsync(
@@ -313,10 +313,15 @@ public sealed class ClusterIdentity : IDisposable
         var (options, certificate) = await _bundle.CreateNodeAsync(cluster.NodeId, port, cancellationToken).ConfigureAwait(false);
 
         var redirect = fabric == null ? null : await ConnectRedirect.CreateAsync(cluster, fabric, cancellationToken).ConfigureAwait(false);
-        var owner = NodeHandlers.Begin(cluster.NodeId);
+
+        // Default wiring creates no handler, so it needs no owner.
+        if (profile == TestNodeProfile.Normal && redirect == null)
+            return new NodeMtlsStartup(options, certificate, null);
+
+        var owner = NodeHandlers.Begin();
         var startup = profile switch
         {
-            TestNodeProfile.Normal => redirect == null ? new NodeMtlsStartup(options, certificate, null) : redirect.CreateStartup(owner, options, certificate),
+            TestNodeProfile.Normal => ThrowHelper.Required(redirect, "A redirect is set when the default wiring needs a factory.").CreateStartup(owner, options, certificate),
             TestNodeProfile.NoOutboundClientCertificate => new NodeMtlsStartup(options, certificate, new NoClientCertificateHandlerFactory(owner, certificate.TrustAnchor!, redirect).Create),
             TestNodeProfile.UntrustedOutboundClientCertificate => CreateUntrustedOutboundStartup(cluster.NodeId, options, certificate, owner, redirect),
             TestNodeProfile.UntrustedInboundServerCertificate => CreateUntrustedInboundServerStartup(cluster.NodeId, options, certificate, owner, redirect),
@@ -328,7 +333,7 @@ public sealed class ClusterIdentity : IDisposable
         if (startup.PeerHandlerFactory != null && startup.Certificate is { Enabled: true } shared)
             owner.Hold(shared.Retain());
 
-        return startup;
+        return startup with { Owner = owner };
     }
 
     private X509Certificate2 TrackCertificate(X509Certificate2 certificate)

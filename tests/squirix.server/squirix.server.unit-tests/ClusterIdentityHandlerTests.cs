@@ -77,7 +77,7 @@ public sealed class ClusterIdentityHandlerTests
         loader.Dispose();
         _ = await Assert.That(material.IsReleased).IsFalse();
 
-        identity.NodeHandlers.Release("nodeA");
+        identity.NodeHandlers.Release(ThrowHelper.Required(startup.Owner, "Expected the startup to own its handlers."));
 
         _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(handler, static h => h.MaxConnectionsPerServer = 3);
         _ = await Assert.That(material.IsReleased).IsTrue();
@@ -86,5 +86,38 @@ public sealed class ClusterIdentityHandlerTests
         using var nextMaterial = next.Certificate;
         var fresh = ThrowHelper.Required(await Assert.That(next.PeerHandlerFactory?.Invoke("nodeB")).IsTypeOf<SocketsHttpHandler>(), "Expected a fresh sockets handler.");
         fresh.MaxConnectionsPerServer = 2;
+    }
+
+    /// <summary>A second startup or a material lookup for a running node's identifier leaves the running node's handlers and material hold usable, and only releasing its own startup disposes them.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SecondStartupLeavesRunningNodeHandlers(CancellationToken cancellationToken)
+    {
+        using var primaryA = ListenPortPool.ServerUnitTests.HoldPort();
+        using var primaryB = ListenPortPool.ServerUnitTests.HoldPort();
+        using var identity = new ClusterIdentity();
+        var shared = identity;
+        var peers = ClusterIdentity.CreatePeers(
+            [new ClusterNode("nodeA", primaryA.HttpUri), new ClusterNode("nodeB", primaryB.HttpUri)],
+            ref shared);
+        var cluster = new TopologyOptions(peers) { NodeId = "nodeA", Uri = primaryA.HttpUri };
+        var running = await identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.NoOutboundClientCertificate, cancellationToken);
+        var factory = ThrowHelper.Required(running.PeerHandlerFactory, "Expected the custom outbound handler factory.");
+        var handler = ThrowHelper.Required(await Assert.That(factory.Invoke("nodeB")).IsTypeOf<SocketsHttpHandler>(), "Expected a sockets handler.");
+
+        var (_, _, lookupMaterial) = await ClusterIdentity.ResolveForNodeAsync(identity, cluster, cancellationToken);
+        using var lookupHold = lookupMaterial;
+        var second = await identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.NoOutboundClientCertificate, cancellationToken);
+        using var secondMaterial = second.Certificate;
+
+        handler.MaxConnectionsPerServer = 2;
+
+        identity.NodeHandlers.Release(ThrowHelper.Required(second.Owner, "Expected the second startup to own its handlers."));
+
+        handler.MaxConnectionsPerServer = 3;
+
+        identity.NodeHandlers.Release(ThrowHelper.Required(running.Owner, "Expected the startup to own its handlers."));
+
+        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(handler, static h => h.MaxConnectionsPerServer = 4);
     }
 }

@@ -85,6 +85,18 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
         var toC = fabric["node-a", "node-c"];
         _ = await Assert.That(toC.ActiveConnections).IsGreaterThan(0);
 
+        // The node's own outbound links open on its first call to each peer.
+        var nodeC = cluster["node-c"];
+        foreach (var peer in new[] { "node-a", "node-b" })
+        {
+            _ = await nodeC.GetRequiredService<IServerClientPool>().ForNode(peer).GetValueAsync(
+                new GetValueAsyncRequest { CacheName = CacheName, Key = nodeA.FindKeyOwnedBy(CacheName, peer) },
+                new CallOptions(cancellationToken: cancellationToken));
+        }
+
+        _ = await Assert.That(fabric["node-c", "node-a"].ActiveConnections).IsGreaterThan(0);
+        _ = await Assert.That(fabric["node-c", "node-b"].ActiveConnections).IsGreaterThan(0);
+
         await cluster.StopNodeAsync("node-c");
 
         await toC.WaitForActiveConnectionsAsync(0, cancellationToken);

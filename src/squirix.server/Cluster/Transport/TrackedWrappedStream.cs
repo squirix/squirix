@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster.Transport;
 
@@ -79,6 +80,20 @@ internal sealed class TrackedWrappedStream : Stream
     /// <inheritdoc />
     public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) => _inner.WriteAsync(buffer, offset, count, cancellationToken);
 
+    /// <inheritdoc />
+    public override async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await _inner.DisposeAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            Release();
+            await base.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
     /// <summary>Connects through <paramref name="inner" /> and tracks the resulting connection in <paramref name="connections" />.</summary>
     /// <param name="connections">The pool's connections.</param>
     /// <param name="context">The connection request.</param>
@@ -99,30 +114,29 @@ internal sealed class TrackedWrappedStream : Stream
         if (!connections.TryEnter())
             throw new ObjectDisposedException(nameof(ServerClientPool), "The server client pool is disposing and admits no new connection.");
 
-        TrackedWrappedStream? tracked = null;
-        Stream? connected = null;
+        Stream connected;
         try
         {
-            connected = await inner.Invoke(context, cancellationToken).ConfigureAwait(false);
-            tracked = new TrackedWrappedStream(connected, connections);
-            connections.Register(tracked);
-            return tracked;
+            connected = ThrowHelper.Required(await inner.Invoke(context, cancellationToken).ConfigureAwait(false), "The connect callback returned no stream.");
+        }
+        catch
+        {
+            connections.Exit();
+            throw;
+        }
+
+        try
+        {
+            // The wrapped stream is what an abort closes: the gate is left only when the owner disposes the wrapper.
+            connections.Register(connected);
+            return new TrackedWrappedStream(connected, connections);
         }
         catch
         {
             // Whatever failed, no stream leaves the gate later, so the entry is left here.
-            if (tracked != null)
-            {
-                await tracked.DisposeAsync().ConfigureAwait(false);
-            }
-            else
-            {
-                if (connected != null)
-                    await connected.DisposeAsync().ConfigureAwait(false);
-
-                connections.Exit();
-            }
-
+            connections.Unregister(connected);
+            await connected.DisposeAsync().ConfigureAwait(false);
+            connections.Exit();
             throw;
         }
     }
@@ -137,13 +151,17 @@ internal sealed class TrackedWrappedStream : Stream
         }
         finally
         {
-            if (Interlocked.Exchange(ref _released, 1) == 0)
-            {
-                _connections.Unregister(this);
-                _connections.Exit();
-            }
-
+            Release();
             base.Dispose(disposing);
+        }
+    }
+
+    private void Release()
+    {
+        if (Interlocked.Exchange(ref _released, 1) == 0)
+        {
+            _connections.Unregister(_inner);
+            _connections.Exit();
         }
     }
 }

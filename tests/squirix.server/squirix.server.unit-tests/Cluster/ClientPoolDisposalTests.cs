@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -16,6 +17,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -439,6 +441,91 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         _ = await Assert.That(connections.Pending).IsEqualTo(0);
     }
 
+    /// <summary>Aborting closes the wrapped stream of a connection a handler dialed itself, but the gate is left only when the owner disposes the returned stream.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AbortKeepsWrappedGateUntilDisposed(CancellationToken cancellationToken)
+    {
+        var connections = new TrackedConnections();
+        var inner = new MemoryStream();
+        using var handler = new SocketsHttpHandler { ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(inner) };
+        ServerClientPool.TrackFactoryConnections(handler, connections);
+        var context = Unsafe.As<SocketsHttpConnectionContext>(RuntimeHelpers.GetUninitializedObject(typeof(SocketsHttpConnectionContext)));
+        var callback = ThrowHelper.Required(handler.ConnectCallback, "Expected the tracked connect callback.");
+
+        var stream = await callback.Invoke(context, cancellationToken);
+        _ = await Assert.That(connections.Pending).IsEqualTo(1);
+
+        connections.AbortAll();
+
+        _ = await Assert.That(inner.CanRead).IsFalse();
+        _ = await Assert.That(connections.Pending).IsEqualTo(1);
+
+        await stream.DisposeAsync();
+
+        _ = await Assert.That(connections.Pending).IsEqualTo(0);
+    }
+
+    /// <summary>A handler without a connect callback of its own dials through the tracked connection stream, and the connection leaves the gate when it ends.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HandlerWithoutConnectCallbackIsTracked(CancellationToken cancellationToken)
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var connections = new TrackedConnections();
+        using var handler = new SocketsHttpHandler();
+        ServerClientPool.TrackFactoryConnections(handler, connections);
+        using var client = new HttpClient(handler, false);
+
+        var request = client.GetAsync(new Uri($"https://127.0.0.1:{ThrowHelper.Required(listener.LocalEndpoint as IPEndPoint, "Expected an IP endpoint.").Port}/"), cancellationToken);
+        using var accepted = await listener.AcceptTcpClientAsync(cancellationToken);
+        _ = await Assert.That(connections.Pending).IsEqualTo(1);
+
+        accepted.Dispose();
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request);
+        await connections.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(connections.Pending).IsEqualTo(0);
+    }
+
+    /// <summary>The connect callback is replaced on the sockets handler at the end of a delegating chain.</summary>
+    [Test]
+    public async Task DelegatingHandlerChainIsUnwrapped()
+    {
+        var original = new Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>>(static (_, _) => ValueTask.FromResult<Stream>(Stream.Null));
+        using var sockets = new SocketsHttpHandler { ConnectCallback = original };
+        using var middle = new PassThroughHandler(sockets);
+        using var outer = new PassThroughHandler(middle);
+
+        ServerClientPool.TrackFactoryConnections(outer, new TrackedConnections());
+
+        _ = await Assert.That(ReferenceEquals(sockets.ConnectCallback, original)).IsFalse();
+    }
+
+    /// <summary>A handler that is not a sockets handler is left untouched.</summary>
+    [Test]
+    public async Task NonSocketsHandlerStaysUntracked()
+    {
+        var connections = new TrackedConnections();
+        using var terminal = new TrackingHandler();
+        using var handler = new PassThroughHandler(terminal);
+
+        ServerClientPool.TrackFactoryConnections(handler, connections);
+
+        _ = await Assert.That(connections.Pending).IsEqualTo(0);
+    }
+
+    /// <summary>A handler whose connect callback already tracks a pool's connections is rejected instead of being rewired.</summary>
+    [Test]
+    public void SecondPoolRejectsTrackedHandler()
+    {
+        using var handler = new SocketsHttpHandler();
+        ServerClientPool.TrackFactoryConnections(handler, new TrackedConnections());
+
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(handler, static h => ServerClientPool.TrackFactoryConnections(h, new TrackedConnections()));
+    }
+
     /// <summary>Advances the fake clock until <paramref name="task" /> completes; the wait timers register at unpredictable moments, so one advance is not enough.</summary>
     /// <param name="clock">The fake clock.</param>
     /// <param name="task">The task to complete.</param>
@@ -621,5 +708,14 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
         public ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken) =>
             throw new NotSupportedException("RecordingPolicy does not execute calls.");
+    }
+
+    [Immutable]
+    private sealed class PassThroughHandler : DelegatingHandler
+    {
+        internal PassThroughHandler(HttpMessageHandler inner)
+            : base(inner)
+        {
+        }
     }
 }
