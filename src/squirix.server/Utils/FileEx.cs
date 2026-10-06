@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using Microsoft.Win32.SafeHandles;
 
 namespace Squirix.Server.Utils;
@@ -9,12 +10,18 @@ namespace Squirix.Server.Utils;
 /// <summary>File helpers for durable publication, discovery, and best-effort deletion.</summary>
 internal static class FileEx
 {
+    /// <summary>Maximum number of attempts <see cref="PublishFile" /> makes under a transient Windows sharing failure.</summary>
+    internal const int PublishAttempts = 5;
+
     private const int DarwinCloseOnExec = 0x1000000;
 
     private const int FreeBsdCloseOnExec = 0x00100000;
 
     /// <summary>O_CLOEXEC flag values per supported Unix ABI (stable kernel constants from fcntl.h), OR'd with O_RDONLY (0).</summary>
     private const int LinuxCloseOnExec = 0x80000;
+
+    /// <summary>Gets the delay between <see cref="PublishFile" /> attempts under a transient Windows sharing failure.</summary>
+    internal static TimeSpan PublishRetryDelay { get; } = TimeSpan.FromMilliseconds(50);
 
     internal static string? FindFile(ReadOnlySpan<string> paths)
     {
@@ -71,17 +78,45 @@ internal static class FileEx
     /// When <see langword="true" />, metadata differences between source and destination are ignored during
     /// <see cref="File.Replace(string, string, string?, bool)" />.
     /// </param>
+    /// <param name="timeProvider">Clock used to wait between attempts; <see cref="TimeProvider.System" /> when <see langword="null" />.</param>
     /// <returns>Always <see langword="true" /> when publication succeeds; failures throw.</returns>
-    internal static bool PublishFile(string tempPath, string finalPath, string? backupPath = null, bool ignoreMetadataErrors = false)
+    /// <remarks>
+    /// On Windows, a destination that is transiently held open (for example by an on-close scanner or a lingering handle)
+    /// makes the replace fail with an <see cref="IOException" /> whose HResult is <c language="csharp">0x80070020</c> (sharing violation),
+    /// <c language="csharp">0x80070497</c> (unable to remove the replaced file), or <c language="csharp">0x80070498</c> (unable to move the replacement file).
+    /// Only these failures are retried, up to <see cref="PublishAttempts" /> attempts spaced by <see cref="PublishRetryDelay" />;
+    /// the exception of the last attempt propagates unchanged. Every other failure surfaces on the first attempt.
+    /// The temp file is never deleted by this method, so the caller keeps ownership of it on failure.
+    /// </remarks>
+    internal static bool PublishFile(
+        string tempPath,
+        string finalPath,
+        string? backupPath = null,
+        bool ignoreMetadataErrors = false,
+        TimeProvider? timeProvider = null)
     {
         var validatedTemp = FilePathValidator.ResolveValidatedFilePath(tempPath);
         var validatedFinal = FilePathValidator.ResolveValidatedFilePath(finalPath);
         var validatedBackup = backupPath == null ? null : FilePathValidator.ResolveValidatedFilePath(backupPath);
 
-        if (File.Exists(validatedFinal))
-            File.Replace(validatedTemp, validatedFinal, validatedBackup, ignoreMetadataErrors);
-        else
-            File.Move(validatedTemp, validatedFinal);
+        var attempt = 1;
+        while (true)
+        {
+            try
+            {
+                if (File.Exists(validatedFinal))
+                    File.Replace(validatedTemp, validatedFinal, validatedBackup, ignoreMetadataErrors);
+                else
+                    File.Move(validatedTemp, validatedFinal);
+
+                break;
+            }
+            catch (IOException ex) when (attempt < PublishAttempts && IsTransientWindowsSharingFailure(ex))
+            {
+                attempt++;
+                WaitBeforeRetry(timeProvider ?? TimeProvider.System, PublishRetryDelay);
+            }
+        }
 
         // Temp, final, and backup always share a directory; flushing the destination's parent directory is enough to make the rename's directory entry durable.
         FlushDirectoryEntry(validatedFinal);
@@ -134,6 +169,17 @@ internal static class FileEx
         };
     }
 
+    private static bool IsTransientWindowsSharingFailure(IOException exception)
+    {
+        // 0x80070020, 0x80070497, 0x80070498 as signed HResults.
+        const int sharingViolation = -2147024864;
+        const int unableToRemoveReplaced = -2147023721;
+        const int unableToMoveReplacement = -2147023720;
+
+        return OperatingSystem.IsWindows()
+               && exception.HResult is sharingViolation or unableToRemoveReplaced or unableToMoveReplacement;
+    }
+
     private static SafeFileHandle OpenDirectoryForFlush(string directory)
     {
         // EINTR (interrupted system call) is 4 on Linux, macOS, and the *BSD family.
@@ -169,5 +215,25 @@ internal static class FileEx
         {
             return false;
         }
+    }
+
+    private static void WaitBeforeRetry(TimeProvider timeProvider, TimeSpan delay)
+    {
+        using var fired = new ManualResetEventSlim(false);
+        var timer = timeProvider.CreateTimer(SignalGate, fired, delay, Timeout.InfiniteTimeSpan);
+        try
+        {
+            fired.Wait(CancellationToken.None);
+        }
+        finally
+        {
+            timer.Dispose();
+        }
+    }
+
+    private static void SignalGate(object? state)
+    {
+        if (state is ManualResetEventSlim gate)
+            gate.Set();
     }
 }
