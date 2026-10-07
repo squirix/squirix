@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
@@ -12,14 +13,17 @@ namespace Squirix.Server.Node.Services;
 /// <remarks>
 /// A restarted node with durable RF&gt;1 data starts with every slot recovering. This service retries the
 /// committer's Log Matching verification with a bounded backoff until every slot is ready, which also lets
-/// followers that were not yet up at node start join later. It keeps polling at the maximum delay once everything
-/// is ready, so a slot demoted later is verified again. It runs on the host lifetime and stops with it.
+/// followers that were not yet up at node start join later. A follower that answered but lacks entries is caught up
+/// from the leader log, one follower at a time, and verified again at once when it was admitted. It keeps polling at
+/// the maximum delay once everything is ready, so a slot demoted later is verified again. It runs on the host lifetime
+/// and stops with it.
 /// </remarks>
 internal sealed class ReplicaGroupReadinessService : BackgroundService
 {
     private static readonly TimeSpan InitialDelay = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan MaxDelay = TimeSpan.FromSeconds(5);
 
+    private readonly ReplicaCatchUpReporter _catchUp;
     private readonly ReplicaGroupCommitter _committer;
     private readonly ILogger<ReplicaGroupReadinessService> _log;
     private readonly TimeProvider _timeProvider;
@@ -28,7 +32,12 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
     /// <param name="committer">Owner-side committer that performs the verification.</param>
     /// <param name="log">Logger reporting verification state changes.</param>
     /// <param name="timeProvider">Time source for the retry delay.</param>
-    internal ReplicaGroupReadinessService(ReplicaGroupCommitter committer, ILogger<ReplicaGroupReadinessService> log, TimeProvider timeProvider)
+    /// <param name="catchUpMetrics">Counts the follower catch-up sessions; none are counted when <see langword="null" />.</param>
+    internal ReplicaGroupReadinessService(
+        ReplicaGroupCommitter committer,
+        ILogger<ReplicaGroupReadinessService> log,
+        TimeProvider timeProvider,
+        ReplicaCatchUpMetrics? catchUpMetrics = null)
     {
         ArgumentNullException.ThrowIfNull(committer);
         ArgumentNullException.ThrowIfNull(log);
@@ -36,6 +45,7 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         _committer = committer;
         _log = log;
         _timeProvider = timeProvider;
+        _catchUp = new ReplicaCatchUpReporter(committer.GroupId, log, catchUpMetrics);
     }
 
     /// <inheritdoc />
@@ -54,6 +64,10 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
                     reported = outcome;
                 }
 
+                // A follower admitted by its catch-up is verified again at once, so the group reports ready without a backoff.
+                if (outcome == ReplicaVerification.Pending && await CatchUpOnceAsync(stoppingToken).ConfigureAwait(false))
+                    continue;
+
                 // Pending backs off exponentially toward the cap; a blocked or fully ready group is only re-checked at the cap.
                 var delay = outcome == ReplicaVerification.Pending ? backoff : MaxDelay;
                 backoff = outcome == ReplicaVerification.Pending ? TimeSpan.FromTicks(Math.Min(MaxDelay.Ticks, backoff.Ticks * 2)) : InitialDelay;
@@ -63,6 +77,20 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             // Host shutdown: the verification is retried on the next start.
+        }
+    }
+
+    private async Task<bool> CatchUpOnceAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            return await _committer.CatchUpFollowersAsync(_catchUp, stoppingToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or InvalidOperationException && !stoppingToken.IsCancellationRequested)
+        {
+            // The same policy as the verification: storage or gate faults are retried on the next pass, anything else faults the service.
+            ServerLog.ReplicaVerificationRetry(_log, exception);
+            return false;
         }
     }
 

@@ -110,4 +110,32 @@ internal static partial class ServerLog
 
     [LoggerMessage(EventId = 4020, Level = LogLevel.Warning, Message = "Replica group durable publish of {Path} needed {Attempts} attempts; holders: {Holders}")]
     internal static partial void DurablePublishRetried(ILogger logger, string path, int attempts, string holders);
+
+    [LoggerMessage(
+        EventId = 4021,
+        Level = LogLevel.Information,
+        Message = "Replica group {GroupId} follower {NodeId} caught up through index {HeldThrough} with {Entries} entries and counts toward the write quorum again")]
+    internal static partial void ReplicaFollowerCaughtUp(ILogger logger, string groupId, string nodeId, ulong heldThrough, int entries);
+
+    [LoggerMessage(
+        EventId = 4022,
+        Level = LogLevel.Warning,
+        Message =
+            "Replica group {GroupId} follower {NodeId} needs entries the leader already compacted; snapshot catch-up is not available, so the follower must be wiped and rejoined")]
+    internal static partial void ReplicaCatchUpCompacted(ILogger logger, string groupId, string nodeId);
+
+    [LoggerMessage(
+        EventId = 4023,
+        Level = LogLevel.Warning,
+        Message = "Replica group {GroupId} follower {NodeId} catch-up stopped: {Outcome}; the follower stays out of the write quorum")]
+    internal static partial void ReplicaCatchUpStopped(ILogger logger, string groupId, string nodeId, string outcome);
+
+    [LoggerMessage(
+        EventId = 4024,
+        Level = LogLevel.Error,
+        Message = "Replica group {GroupId} leader log entry could not be read back intact for the catch-up of follower {NodeId}; the log needs operator attention")]
+    internal static partial void ReplicaCatchUpCorrupt(ILogger logger, string groupId, string nodeId);
+
+    [LoggerMessage(EventId = 4025, Level = LogLevel.Debug, Message = "Replica group {GroupId} follower {NodeId} catch-up ended: {Outcome}; it is retried on the next verification")]
+    internal static partial void ReplicaCatchUpInterrupted(ILogger logger, string groupId, string nodeId, string outcome);
 }

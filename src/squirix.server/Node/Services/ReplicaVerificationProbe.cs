@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -27,6 +28,9 @@ internal sealed class ReplicaVerificationProbe
     private readonly ReplicaGroupRegistry _registry;
     private readonly Lock _reportSync = new();
     private readonly ReadOnlyMemory<byte> _topologyFingerprint;
+
+    /// <summary>The followers the last admitted verification found answering, and the pipeline lookup of their catch-up target.</summary>
+    private CatchUpOffer? _catchUp;
 
     /// <summary>The blocked older-term tail last reported, so the warning is logged once per blocked state, not on every verification pass.</summary>
     private BlockedTail? _reportedBlockedTail;
@@ -148,6 +152,31 @@ internal sealed class ReplicaVerificationProbe
         return eligibility;
     }
 
+    /// <summary>Records the followers an admitted verification found answering, for the next catch-up pass.</summary>
+    /// <param name="answered">Per-slot flags of the followers that answered their probe.</param>
+    /// <param name="targetFor">Resolves the catch-up target of a slot in the pipeline the verification ran against.</param>
+    /// <remarks>Runs under the commit gate of the committer, after the verdicts were applied.</remarks>
+    internal void OfferCatchUp(bool[] answered, Func<int, ReplicaCatchUpTarget> targetFor) => Volatile.Write(ref _catchUp, new CatchUpOffer(answered, targetFor));
+
+    /// <summary>Takes the followers to catch up: those the last admitted verification found answering that are still catching up.</summary>
+    /// <returns>The catch-up targets in slot order; empty when no verification was admitted since the last call.</returns>
+    /// <remarks>Each admitted verification feeds one catch-up pass, so a follower is caught up again only after it answered a new probe.</remarks>
+    internal List<ReplicaCatchUpTarget> TakeCatchUpTargets()
+    {
+        var targets = new List<ReplicaCatchUpTarget>();
+        if (Interlocked.Exchange(ref _catchUp, null) is not { } offer)
+            return targets;
+
+        var eligibility = _registry.EligibilityFor(_groupId);
+        for (var i = 1; i < offer.Answered.Length; i++)
+        {
+            if (offer.Answered[i] && eligibility.StateFor(i) == ReplicaParticipantState.CatchingUp)
+                targets.Add(offer.TargetFor(i));
+        }
+
+        return targets;
+    }
+
     private bool ReportBlockedTail(BlockedTail? blocked)
     {
         lock (_reportSync)
@@ -163,4 +192,10 @@ internal sealed class ReplicaVerificationProbe
     /// <param name="Term">The leader's current term.</param>
     [Immutable]
     private sealed record BlockedTail(ulong LastIndex, ulong Term);
+
+    /// <summary>The followers an admitted verification found answering, with the target lookup of the pipeline it ran against.</summary>
+    /// <param name="Answered">Per-slot flags of the followers that answered their probe.</param>
+    /// <param name="TargetFor">Resolves the catch-up target of a slot.</param>
+    [Immutable]
+    private sealed record CatchUpOffer(bool[] Answered, Func<int, ReplicaCatchUpTarget> TargetFor);
 }

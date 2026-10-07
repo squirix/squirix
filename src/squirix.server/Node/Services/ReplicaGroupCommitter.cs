@@ -141,9 +141,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the logger for lifecycle failures.</summary>
     internal ILogger Log { get; }
 
-    private ReplicaLeaderApplier Applier => _applier.Value;
+    /// <summary>Gets the follower verification, which also hands out the followers to catch up.</summary>
+    internal ReplicaVerificationProbe Probe => _probe.Value;
 
-    private ReplicaVerificationProbe Probe => _probe.Value;
+    private ReplicaLeaderApplier Applier => _applier.Value;
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
@@ -345,6 +346,35 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         return await AdmitVerifiedAsync(log, snapshot, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Admits a follower slot a catch-up session verified, under the commit gate, and commits what the slot now covers.</summary>
+    /// <param name="replicaIndex">Zero-based follower slot.</param>
+    /// <param name="result">The session result.</param>
+    /// <param name="pipeline">The pipeline whose sender the session ran on; a slot is never admitted into a newer one.</param>
+    /// <param name="cancellationToken">Cancellation token for queueing on the gate.</param>
+    /// <returns><see langword="true" /> when the slot became ready.</returns>
+    /// <remarks>
+    /// Called while the session's lease still holds the sender, so no live entry past the held index reaches the follower, and no
+    /// acknowledgement of one is lost to a slot that does not count yet, before the slot's match index is raised.
+    /// </remarks>
+    internal async Task<bool> AdmitCaughtUpFollowerAsync(int replicaIndex, ReplicaCatchUpResult result, IReplicaCommitPipeline pipeline, CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        ThrowIfDisposed();
+        if (!ReferenceEquals(_pipeline, pipeline) || _coordinator is not { } coordinator || !_registry.TryGetLog(GroupId, out var log))
+            return false;
+
+        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        var eligibility = _registry.EligibilityFor(GroupId);
+        var wasReady = eligibility.CanCountInWriteQuorum(replicaIndex);
+        ReplicaReadinessProbe.AdmitCaughtUp(eligibility, replicaIndex, in result, status.CommitIndex, _topologyFingerprint, _generation, coordinator);
+        if (wasReady || !eligibility.CanCountInWriteQuorum(replicaIndex))
+            return false;
+
+        _ = await TryApplyPendingAsync().ConfigureAwait(false);
+        return true;
+    }
+
     /// <summary>Tells whether the owned group log holds the entry of a prepared mutation.</summary>
     /// <param name="mutation">The prepared mutation.</param>
     /// <returns><see langword="true" /> when the log holds the entry.</returns>
@@ -383,6 +413,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var coordinator = !await TryApplyPendingAsync().ConfigureAwait(false) && _coordinator is { } retained ? retained
             : (await EnsureStartedAsync(false, cancellationToken).ConfigureAwait(false)).Coordinator;
         var eligibility = await Probe.AdmitVerifiedSlotsAsync(log, snapshot, coordinator, cancellationToken).ConfigureAwait(false);
+        if (_pipeline is { } pipeline)
+            Probe.OfferCatchUp(snapshot.Answered, pipeline.CatchUpTargetFor);
+
         var applied = await TryApplyPendingAsync().ConfigureAwait(false);
         return applied && eligibility.AllCanCountInWriteQuorum() ? ReplicaVerification.AllReady : ReplicaVerification.Pending;
     }
@@ -472,7 +505,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             : [];
 
         // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
-        var pipeline = new ReplicaGroupCommitPipeline(Applier, log, CreateSenders(members, in status, in header), GroupId, in status);
+        var pipeline = new ReplicaGroupCommitPipeline(Applier, log, CreateSenders(members, in status, in header), GroupId, in status, term);
         var factory = new ReplicaMutationFactory(_local, GroupId, term, Clock, Log);
         _pipeline = pipeline;
         _coordinator = this.CreateCoordinator(_locator.ReplicaCount, pipeline, log, in status, eligibility, Applier.RecoverTail(tail, term, factory));
@@ -621,6 +654,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         private readonly IFollowerLog _log;
         private readonly string _selfId;
         private readonly ReplicaFollowerSender[] _senders;
+        private readonly ulong _term;
         private ulong _commitIndex;
         private ulong _fanoutPrevIndex;
         private ulong _fanoutPrevTerm;
@@ -633,12 +667,14 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         /// <param name="senders">The senders of follower slots one and up, in slot order; the pipeline owns them and closes them.</param>
         /// <param name="selfId">This node identifier.</param>
         /// <param name="status">Durable log status seeding previous and commit positions.</param>
+        /// <param name="term">The leader term the pipeline appends and replicates in.</param>
         internal ReplicaGroupCommitPipeline(
             ReplicaLeaderApplier applier,
             IFollowerLog log,
             ReplicaFollowerSender[] senders,
             string selfId,
-            in FollowerLogStatus status)
+            in FollowerLogStatus status,
+            ulong term)
         {
             ArgumentNullException.ThrowIfNull(applier);
             ArgumentNullException.ThrowIfNull(log);
@@ -649,6 +685,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             _log = log;
             _selfId = selfId;
             _senders = senders;
+            _term = term;
             _prevLogIndex = status.LastLogIndex;
             _prevLogTerm = status.LastLogTerm;
             _commitIndex = status.CommitIndex;
@@ -710,6 +747,11 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             // Repair driving lands in a later milestone; the coordinator already observes stragglers
             // in the background, and a lagging replica simply stops counting toward the majority.
         }
+
+        /// <summary>Gets what a catch-up of a follower slot runs against: this pipeline, the slot's sender, the leader log and term.</summary>
+        /// <param name="replicaIndex">One-based follower slot.</param>
+        /// <returns>The target.</returns>
+        internal ReplicaCatchUpTarget CatchUpTargetFor(int replicaIndex) => new(replicaIndex, this, _senders[replicaIndex - 1], _log, _term);
 
         /// <summary>Stops admitting entries to every follower sender and waits for the queued ones to be answered.</summary>
         /// <param name="budget">The longest wait, shared by all senders.</param>

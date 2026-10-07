@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Net.Http;
 using System.Threading;
@@ -21,7 +20,6 @@ namespace Squirix.Server.Cluster.Replication;
 /// <see cref="ReplicaCatchUpOutcome.Compacted" />. The session reports; it touches neither eligibility nor the quorum.
 /// </remarks>
 [Immutable]
-[SuppressMessage("Usage", "MA0182:Internal type is apparently never used", Justification = "Activation seam until the readiness service drives catch-up sessions in the next change.")]
 internal sealed class ReplicaEntryCatchUpSession
 {
     private readonly IFollowerLog _leaderLog;
