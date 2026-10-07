@@ -139,6 +139,42 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         _ = await Assert.That(events.Count(StoppedEventId)).IsEqualTo(1);
     }
 
+    /// <summary>The loop rebuilds the outcomes of a follower group before its first catch-up and records the outcome of every entry it applies.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ApplyLoopKeepsFollowerOutcomes(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-apply-service-outcomes");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var committed = Prepare("k1", 1UL);
+        var appended = Prepare("k2", 2UL);
+        await SeedAsync(registry, "n2", 1UL, [committed], cancellationToken);
+        var cache = new StubCache();
+        using var meter = new Meter("test");
+        var appliers = CreateAppliers(registry, cache, meter);
+        using var service = new ReplicaApplyService(registry, appliers, ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, new FakeTimeProvider());
+        var first = WhenAppliedAsync(cache, 1);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            await first.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            var second = WhenAppliedAsync(cache, 2);
+            _ = await new ReplicaFollower(registry).AppendAsync("n2", Fingerprint, 1, Batch(in appended, 1UL, 2UL), cancellationToken);
+            await second.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            // The stop waits for the pass in flight, whose applies are not canceled, so the outcome of the last entry is recorded.
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(registry.TryGetLog("n2", out var log)).IsTrue();
+        _ = await Assert.That(log!.Idempotency.OutcomesRebuilt).IsTrue();
+        _ = await Assert.That(log.Idempotency.Lookup(committed.OperationScope, committed.OperationId, committed.OperationFingerprint.Span, out _)).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(log.Idempotency.Lookup(appended.OperationScope, appended.OperationId, appended.OperationFingerprint.Span, out _)).IsEqualTo(GroupIdempotencyLookup.Found);
+    }
+
     /// <summary>A fault outside the retried storage and journal faults ends the service with that fault.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

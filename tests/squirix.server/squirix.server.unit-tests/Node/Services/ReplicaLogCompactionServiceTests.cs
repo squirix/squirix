@@ -34,6 +34,7 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         var metrics = new ReplicationMetrics(meter);
         var appliers = new ReplicaFollowerAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaFollowerAppliers>.Instance, metrics);
         var log = await SeedAsync(registry, "n2", 3, cancellationToken);
+        _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
         await appliers.For("n2").CatchUpAsync(log, 0UL, 3UL, cancellationToken);
         var barriers = new int[1];
         var durability = new IJournalDurabilityCoordinatorCreateExpectations();
@@ -75,6 +76,7 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         var metrics = new ReplicationMetrics(meter);
         var appliers = new ReplicaFollowerAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaFollowerAppliers>.Instance, metrics);
         var log = await SeedAsync(registry, "n2", 3, cancellationToken);
+        _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
         var failing = new[] { true };
         var durability = new IJournalDurabilityCoordinatorCreateExpectations();
         _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>())

@@ -95,6 +95,38 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
         }
     }
 
+    /// <summary>A restarted follower holds the outcome of every committed write of the group, so a retry that reaches it replays the outcome.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FollowerRetryFindsOutcomeAfterRestart(CancellationToken cancellationToken)
+    {
+        const string scope = "follower-apply-outcomes";
+        await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", Options(scope, true), cancellationToken);
+        var owner = cluster[OwnerId];
+        await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
+        var (first, _) = await WriteAsync(owner, cancellationToken);
+        await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, OwnerId, [("node-b", cluster["node-b"])], cancellationToken);
+        await AwaitAppliedAsync(cluster["node-b"], first + Writes - 2, cancellationToken);
+
+        await cluster.StopNodeAsync("node-b");
+        var restarted = await cluster.StartNodeAsync("node-b", Options(scope, false), cancellationToken);
+        var log = GroupLog(restarted);
+        await AwaitAppliedAsync(restarted, (await log.GetStatusAsync(cancellationToken)).CommitIndex, cancellationToken);
+
+        _ = await Assert.That(log.Idempotency.OutcomesRebuilt).IsTrue();
+        var entries = await log.GetCommittedEntriesAsync(first - 1, Writes - 1, cancellationToken);
+        _ = await Assert.That(entries.Count).IsEqualTo(Writes - 1);
+        foreach (var entry in entries)
+        {
+            var decoded = ReplicaLogCodec.Decode(entry.Payload);
+            _ = await Assert.That(decoded).IsNotNull().Because($"Committed entry {entry.LogIndex} must decode.");
+            var record = decoded.GetValueOrDefault();
+            var found = log.Idempotency.Lookup(record.OperationScope, record.OperationId, record.OperationFingerprint.Span, out var outcome);
+            _ = await Assert.That(found).IsEqualTo(GroupIdempotencyLookup.Found).Because($"The outcome of committed entry {entry.LogIndex} must survive the restart.");
+            _ = await Assert.That(outcome.OutcomePayload.Span.SequenceEqual(record.OutcomePayload.Span)).IsTrue();
+        }
+    }
+
     private static string Value(int write) => $"value-{write}";
 
     private static IntegrationStartOptions Options(string scope, bool clean) => new()

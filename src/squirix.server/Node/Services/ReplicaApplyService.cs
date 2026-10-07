@@ -102,15 +102,27 @@ internal sealed class ReplicaApplyService : BackgroundService
     }
 
     /// <summary>Applies the committed entries of a ready group log that memory lacks.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
     /// <param name="applier">The group applier.</param>
     /// <param name="log">The group log.</param>
     /// <param name="stoppingToken">The host stopping token.</param>
     /// <returns>A task that completes when memory holds every entry through the commit index read at the start.</returns>
-    private static async Task CatchUpAsync(ReplicaGroupApplier applier, IFollowerLog log, CancellationToken stoppingToken)
+    /// <remarks>
+    /// The first pass over a ready log rebuilds the outcomes of its committed entries first, as the leader committer does for its own
+    /// group: the applier records the outcome of each entry it applies, and a retry of an operation committed before the restart then
+    /// replays its outcome on this node too. A rebuild that fails is run again on the next pass.
+    /// </remarks>
+    private async Task CatchUpAsync(string groupId, ReplicaGroupApplier applier, IFollowerLog log, CancellationToken stoppingToken)
     {
         var status = await log.GetStatusAsync(stoppingToken).ConfigureAwait(false);
         if (status.Readiness != FollowerLogReadiness.Ready)
             return;
+
+        if (!log.Idempotency.OutcomesRebuilt)
+        {
+            var restored = await ReplicaOutcomeRecovery.RestoreAsync(log, _timeProvider, stoppingToken).ConfigureAwait(false);
+            ServerLog.ReplicaOutcomesRestored(_log, groupId, restored);
+        }
 
         await applier.CatchUpAsync(log, status.LastAppliedIndex, status.CommitIndex, stoppingToken).ConfigureAwait(false);
     }
@@ -134,7 +146,7 @@ internal sealed class ReplicaApplyService : BackgroundService
         {
             try
             {
-                await CatchUpAsync(applier, log, stoppingToken).ConfigureAwait(false);
+                await CatchUpAsync(groupId, applier, log, stoppingToken).ConfigureAwait(false);
                 reported = null;
             }
             catch (InvalidDataException exception)

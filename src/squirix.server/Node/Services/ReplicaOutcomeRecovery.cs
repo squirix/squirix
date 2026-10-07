@@ -62,13 +62,16 @@ internal static class ReplicaOutcomeRecovery
         return restored;
     }
 
-    private static GroupIdempotencyRecord Rebuild(in FollowerLogEntry entry, out DateTime decidedUtc)
+    /// <summary>Builds the resolved outcome a committed record carries, aged from the leader time of its decision.</summary>
+    /// <param name="decoded">The decoded record of a committed entry.</param>
+    /// <returns>The resolved record, whose creation and resolution times are the decision time.</returns>
+    /// <exception cref="InvalidDataException">The record carries no valid decision time.</exception>
+    internal static GroupIdempotencyRecord OutcomeOf(in ReplicaLogRecord decoded)
     {
-        if (ReplicaLogCodec.Decode(entry.Payload) is not { } decoded || decoded.LogIndex != entry.LogIndex || decoded.Term != entry.Term ||
-            decoded.DecidedUtcTicks < 0 || decoded.DecidedUtcTicks > DateTime.MaxValue.Ticks)
-            throw new InvalidDataException($"Committed group log entry {entry.LogIndex} does not carry a readable record of its position.");
+        if (decoded.DecidedUtcTicks < 0 || decoded.DecidedUtcTicks > DateTime.MaxValue.Ticks)
+            throw new InvalidDataException($"Committed group log entry {decoded.LogIndex} does not carry a readable decision time.");
 
-        decidedUtc = new DateTime(decoded.DecidedUtcTicks, DateTimeKind.Utc);
+        var decidedUtc = new DateTime(decoded.DecidedUtcTicks, DateTimeKind.Utc);
         var kind = string.Equals(decoded.OperationScope, ReplicaExpirationOperationId.OperationScope, StringComparison.Ordinal) ? GroupRecordKind.Expiration
             : GroupRecordKind.UserMutation;
 
@@ -83,5 +86,15 @@ internal static class ReplicaOutcomeRecovery
             decidedUtc,
             decoded.LogIndex,
             decoded.Term);
+    }
+
+    private static GroupIdempotencyRecord Rebuild(in FollowerLogEntry entry, out DateTime decidedUtc)
+    {
+        if (ReplicaLogCodec.Decode(entry.Payload) is not { } decoded || decoded.LogIndex != entry.LogIndex || decoded.Term != entry.Term)
+            throw new InvalidDataException($"Committed group log entry {entry.LogIndex} does not carry a readable record of its position.");
+
+        var record = OutcomeOf(in decoded);
+        decidedUtc = record.CreatedUtc;
+        return record;
     }
 }

@@ -68,6 +68,13 @@ internal sealed class ReplicaGroupApplier
     /// <remarks>Every entry at or below it has returned from its apply, so its cache journal frame is appended.</remarks>
     internal ulong AppliedIndex => Volatile.Read(ref _appliedIndex);
 
+    /// <summary>Initializes a value indicating whether the catch-up records the outcome of each applied entry in the idempotency state of the group log.</summary>
+    /// <remarks>
+    /// Set for a follower group, whose outcomes no commit of this node resolves, so a retry that reaches this node with the group finds
+    /// the outcome instead of running the operation again. The leader committer resolves the outcomes of its own group itself.
+    /// </remarks>
+    internal bool RecordsOutcomes { private get; init; }
+
     /// <summary>Applies the next committed entry to memory and advances the applied index to it.</summary>
     /// <param name="logIndex">The log index of the entry.</param>
     /// <param name="canonicalPayload">The canonical record bytes of the entry.</param>
@@ -76,40 +83,8 @@ internal sealed class ReplicaGroupApplier
     /// <exception cref="InvalidOperationException">The entry is not the one after the applied index.</exception>
     /// <exception cref="InvalidDataException">The payload does not decode or the record is inconsistent.</exception>
     /// <remarks>The order and consistency checks run before anything is applied, so an entry out of order or inconsistent never reaches memory.</remarks>
-    internal async ValueTask ApplyAsync(ulong logIndex, ReadOnlyMemory<byte> canonicalPayload, CancellationToken cancellationToken)
-    {
-        var next = AppliedIndex + 1;
-        if (logIndex != next)
-            throw new InvalidOperationException($"Replica log entry {logIndex} cannot be applied: the next entry to apply is {next}.");
-
-        ReplicaLogRecord record;
-        ReplicaEffectKind effect;
-        NodeCacheEntry<object?>? entry;
-        try
-        {
-            record = ReplicaLogCodec.Decode(canonicalPayload) ??
-                ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));
-            effect = ReplicaCacheApplier.Resolve(in record, out entry);
-        }
-        catch (InvalidDataException error)
-        {
-            ReportInconsistentRecord(error);
-            throw;
-        }
-
-        // The group log is the durable source of a replicated write: its cache journal frame must not become an RPC write-ahead
-        // intent, or a restart would rebuild a Started record that hides the group outcome the committer replays. The suspension holds
-        // with or without an RPC scope, and it also makes the apply skip the wait for its own flush: the entry is already durable in the
-        // group log, and the flush of the applied index waits for the node journal before it advances the durable index.
-        using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
-        {
-            // The entry is committed: the operation took effect even when its effect writes no cache frame.
-            RpcMutationIdempotencyExecutionAmbient.NotifyMutationApplied();
-            await ReplicaCacheApplier.ExecuteAsync(_local, record, effect, entry, cancellationToken).ConfigureAwait(false);
-        }
-
-        Volatile.Write(ref _appliedIndex, logIndex);
-    }
+    internal ValueTask ApplyAsync(ulong logIndex, ReadOnlyMemory<byte> canonicalPayload, CancellationToken cancellationToken) =>
+        ApplyCoreAsync(logIndex, canonicalPayload, null, cancellationToken);
 
     /// <summary>Rebuilds the uncommitted leader tail, logging and counting an inconsistent record before it refuses the tail.</summary>
     /// <param name="tail">The leader tail read from the owned log.</param>
@@ -138,7 +113,10 @@ internal sealed class ReplicaGroupApplier
     /// <param name="commitIndex">The durable commit index of <paramref name="log" />.</param>
     /// <param name="cancellationToken">Cancellation token for reading the log; the applies themselves are not canceled.</param>
     /// <returns>A task that completes when the applied index reaches <paramref name="commitIndex" />.</returns>
-    /// <exception cref="InvalidOperationException">The retained committed entries do not reach <paramref name="commitIndex" /> densely.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The retained committed entries do not reach <paramref name="commitIndex" /> densely, or the applier records outcomes and the
+    /// outcomes of the group log are not rebuilt yet; in the latter case nothing is applied.
+    /// </exception>
     /// <exception cref="InvalidDataException">A committed entry is inconsistent; it and every later one stay unapplied.</exception>
     /// <remarks>
     /// Callers serialize the calls and the applies of one applier. After a restart memory holds at most what the cache journal kept,
@@ -211,8 +189,74 @@ internal sealed class ReplicaGroupApplier
             throw new InvalidOperationException($"Local group applied advance was refused: {result.RefusalCode}.");
     }
 
+    /// <summary>Builds the outcome a committed record carries, refusing a record of another position.</summary>
+    /// <param name="logIndex">The log index of the entry.</param>
+    /// <param name="record">The decoded record of the entry.</param>
+    /// <returns>The resolved outcome.</returns>
+    /// <exception cref="InvalidDataException">The record names another log index or carries no valid decision time.</exception>
+    private static GroupIdempotencyRecord BuildOutcome(ulong logIndex, in ReplicaLogRecord record) => record.LogIndex == logIndex
+        ? ReplicaOutcomeRecovery.OutcomeOf(in record)
+        : ThrowHelper.Throw<GroupIdempotencyRecord>(new InvalidDataException($"Replica log entry {logIndex} carries the record of entry {record.LogIndex}."));
+
+    /// <summary>Applies the next committed entry to memory, records its outcome when asked to, and advances the applied index to it.</summary>
+    /// <param name="logIndex">The log index of the entry.</param>
+    /// <param name="canonicalPayload">The canonical record bytes of the entry.</param>
+    /// <param name="outcomes">The group idempotency state the outcome of the entry is recorded in, or <see langword="null" /> to record none.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="InvalidOperationException">The entry is not the one after the applied index.</exception>
+    /// <exception cref="InvalidDataException">The payload does not decode, the record is inconsistent, or its outcome cannot be read.</exception>
+    /// <remarks>
+    /// The outcome is built with the other checks, so a record whose outcome cannot be read never reaches memory, and it is recorded
+    /// before the applied index moves past the entry: a retry that finds the entry applied also finds its outcome. The caller has checked
+    /// that the outcomes of the group log are rebuilt, which never reverts, so recording the outcome cannot fail after the effect ran.
+    /// </remarks>
+    private async ValueTask ApplyCoreAsync(ulong logIndex, ReadOnlyMemory<byte> canonicalPayload, GroupIdempotencyState? outcomes, CancellationToken cancellationToken)
+    {
+        var next = AppliedIndex + 1;
+        if (logIndex != next)
+            throw new InvalidOperationException($"Replica log entry {logIndex} cannot be applied: the next entry to apply is {next}.");
+
+        ReplicaLogRecord record;
+        ReplicaEffectKind effect;
+        NodeCacheEntry<object?>? entry;
+        GroupIdempotencyRecord outcome = default;
+        try
+        {
+            record = ReplicaLogCodec.Decode(canonicalPayload) ??
+                ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));
+            effect = ReplicaCacheApplier.Resolve(in record, out entry);
+            if (outcomes != null)
+                outcome = BuildOutcome(logIndex, in record);
+        }
+        catch (InvalidDataException error)
+        {
+            ReportInconsistentRecord(error);
+            throw;
+        }
+
+        // The group log is the durable source of a replicated write: its cache journal frame must not become an RPC write-ahead
+        // intent, or a restart would rebuild a Started record that hides the group outcome the committer replays. The suspension holds
+        // with or without an RPC scope, and it also makes the apply skip the wait for its own flush: the entry is already durable in the
+        // group log, and the flush of the applied index waits for the node journal before it advances the durable index.
+        using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
+        {
+            // The entry is committed: the operation took effect even when its effect writes no cache frame.
+            RpcMutationIdempotencyExecutionAmbient.NotifyMutationApplied();
+            await ReplicaCacheApplier.ExecuteAsync(_local, record, effect, entry, cancellationToken).ConfigureAwait(false);
+        }
+
+        outcomes?.RecordCommittedOutcome(in outcome);
+        Volatile.Write(ref _appliedIndex, logIndex);
+    }
+
     private async Task ReapplyCoreAsync(IFollowerLog log, ulong commitIndex, CancellationToken cancellationToken)
     {
+        // Checked before any effect: once the effect of an entry ran, its outcome must be recordable.
+        var outcomes = RecordsOutcomes ? log.Idempotency : null;
+        if (outcomes is { OutcomesRebuilt: false })
+            throw new InvalidOperationException($"The outcomes of group log {_groupId} are not rebuilt yet, so no committed entry is applied.");
+
         while (AppliedIndex < commitIndex)
         {
             var batch = await log.GetCommittedEntriesAsync(AppliedIndex, BatchSize, cancellationToken).ConfigureAwait(false);
@@ -224,7 +268,7 @@ internal sealed class ReplicaGroupApplier
                 if (entry.LogIndex > commitIndex)
                     break;
 
-                await ApplyAsync(entry.LogIndex, entry.Payload, CancellationToken.None).ConfigureAwait(false);
+                await ApplyCoreAsync(entry.LogIndex, entry.Payload, outcomes, CancellationToken.None).ConfigureAwait(false);
             }
         }
     }

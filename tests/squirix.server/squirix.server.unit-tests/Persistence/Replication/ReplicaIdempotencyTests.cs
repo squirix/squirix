@@ -160,9 +160,9 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         _ = await Assert.That(state.Lookup("client", "expired", [3], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
     }
 
-    /// <summary>RestoreFromSnapshot rejects snapshot and retained records that exceed configured capacity.</summary>
+    /// <summary>RestoreFromSnapshot keeps every committed outcome past the configured capacity, which bounds new reservations only.</summary>
     [Test]
-    public void RestoreFromSnapshotRejectsOverCapacity()
+    public async Task RestoreKeepsOutcomesPastCapacity()
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1), clock);
@@ -171,7 +171,11 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         var record2 = new GroupIdempotencyRecord("client", "op2", new byte[] { 2 }, new byte[] { 20 }, GroupRecordKind.UserMutation, now, now, 2UL, 1UL);
         var record3 = new GroupIdempotencyRecord("client", "op3", new byte[] { 3 }, new byte[] { 30 }, GroupRecordKind.UserMutation, now, now, 3UL, 1UL);
 
-        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(state, new[] { record1, record2, record3 }, static (s, records) => { s.RestoreFromSnapshot(records, DateTime.UnixEpoch, []); });
+        state.RestoreFromSnapshot([record1, record2, record3], now, []);
+
+        _ = await Assert.That(state.Lookup("client", "op1", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(state.Lookup("client", "op3", [3], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(state.Reserve("client", "op4", [4], GroupRecordKind.UserMutation, 4UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
     }
 
     /// <summary>RestoreFromSnapshot rejects unresolved records that violate the snapshot contract.</summary>

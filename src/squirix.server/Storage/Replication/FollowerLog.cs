@@ -2231,12 +2231,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             var snapshot = BuildSnapshot(journal, owner, index);
 
-            // Checked before the snapshot is published: the compaction core would refuse the same restore only after the baseline moved,
-            // failing readiness, while a refusal here changes nothing.
-            var retainedLogIndexes = CollectRetainedLogIndexes(CollectRetainedTail(journal, index));
-            if (!owner.Idempotency.WouldRestoreFit(snapshot.CommittedOutcomes, snapshot.CapturedUtc, retainedLogIndexes))
-                return GroupCompactionOutcome.NotReady;
-
             try
             {
                 await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
@@ -2262,17 +2256,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             var tail = CollectInstallTail(journal, in snapshot);
             var retainedLogIndexes = CollectRetainedLogIndexes(tail);
-
-            // The capacity refusal must happen before any durable writing: publishing the snapshot and persisting the
-            // installation candidate ahead of a refused restore would leave a published snapshot and advanced watermarks
-            // the old journal cannot support, failing recovery on every restart. Fail readiness like compaction's
-            // pre-rewrite refusal path does.
-            if (!owner.Idempotency.WouldRestoreFit(snapshot.CommittedOutcomes, snapshot.CapturedUtc, retainedLogIndexes))
-            {
-                owner.Readiness = FollowerLogReadiness.Failed;
-                return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
-            }
-
             var fingerprint = owner.Meta.TopologyFingerprint.IsEmpty ? snapshot.TopologyFingerprint : owner.Meta.TopologyFingerprint;
             var installedLastIndex = tail.Count == 0 ? snapshot.LastIncludedIndex : tail[^1].LogIndex;
             var candidate = BuildInstallCandidateMeta(owner, in snapshot, fingerprint, installedLastIndex);
@@ -2289,16 +2272,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // metadata are already durable and readiness stays Ready.
             // The retained-tail rewrite below rebuilds both indexes; pruning here would mutate state the
             // rewrite owns, so the baseline is restored without its paired prune.
+            // The restore keeps every committed outcome whatever the idempotency capacity, which bounds new reservations only, so a store
+            // already past its capacity never refuses a valid snapshot after it became durable.
             owner.RestoreBaseline(new SnapshotBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm));
             try
             {
-                if (!owner.Idempotency.TryRestoreFromSnapshot(snapshot.CommittedOutcomes, snapshot.CapturedUtc, retainedLogIndexes))
-                {
-                    // The snapshot and metadata are already durable, and the log rewrite is skipped, so the
-                    // journal no longer matches the persisted metadata. Never surface this state as Ready.
-                    owner.Readiness = FollowerLogReadiness.Failed;
-                    return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
-                }
+                owner.Idempotency.RestoreFromSnapshot(snapshot.CommittedOutcomes, snapshot.CapturedUtc, retainedLogIndexes);
             }
             catch
             {
@@ -2518,15 +2497,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             var retainedLogIndexes = CollectRetainedLogIndexes(tail);
 
-            // The capacity refusal must happen before the durable rewrite: once ReplaceLogAsync discards the covered
-            // prefix, a refused restore would leave the journal without its committed frames. Fail readiness like
-            // the post-rewrite refusal path below does.
-            if (!owner.Idempotency.WouldRestoreFit(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc, retainedLogIndexes))
-            {
-                owner.Readiness = FollowerLogReadiness.Failed;
-                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
-            }
-
             (int Length, List<long> Offsets) result;
             try
             {
@@ -2553,16 +2523,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             // The discarded prefix is now owned by the snapshot, which exports only resolved outcomes; any remaining
             // record at or below `included` has lost its durable journal frame and must be released, while records
-            // carried by the retained tail stay authoritative.
+            // carried by the retained tail stay authoritative. The restore is never refused for the idempotency capacity,
+            // so outcomes recorded while the snapshot was published cannot fail the log here.
             try
             {
-                if (!owner.Idempotency.TryRestoreFromSnapshot(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc, retainedLogIndexes))
-                {
-                    // A refused restore leaves the map holding records whose journal frames were already
-                    // discarded by the rewrite; the refusal path must fail readiness like the catch below.
-                    owner.Readiness = FollowerLogReadiness.Failed;
-                    return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
-                }
+                owner.Idempotency.RestoreFromSnapshot(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc, retainedLogIndexes);
             }
             catch
             {
