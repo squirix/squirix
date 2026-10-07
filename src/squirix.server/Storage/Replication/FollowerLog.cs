@@ -2216,18 +2216,24 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// <remarks>
         /// Runs under the log gate. Every refusal happens before anything durable changes and leaves readiness untouched: only a prefix
         /// that is committed and applied is compacted, and never while an entry of it still has an unresolved idempotency outcome, which
-        /// the snapshot cannot carry. The snapshot is published before the compaction core rewrites the log, so a crash between the two
-        /// recovers from the snapshot plus the old log.
+        /// the snapshot cannot carry. The index is the durable applied index; the commit index may be higher, and every frame above the
+        /// index, committed or not, stays in the log as the retained tail, which must hold every index through the last one. The snapshot
+        /// is published before the compaction core rewrites the log, so a crash between the two recovers from the snapshot plus the old log.
         /// </remarks>
         internal static async Task<GroupCompactionOutcome> CompactThroughAsync(FollowerLogJournal journal, IFollowerLogContext owner, ulong index, CancellationToken cancellationToken)
         {
-            var eligible = index != 0UL && index == owner.Meta.CommitIndex && index == owner.Meta.LastAppliedIndex && index <= owner.LastLogIndex &&
+            var eligible = index != 0UL && index == owner.Meta.LastAppliedIndex && index <= owner.Meta.CommitIndex && index <= owner.LastLogIndex &&
                 index >= journal.SnapshotBaseline.LastIncludedIndex;
             if (!eligible)
                 return GroupCompactionOutcome.NotReady;
 
             if (owner.Idempotency.HasUnresolvedThrough(index))
                 return GroupCompactionOutcome.UnresolvedOutcome;
+
+            // A retained tail missing an index cannot be rewritten without leaving a gap, so it is refused before the snapshot is published.
+            var tail = CollectRetainedTail(journal, index);
+            if (ulong.CreateChecked(tail.Count) != owner.LastLogIndex - index)
+                return GroupCompactionOutcome.NotReady;
 
             var snapshot = BuildSnapshot(journal, owner, index);
 
@@ -2470,9 +2476,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             var included = snapshot.Value.LastIncludedIndex;
 
-            // The durable prefix is dropped only when the published snapshot covers every committed entry; otherwise
-            // committed frames would be lost without a snapshot to restore them.
-            if (included == 0UL || included < owner.Meta.CommitIndex || included > owner.LastLogIndex || included > owner.Meta.LastAppliedIndex)
+            // The durable prefix is dropped only through a committed index the published snapshot covers; committed entries above it stay
+            // in the retained tail.
+            if (included == 0UL || included > owner.Meta.CommitIndex || included > owner.LastLogIndex || included > owner.Meta.LastAppliedIndex)
                 return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
 
             // Frames in (included, LastAppliedIndex] were released from `Entries` by PruneAppliedEntries, so the
@@ -2494,6 +2500,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 return new GroupCompactionResult(false, null, FollowerLogRefusal.LogMismatch);
 
             var tail = CollectRetainedTail(journal, included);
+
+            // Every frame above the boundary must be rewritten: a missing index would leave a gap, committed entries included, that
+            // recovery refuses. Nothing durable changed yet beyond the published snapshot, which recovers on its own.
+            if (ulong.CreateChecked(tail.Count) != owner.LastLogIndex - included)
+                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
 
             var retainedLogIndexes = CollectRetainedLogIndexes(tail);
 

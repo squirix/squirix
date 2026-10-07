@@ -17,7 +17,10 @@ namespace Squirix.Server.UnitTests.Persistence.Replication;
 /// <summary>Compaction behavior that retains an installable replica-group snapshot.</summary>
 public sealed class ReplicaCompactionTests : ServerUnitTestBase
 {
+    private const ulong Applied = 2UL;
+    private const ulong Committed = 4UL;
     private const string GroupId = "grp-compaction";
+    private const ulong LastIndex = 5UL;
 
     /// <summary>
     /// Compaction refuses an index below the applied watermark, so committed-and-applied frames are never dropped by a snapshot that does not cover them, and changes nothing.
@@ -60,6 +63,149 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         _ = await Assert.That(log.SnapshotPath).IsNull();
         _ = await Assert.That((after.CommitIndex, after.LastLogIndex, after.LastAppliedIndex)).IsEqualTo((2UL, 3UL, 3UL));
         _ = await Assert.That(await log.GetUncommittedTailAsync(cancellationToken)).IsEmpty();
+    }
+
+    /// <summary>
+    /// A log whose commit index runs ahead of its applied index compacts through the applied index and keeps every frame above it: the
+    /// committed entries still to apply and the uncommitted tail.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CompactThroughAppliedKeepsCommittedTail(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-compaction-committed-tail");
+        await using var log = await SeedCommittedTailAsync(dir, null, cancellationToken);
+
+        _ = await Assert.That(await log.CompactThroughAsync(Applied, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
+
+        var retention = await RetentionAsync(log, cancellationToken);
+        _ = await Assert.That((retention.SnapshotIndex, retention.RetainedEntries, retention.RetainedPayloads)).IsEqualTo((Applied, 3, 3));
+        await AssertCommittedTailAsync(log, cancellationToken);
+        var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId).ReadPublishedAsync(cancellationToken)).IsNotNull();
+        _ = await Assert.That(published.LastIncludedIndex).IsEqualTo(Applied);
+    }
+
+    /// <summary>Only the applied index compacts: an index below it, a committed index above it, and an uncommitted index are refused, and nothing changes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CompactRefusesIndexOtherThanApplied(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-compaction-other-index");
+        await using var log = await SeedCommittedTailAsync(dir, null, cancellationToken);
+
+        _ = await Assert.That(await log.CompactThroughAsync(Applied - 1, cancellationToken)).IsEqualTo(GroupCompactionOutcome.NotReady);
+        _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.NotReady);
+        _ = await Assert.That(await log.CompactThroughAsync(LastIndex, cancellationToken)).IsEqualTo(GroupCompactionOutcome.NotReady);
+
+        var retention = await RetentionAsync(log, cancellationToken);
+        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        _ = await Assert.That(log.SnapshotPath).IsNull();
+        _ = await Assert.That((retention.SnapshotIndex, retention.RetainedEntries)).IsEqualTo((0UL, int.CreateChecked(LastIndex)));
+    }
+
+    /// <summary>
+    /// A restart after compacting through the applied index recovers the snapshot, the commit index above it, and every retained frame, and
+    /// the log compacts again once the retained committed entries are applied.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RecoveryKeepsCommittedTailAboveSnapshot(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-compaction-committed-tail-restart");
+        await using (var log = await SeedCommittedTailAsync(dir, null, cancellationToken))
+            _ = await Assert.That(await log.CompactThroughAsync(Applied, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
+
+        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        await reopened.OpenAsync(cancellationToken);
+
+        var retention = await RetentionAsync(reopened, cancellationToken);
+        _ = await Assert.That((retention.SnapshotIndex, retention.RetainedEntries)).IsEqualTo((Applied, 3));
+        await AssertCommittedTailAsync(reopened, cancellationToken);
+
+        _ = await reopened.AdvanceAppliedAsync(Committed, cancellationToken);
+        _ = await Assert.That(await reopened.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((status.LastLogIndex, status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((LastIndex, Committed, Committed));
+        _ = await Assert.That((await reopened.GetUncommittedTailAsync(cancellationToken))[0].LogIndex).IsEqualTo(LastIndex);
+    }
+
+    /// <summary>
+    /// A failure at either durability boundary of a compaction through the applied index leaves a log that reopens with the committed tail
+    /// above the snapshot.
+    /// </summary>
+    /// <param name="boundary">The boundary the failure is injected at.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(GroupLogCompactThroughTests.FaultBoundary.AfterSnapshotPublish)]
+    [Arguments(GroupLogCompactThroughTests.FaultBoundary.AfterLogReplace)]
+    public async Task FaultKeepsCommittedTail(GroupLogCompactThroughTests.FaultBoundary boundary, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-compaction-committed-tail-fault");
+        var armed = false;
+        var hooks = new IFollowerLogFaultHooksCreateExpectations();
+        _ = hooks.Setups.OnFrameWritten();
+        _ = hooks.Setups.OnCommitAdvanced();
+        _ = hooks.Setups.OnBeforeMemoryApply();
+        _ = hooks.Setups.OnFlushed().Callback(() => FailIfArmed(armed && boundary == GroupLogCompactThroughTests.FaultBoundary.AfterSnapshotPublish));
+        _ = hooks.Setups.OnMetaWritten().Callback(() => FailIfArmed(armed && boundary == GroupLogCompactThroughTests.FaultBoundary.AfterLogReplace));
+        await using (var log = await SeedCommittedTailAsync(dir, new FollowerLogOptions { FaultHooks = hooks.Instance() }, cancellationToken))
+        {
+            armed = true;
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(Applied, cancellationToken));
+            armed = false;
+        }
+
+        // The snapshot is published at both boundaries; only the later one swapped in the log that starts right above it.
+        var first = await FirstFrameIndexAsync(dir, cancellationToken);
+        _ = await Assert.That(File.Exists(GroupStoragePaths.GetSnapshotPath(dir, GroupId))).IsTrue();
+        _ = await Assert.That(first).IsEqualTo(boundary == GroupLogCompactThroughTests.FaultBoundary.AfterLogReplace ? Applied + 1 : 1UL);
+
+        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        await reopened.OpenAsync(cancellationToken);
+
+        await AssertCommittedTailAsync(reopened, cancellationToken);
+        _ = await Assert.That(await reopened.CompactThroughAsync(Applied, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
+        await AssertCommittedTailAsync(reopened, cancellationToken);
+    }
+
+    /// <summary>
+    /// A store already past its idempotency capacity compacts, and an outcome applied while the snapshot is published keeps the log ready:
+    /// committed outcomes are never refused for the capacity, before or after the snapshot is published.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CompactPastCapacityStaysReady(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-compaction-past-capacity");
+        var now = DateTime.UtcNow;
+        var armed = new int[1];
+        GroupIdempotencyState? store = null;
+        var hooks = new IFollowerLogFaultHooksCreateExpectations();
+        _ = hooks.Setups.OnFrameWritten();
+        _ = hooks.Setups.OnCommitAdvanced();
+        _ = hooks.Setups.OnBeforeMemoryApply();
+        _ = hooks.Setups.OnMetaWritten();
+
+        // The first flush once armed publishes the snapshot: the outcome recorded there lands between the snapshot and the log rewrite.
+        _ = hooks.Setups.OnFlushed().Callback(() =>
+        {
+            if (Interlocked.Exchange(ref armed[0], 0) == 1)
+                store?.RecordCommittedOutcome(CommittedOutcome("applied-3", Applied + 1, now));
+        });
+        await using var log = await SeedCommittedTailAsync(dir, new FollowerLogOptions { IdempotencyCapacity = 1, FaultHooks = hooks.Instance() }, cancellationToken);
+        store = log.Idempotency;
+        store.MarkOutcomesRebuilt();
+        store.RecordCommittedOutcome(CommittedOutcome("applied-1", 1UL, now));
+        store.RecordCommittedOutcome(CommittedOutcome("applied-2", Applied, now));
+        Volatile.Write(ref armed[0], 1);
+
+        var outcome = await log.CompactThroughAsync(Applied, cancellationToken);
+
+        var retention = await RetentionAsync(log, cancellationToken);
+        _ = await Assert.That((outcome, log.Readiness, retention.SnapshotIndex)).IsEqualTo((GroupCompactionOutcome.Compacted, FollowerLogReadiness.Ready, Applied));
+        _ = await Assert.That(Volatile.Read(ref armed[0])).IsEqualTo(0).Because("The outcome must be recorded while the compaction runs.");
+        var found = (store.Lookup("client", "applied-1", [1], out _), store.Lookup("client", "applied-2", [1], out _), store.Lookup("client", "applied-3", [1], out _));
+        _ = await Assert.That(found).IsEqualTo((GroupIdempotencyLookup.Found, GroupIdempotencyLookup.Found, GroupIdempotencyLookup.Found));
     }
 
     /// <summary>A failed replacement after flushing the compacted file preserves the original durable journal and the readable published snapshot.</summary>
@@ -258,6 +404,77 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
     }
 
     private static FollowerLogAppendRequest Append(ulong index, string payload) => Append(index, 1UL, payload);
+
+    private static GroupIdempotencyRecord CommittedOutcome(string operationId, ulong logIndex, DateTime decidedUtc) =>
+        new("client", operationId, new byte[] { 1 }, new byte[] { 8 }, GroupRecordKind.UserMutation, decidedUtc, decidedUtc, logIndex, 1UL);
+
+    private static void FailIfArmed(bool armed)
+    {
+        if (armed)
+            throw new IOException("simulated crash at a compaction boundary.");
+    }
+
+    private static string Payload(ulong index) => "value-" + index;
+
+    private static ValueTask<FollowerLogRetention> RetentionAsync(IFollowerLog log, CancellationToken cancellationToken) => log.GetRetentionAsync(cancellationToken);
+
+    /// <summary>Asserts the state a compaction through the applied index leaves, with the committed tail and the uncommitted entry retained.</summary>
+    /// <param name="log">The log to check.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    private static async Task AssertCommittedTailAsync(FollowerLog log, CancellationToken cancellationToken)
+    {
+        var status = await log.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        _ = await Assert.That((status.LastLogIndex, status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((LastIndex, Committed, Applied));
+
+        var committed = await log.GetCommittedEntriesAsync(Applied, 10, cancellationToken);
+        _ = await Assert.That(committed.Count).IsEqualTo(int.CreateChecked(Committed - Applied));
+        for (var i = 0; i < committed.Count; i++)
+        {
+            var index = Applied + 1 + ulong.CreateChecked(i);
+            _ = await Assert.That((committed[i].LogIndex, Encoding.UTF8.GetString(committed[i].Payload.Span))).IsEqualTo((index, Payload(index)));
+        }
+
+        var tail = await log.GetUncommittedTailAsync(cancellationToken);
+        _ = await Assert.That(tail).HasSingleItem();
+        _ = await Assert.That((tail[0].LogIndex, Encoding.UTF8.GetString(tail[0].Payload.Span))).IsEqualTo((LastIndex, Payload(LastIndex)));
+    }
+
+    /// <summary>Reads the log index of the first frame of the durable group log.</summary>
+    /// <param name="dir">The node data directory.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The first frame's log index, or <c language="csharp">0</c> when no frame opens the log.</returns>
+    private static async Task<ulong> FirstFrameIndexAsync(string dir, CancellationToken cancellationToken)
+    {
+        var bytes = await File.ReadAllBytesAsync(GroupStoragePaths.GetLogPath(dir, GroupId), cancellationToken);
+        return GroupLogCodec.TryReadFrameFields(bytes.AsSpan(GroupLogCodec.LogFileHeader.Length), out var logIndex, out _) ? logIndex : 0UL;
+    }
+
+    /// <summary>Opens a log holding entries 1 to 5, committed through 4 and applied through 2.</summary>
+    /// <param name="dir">The node data directory.</param>
+    /// <param name="options">The log options, or <see langword="null" /> for the defaults.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The open log.</returns>
+    private static async Task<FollowerLog> SeedCommittedTailAsync(string dir, FollowerLogOptions? options, CancellationToken cancellationToken)
+    {
+        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, options);
+        try
+        {
+            await log.OpenAsync(cancellationToken);
+            for (var index = 1UL; index <= LastIndex; index++)
+                _ = await log.AppendAsync(Append(index, Payload(index)), cancellationToken);
+
+            _ = await log.AdvanceCommitAsync(Committed, cancellationToken);
+            _ = await log.AdvanceAppliedAsync(Applied, cancellationToken);
+            return log;
+        }
+        catch
+        {
+            await log.DisposeAsync();
+            throw;
+        }
+    }
 
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => FollowerFoundationScenario.Append("leader", index, term, payload);
 }

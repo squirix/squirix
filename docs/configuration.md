@@ -306,8 +306,8 @@ There is **no** `Squirix:Persistence` JSON merge in v0.1 public hosting — putt
 | Journal group commit batch    | int    | `32`                                                       | Set through `SquirixServerOptions.Journal`, see [Journal](#journal)                                                                        |
 | `JournalMaxSegmentCount`      | int    | `32`                                                       | `> 0` (Pipelined journal segment count cap)                                                                                                |
 | `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | `>= 9` (Pipelined journal total on-disk size hard cap; must hold one segment with the largest journal frame)                               |
-| `ReplicaLogCompactionMb`      | int    | `64`                                                       | `> 0` (RF>1: `group.log` size of the owned replica group that triggers its compaction)                                                     |
-| `ReplicaLogCompactionEntries` | int    | `100000`                                                   | `> 0` (RF>1: entries in the owned replica group log that trigger its compaction)                                                           |
+| `ReplicaLogCompactionMb`      | int    | `64`                                                       | `> 0` (RF>1: `group.log` size of each served replica group that triggers its compaction)                                                   |
+| `ReplicaLogCompactionEntries` | int    | `100000`                                                   | `> 0` (RF>1: entries in each served replica group log that trigger its compaction)                                                         |
 
 Additional host defaults (also not merged from `Squirix.settings.json`):
 

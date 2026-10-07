@@ -17,9 +17,9 @@ namespace Squirix.Server.Node.Services;
 /// Each pass first persists the committer's in-memory applied index once the cache journal holds the applied entries durably, which
 /// releases their payloads from memory; that runs outside the commit gate, so writes never wait on it. It then compacts the owned log
 /// once it reaches a threshold, as one step under the commit gate. Afterwards it persists the applied index of every follower group the
-/// same way. A change of a group's compaction outcome is logged once, not on every pass. A failed step of one group is retried on the
-/// next pass without holding back the other groups; a follower group's failure is logged when it starts or changes, not on every pass.
-/// The service runs on the host lifetime and stops with it.
+/// same way and compacts that group's log through it once the log reaches a threshold. A change of a group's compaction outcome is logged
+/// once, not on every pass. A failed step of one group is retried on the next pass without holding back the other groups; a follower
+/// group's failure is logged when it starts or changes, not on every pass. The service runs on the host lifetime and stops with it.
 /// </remarks>
 internal sealed class ReplicaLogCompactionService : BackgroundService
 {
@@ -47,7 +47,7 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
     /// <param name="options">The maintenance schedule.</param>
     /// <param name="policy">The compaction thresholds.</param>
     /// <param name="metrics">The replication metrics counting compactions and skipped compactions.</param>
-    /// <param name="appliers">The appliers of the follower groups, whose applied indexes are persisted after the owned log.</param>
+    /// <param name="appliers">The appliers of the follower groups, whose applied indexes are persisted and whose logs are compacted after the owned log.</param>
     /// <param name="registry">Replica group registry holding the follower group logs.</param>
     /// <param name="log">Logger reporting compaction outcome changes and failed passes.</param>
     /// <param name="timeProvider">Time source for the delay between passes.</param>
@@ -81,7 +81,7 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
         _timeProvider = timeProvider;
     }
 
-    /// <summary>Runs one maintenance pass: the owned group log first, then the applied index of every follower group.</summary>
+    /// <summary>Runs one maintenance pass: the owned group log first, then the applied index and the log of every follower group.</summary>
     /// <param name="stoppingToken">The host stopping token.</param>
     /// <returns>A task that completes when every group was maintained or its failure was logged.</returns>
     /// <remarks>The service loop is the only production caller; tests run a pass directly instead of waiting for the interval.</remarks>
@@ -90,7 +90,7 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
         await MaintainOwnedLogAsync(stoppingToken).ConfigureAwait(false);
         var groupIds = _appliers.GroupIds;
         for (var i = 0; i < groupIds.Count; i++)
-            await FlushFollowerAsync(groupIds[i], stoppingToken).ConfigureAwait(false);
+            await MaintainFollowerLogAsync(groupIds[i], stoppingToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -125,11 +125,14 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
         }
     }
 
-    /// <summary>Persists the applied index of one follower group once the cache journal holds its applied entries durably.</summary>
+    /// <summary>
+    /// Persists the applied index of one follower group once the cache journal holds its applied entries durably, then compacts the
+    /// group log through it.
+    /// </summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="stoppingToken">The host stopping token.</param>
-    /// <returns>A task that completes when the applied index is persisted or its failure was logged.</returns>
-    private async Task FlushFollowerAsync(string groupId, CancellationToken stoppingToken)
+    /// <returns>A task that completes when the group was maintained or its failure was logged.</returns>
+    private async Task MaintainFollowerLogAsync(string groupId, CancellationToken stoppingToken)
     {
         if (!_registry.TryGetLog(groupId, out var log))
             return;
@@ -137,6 +140,7 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
         try
         {
             await _appliers.For(groupId).FlushAsync(log, _durability, stoppingToken).ConfigureAwait(false);
+            Report(groupId, await ReplicaLogCompactionStep.RunFollowerAsync(log, _policy, stoppingToken).ConfigureAwait(false));
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException && !stoppingToken.IsCancellationRequested)
         {

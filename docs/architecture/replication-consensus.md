@@ -134,17 +134,27 @@ therefore internal to `Storage.Replication` and does not add a transport depende
 
 ### Group log retention and compaction
 
-Only the owner of a replica group (its leader) maintains the group log it leads. Follower-held group logs are neither
-applied nor compacted until follower-side apply lands.
+Every node maintains each group log it serves: the log of the group it owns (leads) and its copy of every group it
+follows.
 
 - **Applied index.** The owner applies every committed entry to memory in log order and tracks the index it reached.
-  A maintenance pass every 10 seconds waits until the node cache journal holds every applied entry durably, then
-  persists that index in the group log, which releases the applied payloads from memory. After a restart the owner
-  applies the committed entries above the persisted index again, in log order, before it serves writes.
-- **Trigger.** The same pass compacts the owned group log once `group.log` reaches `ReplicaLogCompactionMb` (default
-  64 MiB) or holds `ReplicaLogCompactionEntries` entries (default 100 000); see
+  A follower does the same for each group it follows: one apply loop per group applies the entries the leader marked
+  committed, in log order, and records their idempotency outcomes. A maintenance pass every 10 seconds waits until the
+  node cache journal holds every applied entry durably, then persists that index in each group log, which releases the
+  applied payloads from memory. After a restart the owner applies the committed entries above the persisted index again,
+  in log order, before it serves writes; a follower's apply loop first rebuilds the outcomes of the committed entries,
+  then does the same.
+- **Trigger.** The same pass compacts a group log once `group.log` reaches `ReplicaLogCompactionMb` (default 64 MiB) or
+  holds `ReplicaLogCompactionEntries` entries (default 100 000); see
   [configuration](../configuration.md#persistence-host-defaults).
-- **Gated step.** The compaction runs as one step under the commit gate, so writes wait for it and continue after it.
+- **Follower compaction.** A follower compacts its copy of a group through the applied index it persisted, while the
+  commit index may be higher. It publishes `group.snapshot` through that index and rewrites `group.log` to its header
+  plus every entry above it, committed or not, so the apply loop and the leader's next append find them. The step waits
+  until the apply loop has rebuilt the outcomes of the applied entries, and while nothing was applied past the last
+  snapshot. A crash after the snapshot is published, or after `group.log` is rewritten, recovers the same state: the
+  snapshot, the commit index, and the entries above the snapshot.
+- **Gated owner step.** The owner's compaction runs as one step under the commit gate, so writes wait for it and
+  continue after it.
   It requires no uncommitted tail, every committed entry applied, every idempotency outcome resolved, and every
   follower slot verified ready with a durable match index at the commit index. It then publishes `group.snapshot`
   through the commit index and rewrites `group.log` to its header.
