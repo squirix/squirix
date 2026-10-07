@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Errors;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
@@ -17,8 +18,8 @@ namespace Squirix.Server.Node.Services;
 /// Each follower group runs its own loop, the single caller of the group's applier: it catches memory up through the durable commit
 /// index, then waits until the follower path signals new entries, or until a fallback interval elapses. Nothing is applied before local
 /// recovery has replayed the cache journal into memory. A committed record that cannot be applied stops only its group: it is logged as
-/// an error and every later entry of that group stays unapplied, while the other groups go on. Storage and journal faults are logged
-/// when they change and retried on the next pass; anything else faults the service. The service runs on the host lifetime and stops
+/// an error and every later entry of that group stays unapplied, while the other groups go on. Storage and journal faults, a full
+/// journal, and memory that refuses the write are logged when they change and retried on the next pass; anything else faults the service. The service runs on the host lifetime and stops
 /// with it; a restart applies again what memory lacks.
 /// </remarks>
 internal sealed class ReplicaApplyService : BackgroundService
@@ -101,6 +102,11 @@ internal sealed class ReplicaApplyService : BackgroundService
             await failed.ConfigureAwait(false);
     }
 
+    /// <summary>Tells whether a fault of a pass leaves the group pending for the next pass instead of faulting the service.</summary>
+    /// <param name="exception">The fault of the pass.</param>
+    /// <returns><see langword="true" /> for storage and journal faults, and for a full journal or memory that refused the write.</returns>
+    private static bool IsRetryable(Exception exception) => exception is IOException or InvalidOperationException or JournalCapacityExceededException or ResourceExhaustedException;
+
     /// <summary>Applies the committed entries of a ready group log that memory lacks.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="applier">The group applier.</param>
@@ -155,7 +161,7 @@ internal sealed class ReplicaApplyService : BackgroundService
                 ServerLog.ReplicaFollowerApplyStopped(_log, groupId, exception);
                 return;
             }
-            catch (Exception exception) when (exception is IOException or InvalidOperationException && !stoppingToken.IsCancellationRequested)
+            catch (Exception exception) when (IsRetryable(exception) && !stoppingToken.IsCancellationRequested)
             {
                 // The same fault repeats on every pass until it clears, so it is logged when its kind or the entry it stops at changes, not
                 // on every retry; its message may name the commit index, which moves on while the fault stays.

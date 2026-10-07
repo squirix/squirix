@@ -7,6 +7,7 @@ using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
@@ -30,6 +31,8 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
 {
     private const int StoppedEventId = 4028;
 
+    private const int RetryEventId = 4029;
+
     private static readonly byte[] Fingerprint = [9, 8, 7];
 
     private static readonly string[] Groups = ["n1", "n2", "n3"];
@@ -51,7 +54,12 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         var cache = new StubCache();
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache, meter);
-        using var service = new ReplicaApplyService(registry, appliers, ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, new FakeTimeProvider());
+        using var service = new ReplicaApplyService(
+            registry,
+            appliers,
+            ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            NullLogger<ReplicaApplyService>.Instance,
+            new FakeTimeProvider());
         var applied = WhenAppliedAsync(cache, 3);
 
         await service.StartAsync(cancellationToken);
@@ -82,7 +90,12 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         var cache = new StubCache();
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache, meter);
-        using var service = new ReplicaApplyService(registry, appliers, ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, new FakeTimeProvider());
+        using var service = new ReplicaApplyService(
+            registry,
+            appliers,
+            ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            NullLogger<ReplicaApplyService>.Instance,
+            new FakeTimeProvider());
         var first = WhenAppliedAsync(cache, 1);
 
         await service.StartAsync(cancellationToken);
@@ -152,7 +165,12 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         var cache = new StubCache();
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache, meter);
-        using var service = new ReplicaApplyService(registry, appliers, ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, new FakeTimeProvider());
+        using var service = new ReplicaApplyService(
+            registry,
+            appliers,
+            ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            NullLogger<ReplicaApplyService>.Instance,
+            new FakeTimeProvider());
         var first = WhenAppliedAsync(cache, 1);
 
         await service.StartAsync(cancellationToken);
@@ -171,8 +189,10 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
 
         _ = await Assert.That(registry.TryGetLog("n2", out var log)).IsTrue();
         _ = await Assert.That(log!.Idempotency.OutcomesRebuilt).IsTrue();
-        _ = await Assert.That(log.Idempotency.Lookup(committed.OperationScope, committed.OperationId, committed.OperationFingerprint.Span, out _)).IsEqualTo(GroupIdempotencyLookup.Found);
-        _ = await Assert.That(log.Idempotency.Lookup(appended.OperationScope, appended.OperationId, appended.OperationFingerprint.Span, out _)).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(log.Idempotency.Lookup(committed.OperationScope, committed.OperationId, committed.OperationFingerprint.Span, out _))
+                        .IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(log.Idempotency.Lookup(appended.OperationScope, appended.OperationId, appended.OperationFingerprint.Span, out _))
+                        .IsEqualTo(GroupIdempotencyLookup.Found);
     }
 
     /// <summary>A fault outside the retried storage and journal faults ends the service with that fault.</summary>
@@ -188,7 +208,12 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
                  .Callback(static (_, _, _, _, _) => ValueTask.FromException(new NotSupportedException("unexpected cache failure")));
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache.Instance(), meter);
-        using var service = new ReplicaApplyService(registry, appliers, ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, new FakeTimeProvider());
+        using var service = new ReplicaApplyService(
+            registry,
+            appliers,
+            ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            NullLogger<ReplicaApplyService>.Instance,
+            new FakeTimeProvider());
 
         await service.StartAsync(cancellationToken);
         try
@@ -201,6 +226,50 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(appliers.For("n2").AppliedIndex).IsEqualTo(0UL);
+    }
+
+    /// <summary>A full journal leaves the group pending instead of ending the service, and the next pass applies the entry.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FullJournalIsRetried(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-apply-service-full-journal");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await SeedAsync(registry, "n2", 1UL, cancellationToken, "k1");
+        var writes = 0;
+        var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
+        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+                 .Callback((_, _, _, _, _) =>
+                  {
+                      var write = Interlocked.Increment(ref writes);
+                      if (write == 1)
+                          return ValueTask.FromException(new JournalCapacityExceededException());
+
+                      if (write == 3)
+                          _ = applied.TrySetResult();
+
+                      return ValueTask.CompletedTask;
+                  });
+        var events = new EventRecordingLogger();
+        using var meter = new Meter("test");
+        var appliers = CreateAppliers(registry, cache.Instance(), meter);
+        using var service = new ReplicaApplyService(registry, appliers, ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), events, new FakeTimeProvider());
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            await events.WhenLoggedAsync(RetryEventId).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            _ = await new ReplicaFollower(registry).AppendAsync("n2", Fingerprint, 1, Batch(Prepare("k2", 2UL), 1UL, 2UL), cancellationToken);
+            await applied.Task.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(service.ExecuteTask?.IsCompleted).IsFalse().Because("A full journal must not end the service.");
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(appliers.For("n2").AppliedIndex).IsEqualTo(2UL);
     }
 
     /// <summary>The stop waits for the loop of every group, including one still applying an entry after the others ended with the host.</summary>
@@ -216,13 +285,18 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
         _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
                  .Callback((_, _, _, _, _) =>
-                 {
-                     _ = entered.TrySetResult();
-                     return new ValueTask(release.Task);
-                 });
+                  {
+                      _ = entered.TrySetResult();
+                      return new ValueTask(release.Task);
+                  });
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache.Instance(), meter);
-        using var service = new ReplicaApplyService(registry, appliers, ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, new FakeTimeProvider());
+        using var service = new ReplicaApplyService(
+            registry,
+            appliers,
+            ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            NullLogger<ReplicaApplyService>.Instance,
+            new FakeTimeProvider());
 
         await service.StartAsync(cancellationToken);
         Task? stopped = null;
@@ -245,8 +319,12 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         _ = await Assert.That((appliers.For("n2").AppliedIndex, appliers.For("n3").AppliedIndex)).IsEqualTo((0UL, 1UL));
     }
 
-    private static ReplicaFollowerAppliers CreateAppliers(ReplicaGroupRegistry registry, ILogicalNamespacedCache<object?> cache, Meter meter) =>
-        new(registry, cache, "n1", NullLogger<ReplicaFollowerAppliers>.Instance, new ReplicationMetrics(meter));
+    private static ReplicaFollowerAppliers CreateAppliers(ReplicaGroupRegistry registry, ILogicalNamespacedCache<object?> cache, Meter meter) => new(
+        registry,
+        cache,
+        "n1",
+        NullLogger<ReplicaFollowerAppliers>.Instance,
+        new ReplicationMetrics(meter));
 
     /// <summary>Returns a task that completes once the cache applied at least <paramref name="count" /> writes.</summary>
     /// <param name="cache">The local cache double.</param>
@@ -286,12 +364,18 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
     {
         var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance);
         var prepared = await factory.PrepareTryAddAsync(NewOperationId(), "cache", "bad", Entry("bad"), 1UL, cancellationToken);
-        var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
+        var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload) ??
+                     ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
         return record with { OutcomePayload = ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty) };
     }
 
-    private static FollowerBatch Batch(in ReplicaLogRecord record, ulong prevLogIndex, ulong leaderCommitIndex) =>
-        new([record], "n2", 1, prevLogIndex, prevLogIndex == 0 ? 0UL : 1UL, leaderCommitIndex);
+    private static FollowerBatch Batch(in ReplicaLogRecord record, ulong prevLogIndex, ulong leaderCommitIndex) => new(
+        [record],
+        "n2",
+        1,
+        prevLogIndex,
+        prevLogIndex == 0 ? 0UL : 1UL,
+        leaderCommitIndex);
 
     private static Task SeedAsync(ReplicaGroupRegistry registry, string groupId, ulong commitIndex, CancellationToken cancellationToken, params string[] keys)
     {
