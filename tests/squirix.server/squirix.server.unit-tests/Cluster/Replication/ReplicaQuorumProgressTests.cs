@@ -49,6 +49,21 @@ public sealed class ReplicaQuorumProgressTests
         _ = await Assert.That(quorum.HasBufferedThrough(2)).IsFalse();
     }
 
+    /// <summary>A slot buffers at most the capped number of acknowledgements ahead of its missing prefix; the next one is not recorded.</summary>
+    [Test]
+    public async Task BufferedAcknowledgementsAreCapped()
+    {
+        var quorum = new ReplicaCommitQuorum(3);
+        for (var index = 2UL; index < 2UL + ReplicaCommitQuorum.MaxBufferedAcks; index++)
+            _ = await Assert.That(quorum.TryRecord(1, CreateAcknowledgement(Mutation(index)), Mutation(index))).IsTrue();
+
+        const ulong past = 2UL + ReplicaCommitQuorum.MaxBufferedAcks;
+        _ = await Assert.That(quorum.TryRecord(1, CreateAcknowledgement(Mutation(past)), Mutation(past))).IsFalse();
+
+        _ = await Assert.That(quorum.TryRecord(1, CreateAcknowledgement(Mutation(1)), Mutation(1))).IsTrue();
+        _ = await Assert.That(quorum.MatchIndexFor(1)).IsEqualTo(past - 1UL);
+    }
+
     /// <summary>Admitting a slot at a higher match index signals; admitting at a lower one does not.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

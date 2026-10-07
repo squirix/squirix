@@ -505,7 +505,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             : [];
 
         // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
-        var pipeline = new ReplicaGroupCommitPipeline(Applier, log, CreateSenders(members, in status, in header), GroupId, in status, term);
+        var lagging = new ReplicaLaggingFollowers(GroupId, eligibility, Probe.Repairs, Log);
+        var pipeline = new ReplicaGroupCommitPipeline(Applier, log, CreateSenders(members, in status, in header), GroupId, lagging, in status, term);
         var factory = new ReplicaMutationFactory(_local, GroupId, term, Clock, Log);
         _pipeline = pipeline;
         _coordinator = this.CreateCoordinator(_locator.ReplicaCount, pipeline, log, in status, eligibility, Applier.RecoverTail(tail, term, factory));
@@ -651,6 +652,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     {
         private readonly ReplicaLeaderApplier _applier;
+        private readonly ReplicaLaggingFollowers _lagging;
         private readonly IFollowerLog _log;
         private readonly string _selfId;
         private readonly ReplicaFollowerSender[] _senders;
@@ -666,6 +668,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         /// <param name="log">Owned group log for local durable appending.</param>
         /// <param name="senders">The senders of follower slots one and up, in slot order; the pipeline owns them and closes them.</param>
         /// <param name="selfId">This node identifier.</param>
+        /// <param name="lagging">Demotes and queues for repair the followers that did not acknowledge an entry.</param>
         /// <param name="status">Durable log status seeding previous and commit positions.</param>
         /// <param name="term">The leader term the pipeline appends and replicates in.</param>
         internal ReplicaGroupCommitPipeline(
@@ -673,6 +676,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             IFollowerLog log,
             ReplicaFollowerSender[] senders,
             string selfId,
+            ReplicaLaggingFollowers lagging,
             in FollowerLogStatus status,
             ulong term)
         {
@@ -685,6 +689,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             _log = log;
             _selfId = selfId;
             _senders = senders;
+            _lagging = lagging;
             _term = term;
             _prevLogIndex = status.LastLogIndex;
             _prevLogTerm = status.LastLogTerm;
@@ -742,11 +747,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             _applier.ApplyAsync(mutation.LogIndex, mutation.CanonicalPayload, cancellationToken);
 
         /// <inheritdoc />
-        public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
-        {
-            // Repair driving lands in a later milestone; the coordinator already observes stragglers
-            // in the background, and a lagging replica simply stops counting toward the majority.
-        }
+        /// <remarks>Called under the commit gate and from background follower observation; it never waits and never throws.</remarks>
+        public void RecordLaggingReplica(int replicaIndex, ulong logIndex) => _lagging.Record(replicaIndex, logIndex, _senders[replicaIndex - 1].NodeId);
 
         /// <summary>Gets what a catch-up of a follower slot runs against: this pipeline, the slot's sender, the leader log and term.</summary>
         /// <param name="replicaIndex">One-based follower slot.</param>

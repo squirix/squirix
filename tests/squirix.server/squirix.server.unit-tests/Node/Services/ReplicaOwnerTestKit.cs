@@ -42,6 +42,9 @@ internal static class ReplicaOwnerTestKit
 
         /// <summary>Refuses the probe as a log mismatch, accepts a batch with entries but reports a log five entries longer.</summary>
         BehindLonger = 6,
+
+        /// <summary>Answers a batch with entries only by observing its cancellation, as a follower that is slow but not down.</summary>
+        Silent = 7,
     }
 
     internal static string NewOperationId() => Guid.NewGuid().ToString("N");
@@ -72,6 +75,18 @@ internal static class ReplicaOwnerTestKit
         TimeProvider clock,
         ReplicationMetrics? metrics = null) =>
         new(registry, new ThreeNodeLocator(), gateway, cache, "n1", new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance) { Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), Clock = clock, Metrics = metrics };
+
+    /// <summary>Creates a committer whose commit budget and follower request timeouts run on <paramref name="budgetClock" />.</summary>
+    /// <param name="registry">Replica group registry of the owner.</param>
+    /// <param name="gateway">Follower transport double.</param>
+    /// <param name="budgetClock">The time source of the commit budget and of the follower request timeouts.</param>
+    /// <returns>The committer.</returns>
+    internal static ReplicaGroupCommitter CreateCommitterOnBudgetClock(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, TimeProvider budgetClock) =>
+        new(registry, new ThreeNodeLocator(), gateway, new StubCache(), "n1", new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+        {
+            Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            BudgetTimeProvider = budgetClock,
+        };
 
     internal static Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, CancellationToken cancellationToken) => OpenRegistryAsync(dir, null, cancellationToken);
 
@@ -240,6 +255,8 @@ internal static class ReplicaOwnerTestKit
                 FollowerMode.Longer => Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last + 5)),
                 FollowerMode.Refused => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.StaleTerm, batch.LeaderTerm + 1, last)),
                 FollowerMode.Behind => Task.FromResult(AppendBehind(nodeId, in batch, last)),
+                FollowerMode.Silent when batch.Records.Count > 0 => new TaskCompletionSource<FollowerLogAppendResult>(TaskCreationOptions.RunContinuationsAsynchronously).Task.WaitAsync(cancellationToken),
+                FollowerMode.Silent => Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last)),
                 FollowerMode.BehindLonger => Task.FromResult(
                     batch.Records.Count == 0 ? new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, batch.LeaderTerm, 0)
                         : new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last + 5)),
