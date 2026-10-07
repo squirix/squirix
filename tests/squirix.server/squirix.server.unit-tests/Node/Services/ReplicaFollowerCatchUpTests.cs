@@ -6,8 +6,10 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
+using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -239,6 +241,43 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         }
     }
 
+    /// <summary>
+    /// A follower that stays ready while its append is still in flight is verified again when the coordinator is replaced, instead of
+    /// being taken to hold the log through the commit index: compaction then keeps the entries it lacks.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadyFollowerIsVerifiedOnRestart(CancellationToken cancellationToken)
+    {
+        await using var followers = await OpenFollowersAsync(cancellationToken);
+        var routing = new FollowerLogRoutingGateway(followers.Logs);
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        await using var committer = CreateCommitterOnBudgetClock(registry, routing, new FakeTimeProvider(), TimeSpan.FromMilliseconds(100));
+        try
+        {
+            await CommitAsync(committer, "k1", cancellationToken);
+            await routing.AppendedAsync("n3", 1).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            routing.ParkNext("n3");
+            var operationId = NewOperationId();
+            await committer.CommitSetAsync(operationId, "cache", "k2", Entry("k2"), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            await routing.Parked.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.Ready);
+
+            // The retry replaces the coordinator and is answered from the retained outcome, so nothing new is appended to expose n3.
+            committer.DropStartedState();
+            await committer.CommitSetAsync(operationId, "cache", "k2", Entry("k2"), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+            _ = await Assert.That((await followers.Logs["n3"].GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(1UL);
+            _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.CatchingUp);
+            var outcome = await committer.CompactOwnedLogAsync(new ReplicaLogCompactionPolicy(long.MaxValue, 1), DurableJournal(), cancellationToken);
+            _ = await Assert.That(outcome).IsEqualTo(ReplicaLogCompactionOutcome.FollowerNotReady);
+        }
+        finally
+        {
+            routing.Release();
+        }
+    }
+
     /// <summary>The readiness service, woken by the demotion, repairs the follower whose append failed on its own.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -300,6 +339,13 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
 
         _ = await Assert.That(log.Count(FollowerCaughtUpEventId)).IsEqualTo(1);
         _ = await Assert.That((await followers.Logs["n3"].GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(3UL);
+    }
+
+    private static IJournalDurabilityCoordinator DurableJournal()
+    {
+        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
+        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        return durability.Instance();
     }
 
     private static ReplicaCatchUpReporter Reporter() => new(GroupId, NullLogger.Instance, null);
