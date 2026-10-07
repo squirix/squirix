@@ -100,6 +100,13 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
     internal ReplicaEligibility EligibilityFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Eligibility;
 
+    /// <summary>Gets the signal that wakes the apply loop of a served group.</summary>
+    /// <param name="id">Replica group identifier.</param>
+    /// <returns>The apply signal.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the registry is not opened.</exception>
+    /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
+    internal ReplicaApplySignal ApplySignalFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Signal;
+
     /// <summary>Creates and opens every group log for durable replication.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when every log is ready.</returns>
@@ -191,7 +198,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
                     _ = eligibility.TryMarkReady(r, in zero, in zero);
             }
 
-            var state = new GroupState(log, eligibility);
+            var state = new GroupState(log, eligibility, new ReplicaApplySignal());
             log = null;
             return state;
         }
@@ -203,5 +210,5 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     }
 
     [Immutable]
-    private readonly record struct GroupState(FollowerLog Log, ReplicaEligibility Eligibility);
+    private readonly record struct GroupState(FollowerLog Log, ReplicaEligibility Eligibility, ReplicaApplySignal Signal);
 }

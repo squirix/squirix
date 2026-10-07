@@ -42,7 +42,7 @@ internal sealed class ReplicaGroupApplier
     /// <summary>The message of the inconsistent record last reported; it names the log index and the reason.</summary>
     private string? _lastReported;
 
-    /// <summary>Whether the applied index was seeded from the durable one; read and written under the committer gate only.</summary>
+    /// <summary>Whether the applied index was seeded from the durable one; read and written only by the serialized caller of the catch-up.</summary>
     private bool _seeded;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupApplier" /> class.</summary>

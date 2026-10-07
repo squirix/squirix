@@ -62,17 +62,17 @@ internal static partial class ServerLog
     [LoggerMessage(
         EventId = 4011,
         Level = LogLevel.Warning,
-        Message = "Replica group log maintenance failed and will be retried; the owned group log keeps its applied entries until it succeeds")]
-    internal static partial void ReplicaLogMaintenanceRetry(ILogger logger, Exception exception);
+        Message = "Replica group {GroupId} log maintenance failed and will be retried; the group log keeps its applied entries until it succeeds")]
+    internal static partial void ReplicaLogMaintenanceRetry(ILogger logger, string groupId, Exception exception);
 
-    [LoggerMessage(EventId = 4012, Level = LogLevel.Information, Message = "Replica group log compaction outcome changed to {Outcome}")]
-    internal static partial void ReplicaLogCompactionChanged(ILogger logger, string outcome);
+    [LoggerMessage(EventId = 4012, Level = LogLevel.Information, Message = "Replica group {GroupId} log compaction outcome changed to {Outcome}")]
+    internal static partial void ReplicaLogCompactionChanged(ILogger logger, string groupId, string outcome);
 
     [LoggerMessage(
         EventId = 4013,
         Level = LogLevel.Warning,
-        Message = "Replica group log compaction is stalled: its snapshot would exceed the maximum snapshot size until idempotency outcomes age out")]
-    internal static partial void ReplicaLogCompactionSnapshotTooLarge(ILogger logger);
+        Message = "Replica group {GroupId} log compaction is stalled: its snapshot would exceed the maximum snapshot size until idempotency outcomes age out")]
+    internal static partial void ReplicaLogCompactionSnapshotTooLarge(ILogger logger, string groupId);
 
     [LoggerMessage(
         EventId = 4014,
@@ -150,4 +150,16 @@ internal static partial class ServerLog
         Level = LogLevel.Warning,
         Message = "Replica group {GroupId} applied index was raised from {From} to {To} because the log is applied beyond what memory received; the entries in between were never applied here")]
     internal static partial void ReplicaAppliedIndexReseeded(ILogger logger, string groupId, ulong from, ulong to);
+
+    [LoggerMessage(
+        EventId = 4028,
+        Level = LogLevel.Error,
+        Message = "Replica group {GroupId} stopped applying committed entries on this follower: a committed record cannot be applied, and the later entries stay unapplied until the record gets operator attention")]
+    internal static partial void ReplicaFollowerApplyStopped(ILogger logger, string groupId, Exception exception);
+
+    [LoggerMessage(EventId = 4029, Level = LogLevel.Warning, Message = "Replica group {GroupId} could not apply committed entries on this follower and will retry")]
+    internal static partial void ReplicaFollowerApplyRetry(ILogger logger, string groupId, Exception exception);
+
+    [LoggerMessage(EventId = 4031, Level = LogLevel.Warning, Message = "Replica group {GroupId} has no open log on this node, so this follower applies none of its committed entries")]
+    internal static partial void ReplicaFollowerApplyNoLog(ILogger logger, string groupId);
 }

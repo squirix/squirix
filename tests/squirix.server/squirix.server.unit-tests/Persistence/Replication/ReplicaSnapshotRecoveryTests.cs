@@ -239,7 +239,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
 
         _ = await Assert.That(result.Success).IsTrue();
         _ = await Assert.That(status.CommitIndex).IsEqualTo(2UL);
-        _ = await Assert.That(status.LastAppliedIndex).IsEqualTo(0UL);
+        _ = await Assert.That(status.LastAppliedIndex).IsEqualTo(2UL);
         _ = await Assert.That(status.LastLogIndex).IsEqualTo(3UL);
         _ = await Assert.That(Encoding.UTF8.GetString((await target.GetUncommittedTailAsync(cancellationToken))[0].Payload.ToArray())).IsEqualTo("old-tail");
         _ = await Assert.That(snapshot.GroupId).IsEqualTo(GroupId);
@@ -439,6 +439,63 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         var tail = await reopened.GetUncommittedTailAsync(cancellationToken);
         var single = await Assert.That(tail).HasSingleItem();
         _ = await Assert.That(Encoding.UTF8.GetString(single.Payload.ToArray())).IsEqualTo("resumed-3");
+    }
+
+    /// <summary>
+    /// A crash after an installation published its snapshot but before it persisted the metadata leaves the applied watermark below a
+    /// divergent boundary; recovery discards the frames below it and durably moves the watermark to the boundary, so the entries appended
+    /// afterward are handed out for application.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DivergentRecoveryRaisesApplied(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-replica-snapshot-divergent-applied-source");
+        using var dir2 = new TempDirectory("squirix-replica-snapshot-divergent-applied-target");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using (var source = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
+        {
+            await source.OpenAsync(cancellationToken);
+            _ = await source.AppendAsync(Append(1UL, "source-1"), cancellationToken);
+            _ = await source.AppendAsync(
+                new FollowerLogAppendRequest(
+                    "leader",
+                    2UL,
+                    1UL,
+                    1UL,
+                    0UL,
+                    ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 2UL, Encoding.UTF8.GetBytes("source-2")))),
+                cancellationToken);
+            _ = await source.AdvanceCommitAsync(2UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 2UL, cancellationToken);
+        }
+
+        await using (var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance))
+        {
+            await target.OpenAsync(cancellationToken);
+            _ = await target.AppendAsync(Append(1UL, "target-1"), cancellationToken);
+            _ = await target.AppendAsync(Append(2UL, "target-2"), cancellationToken);
+            _ = await target.AppendAsync(Append(3UL, "target-tail"), cancellationToken);
+        }
+
+        File.Copy(GroupStoragePaths.GetSnapshotPath(dir, GroupId), GroupStoragePaths.GetSnapshotPath(dir2, GroupId));
+        await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, string.Empty, 3UL, 1UL, 0UL), cancellationToken);
+
+        await using (var recovered = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance))
+            await recovered.OpenAsync(cancellationToken);
+
+        await using var reopened = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await reopened.OpenAsync(cancellationToken);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        _ = await Assert.That((status.LastLogIndex, status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((2UL, 2UL, 2UL));
+
+        var memory = ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(3UL, 2UL, Encoding.UTF8.GetBytes("resumed-3")));
+        _ = await Assert.That((await reopened.AppendAsync(new FollowerLogAppendRequest("leader", 2UL, 2UL, 2UL, 3UL, memory), cancellationToken)).Success).IsTrue();
+        var committed = await reopened.GetCommittedEntriesAsync(status.LastAppliedIndex, 10, cancellationToken);
+        var single = await Assert.That(committed).HasSingleItem();
+        _ = await Assert.That((single.LogIndex, Encoding.UTF8.GetString(single.Payload.Span))).IsEqualTo((3UL, "resumed-3"));
     }
 
     /// <summary>

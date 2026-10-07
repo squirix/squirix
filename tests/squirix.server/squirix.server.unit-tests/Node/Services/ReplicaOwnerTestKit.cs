@@ -111,9 +111,18 @@ internal static class ReplicaOwnerTestKit
 
     internal static Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, CancellationToken cancellationToken) => OpenRegistryAsync(dir, null, cancellationToken);
 
-    internal static async Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, FollowerLogOptions? options, CancellationToken cancellationToken)
+    internal static Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, FollowerLogOptions? options, CancellationToken cancellationToken) =>
+        OpenRegistryAsync(dir, ["n1"], options, cancellationToken);
+
+    /// <summary>Opens a registry serving <paramref name="groupIds" />: the owned group n1 and the groups this node follows.</summary>
+    /// <param name="dir">Node data directory.</param>
+    /// <param name="groupIds">The served group identifiers.</param>
+    /// <param name="options">Follower log options of every group log.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The opened registry.</returns>
+    internal static async Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, string[] groupIds, FollowerLogOptions? options, CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(dir, ["n1"], 3, Fingerprint, 1, NullLoggerFactory.Instance, options);
+        var registry = new ReplicaGroupRegistry(dir, groupIds, 3, Fingerprint, 1, NullLoggerFactory.Instance, options);
         try
         {
             await registry.OpenAsync(cancellationToken);
@@ -310,6 +319,9 @@ internal static class ReplicaOwnerTestKit
 
         internal ConcurrentQueue<string> Applied { get; } = new();
 
+        /// <summary>Gets or sets a hook that runs after every applied write.</summary>
+        internal Action? OnApplied { get; set; }
+
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(_entries.TryGetValue(key, out var entry) ? entry : null);
 
@@ -325,6 +337,7 @@ internal static class ReplicaOwnerTestKit
         {
             _entries[key] = entry;
             Applied.Enqueue(key);
+            OnApplied?.Invoke();
             return ValueTask.CompletedTask;
         }
 
@@ -333,7 +346,9 @@ internal static class ReplicaOwnerTestKit
         public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
         {
             Applied.Enqueue(key);
-            return ValueTask.FromResult(_entries.TryAdd(key, entry));
+            var added = _entries.TryAdd(key, entry);
+            OnApplied?.Invoke();
+            return ValueTask.FromResult(added);
         }
 
         public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) => ValueTask.FromResult(false);

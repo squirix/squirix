@@ -2099,6 +2099,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             journal.ClearEntries();
             ResetLogState(owner, snapshotBase);
             EnsureCommittedPrefixCovered(owner, snapshotBase);
+
+            // The truncation dropped every frame at or below the snapshot base, so nothing can apply them any more: the applied watermark
+            // moves to the base, as a snapshot installation moves it. Keeping it below would point the applier at entries no frame holds,
+            // and its catch-up would refuse the gap forever. The commit index already reaches the base, which the snapshot reconciliation
+            // raised it to, so the watermark never passes the commit index.
+            if (snapshotBase > owner.Meta.LastAppliedIndex)
+            {
+                var candidate = owner.Meta with { LastAppliedIndex = snapshotBase };
+                await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
+                owner.Meta = candidate;
+            }
         }
 
         /// <summary>Fails recovery for an invalid frame within the committed region.</summary>
@@ -2375,16 +2386,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 LastLogIndex = installedLastIndex,
                 CommitIndex = Math.Max(owner.Meta.CommitIndex, Math.Min(snapshot.CommitIndex, snapshot.LastIncludedIndex)),
 
-                // The applied watermark follows the same rule as the recovery path. A snapshot installation rewrites the
-                // durable log to a header plus the retained tail above the boundary, so frames at or below the boundary
-                // leave the durable log and survive only as the snapshot's applied state. When the pre-installation durable
-                // log does not reach the boundary (included > LastLogIndex), no offset can exist at the boundary and the
-                // collected tail is empty, so the rewritten journal ends at the boundary (installedLastIndex ==
-                // included): the watermark may adopt the boundary without ever exceeding the durable journal. Otherwise,
-                // it stays, letting GetCommittedEntriesAsync re-supply the retained frames through the durable tail
-                // instead of skipping them.
-                LastAppliedIndex = snapshot.LastIncludedIndex > owner.Meta.LastAppliedIndex && snapshot.LastIncludedIndex > owner.Meta.LastLogIndex ? snapshot.LastIncludedIndex
-                    : owner.Meta.LastAppliedIndex,
+                // A snapshot installation rewrites the durable log to a header plus the retained tail above the boundary, so
+                // every frame at or below the boundary leaves the log and nothing can apply it any more: the applied
+                // watermark moves to the boundary. Keeping it below would point the applier at entries no frame holds, and
+                // its catch-up would refuse the gap forever. The snapshot carries no payloads, so memory that lacks entries
+                // below the boundary keeps lacking them; the applier raises its in-memory index to the boundary and logs
+                // that gap. The eligibility check refuses a boundary below the applied watermark or above the snapshot's
+                // commit index, so the watermark never moves backward nor past the commit index.
+                LastAppliedIndex = Math.Max(owner.Meta.LastAppliedIndex, snapshot.LastIncludedIndex),
             };
         }
 

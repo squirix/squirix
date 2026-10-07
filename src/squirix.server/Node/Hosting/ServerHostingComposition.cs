@@ -132,6 +132,18 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<ILogger<ReplicaGroupReadinessService>>(),
             sp.GetService<TimeProvider>() ?? TimeProvider.System,
             sp.GetRequiredService<ReplicaCatchUpMetrics>()));
+        _ = services.AddSingleton(static sp => new ReplicaFollowerAppliers(
+            sp.GetRequiredService<ReplicaGroupRegistry>(),
+            sp.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey),
+            sp.GetRequiredService<TopologyOptions>().NodeId,
+            sp.GetRequiredService<ILogger<ReplicaFollowerAppliers>>(),
+            sp.GetRequiredService<ReplicationMetrics>()));
+        _ = services.AddHostedService(static sp => new ReplicaApplyService(
+            sp.GetRequiredService<ReplicaGroupRegistry>(),
+            sp.GetRequiredService<ReplicaFollowerAppliers>(),
+            sp.GetRequiredService<IJournalCoordinator>(),
+            sp.GetRequiredService<ILogger<ReplicaApplyService>>(),
+            sp.GetService<TimeProvider>() ?? TimeProvider.System));
         _ = services.AddSingleton(new ReplicaLogCompactionOptions());
         _ = services.AddHostedService(static sp => new ReplicaLogCompactionService(
             sp.GetRequiredService<ReplicaGroupCommitter>(),
@@ -139,6 +151,8 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<ReplicaLogCompactionOptions>(),
             ReplicaLogCompactionPolicy.From(sp.GetRequiredService<PersistenceOptions>()),
             sp.GetRequiredService<ReplicationMetrics>(),
+            sp.GetRequiredService<ReplicaFollowerAppliers>(),
+            sp.GetRequiredService<ReplicaGroupRegistry>(),
             sp.GetRequiredService<ILogger<ReplicaLogCompactionService>>(),
             sp.GetService<TimeProvider>() ?? TimeProvider.System));
         _ = services.AddSingleton<IReplicaStatusSource>(static sp => new ReplicaGroupStatusSource(

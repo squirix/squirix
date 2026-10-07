@@ -13,7 +13,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// The transport adapter maps wire messages to these domain calls. Every call first resolves the group
 /// and checks topology agreement (fingerprint and generation mirror the snapshot-install rules: an empty
 /// durable fingerprint adopts nothing here but never conflicts, and an older generation is refused);
-/// term validation stays inside the log, which persists higher terms durably before responding.
+/// term validation stays inside the log, which persists higher terms durably before responding. An accepted append, commit advance, or
+/// snapshot install wakes the group's apply loop, so committed entries reach memory without waiting for its fallback interval.
 /// </remarks>
 [Immutable]
 internal sealed class ReplicaFollower
@@ -43,8 +44,12 @@ internal sealed class ReplicaFollower
             return new FollowerLogCommitResult(false, FollowerLogRefusal.NotMember, 0);
 
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        return status.IsTopologyMismatch(fp, gen) ? new FollowerLogCommitResult(false, FollowerLogRefusal.TopologyMismatch, status.CommitIndex)
-            : await log.AdvanceCommitAsync(commit, leader, cancellationToken).ConfigureAwait(false);
+        if (status.IsTopologyMismatch(fp, gen))
+            return new FollowerLogCommitResult(false, FollowerLogRefusal.TopologyMismatch, status.CommitIndex);
+
+        var result = await log.AdvanceCommitAsync(commit, leader, cancellationToken).ConfigureAwait(false);
+        NotifyApplyWhen(result.Success, id);
+        return result;
     }
 
     /// <summary>Appends leader entries to a group log after agreement checks.</summary>
@@ -80,7 +85,9 @@ internal sealed class ReplicaFollower
             batch.PrevLogTerm,
             batch.LeaderCommitIndex,
             new ReadOnlyMemory<FollowerLogEntry>(entries));
-        return await log.AppendAsync(request, fingerprint, generation, cancellationToken).ConfigureAwait(false);
+        var result = await log.AppendAsync(request, fingerprint, generation, cancellationToken).ConfigureAwait(false);
+        NotifyApplyWhen(result.Success, groupId);
+        return result;
     }
 
     /// <summary>Gets a group log status.</summary>
@@ -115,7 +122,7 @@ internal sealed class ReplicaFollower
 
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         return status.IsTopologyMismatch(fingerprint, generation) ? GroupSnapshotInstallResult.Refused(FollowerLogRefusal.TopologyMismatch)
-            : await log.InstallSnapshotAsync(snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
+            : await InstallAsync(groupId, log, snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Installs a transferred snapshot file into a group log after agreement checks.</summary>
@@ -152,7 +159,30 @@ internal sealed class ReplicaFollower
 
         var storedChecksum = BinaryPrimitives.ReadUInt32LittleEndian(upload.FileBytes.Span[^4..]);
         return storedChecksum != upload.DeclaredChecksum ? GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady)
-            : await log.InstallSnapshotAsync(snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
+            : await InstallAsync(groupId, log, snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Installs a validated snapshot into a group log and wakes the group's apply loop when it was installed.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="log">The group log.</param>
+    /// <param name="snapshot">Snapshot to install.</param>
+    /// <param name="leaderTerm">Leader term authorizing the install.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The installation outcome.</returns>
+    private async Task<GroupSnapshotInstallResult> InstallAsync(string groupId, IFollowerLog log, GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken)
+    {
+        var result = await log.InstallSnapshotAsync(snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
+        NotifyApplyWhen(result.Success, groupId);
+        return result;
+    }
+
+    /// <summary>Wakes the apply loop of a group after a change that may let it apply more committed entries.</summary>
+    /// <param name="changed">Whether the log accepted the change.</param>
+    /// <param name="groupId">Replica group identifier.</param>
+    private void NotifyApplyWhen(bool changed, string groupId)
+    {
+        if (changed)
+            _groups.ApplySignalFor(groupId).Notify();
     }
 
     private bool TryGetLog(string groupId, [NotNullWhen(true)] out IFollowerLog? log) => _groups.TryGetLog(groupId, out log);

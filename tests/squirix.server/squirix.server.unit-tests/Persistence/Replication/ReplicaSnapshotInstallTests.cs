@@ -85,10 +85,10 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await Assert.That(status.LastAppliedIndex).IsEqualTo(3UL);
     }
 
-    /// <summary>Install must not advance the applied watermark to the snapshot boundary while the durable log still covers unapplied committed frames.</summary>
+    /// <summary>Install moves the applied watermark to the snapshot boundary even when the log held the covered entries unapplied: the rewrite drops their frames, so none is left to apply.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task InstallKeepsAppliedBelowBoundary(CancellationToken cancellationToken)
+    public async Task InstallRaisesAppliedToBoundary(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-install-applied-watermark");
         using var sourceDir = new TempDirectory("squirix-install-applied-watermark-source");
@@ -113,7 +113,8 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
         _ = await Assert.That(result.Success).IsTrue();
         var status = await log.GetStatusAsync(cancellationToken);
-        _ = await Assert.That(status.LastAppliedIndex).IsEqualTo(0UL);
+        _ = await Assert.That((status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((3UL, 3UL));
+        _ = await Assert.That((await log.GetCommittedEntriesAsync(0UL, 10, cancellationToken)).Count).IsEqualTo(0);
     }
 
     /// <summary>Installing a snapshot releases an unresolved reservation it did not export from the covered prefix, and keeps the resolved outcome.</summary>
