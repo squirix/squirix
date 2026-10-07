@@ -325,8 +325,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// no entry of the current term.
     /// </returns>
     /// <remarks>
-    /// Followers are probed, and re-sent the leader's uncommitted tail when they lack it, without holding the commit gate, so a dead
-    /// or slow peer never delays writes. Only when some follower answered does the gate get taken to start the coordinator (which
+    /// Followers are probed without holding the commit gate, so a dead or slow peer never delays writes; a follower that lacks entries,
+    /// the uncommitted tail included, is caught up afterwards by the readiness service through its sender. Only when some follower answered does the gate get taken to start the coordinator (which
     /// recovers the tail), re-check that the leader tail did not move, admit the verified slots, and commit what they now cover.
     /// </remarks>
     internal async Task<ReplicaVerification> VerifyReplicasAsync(CancellationToken cancellationToken)
@@ -496,7 +496,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         // A restart with durable progress leaves every slot recovering. Verify the leader's own log and every follower against its
         // last entry before the first commit, so the quorum is built from verified slots only. An uncommitted tail is recovered by the
-        // coordinator and commits once verified slots hold it; followers lacking it are re-sent it by verification, outside this gate.
+        // coordinator and commits once verified slots hold it; followers lacking it are caught up through their senders, outside this gate.
         var eligibility = _registry.EligibilityFor(GroupId);
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, in status, _topologyFingerprint, _generation);
         var results = eligibility.CanCountInWriteQuorum(0)

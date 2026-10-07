@@ -64,10 +64,10 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(["k1"], cache.Applied.ToArray(), StringComparer.Ordinal);
     }
 
-    /// <summary>Followers that hold the commit position but not the tail are re-sent the tail, verified, and the tail commits.</summary>
+    /// <summary>Followers that hold the commit position but not the tail are caught up with the tail, admitted, and the tail commits.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task TailOnNoFollowerIsRedriven(CancellationToken cancellationToken)
+    public async Task TailOnNoFollowerIsCaughtUp(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-owner-tail-redrive");
         await SeedAsync(dir, cancellationToken);
@@ -78,10 +78,11 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         var cache = new StubCache();
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway, cache);
+        _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Pending);
 
-        var outcome = await committer.VerifyReplicasAsync(cancellationToken);
+        _ = await Assert.That(await committer.CatchUpFollowersAsync(Reporter(), cancellationToken)).IsTrue();
 
-        _ = await Assert.That(outcome).IsEqualTo(ReplicaVerification.AllReady);
+        _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.AllReady);
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).CommitIndex).IsEqualTo(2UL);
         _ = await Assert.That(gateway.Appends).Contains(("n2", 1UL, 1));
         _ = await Assert.That(gateway.Appends).Contains(("n3", 1UL, 1));
@@ -286,10 +287,10 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         _ = await Assert.That(log.Count(OlderTermTailEventId)).IsEqualTo(2);
     }
 
-    /// <summary>A follower that accepts the re-sent tail but reports a longer log than the leader is held back instead of counting.</summary>
+    /// <summary>A follower that accepts the caught-up tail but reports a longer log than the leader is held back instead of counting.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task LongerFollowerNotReadyAfterRedrive(CancellationToken cancellationToken)
+    public async Task LongerFollowerNotReadyAfterCatchUp(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-owner-tail-longer");
         await SeedAsync(dir, cancellationToken);
@@ -300,11 +301,11 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         var cache = new StubCache();
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway, cache);
+        _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Pending);
 
-        var outcome = await committer.VerifyReplicasAsync(cancellationToken);
+        _ = await Assert.That(await committer.CatchUpFollowersAsync(Reporter(), cancellationToken)).IsFalse();
 
-        _ = await Assert.That(outcome).IsEqualTo(ReplicaVerification.Pending);
-        _ = await Assert.That(gateway.Appends).Contains(("n2", 1UL, 1));
+        _ = await Assert.That(gateway.Appends.IsEmpty).IsFalse();
         _ = await Assert.That(registry.EligibilityFor("n1").StateFor(1)).IsEqualTo(ReplicaParticipantState.CatchingUp);
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).CommitIndex).IsEqualTo(1UL);
         _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();
@@ -351,6 +352,8 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         _ = await Assert.That(await verify).IsEqualTo(ReplicaVerification.AllReady);
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).CommitIndex).IsEqualTo(3UL);
     }
+
+    private static ReplicaCatchUpReporter Reporter() => new("n1", Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, null);
 
     /// <summary>Follower double that runs a scripted action on the first request, before answering it like the wrapped gateway.</summary>
     private sealed class FirstCallGateway : IReplicaRpcGateway

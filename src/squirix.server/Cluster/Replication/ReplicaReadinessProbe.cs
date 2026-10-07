@@ -16,8 +16,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// then identical to the leader's. The probe never truncates or appends, and only advances the follower commit
 /// index to <c language="csharp">min(leaderCommit, prevIndex)</c>. Applied index and state checksum are not
 /// carried on the wire and never advance in production, so both sides of the readiness comparison fix them at zero.
-/// A leader restarted with an uncommitted tail re-sends that tail, and only that tail, to the followers whose probe
-/// mismatched (<see cref="RedriveTailAsync" />); general follower catch-up is not done here.
+/// A follower whose probe mismatched is marked catching up here and repaired by an entry catch-up session through its sender.
 /// </remarks>
 internal static class ReplicaReadinessProbe
 {
@@ -139,59 +138,6 @@ internal static class ReplicaReadinessProbe
         return results;
     }
 
-    /// <summary>Re-sends the leader's uncommitted tail to every follower whose probe reported a log mismatch.</summary>
-    /// <param name="gateway">Follower replication RPCs.</param>
-    /// <param name="probed">Per-slot probe outcomes against the leader's last entry.</param>
-    /// <param name="members">Ordered group members; index zero is the leader.</param>
-    /// <param name="header">Replication envelope identity.</param>
-    /// <param name="tail">The leader's uncommitted tail; nothing is sent when it is empty.</param>
-    /// <param name="timeout">Budget of each append request.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>
-    /// The outcomes with each re-driven slot replaced by the verdict of its last append: accepted with the follower's last index when
-    /// the whole tail was accepted, so a follower holding exactly the leader log is verified like a matching probe.
-    /// </returns>
-    /// <remarks>
-    /// Each follower gets the tail from the commit index on, as the ordinary append protocol: identical entries are acknowledged
-    /// without a second write, a divergent entry above the follower's commit is truncated and replaced, and a conflict at or below its
-    /// commit fails that follower's readiness. Requests carry one entry each, so none exceeds the message size
-    /// the original append fit in (the commit fan-out batches only within its own byte cap); a follower whose log does not hold the commit
-    /// position stays mismatched for general catch-up.
-    /// </remarks>
-    internal static async Task<ReplicaProbeResult[]> RedriveTailAsync(
-        IReplicaRpcGateway gateway,
-        ReplicaProbeResult[] probed,
-        string[] members,
-        ReplicaRpcHeader header,
-        ReplicaLeaderTail tail,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(probed);
-        ArgumentNullException.ThrowIfNull(members);
-        ArgumentNullException.ThrowIfNull(tail);
-        ReplicaProbeResult[] results = [.. probed];
-        if (tail.IsEmpty)
-            return results;
-
-        var slots = new List<int>(probed.Length);
-        var redrives = new List<Task<ReplicaProbeResult>>(probed.Length);
-        for (var i = 1; i < probed.Length; i++)
-        {
-            if (probed[i].Kind != ReplicaProbeKind.LogMismatch)
-                continue;
-
-            slots.Add(i);
-            redrives.Add(RedriveAsync(gateway, members[i], header, tail, timeout, cancellationToken));
-        }
-
-        var redriven = await Task.WhenAll(redrives).ConfigureAwait(false);
-        for (var k = 0; k < slots.Count; k++)
-            results[slots[k]] = redriven[k];
-
-        return results;
-    }
-
     /// <summary>Applies a probe verdict to one follower slot.</summary>
     /// <param name="eligibility">Participation gates of the owned group.</param>
     /// <param name="replicaIndex">Zero-based follower slot.</param>
@@ -263,41 +209,6 @@ internal static class ReplicaReadinessProbe
         ArgumentNullException.ThrowIfNull(gateway);
         var batch = new FollowerBatch([], header.LeaderNodeId, header.Term, leader.LastLogIndex, leader.LastLogTerm, leader.CommitIndex);
         return SendAsync(gateway, nodeId, header, batch, timeout, cancellationToken);
-    }
-
-    private static async Task<ReplicaProbeResult> RedriveAsync(
-        IReplicaRpcGateway gateway,
-        string nodeId,
-        ReplicaRpcHeader header,
-        ReplicaLeaderTail tail,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
-    {
-        // The commit position precedes the tail; the planner takes its term from this baseline for the first request.
-        var committed = new SnapshotBaseline(tail.CommitIndex, tail.CommitTerm);
-        var planner = new ReplicaRepairPlanner(1);
-        var result = default(ReplicaProbeResult);
-        for (var next = tail.CommitIndex + 1; next <= tail.LastIndex; next++)
-        {
-            var batch = planner.SelectBatch(tail.Entries, next, committed);
-            var records = new ReplicaLogRecord[batch.Entries.Length];
-            for (var i = 0; i < records.Length; i++)
-            {
-                var entry = batch.Entries.Span[i];
-                var decoded = ReplicaLogCodec.Decode(entry.Payload);
-                if (decoded is not { } record)
-                    throw new InvalidDataException($"Leader log entry {entry.LogIndex} carries an undecodable canonical payload.");
-
-                records[i] = record;
-            }
-
-            var append = new FollowerBatch(records, header.LeaderNodeId, header.Term, batch.PrevLogIndex, batch.PrevLogTerm, tail.CommitIndex);
-            result = await SendAsync(gateway, nodeId, header, append, timeout, cancellationToken).ConfigureAwait(false);
-            if (result.Kind != ReplicaProbeKind.Accepted)
-                return result;
-        }
-
-        return result;
     }
 
     private static async Task<ReplicaProbeResult> SendAsync(
