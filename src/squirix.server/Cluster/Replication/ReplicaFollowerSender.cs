@@ -24,6 +24,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
 
     private readonly TimeSpan _appendTimeout;
     private readonly CancellationTokenSource _closing = new();
+    private readonly CancellationTokenSource _drainStarted = new();
     private readonly ReplicaRpcHeader _header;
     private readonly string _nodeId;
     private readonly Queue<PendingAppend> _pending = new();
@@ -31,7 +32,6 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     private readonly Lock _sync = new();
     private TaskCompletionSource? _catchUpRequest;
     private bool _closed;
-    private bool _draining;
     private TaskCompletionSource? _leaseDone;
     private TaskCompletionSource? _loopDone;
     private long _pendingBytes;
@@ -130,6 +130,21 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// <summary>Initializes the time source of the append timeout; the system clock unless set.</summary>
     internal TimeProvider TimeProvider { private get; init; } = TimeProvider.System;
 
+    /// <summary>Gets a token canceled once the sender starts draining or closes.</summary>
+    /// <remarks>
+    /// A drain runs under the commit gate and waits for an active catch-up lease, so a lease holder waiting for that gate links this
+    /// token into its wait and gives up instead of holding the drain for its whole budget.
+    /// </remarks>
+    internal CancellationToken DrainStarted
+    {
+        get
+        {
+            // The source is disposed only after the close, so a closed sender hands out an already canceled token instead.
+            lock (_sync)
+                return _closed ? new CancellationToken(true) : _drainStarted.Token;
+        }
+    }
+
     /// <summary>Gets a value indicating whether the sender is closed.</summary>
     internal bool IsClosed
     {
@@ -139,6 +154,9 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                 return _closed;
         }
     }
+
+    /// <summary>Gets a value indicating whether the sender stopped admitting entries for a drain.</summary>
+    private bool Draining => _drainStarted.IsCancellationRequested;
 
     /// <inheritdoc />
     /// <remarks>
@@ -165,9 +183,11 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             _ = abandoned[i].Completion.TrySetException(new ObjectDisposedException(nameof(ReplicaFollowerSender)));
 
         await _closing.CancelAsync().ConfigureAwait(false);
+        await _drainStarted.CancelAsync().ConfigureAwait(false);
         if (loop == null)
         {
             _closing.Dispose();
+            _drainStarted.Dispose();
             return;
         }
 
@@ -175,6 +195,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         {
             await loop.WaitAsync(ShutdownBudget, TimeProvider.System, CancellationToken.None).ConfigureAwait(false);
             _closing.Dispose();
+            _drainStarted.Dispose();
         }
         catch (TimeoutException)
         {
@@ -192,12 +213,18 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// </remarks>
     internal async ValueTask DrainAsync(TimeSpan budget)
     {
-        Task? lease;
+        // Draining is the canceled state of the token, set before the lease is read: an enqueue, a lease, or a catch-up send that takes
+        // the lock afterwards is refused. A closed sender has nothing to drain; the pipeline drains before it closes, never concurrently.
         lock (_sync)
         {
-            _draining = true;
-            lease = _leaseDone?.Task;
+            if (_closed)
+                return;
         }
+
+        await _drainStarted.CancelAsync().ConfigureAwait(false);
+        Task? lease;
+        lock (_sync)
+            lease = _leaseDone?.Task;
 
         var started = TimeProvider.System.GetTimestamp();
         if (lease != null && !await WaitWithinAsync(lease, budget).ConfigureAwait(false))
@@ -223,7 +250,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         Task? loop;
         lock (_sync)
         {
-            ObjectDisposedException.ThrowIf(_closed || _draining, this);
+            ObjectDisposedException.ThrowIf(_closed || Draining, this);
             if (_leaseDone != null)
                 throw new InvalidOperationException($"Follower '{_nodeId}' catch-up lease is already active.");
 
@@ -312,7 +339,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         TaskCompletionSource? started = null;
         lock (_sync)
         {
-            if (_closed || _draining)
+            if (_closed || Draining)
                 return Task.FromException<ReplicaDurableAcknowledgement>(new ObjectDisposedException(nameof(ReplicaFollowerSender)));
 
             if (record.LogIndex <= _lastEnqueuedIndex || record.Term < _lastEnqueuedTerm)
@@ -353,7 +380,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_sync)
         {
-            if (_closed || _draining)
+            if (_closed || Draining)
                 return Task.FromException<FollowerLogAppendResult>(new ObjectDisposedException(nameof(ReplicaFollowerSender)));
 
             if (_catchUpRequest != null)

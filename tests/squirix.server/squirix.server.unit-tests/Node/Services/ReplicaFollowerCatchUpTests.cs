@@ -102,6 +102,51 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.CatchingUp);
     }
 
+    /// <summary>
+    /// A caught-up follower whose admission waits for the commit gate gives the admission up once its sender starts draining, so the
+    /// drain of a resync under that gate is not held for its whole budget.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DrainDuringAdmissionIsNotBlocked(CancellationToken cancellationToken)
+    {
+        await using var followers = await OpenFollowersAsync(cancellationToken);
+        var routing = new FollowerLogRoutingGateway(followers.Logs);
+        await SeedBehindFollowerAsync(routing, cancellationToken);
+        var gateway = new ConfirmationParkingGateway(routing, "n3", 3);
+        using var hooks = new StallableFollowerLogFaultHooks();
+        await using var registry = await OpenRegistryAsync(OwnerDir, new FollowerLogOptions { FaultHooks = hooks }, cancellationToken);
+        await using var committer = CreateCommitter(registry, gateway);
+        try
+        {
+            _ = await committer.VerifyReplicasAsync(cancellationToken);
+            var target = committer.Probe.TakeCatchUpTargets()[0];
+            committer.Probe.OfferCatchUp([false, false, true], _ => target);
+            var log = new EventRecordingLogger();
+            var catchUp = committer.CatchUpFollowersAsync(new ReplicaCatchUpReporter(GroupId, log, null), cancellationToken);
+            await gateway.Parked.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+            // A write holds the commit gate, stalled at its local append, when the session's confirmation is answered.
+            hooks.StallNextFrameWrite();
+            var write = committer.CommitSetAsync(NewOperationId(), "cache", "k4", Entry("k4"), cancellationToken);
+            await hooks.Entered.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            gateway.Release();
+
+            await target.Sender.DrainAsync(HangGuard).AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+            _ = await Assert.That(await catchUp.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsFalse();
+            _ = await Assert.That(log.FindMessage(4025)).Contains("caught_up");
+            _ = await Assert.That(write.IsCompleted).IsFalse();
+            hooks.Release();
+            await write.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            gateway.Release();
+            hooks.Release();
+        }
+    }
+
     /// <summary>The readiness service catches the behind follower up on its own and reports the group verified.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -183,6 +228,43 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
             foreach (var log in Logs.Values)
                 await log.DisposeAsync();
         }
+    }
+
+    /// <summary>Routes appends to the follower logs and parks the first accepted empty append that confirms a follower holds an index.</summary>
+    private sealed class ConfirmationParkingGateway : IReplicaRpcGateway
+    {
+        private readonly string _node;
+        private readonly ulong _index;
+        private readonly TaskCompletionSource _parked = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly IReplicaRpcGateway _routing;
+        private int _armed = 1;
+
+        internal ConfirmationParkingGateway(IReplicaRpcGateway routing, string node, ulong index)
+        {
+            _routing = routing;
+            _node = node;
+            _index = index;
+        }
+
+        /// <summary>Gets a task that completes once the confirmation parked.</summary>
+        internal Task Parked => _parked.Task;
+
+        public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
+        {
+            var result = await _routing.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
+            if (batch.Records.Count == 0 && result.Success && result.LastLogIndex == _index && string.Equals(nodeId, _node, StringComparison.Ordinal) &&
+                Interlocked.Exchange(ref _armed, 0) == 1)
+            {
+                _ = _parked.TrySetResult();
+                await _release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            return result;
+        }
+
+        /// <summary>Lets the parked confirmation return to the session.</summary>
+        internal void Release() => _ = _release.TrySetResult();
     }
 
     /// <summary>Logger double that counts entries by event id and signals once an awaited event is logged.</summary>

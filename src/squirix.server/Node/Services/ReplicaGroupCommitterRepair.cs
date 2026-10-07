@@ -47,9 +47,32 @@ internal static class ReplicaGroupCommitterRepair
                 var session = new ReplicaEntryCatchUpSession(target.Log, committer.GroupId, target.Term);
                 var result = await session.RunAsync(lease, cancellationToken).ConfigureAwait(false);
                 var admitted = result.Outcome == ReplicaCatchUpOutcome.CaughtUp &&
-                               await committer.AdmitCaughtUpFollowerAsync(target.ReplicaIndex, result, target.Pipeline, cancellationToken).ConfigureAwait(false);
+                               await committer.TryAdmitAsync(target, result, cancellationToken).ConfigureAwait(false);
                 reporter.Report(target.ReplicaIndex, lease.NodeId, in result, admitted);
                 return admitted;
+            }
+        }
+
+        /// <summary>Admits a caught-up follower, giving up when its sender starts draining meanwhile.</summary>
+        /// <param name="target">The catch-up target.</param>
+        /// <param name="result">The session result.</param>
+        /// <param name="cancellationToken">Cancellation token of the pass.</param>
+        /// <returns><see langword="true" /> when the follower was admitted.</returns>
+        /// <remarks>
+        /// A resync drains the sender under the commit gate and waits for the lease this pass still holds: waiting for the gate would hold
+        /// that drain, and the write behind it, for the whole drain budget. The new pipeline would refuse the admission anyway.
+        /// </remarks>
+        private async Task<bool> TryAdmitAsync(ReplicaCatchUpTarget target, ReplicaCatchUpResult result, CancellationToken cancellationToken)
+        {
+            var drainStarted = target.Sender.DrainStarted;
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, drainStarted);
+            try
+            {
+                return await committer.AdmitCaughtUpFollowerAsync(target.ReplicaIndex, result, target.Pipeline, linked.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (drainStarted.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                return false;
             }
         }
     }

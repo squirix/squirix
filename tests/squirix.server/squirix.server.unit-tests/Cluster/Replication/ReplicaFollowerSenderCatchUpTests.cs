@@ -347,6 +347,42 @@ public sealed class ReplicaFollowerSenderCatchUpTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReplicaFollowerCatchUp>(sender.BeginCatchUpAsync(cancellationToken));
     }
 
+    /// <summary>A drain cancels the drain token at once, before it waits for the lease, so a lease holder waiting on the drain's gate can give up.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DrainCancelsDrainStarted(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var sender = CreateSender(gateway);
+        try
+        {
+            var lease = await sender.BeginCatchUpAsync(cancellationToken);
+            var token = sender.DrainStarted;
+            _ = await Assert.That(token.IsCancellationRequested).IsFalse();
+
+            var drain = sender.DrainAsync(HangGuard).AsTask();
+
+            _ = await Assert.That(token.IsCancellationRequested).IsTrue();
+            _ = await Assert.That(drain.IsCompleted).IsFalse();
+            lease.Dispose();
+            await drain.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await sender.DisposeAsync();
+        }
+    }
+
+    /// <summary>A closed sender hands out an already canceled drain token.</summary>
+    [Test]
+    public async Task ClosedSenderDrainStartedIsCanceled()
+    {
+        var sender = CreateSender(new ParkingFollowerGateway());
+        await sender.DisposeAsync();
+
+        _ = await Assert.That(sender.DrainStarted.IsCancellationRequested).IsTrue();
+    }
+
     /// <summary>Starts taking a lease as a task, so the test can observe whether it completed.</summary>
     /// <param name="sender">The sender.</param>
     /// <param name="cancellationToken">The token of the wait.</param>
