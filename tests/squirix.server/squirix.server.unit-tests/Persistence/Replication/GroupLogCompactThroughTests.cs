@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -47,6 +48,27 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);
         await AssertCompactedStateAsync(reopened, cancellationToken);
+    }
+
+    /// <summary>A range read below the snapshot baseline is not retained, while one starting right above it verifies against the baseline term.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadBelowSnapshotBaselineIsNotRetained(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-compact-through-read");
+        await using var log = await SeedAsync(dir, null, cancellationToken);
+        _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
+        _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", Committed + 1, 1UL, "after"), cancellationToken);
+
+        var compacted = await log.ReadEntriesAsync(Committed, 1, cancellationToken);
+        var aboveBaseline = await log.ReadEntriesAsync(Committed + 1, 1, cancellationToken);
+
+        _ = await Assert.That((compacted.Retained, compacted.PrevLogIndex, compacted.PrevLogTerm)).IsEqualTo((false, Committed - 1, 0UL));
+        _ = await Assert.That(compacted.Entries).IsEmpty();
+        _ = await Assert.That((aboveBaseline.Retained, aboveBaseline.PrevLogIndex, aboveBaseline.PrevLogTerm, aboveBaseline.LastLogIndex, aboveBaseline.CommitIndex))
+                          .IsEqualTo((true, Committed, 1UL, Committed + 1, Committed));
+        _ = await Assert.That(aboveBaseline.Entries.Count).IsEqualTo(1);
+        _ = await Assert.That((aboveBaseline.Entries[0].LogIndex, Encoding.UTF8.GetString(aboveBaseline.Entries[0].Payload.Span))).IsEqualTo((Committed + 1, "after"));
     }
 
     /// <summary>An entry at or below the index with an unresolved outcome refuses the compaction before anything changes, readiness included.</summary>

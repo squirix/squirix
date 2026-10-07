@@ -41,6 +41,37 @@ internal static class ReplicaReadinessProbe
             Apply(eligibility, i, in results[i], in leader, fingerprint, generation, coordinator);
     }
 
+    /// <summary>Admits a catching-up follower slot that a catch-up session verified to hold the leader log exactly through an index.</summary>
+    /// <param name="eligibility">Participation gates of the owned group.</param>
+    /// <param name="replicaIndex">Zero-based follower slot.</param>
+    /// <param name="result">The session result; its held index and term are the verified prefix.</param>
+    /// <param name="leaderCommit">The leader commit index read under the commit gate.</param>
+    /// <param name="fingerprint">Static topology fingerprint.</param>
+    /// <param name="generation">Static configuration generation.</param>
+    /// <param name="coordinator">Running coordinator whose quorum is raised to the held index before the slot may count.</param>
+    /// <remarks>Runs under the commit gate. A slot that left the catching-up state meanwhile, verified by a probe or quarantined, is left alone.</remarks>
+    internal static void AdmitCaughtUp(
+        ReplicaEligibility eligibility,
+        int replicaIndex,
+        in ReplicaCatchUpResult result,
+        ulong leaderCommit,
+        ReadOnlyMemory<byte> fingerprint,
+        ulong generation,
+        ReplicaCommitCoordinator coordinator)
+    {
+        ArgumentNullException.ThrowIfNull(eligibility);
+        ArgumentNullException.ThrowIfNull(coordinator);
+        if (result.Outcome != ReplicaCatchUpOutcome.CaughtUp || eligibility.StateFor(replicaIndex) != ReplicaParticipantState.CatchingUp)
+            return;
+
+        var held = result.HeldThrough;
+        var progress = new ReplicaProgress(held + 1, held, Math.Min(leaderCommit, held), 0, result.HeldTerm, fingerprint, generation, 0);
+
+        // Order matters: the quorum match index must be raised before the slot can count.
+        coordinator.AdmitReplica(replicaIndex, held);
+        _ = eligibility.TryMarkReady(replicaIndex, in progress, in progress);
+    }
+
     /// <summary>Marks the leader's own slot ready from its durable log tail.</summary>
     /// <param name="eligibility">Participation gates of the owned group.</param>
     /// <param name="leader">Leader log status; an uncommitted tail is part of the leader's durable log and counts toward its slot.</param>

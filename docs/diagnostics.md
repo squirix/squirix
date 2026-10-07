@@ -136,7 +136,9 @@ Replica group log metrics are owned by `ReplicationMetrics`. The readiness probe
 (labels `node`, `group`). The owner's maintenance pass counts `squirix_replication_log_compactions_total` and, when its
 group log reached a threshold but was not compacted, `squirix_replication_log_compaction_skipped_total` with a closed
 `reason`: `follower_not_ready`, `follower_behind`, `pending_apply`, `uncommitted_tail`, `unresolved_outcome`,
-`not_ready`, or `snapshot_too_large`.
+`not_ready`, or `snapshot_too_large`. The owner counts the entry catch-up sessions it runs for lagging followers in
+`squirix_replication_catch_up_sessions_total` with a closed `outcome`: `caught_up`, `compacted`, `diverged`,
+`stale_term`, `refused`, `unreachable`, `corrupt`, or `aborted`.
 A replica group log record whose effect contradicts its outcome, or that cannot be decoded, is never applied; each refusal
 is logged at error level and counted by `squirix_replication_inconsistent_records_total` (labels `node`, `group`).
 

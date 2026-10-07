@@ -9,7 +9,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 
-namespace Squirix.Server.UnitTests.Node.Services;
+namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>
 /// Follower transport double that routes leader batches to a real follower log per node, as the follower RPC handler does, and can park

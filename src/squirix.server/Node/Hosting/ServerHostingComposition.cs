@@ -133,7 +133,8 @@ internal static class ServerHostingComposition
         _ = services.AddHostedService(static sp => new ReplicaGroupReadinessService(
             sp.GetRequiredService<ReplicaGroupCommitter>(),
             sp.GetRequiredService<ILogger<ReplicaGroupReadinessService>>(),
-            sp.GetService<TimeProvider>() ?? TimeProvider.System));
+            sp.GetService<TimeProvider>() ?? TimeProvider.System,
+            sp.GetRequiredService<ReplicaCatchUpMetrics>()));
         _ = services.AddSingleton(new ReplicaLogCompactionOptions());
         _ = services.AddHostedService(static sp => new ReplicaLogCompactionService(
             sp.GetRequiredService<ReplicaGroupCommitter>(),

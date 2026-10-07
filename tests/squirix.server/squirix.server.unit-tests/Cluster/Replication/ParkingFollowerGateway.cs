@@ -117,8 +117,8 @@ internal sealed class ParkingFollowerGateway : IReplicaRpcGateway
 
         internal Task<FollowerLogAppendResult> Answer => _answer.Task;
 
-        /// <summary>Answers the request as accepted through its last entry.</summary>
-        internal void Accept() => _ = _answer.TrySetResult(new FollowerLogAppendResult(true, string.Empty, _batch.LeaderTerm, LastIndex));
+        /// <summary>Answers the request as accepted through its last entry, or through its predecessor when it carried none.</summary>
+        internal void Accept() => _ = _answer.TrySetResult(new FollowerLogAppendResult(true, string.Empty, _batch.LeaderTerm, Count == 0 ? PrevLogIndex : LastIndex));
 
         /// <summary>Answers the request as canceled.</summary>
         internal void Cancel() => _ = _answer.TrySetCanceled(Token);

@@ -147,6 +147,100 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await Assert.That(read).IsEqualTo(1);
     }
 
+    /// <summary>A range read returns applied entries whose payloads were released from memory, read back from their frames, with the position before them and the log bounds.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadsReleasedPayloadsFromDisk(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-log-read-released");
+        await using var log = await SeedReadLogAsync(dir, cancellationToken);
+
+        var read = await log.ReadEntriesAsync(2UL, 2, cancellationToken);
+
+        _ = await Assert.That((read.Retained, read.PrevLogIndex, read.PrevLogTerm, read.LastLogIndex, read.CommitIndex)).IsEqualTo((true, 1UL, 1UL, 4UL, 3UL));
+        _ = await Assert.That(read.Entries.Count).IsEqualTo(2);
+        _ = await Assert.That((read.Entries[0].LogIndex, read.Entries[0].Term, Encoding.UTF8.GetString(read.Entries[0].Payload.Span))).IsEqualTo((2UL, 1UL, "b"));
+        _ = await Assert.That((read.Entries[1].LogIndex, read.Entries[1].Term, Encoding.UTF8.GetString(read.Entries[1].Payload.Span))).IsEqualTo((3UL, 1UL, "c"));
+    }
+
+    /// <summary>A range read runs through the last log index, uncommitted tail included, and stops there when the count exceeds it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadsThroughUncommittedTail(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-log-read-tail");
+        await using var log = await SeedReadLogAsync(dir, cancellationToken);
+
+        var read = await log.ReadEntriesAsync(3UL, 10, cancellationToken);
+
+        _ = await Assert.That((read.Retained, read.PrevLogIndex, read.PrevLogTerm)).IsEqualTo((true, 2UL, 1UL));
+        _ = await Assert.That(read.Entries.Count).IsEqualTo(2);
+        _ = await Assert.That((read.Entries[0].LogIndex, Encoding.UTF8.GetString(read.Entries[0].Payload.Span))).IsEqualTo((3UL, "c"));
+        _ = await Assert.That((read.Entries[1].LogIndex, Encoding.UTF8.GetString(read.Entries[1].Payload.Span))).IsEqualTo((4UL, "uncommitted"));
+    }
+
+    /// <summary>A read starting right after the last index verifies the last entry and returns nothing.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadAtTailIsEmptyAndRetained(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-log-read-at-tail");
+        await using var log = await SeedReadLogAsync(dir, cancellationToken);
+
+        var read = await log.ReadEntriesAsync(5UL, 1, cancellationToken);
+
+        _ = await Assert.That((read.Retained, read.PrevLogIndex, read.PrevLogTerm, read.LastLogIndex)).IsEqualTo((true, 4UL, 1UL, 4UL));
+        _ = await Assert.That(read.Entries).IsEmpty();
+    }
+
+    /// <summary>A read whose preceding position lies beyond the last index cannot be verified and is reported as not retained.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadAheadOfLogIsNotRetained(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-log-read-ahead");
+        await using var log = await SeedReadLogAsync(dir, cancellationToken);
+
+        var read = await log.ReadEntriesAsync(7UL, 1, cancellationToken);
+
+        _ = await Assert.That((read.Retained, read.PrevLogIndex, read.PrevLogTerm, read.LastLogIndex)).IsEqualTo((false, 6UL, 0UL, 4UL));
+        _ = await Assert.That(read.Entries).IsEmpty();
+    }
+
+    /// <summary>After a restart, recovery keeps only the frame offsets of applied entries, and a range read still returns their payloads from disk.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadAfterRestartReadsReleasedFrames(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-log-read-restart");
+        await using (var log = await SeedReadLogAsync(dir, cancellationToken))
+            _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+
+        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        await reopened.OpenAsync(cancellationToken);
+
+        var read = await reopened.ReadEntriesAsync(1UL, 3, cancellationToken);
+
+        _ = await Assert.That((read.Retained, read.PrevLogIndex, read.PrevLogTerm, read.LastLogIndex, read.CommitIndex)).IsEqualTo((true, 0UL, 0UL, 4UL, 3UL));
+        _ = await Assert.That(FollowerLogTestKit.Payload(read.Entries)).IsEqualTo("abc");
+    }
+
+    /// <summary>A range read refuses a log that is not open yet or already disposed instead of reading stale offsets.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadRefusesWhenNotReady(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-log-read-not-ready");
+        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        await using (log)
+        {
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.ReadEntriesAsync(1UL, 1, cancellationToken));
+            await log.OpenAsync(cancellationToken);
+        }
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.ReadEntriesAsync(1UL, 1, cancellationToken));
+    }
+
     /// <summary>An append whose frames reached the disk completes although its cancellation fires before the metadata write behind them.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -946,6 +1040,31 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         var root = GroupStoragePaths.GetRoot(dir);
         _ = await Assert.That(Directory.Exists(root)).IsFalse();
+    }
+
+    /// <summary>Opens a log holding entries 1 to 4 in term 1, committed and applied through 3, so the first three payloads are released from memory.</summary>
+    /// <param name="dir">The node data directory.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The open log.</returns>
+    private static async Task<FollowerLog> SeedReadLogAsync(string dir, CancellationToken cancellationToken)
+    {
+        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        try
+        {
+            await log.OpenAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
+            _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);
+            _ = await log.AppendAsync(Append(4UL, 1UL, "uncommitted"), cancellationToken);
+            _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
+            _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
+            return log;
+        }
+        catch
+        {
+            await log.DisposeAsync();
+            throw;
+        }
     }
 
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload, ulong? prevLogTerm = null)
