@@ -121,7 +121,7 @@ internal static partial class ServerLog
         EventId = 4022,
         Level = LogLevel.Warning,
         Message =
-            "Replica group {GroupId} follower {NodeId} needs entries the leader already compacted; snapshot catch-up is not available, so the follower must be wiped and rejoined")]
+            "Replica group {GroupId} follower {NodeId} needs entries the leader already compacted; it cannot be caught up from the log, and snapshot catch-up is not implemented yet, so it stays out of the write quorum")]
     internal static partial void ReplicaCatchUpCompacted(ILogger logger, string groupId, string nodeId);
 
     [LoggerMessage(
