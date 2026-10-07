@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,24 +9,29 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>Applies the committed entries of the owned replica group to local memory, densely in log order, and tracks how far they are applied.</summary>
+/// <summary>Applies the committed entries of one replica group to local memory, densely in log order, and tracks how far they are applied.</summary>
 /// <remarks>
-/// The committer owns one instance for its whole lifetime, so the applied index survives resyncs and coordinator replacement. Every
+/// One instance serves one group for its whole lifetime, so the applied index survives resyncs and coordinator replacement. The leader
+/// committer owns the instance of the owned group, and a follower group has its own, driven by one loop. Every
 /// apply path goes through <see cref="ApplyAsync" />: the commits of the running coordinator (own and late-majority entries alike) and
 /// the re-apply of committed entries at start. The callers serialize the applies (the coordinator's commit gate, or the committer
-/// gate while no coordinator runs); the applied index is published with volatile writes because the applied-index flush reads it
+/// gate while no coordinator runs, or the one loop of a follower group); the applied index is published with volatile writes because the applied-index flush reads it
 /// outside both gates. An apply executes the effect its record carries and reads no clock. A record that is inconsistent, or cannot
 /// be decoded, is never applied: it is logged and counted, the applied index stays, and the failure propagates so that the entry
 /// stays pending and later writes are refused.
 /// </remarks>
 [ThreadSafe]
-internal sealed class ReplicaLeaderApplier
+internal sealed class ReplicaGroupApplier
 {
+    /// <summary>The largest number of committed entries read from the log in one batch.</summary>
+    private const int BatchSize = 1024;
+
     private readonly string _groupId;
     private readonly string _nodeId;
     private readonly ILogicalNamespacedCache<object?> _local;
@@ -41,13 +45,13 @@ internal sealed class ReplicaLeaderApplier
     /// <summary>Whether the applied index was seeded from the durable one; read and written under the committer gate only.</summary>
     private bool _seeded;
 
-    /// <summary>Initializes a new instance of the <see cref="ReplicaLeaderApplier" /> class.</summary>
+    /// <summary>Initializes a new instance of the <see cref="ReplicaGroupApplier" /> class.</summary>
     /// <param name="local">Local cache pipeline the entries are applied to.</param>
     /// <param name="log">Logger of the inconsistent records.</param>
-    /// <param name="groupId">Identifier of the owned replica group, for diagnostics.</param>
+    /// <param name="groupId">Identifier of the replica group, the group label of the metric and the diagnostics.</param>
     /// <param name="nodeId">Identifier of this node, the node label of the metric.</param>
     /// <param name="metrics">Replication metrics counting the inconsistent records; nothing is counted when not set.</param>
-    internal ReplicaLeaderApplier(ILogicalNamespacedCache<object?> local, ILogger log, string groupId = "", string nodeId = "", ReplicationMetrics? metrics = null)
+    internal ReplicaGroupApplier(ILogicalNamespacedCache<object?> local, ILogger log, string groupId = "", string nodeId = "", ReplicationMetrics? metrics = null)
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentNullException.ThrowIfNull(log);
@@ -113,6 +117,7 @@ internal sealed class ReplicaLeaderApplier
     /// <param name="rebuilder">Rebuilds the prepared form of each entry from its record.</param>
     /// <returns>The recovered tail, or <see langword="null" /> when the log tail is fully committed.</returns>
     /// <exception cref="InvalidDataException">A tail record is undecodable or inconsistent, so the committer must not start.</exception>
+    /// <remarks>Leader-only: a follower group has no coordinator and recovers no tail.</remarks>
     internal ReplicaRecoveredTail? RecoverTail(ReplicaLeaderTail tail, ulong term, IReplicaTailRebuilder rebuilder)
     {
         ArgumentNullException.ThrowIfNull(tail);
@@ -128,21 +133,23 @@ internal sealed class ReplicaLeaderApplier
     }
 
     /// <summary>Applies the committed entries memory may lack, so it holds every entry through <paramref name="commitIndex" />.</summary>
-    /// <param name="log">The owned group log.</param>
-    /// <param name="durableAppliedIndex">The durable applied index of <paramref name="log" />, which seeds the applied index on the first call.</param>
+    /// <param name="log">The group log.</param>
+    /// <param name="durableAppliedIndex">The durable applied index of <paramref name="log" />, which seeds the applied index on the first call and raises it on a later call when it is higher.</param>
     /// <param name="commitIndex">The durable commit index of <paramref name="log" />.</param>
     /// <param name="cancellationToken">Cancellation token for reading the log; the applies themselves are not canceled.</param>
     /// <returns>A task that completes when the applied index reaches <paramref name="commitIndex" />.</returns>
     /// <exception cref="InvalidOperationException">The retained committed entries do not reach <paramref name="commitIndex" /> densely.</exception>
     /// <exception cref="InvalidDataException">A committed entry is inconsistent; it and every later one stay unapplied.</exception>
     /// <remarks>
-    /// Called under the committer gate, while no coordinator runs. After a restart memory holds at most what the cache journal kept,
-    /// which may miss the entries above the durable applied index: they are applied again, in log order. The applied index is seeded
-    /// only once, so a resync in this process keeps the in-memory index and applies nothing twice. The entries belong to no caller of
-    /// the current execution, which can carry the idempotency scope of the write that started the committer; that scope would stamp their
-    /// frames with a foreign operation id and count them as that RPC's effect, so they are applied on a pool thread started without the
-    /// execution context. With no scope to inherit, the apply still marks itself as replicated, so each entry skips the wait for its own
-    /// node journal flush instead of holding the committer gate for one flush per entry.
+    /// Callers serialize the calls and the applies of one applier. After a restart memory holds at most what the cache journal kept,
+    /// which may miss the entries above the durable applied index: they are applied again, in log order, in batches read from the log.
+    /// The applied index is seeded only once, so a resync in this process keeps the in-memory index and applies nothing twice. A later
+    /// durable applied index above the in-memory one means the log is applied beyond what memory received (for example after a
+    /// snapshot install): the index is raised to it and the gap is logged, as memory lacks those entries. The entries belong to no
+    /// caller of the current execution, which can carry the idempotency scope of the write that started the committer; that scope would
+    /// stamp their frames with a foreign operation id and count them as that RPC's effect, so they are applied on a pool thread started
+    /// without the execution context. With no scope to inherit, the apply still marks itself as replicated, so each entry skips the wait
+    /// for its own node journal flush instead of holding the committer gate for one flush per entry.
     /// </remarks>
     internal async Task CatchUpAsync(IFollowerLog log, ulong durableAppliedIndex, ulong commitIndex, CancellationToken cancellationToken)
     {
@@ -152,40 +159,74 @@ internal sealed class ReplicaLeaderApplier
             Volatile.Write(ref _appliedIndex, durableAppliedIndex);
             _seeded = true;
         }
+        else if (durableAppliedIndex > AppliedIndex)
+        {
+            var from = AppliedIndex;
+            Volatile.Write(ref _appliedIndex, durableAppliedIndex);
+            ServerLog.ReplicaAppliedIndexReseeded(_log, _groupId, from, durableAppliedIndex);
+        }
 
         if (AppliedIndex >= commitIndex)
             return;
-
-        var committed = await log.GetCommittedEntriesAsync(cancellationToken).ConfigureAwait(false);
 
         // The flow suppression covers only the start, and must be undone on this thread before the apply is awaited.
         Task reapply;
         if (ExecutionContext.IsFlowSuppressed())
         {
-            reapply = StartReapplyAsync(committed, commitIndex);
+            reapply = StartReapplyAsync(log, commitIndex, cancellationToken);
         }
         else
         {
             using (ExecutionContext.SuppressFlow())
-                reapply = StartReapplyAsync(committed, commitIndex);
+                reapply = StartReapplyAsync(log, commitIndex, cancellationToken);
         }
 
         await reapply.ConfigureAwait(false);
     }
 
-    private async Task ReapplyCoreAsync(IReadOnlyList<FollowerLogEntry> committed, ulong commitIndex)
+    /// <summary>Persists the in-memory applied index of the group log once the cache journal holds every applied entry durably.</summary>
+    /// <param name="log">The group log.</param>
+    /// <param name="durability">The node cache journal whose frames the applies appended.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the durable applied index is at least the in-memory one read at the start.</returns>
+    /// <exception cref="InvalidOperationException">The group log refused the applied advance.</exception>
+    /// <remarks>
+    /// Runs outside the commit gate. Every entry at or below the applied index read here returned from its apply, which appends its
+    /// cache journal frame first, so the durability barrier awaited next covers all of them; only then does the log advance its applied
+    /// index and release the applied payloads, so a crash never leaves the log claiming an apply the cache journal lost. Nothing is
+    /// done while the durable applied index is already there.
+    /// </remarks>
+    internal async Task FlushAsync(IFollowerLog log, IJournalDurabilityCoordinator durability, CancellationToken cancellationToken)
     {
-        foreach (var entry in committed)
+        ArgumentNullException.ThrowIfNull(log);
+        ArgumentNullException.ThrowIfNull(durability);
+        var applied = AppliedIndex;
+        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        if (applied <= status.LastAppliedIndex)
+            return;
+
+        await durability.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
+        var result = await log.AdvanceAppliedAsync(applied, cancellationToken).ConfigureAwait(false);
+        if (!result.Success)
+            throw new InvalidOperationException($"Local group applied advance was refused: {result.RefusalCode}.");
+    }
+
+    private async Task ReapplyCoreAsync(IFollowerLog log, ulong commitIndex, CancellationToken cancellationToken)
+    {
+        while (AppliedIndex < commitIndex)
         {
-            if (entry.LogIndex > commitIndex)
-                break;
+            var batch = await log.GetCommittedEntriesAsync(AppliedIndex, BatchSize, cancellationToken).ConfigureAwait(false);
+            if (batch.Count == 0)
+                throw new InvalidOperationException($"The group log retains no entry {AppliedIndex + 1} to apply through its commit index {commitIndex}.");
 
-            if (entry.LogIndex > AppliedIndex)
+            foreach (var entry in batch)
+            {
+                if (entry.LogIndex > commitIndex)
+                    break;
+
                 await ApplyAsync(entry.LogIndex, entry.Payload, CancellationToken.None).ConfigureAwait(false);
+            }
         }
-
-        if (AppliedIndex < commitIndex)
-            throw new InvalidOperationException($"The owned group log retains no entry {AppliedIndex + 1} to apply through its commit index {commitIndex}.");
     }
 
     /// <summary>Logs and counts a log record that was refused as inconsistent.</summary>
@@ -203,8 +244,8 @@ internal sealed class ReplicaLeaderApplier
         _metrics?.ReportInconsistentRecord(_nodeId, _groupId);
     }
 
-    private Task StartReapplyAsync(IReadOnlyList<FollowerLogEntry> committed, ulong commitIndex) => Task.Factory.StartNew(
-            () => ReapplyCoreAsync(committed, commitIndex),
+    private Task StartReapplyAsync(IFollowerLog log, ulong commitIndex, CancellationToken cancellationToken) => Task.Factory.StartNew(
+            () => ReapplyCoreAsync(log, commitIndex, cancellationToken),
             CancellationToken.None,
             TaskCreationOptions.DenyChildAttach,
             TaskScheduler.Default)

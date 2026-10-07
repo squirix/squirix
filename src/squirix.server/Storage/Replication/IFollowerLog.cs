@@ -86,6 +86,13 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <returns>The committed entries not yet applied.</returns>
     ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedEntriesAsync(CancellationToken cancellationToken);
 
+    /// <summary>Returns up to <paramref name="maxCount" /> committed entries that follow <paramref name="afterIndex" /> densely, in log order.</summary>
+    /// <param name="afterIndex">The exclusive index to read after.</param>
+    /// <param name="maxCount">The largest number of entries to return.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The retained entries from <c language="csharp">afterIndex + 1</c> up to the commit index, <paramref name="maxCount" />, or the first index that is not retained; empty when none is.</returns>
+    ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedEntriesAsync(ulong afterIndex, int maxCount, CancellationToken cancellationToken);
+
     /// <summary>Reads back from disk the newest committed entries the log retains, applied or not, one at a time.</summary>
     /// <param name="maxCount">The largest number of entries to read.</param>
     /// <param name="visit">Called with each entry, newest first; the entry is dropped once it returns, and returning <see langword="false" /> stops the read.</param>

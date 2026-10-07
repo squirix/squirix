@@ -144,4 +144,10 @@ internal static partial class ServerLog
 
     [LoggerMessage(EventId = 4025, Level = LogLevel.Debug, Message = "Replica group {GroupId} follower {NodeId} catch-up ended: {Outcome}; it is retried on the next verification")]
     internal static partial void ReplicaCatchUpInterrupted(ILogger logger, string groupId, string nodeId, string outcome);
+
+    [LoggerMessage(
+        EventId = 4027,
+        Level = LogLevel.Warning,
+        Message = "Replica group {GroupId} applied index was raised from {From} to {To} because the log is applied beyond what memory received; the entries in between were never applied here")]
+    internal static partial void ReplicaAppliedIndexReseeded(ILogger logger, string groupId, ulong from, ulong to);
 }

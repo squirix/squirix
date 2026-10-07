@@ -281,6 +281,16 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedEntriesAsync(ulong afterIndex, int maxCount, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        _faults.OnBeforeMemoryApply();
+        return _journal.CollectCommittedRange(afterIndex, _meta.CommitIndex, maxCount);
+    }
+
+    /// <inheritdoc />
     /// <remarks>
     /// Applied payloads are released from memory, but their frame offsets are kept, so the frames are read back from the file under the
     /// gate, which keeps truncation and compaction from moving them meanwhile.

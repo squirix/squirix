@@ -29,7 +29,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private static readonly TimeSpan DefaultCommitBudget = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
 
-    private readonly Lazy<ReplicaLeaderApplier> _applier;
+    private readonly Lazy<ReplicaGroupApplier> _applier;
     private readonly AsyncLock _gate = new();
     private readonly IReplicaRpcGateway _gateway;
     private readonly ulong _generation;
@@ -74,7 +74,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _locator = locator;
         _gateway = gateway;
         _local = local;
-        _applier = new Lazy<ReplicaLeaderApplier>(() => new ReplicaLeaderApplier(local, Log, selfId, selfId, Metrics), LazyThreadSafetyMode.ExecutionAndPublication);
+        _applier = new Lazy<ReplicaGroupApplier>(() => new ReplicaGroupApplier(local, Log, selfId, selfId, Metrics), LazyThreadSafetyMode.ExecutionAndPublication);
         GroupId = selfId;
         _topologyFingerprint = topology.Fingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topology))
             : topology.Fingerprint;
@@ -144,7 +144,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the follower verification, which also hands out the followers to catch up.</summary>
     internal ReplicaVerificationProbe Probe => _probe.Value;
 
-    private ReplicaLeaderApplier Applier => _applier.Value;
+    private ReplicaGroupApplier Applier => _applier.Value;
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
@@ -265,15 +265,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (!_registry.TryGetLog(GroupId, out var log))
             return;
 
-        var applied = Applier.AppliedIndex;
-        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        if (applied <= status.LastAppliedIndex)
-            return;
-
-        await durability.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
-        var result = await log.AdvanceAppliedAsync(applied, cancellationToken).ConfigureAwait(false);
-        if (!result.Success)
-            throw new InvalidOperationException($"Local group applied advance was refused: {result.RefusalCode}.");
+        await Applier.FlushAsync(log, durability, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Compacts the owned group log through its commit index once it reaches a threshold and nothing still needs its entries.</summary>

@@ -150,7 +150,7 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
     {
         await using var journal = await CreateWarmJournalAsync(groupCommit, cancellationToken);
         var memory = new StubCache();
-        var applier = new ReplicaLeaderApplier(CreateJournaledCache(journal, memory), NullLogger.Instance);
+        var applier = new ReplicaGroupApplier(CreateJournaledCache(journal, memory), NullLogger.Instance);
         var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance);
         byte[][] payloads =
         [
@@ -178,7 +178,7 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
     private static JournalLoggingCacheDecorator<object?> CreateJournaledCache(StallableJournal journal, ILogicalNamespacedCache<object?> memory) =>
         new(memory, journal.Journal, new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance));
 
-    private static async Task ReapplyAsync(ReplicaLeaderApplier applier, byte[][] payloads, CancellationToken cancellationToken)
+    private static async Task ReapplyAsync(ReplicaGroupApplier applier, byte[][] payloads, CancellationToken cancellationToken)
     {
         var logIndex = 0UL;
         foreach (var payload in payloads)
