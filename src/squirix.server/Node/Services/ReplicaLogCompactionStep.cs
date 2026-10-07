@@ -7,10 +7,11 @@ using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>The checks and the durable sequence of one compaction of the replica group log this node owns.</summary>
+/// <summary>The checks and the durable sequence of one compaction of a replica group log this node serves.</summary>
 /// <remarks>
 /// The committer runs <see cref="RunAsync" /> under its commit gate, so no write appends, commits, or applies while the step decides and
-/// compacts: the commit index it reads stays the last log index, and the applied index it persists stays the commit index.
+/// compacts: the commit index it reads stays the last log index, and the applied index it persists stays the commit index. A follower
+/// group runs <see cref="RunFollowerAsync" /> instead, which compacts through the durable applied index and keeps every entry above it.
 /// </remarks>
 internal static class ReplicaLogCompactionStep
 {
@@ -84,6 +85,34 @@ internal static class ReplicaLogCompactionStep
         await durability.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
         var applied = await log.AdvanceAppliedAsync(commit, cancellationToken).ConfigureAwait(false);
         return applied.Success ? Map(await log.CompactThroughAsync(commit, cancellationToken).ConfigureAwait(false)) : ReplicaLogCompactionOutcome.NotReady;
+    }
+
+    /// <summary>Compacts a follower group log through its durable applied index once the log reaches a threshold.</summary>
+    /// <param name="log">The follower group log.</param>
+    /// <param name="policy">The compaction thresholds.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The step outcome; only <see cref="ReplicaLogCompactionOutcome.Compacted" /> changes the log.</returns>
+    /// <remarks>
+    /// The group's flush persists the applied index only after the cache journal holds the applied entries durably, and the commit index
+    /// may run ahead of it: every entry above the applied index, committed or not, stays in the log for the group's applier.
+    /// The step waits as <see cref="ReplicaLogCompactionOutcome.PendingApply" /> while the group's applier has not rebuilt the idempotency
+    /// outcomes of the applied entries, which the snapshot would otherwise lose with their frames, and while nothing was applied past the
+    /// last snapshot.
+    /// </remarks>
+    internal static async Task<ReplicaLogCompactionOutcome> RunFollowerAsync(IFollowerLog log, ReplicaLogCompactionPolicy policy, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(log);
+        var retention = await log.GetRetentionAsync(cancellationToken).ConfigureAwait(false);
+        if (!policy.IsReachedBy(in retention))
+            return ReplicaLogCompactionOutcome.BelowThreshold;
+
+        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        return (status.Readiness == FollowerLogReadiness.Ready, log.Idempotency.OutcomesRebuilt && status.LastAppliedIndex > retention.SnapshotIndex) switch
+        {
+            (false, _) => ReplicaLogCompactionOutcome.NotReady,
+            (true, false) => ReplicaLogCompactionOutcome.PendingApply,
+            (true, true) => Map(await log.CompactThroughAsync(status.LastAppliedIndex, cancellationToken).ConfigureAwait(false)),
+        };
     }
 
     /// <summary>Maps the storage compaction outcome to the step outcome.</summary>

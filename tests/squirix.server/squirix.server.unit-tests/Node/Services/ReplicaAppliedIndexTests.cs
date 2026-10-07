@@ -37,7 +37,7 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
     public async Task ApplyRefusesEntryOutOfOrder(CancellationToken cancellationToken)
     {
         var cache = new StubCache();
-        var applier = new ReplicaLeaderApplier(cache, NullLogger.Instance);
+        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance);
         var factory = new ReplicaMutationFactory(cache, "n1", 1UL, TimeProvider.System, NullLogger.Instance);
         var first = factory.PrepareSet(NewOperationId(), "cache", "k1", Entry("k1"), 1UL);
         var second = factory.PrepareSet(NewOperationId(), "cache", "k2", Entry("k2"), 2UL);

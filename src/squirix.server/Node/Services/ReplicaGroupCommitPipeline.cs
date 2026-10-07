@@ -22,7 +22,7 @@ namespace Squirix.Server.Node.Services;
 /// </remarks>
 internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
 {
-    private readonly ReplicaLeaderApplier _applier;
+    private readonly ReplicaGroupApplier _applier;
     private readonly ReplicaLaggingFollowers _lagging;
     private readonly IFollowerLog _log;
     private readonly string _selfId;
@@ -43,7 +43,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <param name="status">Durable log status seeding previous and commit positions.</param>
     /// <param name="term">The leader term the pipeline appends and replicates in.</param>
     internal ReplicaGroupCommitPipeline(
-        ReplicaLeaderApplier applier,
+        ReplicaGroupApplier applier,
         IFollowerLog log,
         ReplicaFollowerSender[] senders,
         string selfId,

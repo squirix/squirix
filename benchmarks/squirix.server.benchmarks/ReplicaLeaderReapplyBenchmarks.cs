@@ -20,7 +20,7 @@ namespace Squirix.Server.Benchmarks;
 
 /// <summary>
 /// Cost of the leader re-applying a committed backlog of replica log entries to a journaled local cache, the way start, resync catch-up and
-/// readiness do: every entry goes through <see cref="ReplicaLeaderApplier" /> on a task started without the execution context.
+/// readiness do: every entry goes through <see cref="ReplicaGroupApplier" /> on a task started without the execution context.
 /// The reported time is per backlog, because the invocation count cannot take a parameter value: divide by <see cref="Backlog" /> for the per-entry cost.
 /// </summary>
 [MemoryDiagnoser]
@@ -28,7 +28,7 @@ namespace Squirix.Server.Benchmarks;
 public class ReplicaLeaderReapplyBenchmarks
 {
     private JournalBenchmarkHost? _host;
-    private ReplicaLeaderApplier? _applier;
+    private ReplicaGroupApplier? _applier;
     private ILogicalNamespacedCache<object?>? _cache;
     private byte[][] _records = [];
 
@@ -110,9 +110,9 @@ public class ReplicaLeaderReapplyBenchmarks
     /// <summary>Creates an applier whose applied index starts at zero, so each invocation re-applies the whole backlog.</summary>
     [IterationSetup]
     public void IterationSetup() =>
-        _applier = new ReplicaLeaderApplier(ThrowHelper.Required(_cache, "Benchmark cache was not initialized."), NullLogger.Instance);
+        _applier = new ReplicaGroupApplier(ThrowHelper.Required(_cache, "Benchmark cache was not initialized."), NullLogger.Instance);
 
-    private static async Task ReapplyAsync(ReplicaLeaderApplier applier, byte[][] records)
+    private static async Task ReapplyAsync(ReplicaGroupApplier applier, byte[][] records)
     {
         var logIndex = 0UL;
         foreach (var record in records)

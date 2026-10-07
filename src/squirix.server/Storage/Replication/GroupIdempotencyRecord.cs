@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Storage.Replication;
@@ -41,6 +43,18 @@ internal readonly record struct GroupIdempotencyRecord(
 
     /// <summary>Gets a value indicating whether this record has a durable resolved outcome.</summary>
     internal bool IsResolved => ResolvedUtc != null;
+
+    /// <summary>Throws when any snapshot outcome has not been resolved yet.</summary>
+    /// <param name="records">The committed outcomes carried by the snapshot.</param>
+    /// <exception cref="InvalidDataException">Thrown when a snapshot outcome is not resolved.</exception>
+    internal static void ThrowIfOutcomeUnresolved(IReadOnlyList<GroupIdempotencyRecord> records)
+    {
+        for (var i = 0; i < records.Count; i++)
+        {
+            if (records[i].ResolvedUtc == null)
+                throw new InvalidDataException("Snapshot outcome must be resolved.");
+        }
+    }
 
     /// <summary>Returns a copy of this record with the resolved outcome and timestamp applied.</summary>
     /// <param name="outcomePayload">The exact resolved outcome bytes.</param>

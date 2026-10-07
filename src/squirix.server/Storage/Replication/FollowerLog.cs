@@ -281,6 +281,16 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedEntriesAsync(ulong afterIndex, int maxCount, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        _faults.OnBeforeMemoryApply();
+        return _journal.CollectCommittedRange(afterIndex, _meta.CommitIndex, maxCount);
+    }
+
+    /// <inheritdoc />
     /// <remarks>
     /// Applied payloads are released from memory, but their frame offsets are kept, so the frames are read back from the file under the
     /// gate, which keeps truncation and compaction from moving them meanwhile.
@@ -2089,6 +2099,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             journal.ClearEntries();
             ResetLogState(owner, snapshotBase);
             EnsureCommittedPrefixCovered(owner, snapshotBase);
+
+            // The truncation dropped every frame at or below the snapshot base, so nothing can apply them any more: the applied watermark
+            // moves to the base, as a snapshot installation moves it. Keeping it below would point the applier at entries no frame holds,
+            // and its catch-up would refuse the gap forever. The commit index already reaches the base, which the snapshot reconciliation
+            // raised it to, so the watermark never passes the commit index.
+            if (snapshotBase > owner.Meta.LastAppliedIndex)
+            {
+                var candidate = owner.Meta with { LastAppliedIndex = snapshotBase };
+                await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
+                owner.Meta = candidate;
+            }
         }
 
         /// <summary>Fails recovery for an invalid frame within the committed region.</summary>
@@ -2195,12 +2216,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// <remarks>
         /// Runs under the log gate. Every refusal happens before anything durable changes and leaves readiness untouched: only a prefix
         /// that is committed and applied is compacted, and never while an entry of it still has an unresolved idempotency outcome, which
-        /// the snapshot cannot carry. The snapshot is published before the compaction core rewrites the log, so a crash between the two
-        /// recovers from the snapshot plus the old log.
+        /// the snapshot cannot carry. The index is the durable applied index; the commit index may be higher, and every frame above the
+        /// index, committed or not, stays in the log as the retained tail, which must hold every index through the last one. The snapshot
+        /// is published before the compaction core rewrites the log, so a crash between the two recovers from the snapshot plus the old log.
         /// </remarks>
         internal static async Task<GroupCompactionOutcome> CompactThroughAsync(FollowerLogJournal journal, IFollowerLogContext owner, ulong index, CancellationToken cancellationToken)
         {
-            var eligible = index != 0UL && index == owner.Meta.CommitIndex && index == owner.Meta.LastAppliedIndex && index <= owner.LastLogIndex &&
+            var eligible = index != 0UL && index == owner.Meta.LastAppliedIndex && index <= owner.Meta.CommitIndex && index <= owner.LastLogIndex &&
                 index >= journal.SnapshotBaseline.LastIncludedIndex;
             if (!eligible)
                 return GroupCompactionOutcome.NotReady;
@@ -2208,13 +2230,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (owner.Idempotency.HasUnresolvedThrough(index))
                 return GroupCompactionOutcome.UnresolvedOutcome;
 
-            var snapshot = BuildSnapshot(journal, owner, index);
-
-            // Checked before the snapshot is published: the compaction core would refuse the same restore only after the baseline moved,
-            // failing readiness, while a refusal here changes nothing.
-            var retainedLogIndexes = CollectRetainedLogIndexes(CollectRetainedTail(journal, index));
-            if (!owner.Idempotency.WouldRestoreFit(snapshot.CommittedOutcomes, snapshot.CapturedUtc, retainedLogIndexes))
+            // A retained tail missing an index cannot be rewritten without leaving a gap, so it is refused before the snapshot is published.
+            var tail = CollectRetainedTail(journal, index);
+            if (ulong.CreateChecked(tail.Count) != owner.LastLogIndex - index)
                 return GroupCompactionOutcome.NotReady;
+
+            var snapshot = BuildSnapshot(journal, owner, index);
 
             try
             {
@@ -2241,17 +2262,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             var tail = CollectInstallTail(journal, in snapshot);
             var retainedLogIndexes = CollectRetainedLogIndexes(tail);
-
-            // The capacity refusal must happen before any durable writing: publishing the snapshot and persisting the
-            // installation candidate ahead of a refused restore would leave a published snapshot and advanced watermarks
-            // the old journal cannot support, failing recovery on every restart. Fail readiness like compaction's
-            // pre-rewrite refusal path does.
-            if (!owner.Idempotency.WouldRestoreFit(snapshot.CommittedOutcomes, snapshot.CapturedUtc, retainedLogIndexes))
-            {
-                owner.Readiness = FollowerLogReadiness.Failed;
-                return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
-            }
-
             var fingerprint = owner.Meta.TopologyFingerprint.IsEmpty ? snapshot.TopologyFingerprint : owner.Meta.TopologyFingerprint;
             var installedLastIndex = tail.Count == 0 ? snapshot.LastIncludedIndex : tail[^1].LogIndex;
             var candidate = BuildInstallCandidateMeta(owner, in snapshot, fingerprint, installedLastIndex);
@@ -2268,16 +2278,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // metadata are already durable and readiness stays Ready.
             // The retained-tail rewrite below rebuilds both indexes; pruning here would mutate state the
             // rewrite owns, so the baseline is restored without its paired prune.
+            // The restore keeps every committed outcome whatever the idempotency capacity, which bounds new reservations only, so a store
+            // already past its capacity never refuses a valid snapshot after it became durable.
             owner.RestoreBaseline(new SnapshotBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm));
             try
             {
-                if (!owner.Idempotency.TryRestoreFromSnapshot(snapshot.CommittedOutcomes, snapshot.CapturedUtc, retainedLogIndexes))
-                {
-                    // The snapshot and metadata are already durable, and the log rewrite is skipped, so the
-                    // journal no longer matches the persisted metadata. Never surface this state as Ready.
-                    owner.Readiness = FollowerLogReadiness.Failed;
-                    return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
-                }
+                owner.Idempotency.RestoreFromSnapshot(snapshot.CommittedOutcomes, snapshot.CapturedUtc, retainedLogIndexes);
             }
             catch
             {
@@ -2365,16 +2371,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 LastLogIndex = installedLastIndex,
                 CommitIndex = Math.Max(owner.Meta.CommitIndex, Math.Min(snapshot.CommitIndex, snapshot.LastIncludedIndex)),
 
-                // The applied watermark follows the same rule as the recovery path. A snapshot installation rewrites the
-                // durable log to a header plus the retained tail above the boundary, so frames at or below the boundary
-                // leave the durable log and survive only as the snapshot's applied state. When the pre-installation durable
-                // log does not reach the boundary (included > LastLogIndex), no offset can exist at the boundary and the
-                // collected tail is empty, so the rewritten journal ends at the boundary (installedLastIndex ==
-                // included): the watermark may adopt the boundary without ever exceeding the durable journal. Otherwise,
-                // it stays, letting GetCommittedEntriesAsync re-supply the retained frames through the durable tail
-                // instead of skipping them.
-                LastAppliedIndex = snapshot.LastIncludedIndex > owner.Meta.LastAppliedIndex && snapshot.LastIncludedIndex > owner.Meta.LastLogIndex ? snapshot.LastIncludedIndex
-                    : owner.Meta.LastAppliedIndex,
+                // A snapshot installation rewrites the durable log to a header plus the retained tail above the boundary, so
+                // every frame at or below the boundary leaves the log and nothing can apply it any more: the applied
+                // watermark moves to the boundary. Keeping it below would point the applier at entries no frame holds, and
+                // its catch-up would refuse the gap forever. The snapshot carries no payloads, so memory that lacks entries
+                // below the boundary keeps lacking them; the applier raises its in-memory index to the boundary and logs
+                // that gap. The eligibility check refuses a boundary below the applied watermark or above the snapshot's
+                // commit index, so the watermark never moves backward nor past the commit index.
+                LastAppliedIndex = Math.Max(owner.Meta.LastAppliedIndex, snapshot.LastIncludedIndex),
             };
         }
 
@@ -2472,9 +2476,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             var included = snapshot.Value.LastIncludedIndex;
 
-            // The durable prefix is dropped only when the published snapshot covers every committed entry; otherwise
-            // committed frames would be lost without a snapshot to restore them.
-            if (included == 0UL || included < owner.Meta.CommitIndex || included > owner.LastLogIndex || included > owner.Meta.LastAppliedIndex)
+            // The durable prefix is dropped only through a committed index the published snapshot covers; committed entries above it stay
+            // in the retained tail.
+            if (included == 0UL || included > owner.Meta.CommitIndex || included > owner.LastLogIndex || included > owner.Meta.LastAppliedIndex)
                 return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
 
             // Frames in (included, LastAppliedIndex] were released from `Entries` by PruneAppliedEntries, so the
@@ -2497,16 +2501,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             var tail = CollectRetainedTail(journal, included);
 
-            var retainedLogIndexes = CollectRetainedLogIndexes(tail);
-
-            // The capacity refusal must happen before the durable rewrite: once ReplaceLogAsync discards the covered
-            // prefix, a refused restore would leave the journal without its committed frames. Fail readiness like
-            // the post-rewrite refusal path below does.
-            if (!owner.Idempotency.WouldRestoreFit(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc, retainedLogIndexes))
-            {
-                owner.Readiness = FollowerLogReadiness.Failed;
+            // Every frame above the boundary must be rewritten: a missing index would leave a gap, committed entries included, that
+            // recovery refuses. Nothing durable changed yet beyond the published snapshot, which recovers on its own.
+            if (ulong.CreateChecked(tail.Count) != owner.LastLogIndex - included)
                 return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
-            }
+
+            var retainedLogIndexes = CollectRetainedLogIndexes(tail);
 
             (int Length, List<long> Offsets) result;
             try
@@ -2534,16 +2534,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             // The discarded prefix is now owned by the snapshot, which exports only resolved outcomes; any remaining
             // record at or below `included` has lost its durable journal frame and must be released, while records
-            // carried by the retained tail stay authoritative.
+            // carried by the retained tail stay authoritative. The restore is never refused for the idempotency capacity,
+            // so outcomes recorded while the snapshot was published cannot fail the log here.
             try
             {
-                if (!owner.Idempotency.TryRestoreFromSnapshot(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc, retainedLogIndexes))
-                {
-                    // A refused restore leaves the map holding records whose journal frames were already
-                    // discarded by the rewrite; the refusal path must fail readiness like the catch below.
-                    owner.Readiness = FollowerLogReadiness.Failed;
-                    return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
-                }
+                owner.Idempotency.RestoreFromSnapshot(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc, retainedLogIndexes);
             }
             catch
             {

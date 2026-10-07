@@ -50,8 +50,8 @@ public sealed partial class LocalCacheWriterArchitectureTests : ServerUnitTestBa
             "The cache pipeline stages are named only by their own files and the one place that assembles them."),
         new(
             CommittedApplyPattern,
-            ["Node/Services/ReplicaLeaderApplier.cs"],
-            "Committed records reach memory only through the ordered leader applier."),
+            ["Node/Services/ReplicaGroupApplier.cs"],
+            "Committed records reach memory only through the ordered group applier."),
         new(
             JournalAppendPattern,
             [

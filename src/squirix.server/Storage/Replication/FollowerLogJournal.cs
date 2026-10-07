@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Squirix.Server.Attributes;
 
@@ -75,6 +76,26 @@ internal sealed class FollowerLogJournal
                 continue;
 
             result.Add(pair.Value);
+        }
+
+        return result;
+    }
+
+    /// <summary>Collects the committed entries that follow <paramref name="afterIndex" /> densely, up to <paramref name="commitIndex" /> and <paramref name="maxCount" />.</summary>
+    /// <remarks>Callers hold the owning log's gate; the walk stops at the first index that is not retained in memory.</remarks>
+    /// <param name="afterIndex">The exclusive index to collect after.</param>
+    /// <param name="commitIndex">The inclusive committed index.</param>
+    /// <param name="maxCount">The largest number of entries to collect.</param>
+    /// <returns>The consecutive committed entries from <c language="csharp">afterIndex + 1</c>.</returns>
+    internal List<FollowerLogEntry> CollectCommittedRange(ulong afterIndex, ulong commitIndex, int maxCount)
+    {
+        var result = new List<FollowerLogEntry>(afterIndex >= commitIndex ? 0 : int.CreateTruncating(Math.Min(ulong.CreateChecked(maxCount), commitIndex - afterIndex)));
+        for (var index = afterIndex + 1; index <= commitIndex && result.Count < maxCount; index++)
+        {
+            if (!_entries.TryGetValue(index, out var entry))
+                break;
+
+            result.Add(entry);
         }
 
         return result;

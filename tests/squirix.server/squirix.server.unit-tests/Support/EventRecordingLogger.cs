@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -14,8 +15,10 @@ namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Logger double recording the event id, level, exception and formatted message of every entry.</summary>
 [ThreadSafe]
-internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, ILogger<RpcMutationIdempotencyCoordinator>, ILogger<FollowerLog>, ILogger<Ledger>, ILogger<ReplicaGroupCommitter>, ILogger<ServerClientPool>, ILogger<RingAgreement>, ILogger<JournalEventLoop>
+internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, ILogger<RpcMutationIdempotencyCoordinator>, ILogger<FollowerLog>, ILogger<Ledger>, ILogger<ReplicaGroupCommitter>, ILogger<ServerClientPool>, ILogger<RingAgreement>, ILogger<JournalEventLoop>,
+    ILogger<ReplicaApplyService>, ILogger<ReplicaLogCompactionService>
 {
+    private readonly ConcurrentDictionary<int, TaskCompletionSource> _awaited = new();
     private readonly ConcurrentQueue<(int EventId, LogLevel Level, Exception? Cause, string Message)> _events = new();
 
     public IDisposable? BeginScope<TState>(TState state)
@@ -23,8 +26,24 @@ internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, I
 
     public bool IsEnabled(LogLevel logLevel) => true;
 
-    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+    {
         _events.Enqueue((eventId.Id, logLevel, exception, formatter(state, exception)));
+        if (_awaited.TryGetValue(eventId.Id, out var awaited))
+            _ = awaited.TrySetResult();
+    }
+
+    /// <summary>Returns a task that completes once an entry with <paramref name="eventId" /> is logged, or at once when one already was.</summary>
+    /// <param name="eventId">Event id to wait for.</param>
+    /// <returns>The task completing on the first entry with the event id.</returns>
+    internal Task WhenLoggedAsync(int eventId)
+    {
+        var awaited = _awaited.GetOrAdd(eventId, static _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+        if (Count(eventId) > 0)
+            _ = awaited.TrySetResult();
+
+        return awaited.Task;
+    }
 
     /// <summary>Counts the entries with <paramref name="eventId" />.</summary>
     /// <param name="eventId">Event id to count.</param>

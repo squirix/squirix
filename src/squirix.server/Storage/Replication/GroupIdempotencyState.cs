@@ -22,6 +22,11 @@ namespace Squirix.Server.Storage.Replication;
 ///     evicting a live outcome.
 ///     </para>
 ///     <para>
+///     The capacity bounds new reservations only. The outcome of a committed entry is never refused for capacity: an entry applied on a
+///     follower group, and the outcomes a snapshot or a retained log suffix restores, are kept even when the store then holds more records
+///     than its capacity, until retention ages them out. Refusing one would fail the group log over an entry that is already committed.
+///     </para>
+///     <para>
 ///     A snapshot carries the time its outcomes were captured on the same clock that stamped their resolution times, so a
 ///     restoring node takes the age of each outcome from that one clock and keeps counting it on its own monotonic clock. Node
 ///     clocks never meet in a subtraction. The time a snapshot spends at rest or in transit does not count toward retention:
@@ -289,15 +294,16 @@ internal sealed class GroupIdempotencyState
     ///     <para>
     ///     Every <paramref name="records" /> outcome must already be resolved; the retained journal suffix identified by
     ///     <paramref name="retainedLogIndexes" /> is merged so that records living past the snapshot boundary stay
-    ///     authoritative. The combined distinct <c language="csharp">(scope, operation id)</c> count is rejected when it exceeds
-    ///     <see cref="Capacity" />, so a valid installation never loses an in-flight outcome.
+    ///     authoritative. Every record restored is a committed outcome or a record the store already holds, so the restore is never
+    ///     refused for <see cref="Capacity" />, which bounds new reservations only: the store may hold more records afterward. Callers
+    ///     that restore after a durable change, such as a published snapshot or a rewritten log, rely on that.
     ///     </para>
     /// </remarks>
     /// <param name="records">The committed outcomes carried by the snapshot.</param>
     /// <param name="capturedUtc">When the snapshot captured its outcomes, on the clock that stamped their resolution times.</param>
     /// <param name="retainedLogIndexes">Journal indexes retained after the snapshot boundary.</param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="records" /> or <paramref name="retainedLogIndexes" /> is null.</exception>
-    /// <exception cref="InvalidDataException">Thrown when a snapshot outcome is not resolved or the combined set exceeds capacity.</exception>
+    /// <exception cref="InvalidDataException">Thrown when a snapshot outcome is not resolved.</exception>
     internal void RestoreFromSnapshot(IReadOnlyList<GroupIdempotencyRecord> records, DateTime capturedUtc, IReadOnlyList<ulong> retainedLogIndexes)
     {
         ArgumentNullException.ThrowIfNull(records);
@@ -305,13 +311,9 @@ internal sealed class GroupIdempotencyState
         lock (_sync)
         {
             ExpireCore();
-            ThrowIfOutcomeUnresolved(records);
+            GroupIdempotencyRecord.ThrowIfOutcomeUnresolved(records);
             var surviving = AnchorSurviving(records, capturedUtc);
             var retained = CollectRetainedRecords([.. retainedLogIndexes]);
-            var distinct = GroupOperationKey.CountDistinct(surviving, retained);
-            if (distinct > Capacity)
-                throw new InvalidDataException($"Snapshot and retained records ({distinct}) exceed configured idempotency capacity ({Capacity}).");
-
             MergeRestored(surviving, retained);
         }
     }
@@ -339,6 +341,46 @@ internal sealed class GroupIdempotencyState
             return OutcomesRebuilt
                 ? ThrowHelper.Throw<GroupOutcomeRestoreResult>(new InvalidOperationException("The outcomes of the committed log entries are already rebuilt."))
                 : (_rebuild ??= new OutcomeRebuild()).Restore(_records, in record, age, (_retention, Capacity, _timeProvider));
+        }
+    }
+
+    /// <summary>Records the resolved outcome of a committed log entry applied on a follower group.</summary>
+    /// <param name="record">The resolved record built from the applied entry; its resolution time is the leader time of the decision.</param>
+    /// <exception cref="ArgumentException">The record is not resolved.</exception>
+    /// <exception cref="InvalidOperationException">The outcomes of the committed log entries are not rebuilt yet.</exception>
+    /// <remarks>
+    ///     <para>
+    ///     A resolved outcome of the same identity with the same or a newer log index is kept. Otherwise the outcome is stored and replaces
+    ///     the record of its identity, a pin included: the pin of the entry is resolved by it, and a pin of a later append of the same
+    ///     operation gives way too, as the operation is committed and a retry must find its outcome.
+    ///     </para>
+    ///     <para>
+    ///     Its age is counted from the decision time on this node's wall clock, as a rebuild counts it, so the outcome leaves the store
+    ///     about when the leader's does. A decision time ahead of this clock counts as age zero, and an outcome already past retention is
+    ///     swept on the next access.
+    ///     </para>
+    ///     <para>
+    ///     The entry is committed and its effect is already in memory, so its outcome is never refused and evicts nothing: the store may
+    ///     hold more than <see cref="Capacity" /> records until retention ages them out, and capacity keeps bounding new reservations only.
+    ///     </para>
+    /// </remarks>
+    internal void RecordCommittedOutcome(in GroupIdempotencyRecord record)
+    {
+        if (record.IsUnresolved)
+            throw new ArgumentException("A committed outcome must be resolved.", nameof(record));
+
+        if (!OutcomesRebuilt)
+            throw new InvalidOperationException("The outcomes of the committed log entries are not rebuilt yet.");
+
+        lock (_sync)
+        {
+            ExpireCore();
+            var key = GroupOperationKey.Of(in record);
+            if (_records.TryGetValue(key, out var stored) && stored.Record.IsResolved && stored.Record.LogIndex >= record.LogIndex)
+                return;
+
+            var age = _timeProvider.GetUtcNow().UtcDateTime - record.ResolvedUtc!.Value;
+            _records[key] = new StoredRecord(record, _timeProvider.GetTimestamp(), age > TimeSpan.Zero ? age : TimeSpan.Zero);
         }
     }
 
@@ -387,80 +429,6 @@ internal sealed class GroupIdempotencyState
             var resolved = record.Resolve(BufferEx.CopyToOwned(outcomePayload), _timeProvider.GetUtcNow().UtcDateTime);
             _records[key] = new StoredRecord(resolved, _timeProvider.GetTimestamp(), TimeSpan.Zero);
             return true;
-        }
-    }
-
-    /// <summary>Restores snapshot outcomes and retained records only when the combined set fits the capacity.</summary>
-    /// <remarks>
-    ///     <para>
-    ///     Behaves exactly like <see cref="RestoreFromSnapshot(IReadOnlyList{GroupIdempotencyRecord}, DateTime, IReadOnlyList{ulong})" />
-    ///     except that an over-capacity combined set returns <see langword="false" /> instead of throwing, so callers can
-    ///     refuse atomically: no concurrent reservation can slip between the capacity check and the merge.
-    ///     </para>
-    /// </remarks>
-    /// <param name="records">The committed outcomes carried by the snapshot.</param>
-    /// <param name="capturedUtc">When the snapshot captured its outcomes, on the clock that stamped their resolution times.</param>
-    /// <param name="retainedLogIndexes">Journal indexes retained after the snapshot boundary.</param>
-    /// <returns><see langword="true" /> when the restore was applied; <see langword="false" /> when the combined set exceeds capacity.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="records" /> or <paramref name="retainedLogIndexes" /> is null.</exception>
-    /// <exception cref="InvalidDataException">Thrown when a snapshot outcome is not resolved.</exception>
-    internal bool TryRestoreFromSnapshot(IReadOnlyList<GroupIdempotencyRecord> records, DateTime capturedUtc, IReadOnlyList<ulong> retainedLogIndexes)
-    {
-        ArgumentNullException.ThrowIfNull(records);
-        ArgumentNullException.ThrowIfNull(retainedLogIndexes);
-        lock (_sync)
-        {
-            ExpireCore();
-            ThrowIfOutcomeUnresolved(records);
-            var surviving = AnchorSurviving(records, capturedUtc);
-            var retained = CollectRetainedRecords([.. retainedLogIndexes]);
-            if (GroupOperationKey.CountDistinct(surviving, retained) > Capacity)
-                return false;
-
-            MergeRestored(surviving, retained);
-            return true;
-        }
-    }
-
-    /// <summary>Determines whether restoring snapshot outcomes with a retained suffix would fit the capacity, without mutating state.</summary>
-    /// <remarks>
-    /// Mirrors the accounting of <see cref="TryRestoreFromSnapshot" /> so callers can refuse before any durable
-    /// mutation. Expired records are filtered out with the same retention rule <see cref="Expire" /> applies, but
-    /// the stored records are left untouched. Must be called under the same external serialization discipline as
-    /// the restore itself.
-    /// </remarks>
-    /// <param name="records">The committed outcomes carried by the snapshot.</param>
-    /// <param name="capturedUtc">When the snapshot captured its outcomes, on the clock that stamped their resolution times.</param>
-    /// <param name="retainedLogIndexes">Journal indexes that would remain authoritative after the restore.</param>
-    /// <returns><see langword="true" /> when the combined set fits the configured capacity.</returns>
-    internal bool WouldRestoreFit(IReadOnlyList<GroupIdempotencyRecord> records, DateTime capturedUtc, IReadOnlyList<ulong> retainedLogIndexes)
-    {
-        lock (_sync)
-        {
-            ThrowIfOutcomeUnresolved(records);
-            var surviving = AnchorSurviving(records, capturedUtc);
-            var expiredKeys = new HashSet<GroupOperationKey>(CollectExpiredKeys());
-            var retainedSet = new HashSet<ulong>(retainedLogIndexes);
-            var retained = new List<StoredRecord>();
-            foreach (var pair in _records)
-            {
-                if (retainedSet.Contains(pair.Value.Record.LogIndex) && !expiredKeys.Contains(pair.Key))
-                    retained.Add(pair.Value);
-            }
-
-            return GroupOperationKey.CountDistinct(surviving, retained) <= Capacity;
-        }
-    }
-
-    /// <summary>Throws when any snapshot outcome has not been resolved yet.</summary>
-    /// <param name="records">The committed outcomes carried by the snapshot.</param>
-    /// <exception cref="InvalidDataException">Thrown when a snapshot outcome is not resolved.</exception>
-    private static void ThrowIfOutcomeUnresolved(IReadOnlyList<GroupIdempotencyRecord> records)
-    {
-        for (var i = 0; i < records.Count; i++)
-        {
-            if (records[i].ResolvedUtc == null)
-                throw new InvalidDataException("Snapshot outcome must be resolved.");
         }
     }
 
@@ -555,22 +523,6 @@ internal sealed class GroupIdempotencyState
         /// <param name="record">The record.</param>
         /// <returns>Its <c language="csharp">(scope, operation id)</c> key.</returns>
         internal static GroupOperationKey Of(in GroupIdempotencyRecord record) => new(record.OperationScope, record.OperationId);
-
-        /// <summary>Counts the distinct keys across the snapshot outcomes and the retained records.</summary>
-        /// <param name="records">The committed outcomes carried by the snapshot.</param>
-        /// <param name="retained">The in-memory records still authoritative after installation.</param>
-        /// <returns>The number of distinct keys.</returns>
-        internal static int CountDistinct(List<StoredRecord> records, List<StoredRecord> retained)
-        {
-            var combined = new HashSet<GroupOperationKey>();
-            for (var i = 0; i < records.Count; i++)
-                _ = combined.Add(Of(records[i].Record));
-
-            for (var i = 0; i < retained.Count; i++)
-                _ = combined.Add(Of(retained[i].Record));
-
-            return combined.Count;
-        }
     }
 
     /// <summary>A retained record with the monotonic anchor its retention is counted from.</summary>

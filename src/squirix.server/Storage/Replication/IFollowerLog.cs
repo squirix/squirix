@@ -30,10 +30,11 @@ internal interface IFollowerLog : IAsyncDisposable
     /// Publishes a snapshot covering the log through <paramref name="index" /> and drops the covered entries from the log, as one
     /// step under the log gate.
     /// </summary>
-    /// <param name="index">The index to compact through; it must be both the commit index and the applied index of the log.</param>
+    /// <param name="index">The index to compact through; it must be the durable applied index of the log, at or below its commit index.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The compaction outcome; only <see cref="GroupCompactionOutcome.Compacted" /> drops entries from the log.</returns>
     /// <remarks>
+    /// Every entry above <paramref name="index" />, committed or not, stays in the log; a retained tail that misses an index is refused.
     /// The refusals leave readiness untouched. A failure after the snapshot is published leaves a log that recovers to the same state,
     /// with or without the covered prefix.
     /// </remarks>
@@ -85,6 +86,13 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The committed entries not yet applied.</returns>
     ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedEntriesAsync(CancellationToken cancellationToken);
+
+    /// <summary>Returns up to <paramref name="maxCount" /> committed entries that follow <paramref name="afterIndex" /> densely, in log order.</summary>
+    /// <param name="afterIndex">The exclusive index to read after.</param>
+    /// <param name="maxCount">The largest number of entries to return.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The retained entries from <c language="csharp">afterIndex + 1</c> up to the commit index, <paramref name="maxCount" />, or the first index that is not retained; empty when none is.</returns>
+    ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedEntriesAsync(ulong afterIndex, int maxCount, CancellationToken cancellationToken);
 
     /// <summary>Reads back from disk the newest committed entries the log retains, applied or not, one at a time.</summary>
     /// <param name="maxCount">The largest number of entries to read.</param>

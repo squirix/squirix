@@ -18,8 +18,10 @@ namespace Squirix.Server.Cluster.Replication;
 /// </remarks>
 internal sealed class ReplicaGroupRegistry : IAsyncDisposable
 {
+    private readonly GroupComposition _composition;
     private readonly ulong _generation;
     private readonly string[] _groupIds;
+    private readonly ILogger<ReplicaGroupRegistry> _log;
     private readonly ILoggerFactory _loggerFactory;
     private readonly FollowerLogOptions? _options;
     private readonly string _root;
@@ -59,10 +61,12 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
 
         _root = root;
         _groupIds = [.. groupIds];
+        _composition = GroupComposition.Create(_groupIds);
         _replicaCount = replicaCount;
         _fingerprint = fingerprint;
         _generation = generation;
         _loggerFactory = loggerFactory;
+        _log = loggerFactory.CreateLogger<ReplicaGroupRegistry>();
         _options = options;
     }
 
@@ -99,6 +103,13 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     /// <exception cref="InvalidOperationException">Thrown when the registry is not opened.</exception>
     /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
     internal ReplicaEligibility EligibilityFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Eligibility;
+
+    /// <summary>Gets the signal that wakes the apply loop of a served group.</summary>
+    /// <param name="id">Replica group identifier.</param>
+    /// <returns>The apply signal.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the registry is not opened.</exception>
+    /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
+    internal ReplicaApplySignal ApplySignalFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Signal;
 
     /// <summary>Creates and opens every group log for durable replication.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -172,11 +183,12 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         FollowerLog? log = null;
         try
         {
-            log = new FollowerLog(_root, groupId, GroupComposition.Create(groupId), _loggerFactory.CreateLogger<FollowerLog>(), _options);
+            log = new FollowerLog(_root, groupId, _composition, _loggerFactory.CreateLogger<FollowerLog>(), _options);
             await log.OpenAsync(cancellationToken).ConfigureAwait(false);
 
             // Refused before the committer applies anything from the log.
             await log.AdoptTopologyAsync(_fingerprint, _generation, cancellationToken).ConfigureAwait(false);
+            await PinRecoveredTailAsync(log, groupId, cancellationToken).ConfigureAwait(false);
             var eligibility = new ReplicaEligibility(_replicaCount);
 
             // A group with no durable progress starts with every member ready: there is nothing
@@ -191,7 +203,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
                     _ = eligibility.TryMarkReady(r, in zero, in zero);
             }
 
-            var state = new GroupState(log, eligibility);
+            var state = new GroupState(log, eligibility, new ReplicaApplySignal());
             log = null;
             return state;
         }
@@ -202,6 +214,44 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         }
     }
 
+    /// <summary>Pins every decodable entry of the recovered uncommitted tail in the idempotency state of a group log.</summary>
+    /// <param name="log">The opened group log.</param>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <remarks>
+    /// An entry the log holds but has not committed may still commit, so a same-identity retry must wait for its outcome instead of running
+    /// again: the pin holds the identity until the apply of the entry resolves it or a truncation releases it. The pins are taken before
+    /// the group is published, so no retry can see the group without them. An entry whose record cannot be read, or whose identity is held
+    /// with another fingerprint, is logged and left unpinned; its apply refuses an unreadable record anyway.
+    /// </remarks>
+    private async Task PinRecoveredTailAsync(FollowerLog log, string groupId, CancellationToken cancellationToken)
+    {
+        var tail = await log.GetUncommittedTailAsync(cancellationToken).ConfigureAwait(false);
+        for (var i = 0; i < tail.Count; i++)
+        {
+            var entry = tail[i];
+            if (ReplicaLogCodec.Decode(entry.Payload) is not { } record || record.LogIndex != entry.LogIndex || record.Term != entry.Term)
+            {
+                ReplicaGroupRegistryLog.TailPinSkipped(_log, groupId, entry.LogIndex, "its record cannot be read");
+                continue;
+            }
+
+            var kind = string.Equals(record.OperationScope, ReplicaExpirationOperationId.OperationScope, StringComparison.Ordinal) ? GroupRecordKind.Expiration
+                : GroupRecordKind.UserMutation;
+            var reserved = log.Idempotency.Reserve(
+                record.OperationScope,
+                record.OperationId,
+                record.OperationFingerprint.Span,
+                kind,
+                entry.LogIndex,
+                entry.Term,
+                true);
+            if (reserved != GroupIdempotencyReserveResult.Success)
+                ReplicaGroupRegistryLog.TailPinSkipped(_log, groupId, entry.LogIndex, reserved == GroupIdempotencyReserveResult.FingerprintMismatch ? "its identity is held with another fingerprint" : "the idempotency state refused it");
+        }
+    }
+
     [Immutable]
-    private readonly record struct GroupState(FollowerLog Log, ReplicaEligibility Eligibility);
+    private readonly record struct GroupState(FollowerLog Log, ReplicaEligibility Eligibility, ReplicaApplySignal Signal);
 }
