@@ -12,8 +12,8 @@ namespace Squirix.Server.Node.Services;
 
 /// <summary>Probes the followers of the owned replica group for verification, without the commit gate.</summary>
 /// <remarks>
-/// Followers are probed, and re-sent the leader's uncommitted tail when they lack it, so a dead or slow peer never delays writes.
-/// The verdicts are admitted afterwards under the commit gate of the committer.
+/// Followers are probed without the gate, so a dead or slow peer never delays writes. The verdicts are admitted afterwards under the
+/// commit gate of the committer, and the followers that answered but lack entries are handed to the catch-up pass.
 /// </remarks>
 internal sealed class ReplicaVerificationProbe
 {
@@ -107,7 +107,6 @@ internal sealed class ReplicaVerificationProbe
         var (members, header) = BuildMembership(term);
         var probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility), members, header, status, ProbeTimeout, cancellationToken)
                                                .ConfigureAwait(false);
-        probed = await ReplicaReadinessProbe.RedriveTailAsync(_gateway, probed, members, header, tail, ProbeTimeout, cancellationToken).ConfigureAwait(false);
         var answered = new bool[probed.Length];
         var anyAnswered = false;
         for (var i = 1; i < probed.Length; i++)

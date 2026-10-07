@@ -148,9 +148,11 @@ applied nor compacted until follower-side apply lands.
   It requires no uncommitted tail, every committed entry applied, every idempotency outcome resolved, and every
   follower slot verified ready with a durable match index at the commit index. It then publishes `group.snapshot`
   through the commit index and rewrites `group.log` to its header.
-- **Every follower must have caught up.** The leader has no follower repair or snapshot catch-up yet, so it keeps every
-  entry a follower may still need: a follower that is down, or that missed an entry, blocks compaction of the owner's
-  group log, which keeps growing until that follower is verified again.
+- **Every follower must have caught up.** The leader keeps every entry a follower may still need: a follower that is
+  down, or that missed an entry, blocks compaction of the owner's group log until it is back. A follower whose append
+  failed is taken out of the write quorum; once it answers again, the owner sends it the entries it lacks from the
+  group log through its sender, admits it, and compaction resumes. There is no snapshot catch-up: a follower that needs
+  entries already compacted cannot be caught up and stays out of the quorum.
 - **Snapshot size.** A snapshot carries the resolved idempotency outcomes of the covered entries. When they exceed the
   64 MiB snapshot limit, compaction stalls with `snapshot_too_large` until the outcomes age out of idempotency
   retention (one hour).

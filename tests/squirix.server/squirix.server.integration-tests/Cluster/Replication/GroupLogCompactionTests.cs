@@ -14,6 +14,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -181,6 +182,52 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         _ = await Assert.That(retention.RetainedEntries >= Threshold * 3).IsTrue();
     }
 
+    /// <summary>
+    /// A follower stopped while the owner keeps writing is taken out of the quorum; once it is back it is caught up from the owner log
+    /// and admitted again, and the compaction it blocked resumes, without a restart of the owner.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StoppedFollowerRejoinsAndCompacts(CancellationToken cancellationToken)
+    {
+        const string scope = "group-log-follower-rejoin";
+        await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", Options(scope, true, ManualMaintenanceInterval), cancellationToken);
+        var owner = cluster[OwnerId];
+        await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
+        await cluster.StopNodeAsync("node-c");
+        _ = await OverwriteAsync(owner, [], Threshold * 3, cancellationToken);
+
+        var restarted = await cluster.StartNodeAsync("node-c", Options(scope, false, ManualMaintenanceInterval), cancellationToken);
+        await CompactAsync(owner, cancellationToken);
+
+        await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, OwnerId, [("node-c", restarted)], cancellationToken);
+        _ = await Assert.That((await OwnerLog(owner).GetRetentionAsync(cancellationToken)).SnapshotIndex > 0).IsTrue();
+    }
+
+    /// <summary>A follower cut off from the owner by a network partition is caught up and admitted again once the partition heals, and the compaction resumes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task IsolatedFollowerRejoinsAndCompacts(CancellationToken cancellationToken)
+    {
+        await using var fabric = new PartitionFabric();
+        await using var cluster = await StartClusterAsync(
+            "node-a",
+            "node-b",
+            "node-c",
+            Options("group-log-follower-isolated", true, ManualMaintenanceInterval, fabric),
+            cancellationToken);
+        var owner = cluster[OwnerId];
+        await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
+        await fabric.IsolateAsync("node-c");
+        _ = await OverwriteAsync(owner, [], Threshold * 3, cancellationToken);
+
+        fabric.HealAll();
+        await CompactAsync(owner, cancellationToken);
+
+        await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, OwnerId, [("node-c", cluster["node-c"])], cancellationToken);
+        _ = await Assert.That((await OwnerLog(owner).GetRetentionAsync(cancellationToken)).SnapshotIndex > 0).IsTrue();
+    }
+
     /// <summary>Describes the last log index each node holds of the owned group log, for failure messages.</summary>
     /// <param name="cluster">The running cluster.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -199,12 +246,13 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
 
     private static NodeCacheEntry<object?> Entry(int version) => new() { Value = $"value-{version}", Version = version };
 
-    private static IntegrationStartOptions Options(string scope, bool clean, TimeSpan maintenanceInterval) => new()
+    private static IntegrationStartOptions Options(string scope, bool clean, TimeSpan maintenanceInterval, PartitionFabric? fabric = null) => new()
     {
         ReplicaCount = 3,
         UsePersistence = true,
         CleanTestDir = clean,
         ExtraScope = scope,
+        PartitionFabric = fabric,
         PersistenceOptions = new PersistenceOptions { JournalMaxSegmentMb = 64, ReplicaLogCompactionEntries = Threshold },
         ServicesConfigure = services => SetMaintenanceInterval(services, maintenanceInterval),
     };
