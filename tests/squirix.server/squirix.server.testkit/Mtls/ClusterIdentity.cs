@@ -330,7 +330,7 @@ public sealed class ClusterIdentity : IDisposable
         };
 
         // The handlers present or trust the startup's certificate material, so it stays loaded until they are disposed.
-        if (startup.PeerHandlerFactory != null && startup.Certificate is { Enabled: true } shared)
+        if (startup is { PeerHandlerFactory: not null, Certificate: { Enabled: true } shared })
             owner.Hold(shared.Retain());
 
         return startup with { Owner = owner };

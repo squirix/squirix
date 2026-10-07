@@ -476,13 +476,8 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
 
         internal long Refused => Interlocked.Read(ref _refused);
 
-        internal void AddForwarded(ProxyDirection direction, int bytes)
-        {
-            if (direction == ProxyDirection.ClientToUpstream)
-                _ = Interlocked.Add(ref _clientToUpstreamBytes, bytes);
-            else
-                _ = Interlocked.Add(ref _upstreamToClientBytes, bytes);
-        }
+        internal void AddForwarded(ProxyDirection direction, int bytes) => _ = direction == ProxyDirection.ClientToUpstream ? Interlocked.Add(ref _clientToUpstreamBytes, bytes)
+            : Interlocked.Add(ref _upstreamToClientBytes, bytes);
 
         internal void CountAccepted() => _ = Interlocked.Increment(ref _accepted);
 

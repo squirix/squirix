@@ -158,10 +158,9 @@ internal sealed class TrackedWrappedStream : Stream
 
     private void Release()
     {
-        if (Interlocked.Exchange(ref _released, 1) == 0)
-        {
-            _connections.Unregister(_inner);
-            _connections.Exit();
-        }
+        if (Interlocked.Exchange(ref _released, 1) != 0)
+            return;
+        _connections.Unregister(_inner);
+        _connections.Exit();
     }
 }

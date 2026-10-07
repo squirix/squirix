@@ -71,12 +71,10 @@ internal sealed class ParkingFollowerGateway : IReplicaRpcGateway
 
     private TaskCompletionSource<Call> ArrivalFor(int index)
     {
-        if (!_arrivals.TryGetValue(index, out var arrival))
-        {
-            arrival = new TaskCompletionSource<Call>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _arrivals[index] = arrival;
-        }
-
+        if (_arrivals.TryGetValue(index, out var arrival))
+            return arrival;
+        arrival = new TaskCompletionSource<Call>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _arrivals[index] = arrival;
         return arrival;
     }
 

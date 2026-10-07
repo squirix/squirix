@@ -121,7 +121,7 @@ internal sealed class IdempotencyStoreOracle
         var result = new List<(string, bool, DateTime)>();
         foreach (var stored in CollectionsMarshal.AsSpan(ordered))
         {
-            if (stored.AppendedUtc == null && !stored.Completed && stored.Stamp != null && !stored.Stamped)
+            if (stored.AppendedUtc == null && stored is { Completed: false, Stamp: not null, Stamped: false })
                 continue;
 
             result.Add(stored.AppendedUtc is { } appended ? (stored.Id, true, appended) : (stored.Id, stored.Completed, stored.CreatedUtc));

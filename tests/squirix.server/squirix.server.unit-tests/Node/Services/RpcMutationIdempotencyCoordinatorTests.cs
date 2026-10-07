@@ -291,13 +291,12 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
 
         public override long GetTimestamp()
         {
-            if (!_staging && ++_timestampReads == 2 && Store != null)
-            {
-                _staging = true;
-                Store.RecordSuccess(ValidOperationId, "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }), null);
-                Advance(TimeSpan.FromHours(1));
-                _staging = false;
-            }
+            if (_staging || ++_timestampReads != 2 || Store == null)
+                return base.GetTimestamp();
+            _staging = true;
+            Store.RecordSuccess(ValidOperationId, "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }), null);
+            Advance(TimeSpan.FromHours(1));
+            _staging = false;
 
             return base.GetTimestamp();
         }

@@ -154,12 +154,11 @@ internal sealed class IdempotencyExpiryOrder
             break;
         }
 
-        if (TryPeekRestored(minAge, utcNow, out var restored) && restored.Sequence < oldestSequence)
-        {
-            found = true;
-            key = restored.Key;
-        }
+        if (!TryPeekRestored(minAge, utcNow, out var restored) || restored.Sequence >= oldestSequence)
+            return found;
 
+        found = true;
+        key = restored.Key;
         return found;
     }
 

@@ -10,38 +10,40 @@ namespace Squirix.Server.Threading;
 /// </remarks>
 internal static class TaskExtensions
 {
-    /// <summary>Awaits the task and returns any failure instead of throwing it.</summary>
     /// <param name="task">The task to await.</param>
-    /// <returns>The failure, or <see langword="null" /> when the task completed successfully.</returns>
-    internal static async ValueTask<Exception?> CaptureFailureAsync(this Task task)
+    extension(Task task)
     {
-        ArgumentNullException.ThrowIfNull(task);
-        try
+        /// <summary>Awaits the task and returns any failure instead of throwing it.</summary>
+        /// <returns>The failure, or <see langword="null" /> when the task completed successfully.</returns>
+        internal async ValueTask<Exception?> CaptureFailureAsync()
         {
-            await task.ConfigureAwait(false);
-            return null;
+            ArgumentNullException.ThrowIfNull(task);
+            try
+            {
+                await task.ConfigureAwait(false);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return ex;
+            }
         }
-        catch (Exception ex)
-        {
-            return ex;
-        }
-    }
 
-    /// <summary>Awaits the task and returns a failure <paramref name="filter" /> accepts instead of throwing it; any other failure propagates.</summary>
-    /// <param name="task">The task to await.</param>
-    /// <param name="filter">Selects the failures to capture, expected to be a <see langword="static" /> lambda so the call does not allocate a closure.</param>
-    /// <returns>The captured failure, or <see langword="null" /> when the task completed successfully.</returns>
-    internal static async ValueTask<Exception?> CaptureFailureAsync(this Task task, Func<Exception, bool> filter)
-    {
-        ArgumentNullException.ThrowIfNull(filter);
-        try
+        /// <summary>Awaits the task and returns a failure <paramref name="filter" /> accepts instead of throwing it; any other failure propagates.</summary>
+        /// <param name="filter">Selects the failures to capture, expected to be a <see langword="static" /> lambda so the call does not allocate a closure.</param>
+        /// <returns>The captured failure, or <see langword="null" /> when the task completed successfully.</returns>
+        internal async ValueTask<Exception?> CaptureFailureAsync(Func<Exception, bool> filter)
         {
-            await task.ConfigureAwait(false);
-            return null;
-        }
-        catch (Exception ex) when (filter(ex))
-        {
-            return ex;
+            ArgumentNullException.ThrowIfNull(filter);
+            try
+            {
+                await task.ConfigureAwait(false);
+                return null;
+            }
+            catch (Exception ex) when (filter(ex))
+            {
+                return ex;
+            }
         }
     }
 
