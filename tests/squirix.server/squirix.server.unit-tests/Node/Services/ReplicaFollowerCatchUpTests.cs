@@ -242,26 +242,27 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
     }
 
     /// <summary>
-    /// A follower that stays ready while its append is still in flight is verified again when the coordinator is replaced, instead of
-    /// being taken to hold the log through the commit index: compaction then keeps the entries it lacks.
+    /// A follower whose append hangs, ignoring its cancellation, is never seen to fail, so it is still ready, behind the commit index,
+    /// when the coordinator is replaced. The new start verifies it again instead of taking it to hold the log through the commit index,
+    /// and compaction keeps the entries it lacks.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ReadyFollowerIsVerifiedOnRestart(CancellationToken cancellationToken)
+    public async Task HungFollowerIsVerifiedOnRestart(CancellationToken cancellationToken)
     {
         await using var followers = await OpenFollowersAsync(cancellationToken);
         var routing = new FollowerLogRoutingGateway(followers.Logs);
+        var gateway = new HangingGateway(routing);
         await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
-        await using var committer = CreateCommitterOnBudgetClock(registry, routing, new FakeTimeProvider(), TimeSpan.FromMilliseconds(100));
+        await using var committer = CreateCommitterOnBudgetClock(registry, gateway, new FakeTimeProvider(), TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(100));
         try
         {
             await CommitAsync(committer, "k1", cancellationToken);
             await routing.AppendedAsync("n3", 1).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-            routing.ParkNext("n3");
+            gateway.HangNext("n3");
             var operationId = NewOperationId();
             await committer.CommitSetAsync(operationId, "cache", "k2", Entry("k2"), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-            await routing.Parked.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-            _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.Ready);
+            await gateway.Hung.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
             // The retry replaces the coordinator and is answered from the retained outcome, so nothing new is appended to expose n3.
             committer.DropStartedState();
@@ -274,7 +275,7 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         }
         finally
         {
-            routing.Release();
+            gateway.Release();
         }
     }
 
@@ -434,6 +435,41 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
 
         /// <summary>Lets the armed failure, and every later one, be reported.</summary>
         internal void ReleaseFailure() => _ = _release.TrySetResult();
+    }
+
+    /// <summary>Routes appends to the follower logs and holds the next batch with entries to a chosen follower, ignoring its cancellation.</summary>
+    private sealed class HangingGateway : IReplicaRpcGateway
+    {
+        private readonly TaskCompletionSource _hung = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly IReplicaRpcGateway _routing;
+        private string? _hangNode;
+
+        internal HangingGateway(IReplicaRpcGateway routing)
+        {
+            _routing = routing;
+        }
+
+        /// <summary>Gets a task that completes once the armed batch hangs.</summary>
+        internal Task Hung => _hung.Task;
+
+        public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
+        {
+            if (batch.Records.Count == 0 || !string.Equals(Interlocked.CompareExchange(ref _hangNode, null, nodeId), nodeId, StringComparison.Ordinal))
+                return await _routing.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
+
+            // A follower call that hangs this way is given up on by the sender's teardown, so its acknowledgement never completes.
+            _ = _hung.TrySetResult();
+            await _release.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            throw new IOException($"Released hung call to {nodeId}.");
+        }
+
+        /// <summary>Makes the next batch with entries sent to <paramref name="node" /> hang until <see cref="Release" /> runs.</summary>
+        /// <param name="node">The follower node.</param>
+        internal void HangNext(string node) => Volatile.Write(ref _hangNode, node);
+
+        /// <summary>Ends the hung call.</summary>
+        internal void Release() => _ = _release.TrySetResult();
     }
 
     /// <summary>Routes appends to the follower logs and parks the first accepted empty append that confirms a follower holds an index.</summary>
