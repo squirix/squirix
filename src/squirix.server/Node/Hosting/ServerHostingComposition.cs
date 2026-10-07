@@ -37,9 +37,6 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class ServerHostingComposition
 {
-    /// <summary>Maximum queued follower repairs, excluding the active repair.</summary>
-    private const int RepairQueueCapacity = 128;
-
     /// <summary>Configures the node web host builder from cluster topology and optional composition overrides.</summary>
     /// <param name="builder">The web application builder.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
@@ -208,8 +205,6 @@ internal static class ServerHostingComposition
                 ["ready"]));
         _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory, (args.BackpressureOptions ?? new AdmissionOptions()).MaxInFlight);
         _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
-        _ = services.AddSingleton(static _ => new ReplicaRepairService(RepairQueueCapacity));
-        _ = services.AddHostedService(static sp => sp.GetRequiredService<ReplicaRepairService>());
         if (!args.FoundationOnly && cluster.ReplicaCount <= 1)
             return;
         _ = services.AddSingleton(static sp => new SquirixReplicationServiceAdapter(
