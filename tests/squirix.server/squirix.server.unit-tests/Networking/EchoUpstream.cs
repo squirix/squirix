@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.TestKit.Diagnostics;
 
 namespace Squirix.Server.UnitTests.Networking;
 
@@ -19,7 +20,7 @@ internal sealed class EchoUpstream : IAsyncDisposable
     private EchoUpstream(Socket listener)
     {
         _listener = listener;
-        EndPoint = listener.LocalEndPoint is IPEndPoint bound ? bound : throw new InvalidOperationException("The echo listener has no loopback endpoint.");
+        EndPoint = KitThrowHelper.Required(listener.LocalEndPoint as IPEndPoint, "The echo listener has no loopback endpoint.");
         _acceptLoop = AcceptLoopAsync();
     }
 

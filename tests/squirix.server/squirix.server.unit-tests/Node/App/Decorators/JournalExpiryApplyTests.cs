@@ -80,6 +80,27 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         _ = await Assert.That(journaled.ExpiresUtc).IsEqualTo(Start.UtcDateTime.Add(ApplyDelay / 2));
     }
 
+    /// <summary>A remove of the expiration journals a put of the entry without a deadline and applies exactly that entry to memory.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PersistJournalsAppliedEntry(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider(Start);
+        await using (var harness = await Harness.CreateAsync(Dir, clock, cancellationToken))
+        {
+            await SeedTaggedEntryAsync(harness, cancellationToken);
+            var cache = harness.CreateDecorator(CreateDelayingInner(harness.Real, clock));
+            _ = await Assert.That(await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, cancellationToken)).IsTrue();
+            await AssertMemoryTaggedAsync(harness.Physical, cancellationToken);
+        }
+
+        var journaled = ReadJournaledPut(cancellationToken);
+        _ = await Assert.That(journaled.ExpiresUtc).IsNull();
+        _ = await Assert.That(journaled.Version).IsEqualTo(3);
+        _ = await Assert.That(journaled.Tags).IsNotNull();
+        _ = await Assert.That(journaled.Tags!["team"]).IsEqualTo("a");
+    }
+
     /// <summary>The payload-prepare entry point hands memory the same resolved add it journals.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -88,8 +109,7 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         var clock = new FakeTimeProvider(Start);
         await using (var harness = await Harness.CreateAsync(Dir, clock, cancellationToken))
         {
-            var prepare = new JournalPayloadPrepareCacheDecorator<string>(
-                harness.CreateDecorator(CreateDelayingInner(harness.Real, clock)));
+            var prepare = new JournalPayloadPrepareCacheDecorator<string>(harness.CreateDecorator(CreateDelayingInner(harness.Real, clock)));
             _ = await Assert.That(await prepare.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, CreateRelativeEntry(), cancellationToken)).IsTrue();
             await AssertMemoryDeadlineAsync(harness.Physical, cancellationToken);
         }
@@ -105,9 +125,26 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         var clock = new FakeTimeProvider(Start);
         await using (var harness = await Harness.CreateAsync(Dir, clock, cancellationToken))
         {
-            var prepare = new JournalPayloadPrepareCacheDecorator<string>(
-                harness.CreateDecorator(CreateDelayingInner(harness.Real, clock)));
+            var prepare = new JournalPayloadPrepareCacheDecorator<string>(harness.CreateDecorator(CreateDelayingInner(harness.Real, clock)));
             await prepare.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, CreateRelativeEntry(), cancellationToken);
+            await AssertMemoryDeadlineAsync(harness.Physical, cancellationToken);
+        }
+
+        await AssertJournaledPutDeadlineAsync(cancellationToken);
+    }
+
+    /// <summary>A touch decided from a raw read applies the journaled deadline even when the clock advances before memory applies it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RawReadTouchAppliesJournaledDeadline(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider(Start);
+        await using (var harness = await Harness.CreateAsync(Dir, clock, cancellationToken))
+        {
+            var seeding = harness.CreateDecorator(harness.Real);
+            _ = await Assert.That(await seeding.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), cancellationToken)).IsTrue();
+            var cache = harness.CreateDecorator(CreateDelayingInner(harness.Real, clock), true);
+            _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, cancellationToken)).IsTrue();
             await AssertMemoryDeadlineAsync(harness.Physical, cancellationToken);
         }
 
@@ -130,27 +167,6 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         await AssertJournaledPutDeadlineAsync(cancellationToken);
     }
 
-    /// <summary>A remove of the expiration journals a put of the entry without a deadline and applies exactly that entry to memory.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task PersistJournalsAppliedEntry(CancellationToken cancellationToken)
-    {
-        var clock = new FakeTimeProvider(Start);
-        await using (var harness = await Harness.CreateAsync(Dir, clock, cancellationToken))
-        {
-            await SeedTaggedEntryAsync(harness, cancellationToken);
-            var cache = harness.CreateDecorator(CreateDelayingInner(harness.Real, clock));
-            _ = await Assert.That(await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, cancellationToken)).IsTrue();
-            await AssertMemoryTaggedAsync(harness.Physical, cancellationToken);
-        }
-
-        var journaled = ReadJournaledPut(cancellationToken);
-        _ = await Assert.That(journaled.ExpiresUtc).IsNull();
-        _ = await Assert.That(journaled.Version).IsEqualTo(3);
-        _ = await Assert.That(journaled.Tags).IsNotNull();
-        _ = await Assert.That(journaled.Tags!["team"]).IsEqualTo("a");
-    }
-
     /// <summary>A touch applies the journaled deadline even when the clock advances before memory applies it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -162,24 +178,6 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
             var seeding = harness.CreateDecorator(harness.Real);
             _ = await Assert.That(await seeding.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), cancellationToken)).IsTrue();
             var cache = harness.CreateDecorator(CreateDelayingInner(harness.Real, clock));
-            _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, cancellationToken)).IsTrue();
-            await AssertMemoryDeadlineAsync(harness.Physical, cancellationToken);
-        }
-
-        await AssertJournaledPutDeadlineAsync(cancellationToken);
-    }
-
-    /// <summary>A touch decided from a raw read applies the journaled deadline even when the clock advances before memory applies it.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RawReadTouchAppliesJournaledDeadline(CancellationToken cancellationToken)
-    {
-        var clock = new FakeTimeProvider(Start);
-        await using (var harness = await Harness.CreateAsync(Dir, clock, cancellationToken))
-        {
-            var seeding = harness.CreateDecorator(harness.Real);
-            _ = await Assert.That(await seeding.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), cancellationToken)).IsTrue();
-            var cache = harness.CreateDecorator(CreateDelayingInner(harness.Real, clock), true);
             _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, cancellationToken)).IsTrue();
             await AssertMemoryDeadlineAsync(harness.Physical, cancellationToken);
         }
@@ -226,6 +224,13 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         _ = await Assert.That(journaled.Tags!["team"]).IsEqualTo("a");
     }
 
+    private static async Task AssertMemoryDeadlineAsync(PhysicalCache<string> physical, CancellationToken cancellationToken)
+    {
+        var entry = await physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        _ = await Assert.That(entry).IsNotNull();
+        _ = await Assert.That(entry!.ExpiresUtc).IsEqualTo(Start.UtcDateTime.Add(Ttl));
+    }
+
     private static async Task AssertMemoryTaggedAsync(PhysicalCache<string> physical, CancellationToken cancellationToken)
     {
         var memory = await physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
@@ -233,21 +238,6 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         _ = await Assert.That(memory!.Version).IsEqualTo(3);
         _ = await Assert.That(memory.Tags).IsNotNull();
         _ = await Assert.That(memory.Tags!["team"]).IsEqualTo("a");
-    }
-
-    private static async Task SeedTaggedEntryAsync(Harness harness, CancellationToken cancellationToken)
-    {
-        var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["team"] = "a" }.ToFrozenDictionary(StringComparer.Ordinal);
-        var seeded = new NodeCacheEntry<string>("v1", 3, Start.UtcDateTime.Add(Ttl), tags: tags);
-        var seeding = harness.CreateDecorator(harness.Real);
-        _ = await Assert.That(await seeding.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, seeded, cancellationToken)).IsTrue();
-    }
-
-    private static async Task AssertMemoryDeadlineAsync(PhysicalCache<string> physical, CancellationToken cancellationToken)
-    {
-        var entry = await physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
-        _ = await Assert.That(entry).IsNotNull();
-        _ = await Assert.That(entry!.ExpiresUtc).IsEqualTo(Start.UtcDateTime.Add(Ttl));
     }
 
     private static ILogicalNamespacedCache<string> CreateDelayingInner(ClientCache<string> real, FakeTimeProvider clock)
@@ -271,6 +261,14 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
     }
 
     private static NodeCacheEntry<string> CreateRelativeEntry() => new("v", expiration: Ttl);
+
+    private static async Task SeedTaggedEntryAsync(Harness harness, CancellationToken cancellationToken)
+    {
+        var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["team"] = "a" }.ToFrozenDictionary(StringComparer.Ordinal);
+        var seeded = new NodeCacheEntry<string>("v1", 3, Start.UtcDateTime.Add(Ttl), tags: tags);
+        var seeding = harness.CreateDecorator(harness.Real);
+        _ = await Assert.That(await seeding.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, seeded, cancellationToken)).IsTrue();
+    }
 
     private async Task AssertJournaledPutDeadlineAsync(CancellationToken cancellationToken)
     {
@@ -307,11 +305,11 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
             Real = new ClientCache<string>(Physical, Physical);
         }
 
-        internal IJournalCoordinator Journal { get; }
-
         internal PhysicalCache<string> Physical { get; }
 
         internal ClientCache<string> Real { get; }
+
+        private IJournalCoordinator Journal { get; }
 
         public async ValueTask DisposeAsync()
         {
@@ -333,7 +331,11 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
             return new Harness(manifestStore, journal, clock);
         }
 
-        internal JournalLoggingCacheDecorator<string> CreateDecorator(ILogicalNamespacedCache<string> inner, bool useRawReader = false) =>
-            new(inner, Journal, new DurableMutationExecutor(Journal, NullLogger<DurableMutationExecutor>.Instance), _clock, useRawReader ? Physical.RawReader : null);
+        internal JournalLoggingCacheDecorator<string> CreateDecorator(ILogicalNamespacedCache<string> inner, bool useRawReader = false) => new(
+            inner,
+            Journal,
+            new DurableMutationExecutor(Journal, NullLogger<DurableMutationExecutor>.Instance),
+            _clock,
+            useRawReader ? Physical.RawReader : null);
     }
 }

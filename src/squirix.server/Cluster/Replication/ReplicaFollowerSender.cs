@@ -31,11 +31,11 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     private readonly Lock _sync = new();
     private TaskCompletionSource? _catchUpRequest;
     private bool _closed;
+    private ulong _lastEnqueuedIndex;
+    private ulong _lastEnqueuedTerm;
     private TaskCompletionSource? _leaseDone;
     private TaskCompletionSource? _loopDone;
     private long _pendingBytes;
-    private ulong _lastEnqueuedIndex;
-    private ulong _lastEnqueuedTerm;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaFollowerSender" /> class.</summary>
     /// <param name="rpc">Follower replication RPCs.</param>
@@ -63,15 +63,28 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         MaxBatchEntries = 64;
     }
 
-    /// <summary>Initializes the most entries one request carries; 64 unless set.</summary>
-    internal int MaxBatchEntries
+    /// <summary>Gets a token canceled once the sender starts draining or closes.</summary>
+    /// <remarks>
+    /// A drain runs under the commit gate and waits for an active catch-up lease, so a lease holder waiting for that gate links this
+    /// token into its wait and gives up instead of holding the drain for its whole budget.
+    /// </remarks>
+    internal CancellationToken DrainStarted
     {
-        private get;
-        init
+        get
         {
-            ArgumentOutOfRangeException.ThrowIfLessThan(value, 1);
+            // The source is disposed only after the close, so a closed sender hands out an already canceled token instead.
+            lock (_sync)
+                return _closed ? new CancellationToken(true) : _drainStarted.Token;
+        }
+    }
 
-            field = value;
+    /// <summary>Gets a value indicating whether the sender is closed.</summary>
+    internal bool IsClosed
+    {
+        get
+        {
+            lock (_sync)
+                return _closed;
         }
     }
 
@@ -87,8 +100,8 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
-    /// <summary>Initializes the most entries waiting to be sent; 1024 unless set.</summary>
-    internal int MaxPendingEntries
+    /// <summary>Initializes the most entries one request carries; 64 unless set.</summary>
+    internal int MaxBatchEntries
     {
         private get;
         init
@@ -111,6 +124,21 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
+    /// <summary>Initializes the most entries waiting to be sent; 1024 unless set.</summary>
+    internal int MaxPendingEntries
+    {
+        private get;
+        init
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(value, 1);
+
+            field = value;
+        }
+    }
+
+    /// <summary>Gets the identifier of the follower this sender appends to.</summary>
+    internal string NodeId { get; }
+
     /// <summary>Initializes the longest wait on dispose for the request in flight; 30 seconds unless set.</summary>
     internal TimeSpan ShutdownBudget
     {
@@ -128,34 +156,6 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
 
     /// <summary>Initializes the time source of the append timeout; the system clock unless set.</summary>
     internal TimeProvider TimeProvider { private get; init; } = TimeProvider.System;
-
-    /// <summary>Gets a token canceled once the sender starts draining or closes.</summary>
-    /// <remarks>
-    /// A drain runs under the commit gate and waits for an active catch-up lease, so a lease holder waiting for that gate links this
-    /// token into its wait and gives up instead of holding the drain for its whole budget.
-    /// </remarks>
-    internal CancellationToken DrainStarted
-    {
-        get
-        {
-            // The source is disposed only after the close, so a closed sender hands out an already canceled token instead.
-            lock (_sync)
-                return _closed ? new CancellationToken(true) : _drainStarted.Token;
-        }
-    }
-
-    /// <summary>Gets the identifier of the follower this sender appends to.</summary>
-    internal string NodeId { get; }
-
-    /// <summary>Gets a value indicating whether the sender is closed.</summary>
-    internal bool IsClosed
-    {
-        get
-        {
-            lock (_sync)
-                return _closed;
-        }
-    }
 
     /// <summary>Gets a value indicating whether the sender stopped admitting entries for a drain.</summary>
     private bool Draining => _drainStarted.IsCancellationRequested;
@@ -206,6 +206,40 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
+    /// <summary>Suspends the live sends of this slot once the request in flight is answered, so a catch-up may send in its place.</summary>
+    /// <param name="cancellationToken">Cancellation token; a cancellation while the request in flight is waited for resumes the live sends.</param>
+    /// <returns>The lease; disposing it resumes the live sends.</returns>
+    /// <exception cref="InvalidOperationException">A lease is already active.</exception>
+    /// <exception cref="ObjectDisposedException">The sender is closed or draining.</exception>
+    /// <remarks>Entries enqueued while the lease is held wait; they still count against the backlog limits.</remarks>
+    internal async ValueTask<ReplicaFollowerCatchUp> BeginCatchUpAsync(CancellationToken cancellationToken)
+    {
+        Task? loop;
+        lock (_sync)
+        {
+            ObjectDisposedException.ThrowIf(_closed || Draining, this);
+            if (_leaseDone != null)
+                throw new InvalidOperationException($"Follower '{NodeId}' catch-up lease is already active.");
+
+            _leaseDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            loop = _loopDone?.Task;
+        }
+
+        if (loop == null)
+            return new ReplicaFollowerCatchUp(this, NodeId);
+        try
+        {
+            await loop.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            EndCatchUp(0);
+            throw;
+        }
+
+        return new ReplicaFollowerCatchUp(this, NodeId);
+    }
+
     /// <summary>Stops admitting entries and waits until the ones already queued, and the request in flight, have been answered.</summary>
     /// <param name="budget">The longest wait; entries still queued after it are left for <see cref="DisposeAsync" /> to fail.</param>
     /// <returns>A task that completes when the sender is idle or the budget elapsed.</returns>
@@ -239,41 +273,6 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         var remaining = budget - TimeProvider.System.GetElapsedTime(started);
         if (loop != null && remaining > TimeSpan.Zero)
             _ = await WaitWithinAsync(loop, remaining).ConfigureAwait(false);
-    }
-
-    /// <summary>Suspends the live sends of this slot once the request in flight is answered, so a catch-up may send in its place.</summary>
-    /// <param name="cancellationToken">Cancellation token; a cancellation while the request in flight is waited for resumes the live sends.</param>
-    /// <returns>The lease; disposing it resumes the live sends.</returns>
-    /// <exception cref="InvalidOperationException">A lease is already active.</exception>
-    /// <exception cref="ObjectDisposedException">The sender is closed or draining.</exception>
-    /// <remarks>Entries enqueued while the lease is held wait; they still count against the backlog limits.</remarks>
-    internal async ValueTask<ReplicaFollowerCatchUp> BeginCatchUpAsync(CancellationToken cancellationToken)
-    {
-        Task? loop;
-        lock (_sync)
-        {
-            ObjectDisposedException.ThrowIf(_closed || Draining, this);
-            if (_leaseDone != null)
-                throw new InvalidOperationException($"Follower '{NodeId}' catch-up lease is already active.");
-
-            _leaseDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            loop = _loopDone?.Task;
-        }
-
-        if (loop != null)
-        {
-            try
-            {
-                await loop.WaitAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch
-            {
-                EndCatchUp(0);
-                throw;
-            }
-        }
-
-        return new ReplicaFollowerCatchUp(this, NodeId);
     }
 
     /// <summary>Resumes the live sends after a catch-up lease ended; idempotent.</summary>
@@ -394,15 +393,20 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         return SendCatchUpCoreAsync(batch, done, cancellationToken);
     }
 
-    private static ReplicaDurableAcknowledgement AcknowledgementOf(PreparedReplicaMutation mutation) =>
-        new(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true);
+    private static ReplicaDurableAcknowledgement AcknowledgementOf(PreparedReplicaMutation mutation) => new(
+        mutation.GroupId,
+        mutation.Term,
+        mutation.LogIndex,
+        mutation.OperationFingerprint,
+        mutation.PayloadChecksum,
+        true,
+        true);
 
     private static void Complete(List<PendingAppend> batch, in FollowerLogAppendResult result, string nodeId)
     {
         for (var i = 0; i < batch.Count; i++)
         {
-            _ = result.Success
-                ? batch[i].Completion.TrySetResult(AcknowledgementOf(batch[i].Mutation))
+            _ = result.Success ? batch[i].Completion.TrySetResult(AcknowledgementOf(batch[i].Mutation))
                 : batch[i].Completion.TrySetException(new InvalidOperationException($"Follower '{nodeId}' refused append: {result.RefusalCode}."));
         }
     }
@@ -427,6 +431,35 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
+    private async Task RunAsync(TaskCompletionSource done)
+    {
+        // A pending-free exit is decided under the lock in TakeBatch, so an enqueue racing the exit starts a loop of its own.
+        while (TakeBatch() is { } batch)
+        {
+            if (await SendBatchAsync(batch).CaptureFailureAsync().ConfigureAwait(false) is { } error)
+                Fail(batch, error);
+        }
+
+        _ = done.TrySetResult();
+    }
+
+    /// <summary>Sends one request and completes the entries it carried with the follower's answer.</summary>
+    /// <param name="batch">The entries of the request, in log order.</param>
+    /// <returns>A task that faults when the request fails or times out; the caller fails the entries then.</returns>
+    private async Task SendBatchAsync(List<PendingAppend> batch)
+    {
+        var records = new ReplicaLogRecord[batch.Count];
+        for (var i = 0; i < records.Length; i++)
+            records[i] = batch[i].Record;
+
+        var first = batch[0];
+        var request = new FollowerBatch(records, _header.LeaderNodeId, first.Record.Term, first.PrevLogIndex, first.PrevLogTerm, batch[^1].LeaderCommitIndex);
+        using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token);
+        var result = await _rpc.AppendEntriesAsync(NodeId, _header, request, linked.Token).ConfigureAwait(false);
+        Complete(batch, in result, NodeId);
+    }
+
     private async Task<FollowerLogAppendResult> SendCatchUpCoreAsync(FollowerBatch batch, TaskCompletionSource done, CancellationToken cancellationToken)
     {
         try
@@ -442,6 +475,24 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
 
             _ = done.TrySetResult();
         }
+    }
+
+    /// <summary>Starts the send loop on the calling thread, up to its first wait, without the caller's execution context.</summary>
+    /// <param name="done">The completion source the loop completes when it ends.</param>
+    /// <remarks>
+    /// The first send runs inline so an idle slot sends at once. The flow suppression covers only the start, and the loop's
+    /// continuations then run without the ambient scope of whoever enqueued first.
+    /// </remarks>
+    private void StartLoop(TaskCompletionSource done)
+    {
+        if (ExecutionContext.IsFlowSuppressed())
+        {
+            _ = RunAsync(done);
+            return;
+        }
+
+        using (ExecutionContext.SuppressFlow())
+            _ = RunAsync(done);
     }
 
     /// <summary>Takes the next request from the waiting entries, or ends the loop when none wait or a catch-up lease paused the sends.</summary>
@@ -477,53 +528,6 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
 
             return batch;
         }
-    }
-
-    private async Task RunAsync(TaskCompletionSource done)
-    {
-        // A pending-free exit is decided under the lock in TakeBatch, so an enqueue racing the exit starts a loop of its own.
-        while (TakeBatch() is { } batch)
-        {
-            if (await SendBatchAsync(batch).CaptureFailureAsync().ConfigureAwait(false) is { } error)
-                Fail(batch, error);
-        }
-
-        _ = done.TrySetResult();
-    }
-
-    /// <summary>Sends one request and completes the entries it carried with the follower's answer.</summary>
-    /// <param name="batch">The entries of the request, in log order.</param>
-    /// <returns>A task that faults when the request fails or times out; the caller fails the entries then.</returns>
-    private async Task SendBatchAsync(List<PendingAppend> batch)
-    {
-        var records = new ReplicaLogRecord[batch.Count];
-        for (var i = 0; i < records.Length; i++)
-            records[i] = batch[i].Record;
-
-        var first = batch[0];
-        var request = new FollowerBatch(records, _header.LeaderNodeId, first.Record.Term, first.PrevLogIndex, first.PrevLogTerm, batch[^1].LeaderCommitIndex);
-        using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token);
-        var result = await _rpc.AppendEntriesAsync(NodeId, _header, request, linked.Token).ConfigureAwait(false);
-        Complete(batch, in result, NodeId);
-    }
-
-    /// <summary>Starts the send loop on the calling thread, up to its first wait, without the caller's execution context.</summary>
-    /// <param name="done">The completion source the loop completes when it ends.</param>
-    /// <remarks>
-    /// The first send runs inline so an idle slot sends at once. The flow suppression covers only the start, and the loop's
-    /// continuations then run without the ambient scope of whoever enqueued first.
-    /// </remarks>
-    private void StartLoop(TaskCompletionSource done)
-    {
-        if (ExecutionContext.IsFlowSuppressed())
-        {
-            _ = RunAsync(done);
-            return;
-        }
-
-        using (ExecutionContext.SuppressFlow())
-            _ = RunAsync(done);
     }
 
     /// <summary>One entry waiting for its request, with the positions it is sent at.</summary>
@@ -564,7 +568,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         /// <summary>Checks whether this entry directly continues <paramref name="last" /> in index and term, as a request needs.</summary>
         /// <param name="last">The entry that precedes this one in the request.</param>
         /// <returns><see langword="true" /> when both can go out in one request.</returns>
-        internal bool Follows(PendingAppend last) =>
-            Record.LogIndex == last.Record.LogIndex + 1 && PrevLogIndex == last.Record.LogIndex && PrevLogTerm == last.Record.Term && Record.Term == last.Record.Term;
+        internal bool Follows(PendingAppend last) => Record.LogIndex == last.Record.LogIndex + 1 && PrevLogIndex == last.Record.LogIndex && PrevLogTerm == last.Record.Term &&
+                                                     Record.Term == last.Record.Term;
     }
 }

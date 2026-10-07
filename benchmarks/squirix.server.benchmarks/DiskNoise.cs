@@ -61,7 +61,7 @@ internal sealed class DiskNoise : IDisposable
             RandomNumberGenerator.Fill(chunk);
             try
             {
-                using var handle = File.OpenHandle(_path, FileMode.Create, FileAccess.Write, FileShare.None, FileOptions.None);
+                using var handle = File.OpenHandle(_path, FileMode.Create, FileAccess.Write, FileShare.None);
                 long offset = 0;
                 var sinceFlush = 0;
                 while (!_stop.IsCancellationRequested)

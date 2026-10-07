@@ -6,6 +6,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.TestKit.Diagnostics;
 
 namespace Squirix.Server.TestKit.Networking;
 
@@ -51,7 +52,7 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
         {
             _listener.Bind(new IPEndPoint(IPAddress.Loopback, 0));
             _listener.Listen();
-            ListenEndPoint = _listener.LocalEndPoint is IPEndPoint bound ? bound : throw new InvalidOperationException("The proxy listener has no loopback endpoint.");
+            ListenEndPoint = KitThrowHelper.Required(_listener.LocalEndPoint as IPEndPoint, "The proxy listener has no loopback endpoint.");
         }
         catch
         {
@@ -108,34 +109,6 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
     /// <returns>The forwarded byte count.</returns>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="direction" /> is not a named direction.</exception>
     public long BytesForwarded(ProxyDirection direction) => _counters.Forwarded(direction);
-
-    /// <inheritdoc />
-    public async ValueTask DisposeAsync()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1)
-            return;
-
-        await _stopping.CancelAsync().ConfigureAwait(false);
-        _listener.Dispose();
-        ProxiedConnection[] connections;
-        lock (_gate)
-            connections = [.. _connections];
-
-        var aborted = AbortConnections(connections);
-
-#pragma warning disable VSTHRD003 // The accept loop is started by this proxy's constructor and ends once the listener above is closed.
-        await _acceptLoop.ConfigureAwait(false);
-#pragma warning restore VSTHRD003
-
-        // The accept loop has ended, so no bridge is added after this snapshot; each one is cancelled through the stopping token.
-        Task[] bridges;
-        lock (_gate)
-            bridges = [.. _bridges];
-
-        await Task.WhenAll(bridges).ConfigureAwait(false);
-        await Task.WhenAll(aborted).ConfigureAwait(false);
-        _stopping.Dispose();
-    }
 
     /// <summary>Bridges new connections again and releases both directions.</summary>
     public void Heal()
@@ -204,6 +177,34 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
     {
         var gate = GateFor(direction);
         return _changed.WaitUntilAsync(() => gate.ParkedPumps > 0, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;
+
+        await _stopping.CancelAsync().ConfigureAwait(false);
+        _listener.Dispose();
+        ProxiedConnection[] connections;
+        lock (_gate)
+            connections = [.. _connections];
+
+        var aborted = AbortConnections(connections);
+
+#pragma warning disable VSTHRD003 // The accept loop is started by this proxy's constructor and ends once the listener above is closed.
+        await _acceptLoop.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
+
+        // The accept loop has ended, so no bridge is added after this snapshot; each one is cancelled through the stopping token.
+        Task[] bridges;
+        lock (_gate)
+            bridges = [.. _bridges];
+
+        await Task.WhenAll(bridges).ConfigureAwait(false);
+        await Task.WhenAll(aborted).ConfigureAwait(false);
+        _stopping.Dispose();
     }
 
     private static Task[] AbortConnections(ProxiedConnection[] connections)
@@ -431,6 +432,18 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
             }
         }
 
+        internal void Pulse()
+        {
+            TaskCompletionSource completed;
+            lock (_lock)
+            {
+                completed = _next;
+                _next = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            completed.SetResult();
+        }
+
         /// <summary>Waits until <paramref name="condition" /> holds, re-checking it after every pulse.</summary>
         /// <param name="condition">The condition to wait for.</param>
         /// <param name="cancellationToken">Bounds the wait.</param>
@@ -445,18 +458,6 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
 
                 await next.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
-        }
-
-        internal void Pulse()
-        {
-            TaskCompletionSource completed;
-            lock (_lock)
-            {
-                completed = _next;
-                _next = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            }
-
-            completed.SetResult();
         }
     }
 

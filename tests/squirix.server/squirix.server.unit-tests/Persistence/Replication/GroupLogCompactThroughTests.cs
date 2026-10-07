@@ -50,67 +50,6 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         await AssertCompactedStateAsync(reopened, cancellationToken);
     }
 
-    /// <summary>A range read below the snapshot baseline is not retained, while one starting right above it verifies against the baseline term.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ReadBelowSnapshotBaselineIsNotRetained(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-compact-through-read");
-        await using var log = await SeedAsync(dir, null, cancellationToken);
-        _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
-        _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", Committed + 1, 1UL, "after"), cancellationToken);
-
-        var compacted = await log.ReadEntriesAsync(Committed, 1, cancellationToken);
-        var aboveBaseline = await log.ReadEntriesAsync(Committed + 1, 1, cancellationToken);
-
-        _ = await Assert.That((compacted.Retained, compacted.PrevLogIndex, compacted.PrevLogTerm)).IsEqualTo((false, Committed - 1, 0UL));
-        _ = await Assert.That(compacted.Entries).IsEmpty();
-        _ = await Assert.That((aboveBaseline.Retained, aboveBaseline.PrevLogIndex, aboveBaseline.PrevLogTerm, aboveBaseline.LastLogIndex, aboveBaseline.CommitIndex))
-                          .IsEqualTo((true, Committed, 1UL, Committed + 1, Committed));
-        _ = await Assert.That(aboveBaseline.Entries.Count).IsEqualTo(1);
-        _ = await Assert.That((aboveBaseline.Entries[0].LogIndex, Encoding.UTF8.GetString(aboveBaseline.Entries[0].Payload.Span))).IsEqualTo((Committed + 1, "after"));
-    }
-
-    /// <summary>An entry at or below the index with an unresolved outcome refuses the compaction before anything changes, readiness included.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RefusesUnresolvedOutcome(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-compact-through-unresolved");
-        await using var log = await SeedAsync(dir, null, cancellationToken);
-        _ = log.Idempotency.Reserve("client", "in-flight", [9], GroupRecordKind.UserMutation, 2UL, 1UL);
-
-        _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.UnresolvedOutcome);
-
-        await AssertUnchangedAsync(log, cancellationToken);
-    }
-
-    /// <summary>An index that is not both the commit and the applied index is refused before anything changes.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RefusesUnappliedIndex(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-compact-through-unapplied");
-        await using var log = await SeedAsync(dir, null, cancellationToken);
-
-        _ = await Assert.That(await log.CompactThroughAsync(Committed - 1, cancellationToken)).IsEqualTo(GroupCompactionOutcome.NotReady);
-
-        await AssertUnchangedAsync(log, cancellationToken);
-    }
-
-    /// <summary>A snapshot past the configured maximum size is refused before anything is written, readiness included.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RefusesOversizedSnapshot(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-compact-through-oversized");
-        await using var log = await SeedAsync(dir, new FollowerLogOptions { MaxSnapshotBytes = 64 }, cancellationToken);
-
-        _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.SnapshotTooLarge);
-
-        await AssertUnchangedAsync(log, cancellationToken);
-    }
-
     /// <summary>A failure at either durability boundary of the compaction leaves a log that reopens to the committed, applied state.</summary>
     /// <param name="boundary">The boundary the failure is injected at.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -151,13 +90,66 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         await AssertCompactedStateAsync(reopened, cancellationToken);
     }
 
-    private static void FailIfArmed(bool armed)
+    /// <summary>A range read below the snapshot baseline is not retained, while one starting right above it verifies against the baseline term.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadBelowSnapshotBaselineIsNotRetained(CancellationToken cancellationToken)
     {
-        if (armed)
-            throw new IOException("simulated crash at a compaction boundary.");
+        using var dir = new TempDirectory("squirix-compact-through-read");
+        await using var log = await SeedAsync(dir, null, cancellationToken);
+        _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
+        _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", Committed + 1, 1UL, "after"), cancellationToken);
+
+        var compacted = await log.ReadEntriesAsync(Committed, 1, cancellationToken);
+        var aboveBaseline = await log.ReadEntriesAsync(Committed + 1, 1, cancellationToken);
+
+        _ = await Assert.That((compacted.Retained, compacted.PrevLogIndex, compacted.PrevLogTerm)).IsEqualTo((false, Committed - 1, 0UL));
+        _ = await Assert.That(compacted.Entries).IsEmpty();
+        _ = await Assert.That((aboveBaseline.Retained, aboveBaseline.PrevLogIndex, aboveBaseline.PrevLogTerm, aboveBaseline.LastLogIndex, aboveBaseline.CommitIndex))
+                        .IsEqualTo((true, Committed, 1UL, Committed + 1, Committed));
+        _ = await Assert.That(aboveBaseline.Entries.Count).IsEqualTo(1);
+        _ = await Assert.That((aboveBaseline.Entries[0].LogIndex, Encoding.UTF8.GetString(aboveBaseline.Entries[0].Payload.Span))).IsEqualTo((Committed + 1, "after"));
     }
 
-    private static long HeaderLength() => GroupLogCodec.LogFileHeader.Length;
+    /// <summary>A snapshot past the configured maximum size is refused before anything is written, readiness included.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RefusesOversizedSnapshot(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-compact-through-oversized");
+        await using var log = await SeedAsync(dir, new FollowerLogOptions { MaxSnapshotBytes = 64 }, cancellationToken);
+
+        _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.SnapshotTooLarge);
+
+        await AssertUnchangedAsync(log, cancellationToken);
+    }
+
+    /// <summary>An index that is not both the commit and the applied index is refused before anything changes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RefusesUnappliedIndex(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-compact-through-unapplied");
+        await using var log = await SeedAsync(dir, null, cancellationToken);
+
+        _ = await Assert.That(await log.CompactThroughAsync(Committed - 1, cancellationToken)).IsEqualTo(GroupCompactionOutcome.NotReady);
+
+        await AssertUnchangedAsync(log, cancellationToken);
+    }
+
+    /// <summary>An entry at or below the index with an unresolved outcome refuses the compaction before anything changes, readiness included.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RefusesUnresolvedOutcome(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-compact-through-unresolved");
+        await using var log = await SeedAsync(dir, null, cancellationToken);
+        _ = log.Idempotency.Reserve("client", "in-flight", [9], GroupRecordKind.UserMutation, 2UL, 1UL);
+
+        _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.UnresolvedOutcome);
+
+        await AssertUnchangedAsync(log, cancellationToken);
+    }
 
     private static async Task AssertCompactedStateAsync(FollowerLog log, CancellationToken cancellationToken)
     {
@@ -174,7 +166,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         for (byte index = 1; index <= Committed; index++)
         {
             _ = await Assert.That(log.Idempotency.Lookup("client", OperationId(index), [index], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
-            await SequenceAssert.EqualAsync<byte>([index, index], record.OutcomePayload.ToArray());
+            await SequenceAssert.EqualAsync([index, index], record.OutcomePayload.ToArray());
         }
     }
 
@@ -185,6 +177,14 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         _ = await Assert.That(log.SnapshotPath).IsNull();
         _ = await Assert.That((retention.RetainedEntries, retention.SnapshotIndex)).IsEqualTo((EntryCount, 0UL));
     }
+
+    private static void FailIfArmed(bool armed)
+    {
+        if (armed)
+            throw new IOException("simulated crash at a compaction boundary.");
+    }
+
+    private static long HeaderLength() => GroupLogCodec.LogFileHeader.Length;
 
     private static string OperationId(byte index) => "op-" + index;
 

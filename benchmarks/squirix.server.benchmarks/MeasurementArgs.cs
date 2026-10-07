@@ -63,5 +63,5 @@ internal sealed class MeasurementArgs
     /// <param name="name">The option name.</param>
     /// <param name="fallback">The value when the option is absent.</param>
     /// <returns>The value.</returns>
-    internal string GetString(string name, string fallback) => _values.TryGetValue(name, out var text) ? text : fallback;
+    internal string GetString(string name, string fallback) => _values.GetValueOrDefault(name, fallback);
 }

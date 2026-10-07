@@ -18,6 +18,14 @@ public sealed class RingFingerprintTests : ServerUnitTestBase
 
     private const int VirtualNodes = 128;
 
+    /// <summary>An added node changes the fingerprint.</summary>
+    [Test]
+    public async Task AddedNodeChangesFingerprint()
+    {
+        var baseline = Fingerprint(["n1", "n2"]);
+        _ = await Assert.That(Fingerprint(["n1", "n2", "n3"])).IsNotEqualTo(baseline);
+    }
+
     /// <summary>A different cluster id changes the fingerprint.</summary>
     [Test]
     public async Task ClusterIdChangesFingerprint()
@@ -34,22 +42,6 @@ public sealed class RingFingerprintTests : ServerUnitTestBase
         _ = await Assert.That(Fingerprint(["n1", "n2", "n1", "n2"])).IsEqualTo(baseline);
     }
 
-    /// <summary>Whitespace around a node id does not change the fingerprint, because the ring trims ids.</summary>
-    [Test]
-    public async Task WhitespaceDoesNotChangeFingerprint()
-    {
-        var trimmed = Fingerprint(["n1", "n2"]);
-        _ = await Assert.That(Fingerprint(["n1", " n2"])).IsEqualTo(trimmed);
-    }
-
-    /// <summary>The fingerprint of a fixed input is pinned, so an accidental change of the encoding is caught.</summary>
-    [Test]
-    public async Task FingerprintMatchesGoldenVector()
-    {
-        var value = Fingerprint(["n2", "n1"]);
-        _ = await Assert.That(value).IsEqualTo("F34273F8A8A6F585B9BAB884F36960B2C23792823F97CADAA89DC57FEC5A3583");
-    }
-
     /// <summary>Equal fingerprints assign sample keys to the same owners.</summary>
     [Test]
     public async Task EqualFingerprintsYieldEqualOwners()
@@ -58,8 +50,8 @@ public sealed class RingFingerprintTests : ServerUnitTestBase
         string[] second = ["n2", "n3", "n1"];
         _ = await Assert.That(Fingerprint(first)).IsEqualTo(Fingerprint(second));
 
-        var left = RuntimeServiceRegistration.CreateHashLocator(first, VirtualNodes);
-        var right = RuntimeServiceRegistration.CreateHashLocator(second, VirtualNodes);
+        var left = RuntimeServiceRegistration.CreateHashLocator(first);
+        var right = RuntimeServiceRegistration.CreateHashLocator(second);
         for (var i = 0; i < 200; i++)
         {
             var key = $"key-{i.ToString(CultureInfo.InvariantCulture)}";
@@ -67,36 +59,12 @@ public sealed class RingFingerprintTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>The value is 64 uppercase hex characters.</summary>
+    /// <summary>The fingerprint of a fixed input is pinned, so an accidental change of the encoding is caught.</summary>
     [Test]
-    public async Task ValueIsUppercaseHex()
+    public async Task FingerprintMatchesGoldenVector()
     {
-        var baseline = Fingerprint(["n1", "n2"]);
-        _ = await Assert.That(IsUppercaseHex64(baseline)).IsTrue();
-    }
-
-    /// <summary>An added node changes the fingerprint.</summary>
-    [Test]
-    public async Task AddedNodeChangesFingerprint()
-    {
-        var baseline = Fingerprint(["n1", "n2"]);
-        _ = await Assert.That(Fingerprint(["n1", "n2", "n3"])).IsNotEqualTo(baseline);
-    }
-
-    /// <summary>A removed node changes the fingerprint.</summary>
-    [Test]
-    public async Task RemovedNodeChangesFingerprint()
-    {
-        var baseline = Fingerprint(["n1", "n2"]);
-        _ = await Assert.That(Fingerprint(["n1"])).IsNotEqualTo(baseline);
-    }
-
-    /// <summary>A renamed node changes the fingerprint.</summary>
-    [Test]
-    public async Task RenamedNodeChangesFingerprint()
-    {
-        var baseline = Fingerprint(["n1", "n2"]);
-        _ = await Assert.That(Fingerprint(["n1", "n9"])).IsNotEqualTo(baseline);
+        var value = Fingerprint(["n2", "n1"]);
+        _ = await Assert.That(value).IsEqualTo("F34273F8A8A6F585B9BAB884F36960B2C23792823F97CADAA89DC57FEC5A3583");
     }
 
     /// <summary>Node ids are compared ordinally, so case differences change the fingerprint.</summary>
@@ -115,12 +83,20 @@ public sealed class RingFingerprintTests : ServerUnitTestBase
         _ = await Assert.That(Fingerprint(["n3", "n1", "n2"])).IsEqualTo(sorted);
     }
 
-    /// <summary>A different virtual node count changes the fingerprint.</summary>
+    /// <summary>A removed node changes the fingerprint.</summary>
     [Test]
-    public async Task VirtualNodesChangeFingerprint()
+    public async Task RemovedNodeChangesFingerprint()
     {
         var baseline = Fingerprint(["n1", "n2"]);
-        _ = await Assert.That(RingFingerprint.Create(ClusterId, ["n1", "n2"], VirtualNodes + 1).Value).IsNotEqualTo(baseline);
+        _ = await Assert.That(Fingerprint(["n1"])).IsNotEqualTo(baseline);
+    }
+
+    /// <summary>A renamed node changes the fingerprint.</summary>
+    [Test]
+    public async Task RenamedNodeChangesFingerprint()
+    {
+        var baseline = Fingerprint(["n1", "n2"]);
+        _ = await Assert.That(Fingerprint(["n1", "n9"])).IsNotEqualTo(baseline);
     }
 
     /// <summary>The same inputs produce the same fingerprint.</summary>
@@ -129,6 +105,30 @@ public sealed class RingFingerprintTests : ServerUnitTestBase
     {
         var baseline = Fingerprint(["n1", "n2"]);
         _ = await Assert.That(Fingerprint(["n1", "n2"])).IsEqualTo(baseline);
+    }
+
+    /// <summary>The value is 64 uppercase hex characters.</summary>
+    [Test]
+    public async Task ValueIsUppercaseHex()
+    {
+        var baseline = Fingerprint(["n1", "n2"]);
+        _ = await Assert.That(IsUppercaseHex64(baseline)).IsTrue();
+    }
+
+    /// <summary>A different virtual node count changes the fingerprint.</summary>
+    [Test]
+    public async Task VirtualNodesChangeFingerprint()
+    {
+        var baseline = Fingerprint(["n1", "n2"]);
+        _ = await Assert.That(RingFingerprint.Create(ClusterId, ["n1", "n2"], VirtualNodes + 1).Value).IsNotEqualTo(baseline);
+    }
+
+    /// <summary>Whitespace around a node id does not change the fingerprint, because the ring trims ids.</summary>
+    [Test]
+    public async Task WhitespaceDoesNotChangeFingerprint()
+    {
+        var trimmed = Fingerprint(["n1", "n2"]);
+        _ = await Assert.That(Fingerprint(["n1", " n2"])).IsEqualTo(trimmed);
     }
 
     private static string Fingerprint(ReadOnlySpan<string> nodeIds) => RingFingerprint.Create(ClusterId, nodeIds, VirtualNodes).Value;

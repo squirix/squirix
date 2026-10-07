@@ -20,6 +20,207 @@ public sealed class BackpressureClientAdmissionTests : DisposableServerUnitTestB
 {
     private readonly Meter _testMeter = new("test");
 
+    /// <summary>Verifies a request cancelled while slowed down does not leave its client entry behind.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancelledSlowdownLeavesNoClientEntry(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider();
+        using var gate = CreateGate(
+            clock,
+            new AdmissionOptions
+            {
+                MaxInFlight = 2,
+                MaxQueue = 2,
+                SlowdownThreshold = 1,
+                MaxSlowdownDelay = TimeSpan.FromSeconds(1),
+                PerClientMaxInFlight = 1,
+            });
+        var held = (await gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken)).Lease;
+        using var cts = new CancellationTokenSource();
+        var sleeping = StartAcquireAsync(gate, "rest:client-a", cts.Token);
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(2);
+
+        await cts.CancelAsync();
+        await sleeping.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+
+        _ = await Assert.That(sleeping.IsCanceled).IsTrue();
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(1);
+        held.Dispose();
+    }
+
+    /// <summary>Verifies workers churning acquire and release on one client never hold more than the per-client limit at once.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ChurnNeverExceedsClientLimit(CancellationToken cancellationToken)
+    {
+        using var gate = CreateGate(
+            TimeProvider.System,
+            new AdmissionOptions
+            {
+                MaxInFlight = 8,
+                MaxQueue = 8,
+                SlowdownThreshold = 8,
+                MaxSlowdownDelay = TimeSpan.Zero,
+                PerClientMaxInFlight = 1,
+            });
+
+        // Element 0 is the number of leases held right now, element 1 stays 0 unless more than one was ever held at once.
+        var held = new int[2];
+        await Parallel.ForEachAsync(
+            [0, 1, 2, 3, 4, 5, 6, 7],
+            cancellationToken,
+            async (__, token) =>
+            {
+                for (var i = 0; i < 200; i++)
+                {
+                    var (decision, lease) = await gate.AcquireAsync("rest", "get", "rest:client-a", token);
+                    if (!decision.IsAccepted)
+                        continue;
+
+                    var now = Interlocked.Increment(ref held[0]);
+                    if (now > 1)
+                        _ = Interlocked.Exchange(ref held[1], now);
+
+                    await Task.Yield();
+                    _ = Interlocked.Decrement(ref held[0]);
+                    lease.Dispose();
+                }
+            });
+
+        _ = await Assert.That(Volatile.Read(ref held[1])).IsEqualTo(0);
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
+    }
+
+    /// <summary>Verifies a queued request rejected by gate disposal gives its client entry back.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ClientReservationReleasedOnGateDisposal(CancellationToken cancellationToken)
+    {
+        using var gate = CreateGate(
+            new FakeTimeProvider(),
+            new AdmissionOptions
+            {
+                MaxInFlight = 1,
+                MaxQueue = 1,
+                SlowdownThreshold = 1,
+                MaxSlowdownDelay = TimeSpan.Zero,
+                MaxQueueWait = TimeSpan.FromMinutes(1),
+                PerClientMaxInFlight = 1,
+            });
+        var held = (await gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken)).Lease;
+        var queued = gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken).AsTask();
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(2);
+
+        gate.Dispose();
+        var (decision, lease) = await queued.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        lease.Dispose();
+
+        _ = await Assert.That(decision.RejectReason).IsEqualTo("gate_disposed");
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(1);
+        held.Dispose();
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
+    }
+
+    /// <summary>Verifies requests rejected before any reservation do not leave client entries behind.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EarlyRejectionsLeaveNoClientEntries(CancellationToken cancellationToken)
+    {
+        using var gate = CreateGate(
+            TimeProvider.System,
+            new AdmissionOptions
+            {
+                MaxInFlight = 1,
+                MaxQueue = 0,
+                SlowdownThreshold = 1,
+                MaxSlowdownDelay = TimeSpan.Zero,
+                PerClientMaxInFlight = 1,
+            });
+        var held = (await gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken)).Lease;
+        var baseline = gate.TrackedClients;
+
+        for (var i = 0; i < 5; i++)
+        {
+            var (decision, lease) = await gate.AcquireAsync("rest", "get", $"rest:client-{NodeInvariantIndexStrings.Format(i)}", cancellationToken);
+            lease.Dispose();
+            _ = await Assert.That(decision.RejectReason).IsEqualTo("queue_full");
+        }
+
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(baseline);
+        held.Dispose();
+    }
+
+    /// <summary>Verifies a request that slept on an entry evicted meanwhile cannot take a second place for the same client.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EvictedEntryDoesNotAdmitSecondRequest(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider();
+        using var gate = CreateGate(
+            clock,
+            new AdmissionOptions
+            {
+                MaxInFlight = 4,
+                MaxQueue = 4,
+                SlowdownThreshold = 1,
+                MaxSlowdownDelay = TimeSpan.FromSeconds(1),
+                MaxQueueWait = TimeSpan.FromMinutes(1),
+                PerClientMaxInFlight = 1,
+            });
+        var first = (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease;
+        var sleeping = StartAcquireAsync(gate, "rest:client-a", cancellationToken);
+        _ = await Assert.That(sleeping.IsCompleted).IsFalse();
+
+        first.Dispose();
+        var (thirdDecision, thirdLease) = await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken);
+        _ = await Assert.That(thirdDecision.IsAccepted).IsTrue();
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        var (sleepingDecision, sleepingLease) = await sleeping.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        sleepingLease.Dispose();
+        thirdLease.Dispose();
+
+        _ = await Assert.That(sleepingDecision.RejectReason).IsEqualTo("client_concurrency_limit");
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
+    }
+
+    /// <summary>Verifies parallel requests of one client admit exactly one and reject the rest at the per-client limit.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ParallelRequestsAdmitExactlyOne(CancellationToken cancellationToken)
+    {
+        using var gate = CreateGate(
+            TimeProvider.System,
+            new AdmissionOptions
+            {
+                MaxInFlight = 16,
+                MaxQueue = 16,
+                SlowdownThreshold = 16,
+                MaxSlowdownDelay = TimeSpan.Zero,
+                PerClientMaxInFlight = 1,
+            });
+        var results = new (Decision Decision, Lease Lease)[16];
+        await Parallel.ForEachAsync(
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+            cancellationToken,
+            async (index, token) => results[index] = await gate.AcquireAsync("rest", "get", "rest:client-a", token));
+        var admitted = 0;
+        var limited = 0;
+        foreach (var (decision, lease) in results)
+        {
+            lease.Dispose();
+            if (decision.IsAccepted)
+                admitted++;
+            else if (string.Equals(decision.RejectReason, "client_concurrency_limit", StringComparison.Ordinal))
+                limited++;
+        }
+
+        _ = await Assert.That(admitted).IsEqualTo(1);
+        _ = await Assert.That(limited).IsEqualTo(15);
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
+    }
+
     /// <summary>Verifies a request that loses the authoritative queue check after reserving gives its client reservation back.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -66,207 +267,6 @@ public sealed class BackpressureClientAdmissionTests : DisposableServerUnitTestB
 
         _ = await Assert.That(retryA.IsAccepted).IsTrue();
         _ = await Assert.That(retryC.IsAccepted).IsTrue();
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
-    }
-
-    /// <summary>Verifies a queued request rejected by gate disposal gives its client entry back.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ClientReservationReleasedOnGateDisposal(CancellationToken cancellationToken)
-    {
-        using var gate = CreateGate(
-            new FakeTimeProvider(),
-            new AdmissionOptions
-            {
-                MaxInFlight = 1,
-                MaxQueue = 1,
-                SlowdownThreshold = 1,
-                MaxSlowdownDelay = TimeSpan.Zero,
-                MaxQueueWait = TimeSpan.FromMinutes(1),
-                PerClientMaxInFlight = 1,
-            });
-        var held = (await gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken)).Lease;
-        var queued = gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken).AsTask();
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(2);
-
-        gate.Dispose();
-        var (decision, lease) = await queued.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-        lease.Dispose();
-
-        _ = await Assert.That(decision.RejectReason).IsEqualTo("gate_disposed");
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(1);
-        held.Dispose();
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
-    }
-
-    /// <summary>Verifies a request that slept on an entry evicted meanwhile cannot take a second place for the same client.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task EvictedEntryDoesNotAdmitSecondRequest(CancellationToken cancellationToken)
-    {
-        var clock = new FakeTimeProvider();
-        using var gate = CreateGate(
-            clock,
-            new AdmissionOptions
-            {
-                MaxInFlight = 4,
-                MaxQueue = 4,
-                SlowdownThreshold = 1,
-                MaxSlowdownDelay = TimeSpan.FromSeconds(1),
-                MaxQueueWait = TimeSpan.FromMinutes(1),
-                PerClientMaxInFlight = 1,
-            });
-        var first = (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease;
-        var sleeping = StartAcquireAsync(gate, "rest:client-a", cancellationToken);
-        _ = await Assert.That(sleeping.IsCompleted).IsFalse();
-
-        first.Dispose();
-        var (thirdDecision, thirdLease) = await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken);
-        _ = await Assert.That(thirdDecision.IsAccepted).IsTrue();
-
-        clock.Advance(TimeSpan.FromSeconds(1));
-        var (sleepingDecision, sleepingLease) = await sleeping.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-        sleepingLease.Dispose();
-        thirdLease.Dispose();
-
-        _ = await Assert.That(sleepingDecision.RejectReason).IsEqualTo("client_concurrency_limit");
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
-    }
-
-    /// <summary>Verifies requests rejected before any reservation do not leave client entries behind.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task EarlyRejectionsLeaveNoClientEntries(CancellationToken cancellationToken)
-    {
-        using var gate = CreateGate(
-            TimeProvider.System,
-            new AdmissionOptions
-            {
-                MaxInFlight = 1,
-                MaxQueue = 0,
-                SlowdownThreshold = 1,
-                MaxSlowdownDelay = TimeSpan.Zero,
-                PerClientMaxInFlight = 1,
-            });
-        var held = (await gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken)).Lease;
-        var baseline = gate.TrackedClients;
-
-        for (var i = 0; i < 5; i++)
-        {
-            var (decision, lease) = await gate.AcquireAsync("rest", "get", $"rest:client-{NodeInvariantIndexStrings.Format(i)}", cancellationToken);
-            lease.Dispose();
-            _ = await Assert.That(decision.RejectReason).IsEqualTo("queue_full");
-        }
-
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(baseline);
-        held.Dispose();
-    }
-
-    /// <summary>Verifies a request cancelled while slowed down does not leave its client entry behind.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task CancelledSlowdownLeavesNoClientEntry(CancellationToken cancellationToken)
-    {
-        var clock = new FakeTimeProvider();
-        using var gate = CreateGate(
-            clock,
-            new AdmissionOptions
-            {
-                MaxInFlight = 2,
-                MaxQueue = 2,
-                SlowdownThreshold = 1,
-                MaxSlowdownDelay = TimeSpan.FromSeconds(1),
-                PerClientMaxInFlight = 1,
-            });
-        var held = (await gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken)).Lease;
-        using var cts = new CancellationTokenSource();
-        var sleeping = StartAcquireAsync(gate, "rest:client-a", cts.Token);
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(2);
-
-        await cts.CancelAsync();
-        await sleeping.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
-
-        _ = await Assert.That(sleeping.IsCanceled).IsTrue();
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(1);
-        held.Dispose();
-    }
-
-    /// <summary>Verifies parallel requests of one client admit exactly one and reject the rest at the per-client limit.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ParallelRequestsAdmitExactlyOne(CancellationToken cancellationToken)
-    {
-        using var gate = CreateGate(
-            TimeProvider.System,
-            new AdmissionOptions
-            {
-                MaxInFlight = 16,
-                MaxQueue = 16,
-                SlowdownThreshold = 16,
-                MaxSlowdownDelay = TimeSpan.Zero,
-                PerClientMaxInFlight = 1,
-            });
-        var results = new (Decision Decision, Lease Lease)[16];
-        await Parallel.ForEachAsync(
-            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-            cancellationToken,
-            async (index, token) => results[index] = await gate.AcquireAsync("rest", "get", "rest:client-a", token));
-        var admitted = 0;
-        var limited = 0;
-        foreach (var (decision, lease) in results)
-        {
-            lease.Dispose();
-            if (decision.IsAccepted)
-                admitted++;
-            else if (string.Equals(decision.RejectReason, "client_concurrency_limit", StringComparison.Ordinal))
-                limited++;
-        }
-
-        _ = await Assert.That(admitted).IsEqualTo(1);
-        _ = await Assert.That(limited).IsEqualTo(15);
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
-    }
-
-    /// <summary>Verifies workers churning acquire and release on one client never hold more than the per-client limit at once.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ChurnNeverExceedsClientLimit(CancellationToken cancellationToken)
-    {
-        using var gate = CreateGate(
-            TimeProvider.System,
-            new AdmissionOptions
-            {
-                MaxInFlight = 8,
-                MaxQueue = 8,
-                SlowdownThreshold = 8,
-                MaxSlowdownDelay = TimeSpan.Zero,
-                PerClientMaxInFlight = 1,
-            });
-
-        // Element 0 is the number of leases held right now, element 1 stays 0 unless more than one was ever held at once.
-        var held = new int[2];
-        await Parallel.ForEachAsync(
-            [0, 1, 2, 3, 4, 5, 6, 7],
-            cancellationToken,
-            async (_, token) =>
-            {
-                for (var i = 0; i < 200; i++)
-                {
-                    var (decision, lease) = await gate.AcquireAsync("rest", "get", "rest:client-a", token);
-                    if (!decision.IsAccepted)
-                        continue;
-
-                    var now = Interlocked.Increment(ref held[0]);
-                    if (now > 1)
-                        _ = Interlocked.Exchange(ref held[1], now);
-
-                    await Task.Yield();
-                    _ = Interlocked.Decrement(ref held[0]);
-                    lease.Dispose();
-                }
-            });
-
-        _ = await Assert.That(Volatile.Read(ref held[1])).IsEqualTo(0);
         _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
     }
 

@@ -20,8 +20,8 @@ internal sealed class StallableJournal : IAsyncDisposable
 {
     private readonly string _dataDir;
     private readonly ILoggerFactory _loggerFactory;
-    private int _journalDisposed;
     private int _disposed;
+    private int _journalDisposed;
     private int _writerDisposed;
 
     private StallableJournal(string dataDir, Ledger ledger, StallableJournalSegmentWriter writer, JournalCoordinator journal, ILoggerFactory loggerFactory)
@@ -33,11 +33,11 @@ internal sealed class StallableJournal : IAsyncDisposable
         Journal = journal;
     }
 
-    /// <summary>Gets the manifest store the journal publishes to.</summary>
-    internal Ledger Ledger { get; }
-
     /// <summary>Gets the journal under test.</summary>
     internal JournalCoordinator Journal { get; }
+
+    /// <summary>Gets the manifest store the journal publishes to.</summary>
+    internal Ledger Ledger { get; }
 
     /// <summary>Gets the stallable segment writer injected into <see cref="Journal" />.</summary>
     internal StallableJournalSegmentWriter Writer { get; }
@@ -65,16 +65,25 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <param name="groupCommit">Whether journal group commit is enabled.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started journal.</returns>
-    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, CancellationToken cancellationToken) =>
-        CreateAsync(dataDir, groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero, 1, cancellationToken);
+    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, CancellationToken cancellationToken) => CreateAsync(
+        dataDir,
+        groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero,
+        1,
+        cancellationToken);
 
     /// <summary>Creates a journal over a fresh stallable writer whose stall probe measures with <paramref name="clock" />; group commit is off.</summary>
     /// <param name="dataDir">Empty journal data directory.</param>
     /// <param name="clock">Clock the stall probe and slow-operation warnings measure with.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started journal.</returns>
-    internal static Task<StallableJournal> CreateAsync(string dataDir, TimeProvider clock, CancellationToken cancellationToken) =>
-        CreateCoreAsync(dataDir, TimeSpan.Zero, 1, null, DefaultLimits(JournalSegmentLimits.DefaultMaxTotalBytesMb), clock, cancellationToken);
+    internal static Task<StallableJournal> CreateAsync(string dataDir, TimeProvider clock, CancellationToken cancellationToken) => CreateCoreAsync(
+        dataDir,
+        TimeSpan.Zero,
+        1,
+        null,
+        DefaultLimits(JournalSegmentLimits.DefaultMaxTotalBytesMb),
+        clock,
+        cancellationToken);
 
     /// <summary>Creates a journal over a fresh stallable writer with explicit group commit batching.</summary>
     /// <param name="dataDir">Empty journal data directory.</param>
@@ -91,8 +100,14 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <param name="maxTotalBytesMb">On-disk journal capacity in megabytes; the journal thread rejects a frame that would exceed it.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started journal.</returns>
-    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, int maxTotalBytesMb, CancellationToken cancellationToken) =>
-        CreateCoreAsync(dataDir, groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero, 1, null, DefaultLimits(maxTotalBytesMb), TimeProvider.System, cancellationToken);
+    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, int maxTotalBytesMb, CancellationToken cancellationToken) => CreateCoreAsync(
+        dataDir,
+        groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero,
+        1,
+        null,
+        DefaultLimits(maxTotalBytesMb),
+        TimeProvider.System,
+        cancellationToken);
 
     /// <summary>Creates a journal over a stallable writer with explicit on-disk capacity limits; segments already in the directory are reused as on a restart.</summary>
     /// <param name="dataDir">Journal data directory.</param>
@@ -102,8 +117,20 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <param name="maxSegmentCount">Most segment files the journal may hold.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started journal.</returns>
-    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, int maxTotalBytesMb, int maxSegmentMb, int maxSegmentCount, CancellationToken cancellationToken) =>
-        CreateCoreAsync(dataDir, groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero, 1, null, (maxTotalBytesMb, maxSegmentMb, maxSegmentCount), TimeProvider.System, cancellationToken);
+    internal static Task<StallableJournal> CreateAsync(
+        string dataDir,
+        bool groupCommit,
+        int maxTotalBytesMb,
+        int maxSegmentMb,
+        int maxSegmentCount,
+        CancellationToken cancellationToken) => CreateCoreAsync(
+        dataDir,
+        groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero,
+        1,
+        null,
+        (maxTotalBytesMb, maxSegmentMb, maxSegmentCount),
+        TimeProvider.System,
+        cancellationToken);
 
     /// <summary>
     /// Creates a journal whose stop gives up on a stuck journal thread after <paramref name="shutdownBudget" />; the grace join
@@ -126,8 +153,13 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <param name="log">Logger of the journal coordinator.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started journal.</returns>
-    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, TimeSpan shutdownBudget, TimeSpan graceJoinFloor, ILogger log, CancellationToken cancellationToken) =>
-        CreateAsync(dataDir, groupCommit, shutdownBudget, graceJoinFloor, TimeSpan.FromSeconds(1), log, cancellationToken);
+    internal static Task<StallableJournal> CreateAsync(
+        string dataDir,
+        bool groupCommit,
+        TimeSpan shutdownBudget,
+        TimeSpan graceJoinFloor,
+        ILogger log,
+        CancellationToken cancellationToken) => CreateAsync(dataDir, groupCommit, shutdownBudget, graceJoinFloor, TimeSpan.FromSeconds(1), log, cancellationToken);
 
     /// <summary>Creates a journal with explicit shutdown budget, grace join floor, and stage floor.</summary>
     /// <param name="dataDir">Empty journal data directory.</param>
@@ -138,27 +170,21 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <param name="log">Logger of the journal coordinator.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started journal.</returns>
-    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, TimeSpan shutdownBudget, TimeSpan graceJoinFloor, TimeSpan stageFloor, ILogger log, CancellationToken cancellationToken) =>
-        CreateCoreAsync(dataDir, groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero, 1, (shutdownBudget, graceJoinFloor, stageFloor, log), DefaultLimits(JournalSegmentLimits.DefaultMaxTotalBytesMb), TimeProvider.System, cancellationToken);
-
-    /// <summary>Waits up to <paramref name="window" /> for <paramref name="signal" /> to complete.</summary>
-    /// <param name="signal">Signal to observe.</param>
-    /// <param name="window">Longest wait; only a failing (blocked) path pays it.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><see langword="true" /> when the signal completed inside the window.</returns>
-    internal static async Task<bool> CompletesWithinAsync(TaskCompletionSource signal, TimeSpan window, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(signal);
-        try
-        {
-            await signal.Task.WaitAsync(window, TimeProvider.System, cancellationToken);
-            return true;
-        }
-        catch (TimeoutException)
-        {
-            return false;
-        }
-    }
+    internal static Task<StallableJournal> CreateAsync(
+        string dataDir,
+        bool groupCommit,
+        TimeSpan shutdownBudget,
+        TimeSpan graceJoinFloor,
+        TimeSpan stageFloor,
+        ILogger log,
+        CancellationToken cancellationToken) => CreateCoreAsync(
+        dataDir,
+        groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero,
+        1,
+        (shutdownBudget, graceJoinFloor, stageFloor, log),
+        DefaultLimits(JournalSegmentLimits.DefaultMaxTotalBytesMb),
+        TimeProvider.System,
+        cancellationToken);
 
     /// <summary>Formats a key set as a sorted, comma-separated list so state comparisons print readable diffs.</summary>
     /// <param name="keys">Keys to format.</param>
@@ -170,12 +196,41 @@ internal sealed class StallableJournal : IAsyncDisposable
         return string.Join(',', sorted);
     }
 
-    /// <summary>Stops the journal without releasing the stalls, as a host shutdown over a disk that never returns.</summary>
-    /// <returns>The journal stop, which fails with a <see cref="TimeoutException" /> while the journal thread stays stuck.</returns>
-    internal Task StopStalledAsync()
+    /// <summary>Reads the sequence of the last put frame of every key the segments hold; readable while the journal thread is stalled.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The last put sequence per key in <c language="text">CacheKey.ToString</c> form.</returns>
+    internal Dictionary<string, ulong> ReadPutSequences(CancellationToken cancellationToken)
     {
-        _ = Interlocked.Exchange(ref _journalDisposed, 1);
-        return Journal.StopAsync().AsTask();
+        var sequences = new Dictionary<string, ulong>(StringComparer.Ordinal);
+        using var records = JournalReadPath.ReadAll(_dataDir, 1, cancellationToken);
+        while (records.MoveNext())
+        {
+            var record = records.Current;
+            if (record.Operation == JournalOperationKind.Put)
+                sequences[record.Key.ToString()] = record.Sequence;
+        }
+
+        return sequences;
+    }
+
+    /// <summary>
+    /// Lists the put frames the segments hold right now, as a crash at this point would leave them for replay; readable while the journal
+    /// thread is stalled. A frame stamped with an idempotency operation id is listed as <c language="text">key#operationId</c>.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The put frames in <see cref="Describe" /> form.</returns>
+    internal string ReadStampedPuts(CancellationToken cancellationToken)
+    {
+        var puts = new List<string>();
+        using var records = JournalReadPath.ReadAll(_dataDir, 1, cancellationToken);
+        while (records.MoveNext())
+        {
+            var record = records.Current;
+            if (record.Operation == JournalOperationKind.Put)
+                puts.Add(record.MutationOperationId is { } operationId ? $"{record.Key}#{operationId}" : record.Key.ToString());
+        }
+
+        return Describe(puts);
     }
 
     /// <summary>
@@ -223,43 +278,6 @@ internal sealed class StallableJournal : IAsyncDisposable
         return Describe(keys);
     }
 
-    /// <summary>
-    /// Lists the put frames the segments hold right now, as a crash at this point would leave them for replay; readable while the journal
-    /// thread is stalled. A frame stamped with an idempotency operation id is listed as <c language="text">key#operationId</c>.
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The put frames in <see cref="Describe" /> form.</returns>
-    internal string ReadStampedPuts(CancellationToken cancellationToken)
-    {
-        var puts = new List<string>();
-        using var records = JournalReadPath.ReadAll(_dataDir, 1, cancellationToken);
-        while (records.MoveNext())
-        {
-            var record = records.Current;
-            if (record.Operation == JournalOperationKind.Put)
-                puts.Add(record.MutationOperationId is { } operationId ? $"{record.Key}#{operationId}" : record.Key.ToString());
-        }
-
-        return Describe(puts);
-    }
-
-    /// <summary>Reads the sequence of the last put frame of every key the segments hold; readable while the journal thread is stalled.</summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The last put sequence per key in <c language="text">CacheKey.ToString</c> form.</returns>
-    internal Dictionary<string, ulong> ReadPutSequences(CancellationToken cancellationToken)
-    {
-        var sequences = new Dictionary<string, ulong>(StringComparer.Ordinal);
-        using var records = JournalReadPath.ReadAll(_dataDir, 1, cancellationToken);
-        while (records.MoveNext())
-        {
-            var record = records.Current;
-            if (record.Operation == JournalOperationKind.Put)
-                sequences[record.Key.ToString()] = record.Sequence;
-        }
-
-        return sequences;
-    }
-
     /// <summary>Releases every stall and shuts the journal down so its segments can be replayed.</summary>
     /// <returns>An asynchronous operation.</returns>
     internal async Task ShutdownAsync()
@@ -270,6 +288,14 @@ internal sealed class StallableJournal : IAsyncDisposable
 
         if (Interlocked.Exchange(ref _journalDisposed, 1) == 0)
             await Journal.DisposeAsync();
+    }
+
+    /// <summary>Stops the journal without releasing the stalls, as a host shutdown over a disk that never returns.</summary>
+    /// <returns>The journal stop, which fails with a <see cref="TimeoutException" /> while the journal thread stays stuck.</returns>
+    internal Task StopStalledAsync()
+    {
+        _ = Interlocked.Exchange(ref _journalDisposed, 1);
+        return Journal.StopAsync().AsTask();
     }
 
     private static async Task<StallableJournal> CreateCoreAsync(
@@ -297,14 +323,16 @@ internal sealed class StallableJournal : IAsyncDisposable
         try
         {
             var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
-            var journal = shutdown is { } stuck
-                ? new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer, loggerFactory, clock)
+            var journal = shutdown switch
+            {
+                { } stuck => new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer, loggerFactory, clock)
                 {
                     ShutdownBudget = stuck.Budget,
                     GraceJoinFloor = stuck.GraceFloor,
                     StageFloor = stuck.StageFloor,
-                }
-                : new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer, loggerFactory, clock);
+                },
+                _ => new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer, loggerFactory, clock),
+            };
             return new StallableJournal(dataDir, ledger, writer, journal, loggerFactory);
         }
         catch

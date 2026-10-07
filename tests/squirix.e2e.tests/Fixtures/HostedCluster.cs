@@ -86,17 +86,17 @@ internal sealed class HostedCluster : IAsyncDisposable
         bool usePersistence = false,
         CancellationToken cancellationToken = default) => StartAsync(TwoNodeIds, options, testName, usePersistence, cancellationToken);
 
+    /// <summary>Shuts one running node down abruptly, without a graceful drain, leaving it registered until it is stopped or restarted.</summary>
+    /// <param name="nodeId">Node identifier.</param>
+    /// <returns>A task that completes when the node has shut down.</returns>
+    internal ValueTask AbruptShutdownNodeAsync(string nodeId) => _cluster[nodeId].AbruptShutdownAsync();
+
     internal async ValueTask<ISquirixClient> ConnectClientAsync(string nodeId = "nodeA", CancellationToken cancellationToken = default)
     {
         var client = await LoopbackConnect.ConnectAsync(_cluster[nodeId].Uri, cancellationToken);
         _clients.Add(client);
         return client;
     }
-
-    /// <summary>Shuts one running node down abruptly, without a graceful drain, leaving it registered until it is stopped or restarted.</summary>
-    /// <param name="nodeId">Node identifier.</param>
-    /// <returns>A task that completes when the node has shut down.</returns>
-    internal ValueTask AbruptShutdownNodeAsync(string nodeId) => _cluster[nodeId].AbruptShutdownAsync();
 
     /// <summary>Gets a typed cache facade through the node's cluster-owned client, connecting it on first use.</summary>
     /// <remarks>
@@ -117,12 +117,6 @@ internal sealed class HostedCluster : IAsyncDisposable
         _nodeClients[nodeId] = client;
         return await client.GetCacheAsync<T>(cacheName, cancellationToken);
     }
-
-    /// <summary>Gets the persistence data directory of a node; it stays valid while the node is stopped.</summary>
-    /// <param name="nodeId">Node identifier.</param>
-    /// <returns>The node data directory path.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when the cluster was started without persistence.</exception>
-    internal string GetDataDir(string nodeId) => NodePathKit.Combine(E2EThrowHelper.Required(_cluster.DataDir, "The cluster was started without persistence."), nodeId);
 
     internal Uri GetUri(string nodeId) => _cluster[nodeId].Uri;
 

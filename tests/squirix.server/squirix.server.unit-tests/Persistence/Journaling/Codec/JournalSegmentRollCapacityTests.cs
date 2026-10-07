@@ -73,24 +73,9 @@ public sealed class JournalSegmentRollCapacityTests
         var full = fits with { SegmentCount = AdmissionSegmentCountLimit - 1 };
 
         policy.EnsureAdmissionOrThrow(in fits, 1000);
-        var thrown = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws((Policy: policy, Snapshot: full), static s => s.Policy.EnsureAdmissionOrThrow(in s.Snapshot, 1000));
-
-        _ = await Assert.That(thrown.Message).Contains("segment count", StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// A roll into a pre-created target the journal already counted adds no segment, so at the segment count limit the frame that rolls
-    /// into it is admitted; a backlog that may roll past that target needs a new segment and is refused.
-    /// </summary>
-    [Test]
-    public async Task AdmissionReusesCountedRollTarget()
-    {
-        var policy = CreateAdmissionPolicy();
-        var intoTarget = new JournalAdmissionSnapshot(0L, 0, false, true, 1000L, Segment - 999L, AdmissionSegmentCountLimit);
-        var pastTarget = new JournalAdmissionSnapshot(Usable, 1, false, true, 1000L, 5L, AdmissionSegmentCountLimit);
-
-        policy.EnsureAdmissionOrThrow(in intoTarget, 1000);
-        var thrown = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws((Policy: policy, Snapshot: pastTarget), static s => s.Policy.EnsureAdmissionOrThrow(in s.Snapshot, 1000));
+        var thrown = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(
+            (Policy: policy, Snapshot: full),
+            static s => s.Policy.EnsureAdmissionOrThrow(in s.Snapshot, 1000));
 
         _ = await Assert.That(thrown.Message).Contains("segment count", StringComparison.Ordinal);
     }
@@ -120,6 +105,25 @@ public sealed class JournalSegmentRollCapacityTests
         _ = await Assert.That(thrown.Message).Contains(reason, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A roll into a pre-created target the journal already counted adds no segment, so at the segment count limit the frame that rolls
+    /// into it is admitted; a backlog that may roll past that target needs a new segment and is refused.
+    /// </summary>
+    [Test]
+    public async Task AdmissionReusesCountedRollTarget()
+    {
+        var policy = CreateAdmissionPolicy();
+        var intoTarget = new JournalAdmissionSnapshot(0L, 0, false, true, 1000L, Segment - 999L, AdmissionSegmentCountLimit);
+        var pastTarget = new JournalAdmissionSnapshot(Usable, 1, false, true, 1000L, 5L, AdmissionSegmentCountLimit);
+
+        policy.EnsureAdmissionOrThrow(in intoTarget, 1000);
+        var thrown = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(
+            (Policy: policy, Snapshot: pastTarget),
+            static s => s.Policy.EnsureAdmissionOrThrow(in s.Snapshot, 1000));
+
+        _ = await Assert.That(thrown.Message).Contains("segment count", StringComparison.Ordinal);
+    }
+
     /// <summary>Total byte cap rejects an append that would exceed configured journal size.</summary>
     [Test]
     public async Task AppendCapThrowsPastTotalByteLimit()
@@ -127,21 +131,6 @@ public sealed class JournalSegmentRollCapacityTests
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxTotalBytesMb = 1 });
         var error = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(policy, static value => value.EnsureAppendCapacityOrThrow(OneMegabyte, 1));
         _ = await Assert.That(error.Message).Contains("total bytes", StringComparison.Ordinal);
-    }
-
-    /// <summary>The smallest segment the options accept holds the largest frame: a recorded reply at the gRPC limit plus the frame overhead.</summary>
-    [Test]
-    public async Task SmallestSegmentHoldsLargestFrame()
-    {
-        var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentMb = JournalSegmentLimits.MinSegmentMb });
-
-        // A put of the largest entry and a reply at the gRPC limit, each with the most overhead a frame carries.
-        policy.EnsureFitsEmptySegmentOrThrow(EntryLimits.MaxEntrySizeBytes + JournalSegmentLimits.MaxFrameOverheadBytes);
-        policy.EnsureFitsEmptySegmentOrThrow(EntryLimits.GrpcMaxSendMessageSizeBytes + JournalSegmentLimits.MaxFrameOverheadBytes);
-        var whole = NodeExceptionAssert.For<JournalCapacityExceededException>()
-                                       .Throws(policy, static value => value.EnsureFitsEmptySegmentOrThrow(JournalSegmentLimits.MinSegmentMb * OneMegabyte));
-
-        _ = await Assert.That(whole.Message).Contains("segment size", StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -168,12 +157,13 @@ public sealed class JournalSegmentRollCapacityTests
     [Test]
     public async Task NewSegmentBoundCoversNextFitRolls()
     {
-        var policy = new JournalSegmentPolicy(new PersistenceOptions
-        {
-            JournalMaxSegmentMb = 1,
-            JournalMaxSegmentCount = JournalSegmentLimits.HardMaxSegmentCount,
-            JournalMaxTotalBytesMb = JournalSegmentLimits.HardMaxTotalBytesMb,
-        });
+        var sp = new JournalSegmentPolicy(
+            new PersistenceOptions
+            {
+                JournalMaxSegmentMb = 1,
+                JournalMaxSegmentCount = JournalSegmentLimits.HardMaxSegmentCount,
+                JournalMaxTotalBytesMb = JournalSegmentLimits.HardMaxTotalBytesMb,
+            });
         var random = new SplitMix64(0x703UL);
         var rolled = 0;
         var outOfBound = 0;
@@ -197,13 +187,22 @@ public sealed class JournalSegmentRollCapacityTests
             // The first roll goes into the counted target and adds no segment.
             var added = rollTargetCounted ? rolls - 1L : rolls;
             rolled++;
-            var bound = policy.BoundNewSegments(pendingBytes, backlog.Length, frame, rollTargetCounted);
+            var bound = sp.BoundNewSegments(pendingBytes, backlog.Length, frame, rollTargetCounted);
             if (bound < added || bound > (2L * added) + 2L)
                 outOfBound++;
 
             // One slot fewer than the journal thread needs: it would reject the roll, so admission must refuse the frame.
-            var snapshot = new JournalAdmissionSnapshot(pendingBytes, backlog.Length, false, rollTargetCounted, 0L, active, JournalSegmentLimits.HardMaxSegmentCount - Convert.ToInt32(added) + 1);
-            _ = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws((Policy: policy, Snapshot: snapshot, Frame: frame), static s => s.Policy.EnsureAdmissionOrThrow(in s.Snapshot, s.Frame));
+            var snapshot = new JournalAdmissionSnapshot(
+                pendingBytes,
+                backlog.Length,
+                false,
+                rollTargetCounted,
+                0L,
+                active,
+                JournalSegmentLimits.HardMaxSegmentCount - Convert.ToInt32(added) + 1);
+            _ = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(
+                (Policy: sp, Snapshot: snapshot, Frame: frame),
+                static s => s.Policy.EnsureAdmissionOrThrow(in s.Snapshot, s.Frame));
         }
 
         _ = await Assert.That(outOfBound).IsEqualTo(0);
@@ -236,12 +235,29 @@ public sealed class JournalSegmentRollCapacityTests
         _ = await Assert.That(policy.ShouldRollSegment(OneMegabyte, 1)).IsTrue();
     }
 
-    private static JournalSegmentPolicy CreateAdmissionPolicy() => new(new PersistenceOptions
+    /// <summary>The smallest segment the options accept holds the largest frame: a recorded reply at the gRPC limit plus the frame overhead.</summary>
+    [Test]
+    public async Task SmallestSegmentHoldsLargestFrame()
     {
-        JournalMaxSegmentMb = 1,
-        JournalMaxSegmentCount = AdmissionSegmentCountLimit,
-        JournalMaxTotalBytesMb = 64,
-    });
+        var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentMb = JournalSegmentLimits.MinSegmentMb });
+
+        // A put of the largest entry and a reply at the gRPC limit, each with the most overhead a frame carries.
+        policy.EnsureFitsEmptySegmentOrThrow(EntryLimits.MaxEntrySizeBytes + JournalSegmentLimits.MaxFrameOverheadBytes);
+        policy.EnsureFitsEmptySegmentOrThrow(EntryLimits.GrpcMaxSendMessageSizeBytes + JournalSegmentLimits.MaxFrameOverheadBytes);
+        var whole = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(
+            policy,
+            static value => value.EnsureFitsEmptySegmentOrThrow(JournalSegmentLimits.MinSegmentMb * OneMegabyte));
+
+        _ = await Assert.That(whole.Message).Contains("segment size", StringComparison.Ordinal);
+    }
+
+    private static JournalSegmentPolicy CreateAdmissionPolicy() => new(
+        new PersistenceOptions
+        {
+            JournalMaxSegmentMb = 1,
+            JournalMaxSegmentCount = AdmissionSegmentCountLimit,
+            JournalMaxTotalBytesMb = 64,
+        });
 
     /// <summary>Draws a frame length that fits an empty one-megabyte segment.</summary>
     /// <param name="random">Seeded generator.</param>
