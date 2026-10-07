@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Frozen;
+using System.Collections.Generic;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Storage.Replication;
@@ -18,9 +19,6 @@ internal sealed class GroupComposition
     {
         _groups = groups;
     }
-
-    // If a variable-length composition is ever required, add an overload accepting IReadOnlyList<string> (e.g., a List<string>)
-    // and build the frozen set in one pass.
 
     /// <summary>Creates a composition over a single replica group.</summary>
     /// <param name="groupId">The replica group identifier.</param>
@@ -47,6 +45,24 @@ internal sealed class GroupComposition
         return string.Equals(first, second, StringComparison.Ordinal)
             ? throw new ArgumentException("Group identifiers must be unique; the composition already contains the group.", nameof(second))
             : new GroupComposition(new[] { first, second }.ToFrozenSet(StringComparer.Ordinal));
+    }
+
+    /// <summary>Creates a composition over the given replica groups.</summary>
+    /// <param name="groupIds">The replica group identifiers.</param>
+    /// <returns>The immutable composition.</returns>
+    /// <exception cref="ArgumentException">Thrown when a group identifier is null or whitespace.</exception>
+    internal static GroupComposition Create(IReadOnlyList<string> groupIds)
+    {
+        ArgumentNullException.ThrowIfNull(groupIds);
+
+        var groups = new string[groupIds.Count];
+        for (var i = 0; i < groups.Length; i++)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(groupIds[i]);
+            groups[i] = groupIds[i];
+        }
+
+        return new GroupComposition(groups.ToFrozenSet(StringComparer.Ordinal));
     }
 
     /// <summary>Creates an empty composition.</summary>

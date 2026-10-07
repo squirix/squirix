@@ -18,6 +18,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// </remarks>
 internal sealed class ReplicaGroupRegistry : IAsyncDisposable
 {
+    private readonly GroupComposition _composition;
     private readonly ulong _generation;
     private readonly string[] _groupIds;
     private readonly ILogger<ReplicaGroupRegistry> _log;
@@ -60,6 +61,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
 
         _root = root;
         _groupIds = [.. groupIds];
+        _composition = GroupComposition.Create(_groupIds);
         _replicaCount = replicaCount;
         _fingerprint = fingerprint;
         _generation = generation;
@@ -181,7 +183,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         FollowerLog? log = null;
         try
         {
-            log = new FollowerLog(_root, groupId, GroupComposition.Create(groupId), _loggerFactory.CreateLogger<FollowerLog>(), _options);
+            log = new FollowerLog(_root, groupId, _composition, _loggerFactory.CreateLogger<FollowerLog>(), _options);
             await log.OpenAsync(cancellationToken).ConfigureAwait(false);
 
             // Refused before the committer applies anything from the log.

@@ -103,7 +103,7 @@ internal static class ServerHostingComposition
     /// <param name="persistence">Resolved persistence options.</param>
     /// <param name="mtlsOptions">Cluster mTLS options resolved for this node.</param>
     /// <remarks>
-    /// One group per peer: every group whose replica set can include this node is served locally.
+    /// One group per owner whose replica group includes this node (its own group among them); other groups are not opened.
     /// The logs open in <see cref="OpenStorageAsync" />, so any replication RPC fails closed until its log is ready.
     /// </remarks>
     private static void AddReplicaGroupRegistry(IServiceCollection services, TopologyOptions cluster, PersistenceOptions persistence, MtlsOptions mtlsOptions)
@@ -111,13 +111,13 @@ internal static class ServerHostingComposition
         var activation = new ReplicaGroupActivation([.. TopologyFingerprint.CreateFromTopology(cluster, mtlsOptions).Bytes]);
         _ = services.AddSingleton(activation);
 
-        var groupIds = new string[cluster.Peers.Count];
-        for (var i = 0; i < groupIds.Length; i++)
-            groupIds[i] = cluster.Peers[i].NodeId;
+        var peerIds = new string[cluster.Peers.Count];
+        for (var i = 0; i < peerIds.Length; i++)
+            peerIds[i] = cluster.Peers[i].NodeId;
 
         _ = services.AddSingleton(sp => new ReplicaGroupRegistry(
             persistence.DataDir,
-            groupIds,
+            ReplicaGroupMembership.GroupsServedBy(sp.GetRequiredService<IReplicaGroupLocator>(), peerIds, cluster.NodeId),
             cluster.ReplicaCount,
             activation.Fingerprint.AsMemory(),
             cluster.ConfigurationGeneration,
