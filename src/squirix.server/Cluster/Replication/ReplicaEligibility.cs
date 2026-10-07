@@ -101,6 +101,27 @@ internal sealed class ReplicaEligibility
             return _states[replicaIndex];
     }
 
+    /// <summary>Moves a ready participant that did not acknowledge an entry back to catching up and clears its verified progress.</summary>
+    /// <param name="replicaIndex">Zero-based replica slot.</param>
+    /// <param name="logIndex">The log index the participant did not acknowledge.</param>
+    /// <returns>
+    /// <see langword="true" /> when the participant was ready and its verified progress does not reach <paramref name="logIndex" />; a
+    /// stale failure for an index it was verified to hold, and any state other than ready, are left as they are.
+    /// </returns>
+    internal bool TryDemote(int replicaIndex, ulong logIndex)
+    {
+        ValidateIndex(replicaIndex);
+        lock (_sync)
+        {
+            if (_states[replicaIndex] != ReplicaParticipantState.Ready || _progress[replicaIndex].MatchIndex >= logIndex)
+                return false;
+
+            _progress[replicaIndex] = default;
+            _states[replicaIndex] = ReplicaParticipantState.CatchingUp;
+            return true;
+        }
+    }
+
     /// <summary>Records monotonic catch-up progress and excludes the participant from authority paths.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
     /// <param name="progress">Verified progress report.</param>

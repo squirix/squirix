@@ -56,7 +56,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
                 "stage:ResponseReady",
             ];
             await SequenceAssert.EqualAsync(list, pipeline.Trace, StringComparer.Ordinal);
-            _ = await Assert.That(pipeline.LaggingReplicas).Contains(2);
+            _ = await Assert.That(pipeline.LaggingReplicas).DoesNotContain(2);
         }
         finally
         {

@@ -47,6 +47,36 @@ public sealed class ReplicaEligibilityTests
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsFalse();
     }
 
+    /// <summary>A ready participant that did not acknowledge an entry past its verified progress is demoted and loses its progress.</summary>
+    [Test]
+    public async Task DemoteLeavesReadyPastProgress()
+    {
+        var eligibility = new ReplicaEligibility(1);
+        var target = Progress(5, 4, 4, 0, 7, 42);
+        _ = await Assert.That(eligibility.TryMarkReady(0, in target, in target)).IsTrue();
+
+        _ = await Assert.That(eligibility.TryDemote(0, 5)).IsTrue();
+
+        _ = await Assert.That(eligibility.StateFor(0)).IsEqualTo(ReplicaParticipantState.CatchingUp);
+        _ = await Assert.That(eligibility.ProgressFor(0)).IsEqualTo(default);
+        _ = await Assert.That(eligibility.TryDemote(0, 6)).IsFalse();
+    }
+
+    /// <summary>A failure for an index the participant was verified to hold, or for a participant that is not ready, changes nothing.</summary>
+    [Test]
+    public async Task StaleOrNotReadyIsNotDemoted()
+    {
+        var eligibility = new ReplicaEligibility(2);
+        var target = Progress(5, 4, 4, 0, 7, 42);
+        _ = await Assert.That(eligibility.TryMarkReady(0, in target, in target)).IsTrue();
+
+        _ = await Assert.That(eligibility.TryDemote(0, 4)).IsFalse();
+        _ = await Assert.That(eligibility.TryDemote(1, 9)).IsFalse();
+
+        _ = await Assert.That(eligibility.StateFor(0)).IsEqualTo(ReplicaParticipantState.Ready);
+        _ = await Assert.That(eligibility.StateFor(1)).IsEqualTo(ReplicaParticipantState.Recovering);
+    }
+
     /// <summary>Every participant begins recovering with no retained progress.</summary>
     [Test]
     public async Task NewParticipantsBeginRecovering()

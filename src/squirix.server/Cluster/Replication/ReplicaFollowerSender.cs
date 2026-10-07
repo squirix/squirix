@@ -26,7 +26,6 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     private readonly CancellationTokenSource _closing = new();
     private readonly CancellationTokenSource _drainStarted = new();
     private readonly ReplicaRpcHeader _header;
-    private readonly string _nodeId;
     private readonly Queue<PendingAppend> _pending = new();
     private readonly IReplicaRpcGateway _rpc;
     private readonly Lock _sync = new();
@@ -52,7 +51,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(appendTimeout, TimeSpan.Zero);
 
         _rpc = rpc;
-        _nodeId = nodeId;
+        NodeId = nodeId;
         _header = header;
         _lastEnqueuedIndex = lastIndex;
         _lastEnqueuedTerm = lastTerm;
@@ -144,6 +143,9 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                 return _closed ? new CancellationToken(true) : _drainStarted.Token;
         }
     }
+
+    /// <summary>Gets the identifier of the follower this sender appends to.</summary>
+    internal string NodeId { get; }
 
     /// <summary>Gets a value indicating whether the sender is closed.</summary>
     internal bool IsClosed
@@ -252,7 +254,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(_closed || Draining, this);
             if (_leaseDone != null)
-                throw new InvalidOperationException($"Follower '{_nodeId}' catch-up lease is already active.");
+                throw new InvalidOperationException($"Follower '{NodeId}' catch-up lease is already active.");
 
             _leaseDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             loop = _loopDone?.Task;
@@ -271,7 +273,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             }
         }
 
-        return new ReplicaFollowerCatchUp(this, _nodeId);
+        return new ReplicaFollowerCatchUp(this, NodeId);
     }
 
     /// <summary>Resumes the live sends after a catch-up lease ended; idempotent.</summary>
@@ -345,7 +347,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             if (record.LogIndex <= _lastEnqueuedIndex || record.Term < _lastEnqueuedTerm)
             {
                 return Task.FromException<ReplicaDurableAcknowledgement>(
-                    new InvalidOperationException($"Follower '{_nodeId}' append out of order: index {record.LogIndex} after {_lastEnqueuedIndex}."));
+                    new InvalidOperationException($"Follower '{NodeId}' append out of order: index {record.LogIndex} after {_lastEnqueuedIndex}."));
             }
 
             if (_pending.Count >= MaxPendingEntries || (_pending.Count > 0 && _pendingBytes + item.Bytes > MaxPendingBytes))
@@ -384,7 +386,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                 return Task.FromException<FollowerLogAppendResult>(new ObjectDisposedException(nameof(ReplicaFollowerSender)));
 
             if (_catchUpRequest != null)
-                return Task.FromException<FollowerLogAppendResult>(new InvalidOperationException($"Follower '{_nodeId}' catch-up request is already in flight."));
+                return Task.FromException<FollowerLogAppendResult>(new InvalidOperationException($"Follower '{NodeId}' catch-up request is already in flight."));
 
             _catchUpRequest = done;
         }
@@ -431,7 +433,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         {
             using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token, cancellationToken);
-            return await _rpc.AppendEntriesAsync(_nodeId, _header, batch, linked.Token).ConfigureAwait(false);
+            return await _rpc.AppendEntriesAsync(NodeId, _header, batch, linked.Token).ConfigureAwait(false);
         }
         finally
         {
@@ -502,8 +504,8 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         var request = new FollowerBatch(records, _header.LeaderNodeId, first.Record.Term, first.PrevLogIndex, first.PrevLogTerm, batch[^1].LeaderCommitIndex);
         using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token);
-        var result = await _rpc.AppendEntriesAsync(_nodeId, _header, request, linked.Token).ConfigureAwait(false);
-        Complete(batch, in result, _nodeId);
+        var result = await _rpc.AppendEntriesAsync(NodeId, _header, request, linked.Token).ConfigureAwait(false);
+        Complete(batch, in result, NodeId);
     }
 
     /// <summary>Starts the send loop on the calling thread, up to its first wait, without the caller's execution context.</summary>

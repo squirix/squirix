@@ -10,6 +10,9 @@ namespace Squirix.Server.Cluster.Replication;
 [ThreadSafe]
 internal sealed class ReplicaCommitQuorum
 {
+    /// <summary>The most acknowledgements one slot buffers ahead of its missing prefix; a backstop, since a slot that misses one is demoted.</summary>
+    internal const int MaxBufferedAcks = 64;
+
     private readonly ReplicaEligibility? _eligibility;
     private readonly Dictionary<int, HashSet<ulong>> _futureAcks = [];
     private readonly ulong[] _matchIndexes;
@@ -180,7 +183,8 @@ internal sealed class ReplicaCommitQuorum
     /// <returns>
     /// <see langword="true" /> when the acknowledgement identity is valid and recorded: contiguously, or buffered
     /// when it arrives ahead of its missing prefix (the buffered index counts toward the match only after the
-    /// prefix lands and catch-up runs); otherwise, <see langword="false" />.
+    /// prefix lands and catch-up runs); otherwise, <see langword="false" />. An acknowledgement past the
+    /// <see cref="MaxBufferedAcks" /> buffered ones of its slot is not recorded, and the caller treats the slot as lagging.
     /// </returns>
     /// <exception cref="ArgumentNullException"><paramref name="expected" /> is <see langword="null" />.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="replicaIndex" /> is outside the fixed group.</exception>
@@ -225,8 +229,7 @@ internal sealed class ReplicaCommitQuorum
             return true;
         }
 
-        BufferFutureLocked(replicaIndex, acknowledgement.LogIndex);
-        return true;
+        return BufferFutureLocked(replicaIndex, acknowledgement.LogIndex);
     }
 
     /// <summary>Moves the progress version and completes the wait of the previous one, if any waits.</summary>
@@ -239,11 +242,12 @@ internal sealed class ReplicaCommitQuorum
         _ = done?.TrySetResult();
     }
 
-    /// <summary>Buffers a future index arriving ahead of its missing prefix.</summary>
+    /// <summary>Buffers a future index arriving ahead of its missing prefix, up to <see cref="MaxBufferedAcks" /> per slot.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
     /// <param name="logIndex">Future log index to buffer.</param>
+    /// <returns><see langword="false" /> when the slot already buffers the most acknowledgements; the caller treats it as lagging.</returns>
     /// <remarks>Must be called under <see cref="_sync" />.</remarks>
-    private void BufferFutureLocked(int replicaIndex, ulong logIndex)
+    private bool BufferFutureLocked(int replicaIndex, ulong logIndex)
     {
         if (!_futureAcks.TryGetValue(replicaIndex, out var buffered))
         {
@@ -251,7 +255,11 @@ internal sealed class ReplicaCommitQuorum
             _futureAcks[replicaIndex] = buffered;
         }
 
+        if (buffered.Count >= MaxBufferedAcks)
+            return false;
+
         _ = buffered.Add(logIndex);
+        return true;
     }
 
     /// <summary>Advances one replica through buffered future indexes while they form a contiguous run.</summary>

@@ -289,11 +289,10 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
             await ReplicaFollowerFanOut.AwaitMajorityAsync(_quorum, _pipeline, pending, pendingReplicaIndexes, mutation, _commitIndex, cancellationToken).ConfigureAwait(false);
 
+            // A follower still pending here is only slower than the majority: its completion is observed in the background, and only a
+            // failed or refused append marks it lagging.
             if (_quorum.FindCommitIndex(_commitIndex, mutation.LogIndex) < mutation.LogIndex)
                 throw new InvalidOperationException("A durable majority was not reached before the deadline.");
-
-            foreach (var replicaIndex in pendingReplicaIndexes)
-                _pipeline.RecordLaggingReplica(replicaIndex, mutation.LogIndex);
         }
         finally
         {

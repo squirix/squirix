@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
@@ -147,6 +148,133 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         }
     }
 
+    /// <summary>
+    /// A ready follower whose append fails is taken out of the quorum and queued for repair; one verification and catch-up pass
+    /// brings it back without a leader restart, and the next write reaches it through the resumed sender.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedAppendIsRepairedWithoutRestart(CancellationToken cancellationToken)
+    {
+        await using var followers = await OpenFollowersAsync(cancellationToken);
+        var routing = new FollowerLogRoutingGateway(followers.Logs);
+        var gateway = new FailingGateway(routing);
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        await using var committer = CreateCommitter(registry, gateway);
+        await CommitAsync(committer, "k1", cancellationToken);
+        await routing.AppendedAsync("n3", 1).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        gateway.FailNext("n3");
+        gateway.ReleaseFailure();
+        await CommitAsync(committer, "k2", cancellationToken);
+
+        _ = await Assert.That(await committer.Probe.Repairs.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsTrue();
+        _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.CatchingUp);
+        _ = await committer.VerifyReplicasAsync(cancellationToken);
+        _ = await Assert.That(await committer.CatchUpFollowersAsync(Reporter(), cancellationToken)).IsTrue();
+        _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.Ready);
+        _ = await Assert.That((await followers.Logs["n3"].GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
+
+        await CommitAsync(committer, "k3", cancellationToken);
+        await routing.AppendedAsync("n3", 3).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+    }
+
+    /// <summary>A follower that is only slower than the majority stays in the quorum, and its late acknowledgement is recorded.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SlowFollowerIsNotDemoted(CancellationToken cancellationToken)
+    {
+        await using var followers = await OpenFollowersAsync(cancellationToken);
+        var routing = new FollowerLogRoutingGateway(followers.Logs);
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        await using var committer = CreateCommitter(registry, routing);
+        try
+        {
+            await CommitAsync(committer, "k1", cancellationToken);
+            await routing.AppendedAsync("n3", 1).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+            routing.ParkNext("n3");
+            await CommitAsync(committer, "k2", cancellationToken);
+            await routing.Parked.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+            _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.Ready);
+            routing.Release();
+            await routing.AppendedAsync("n3", 2).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(await committer.Probe.Repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken)).IsFalse();
+            _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.Ready);
+        }
+        finally
+        {
+            routing.Release();
+        }
+    }
+
+    /// <summary>An append that times out on the sender's clock takes the follower out of the quorum and queues it for repair.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TimedOutAppendIsDemoted(CancellationToken cancellationToken)
+    {
+        await using var followers = await OpenFollowersAsync(cancellationToken);
+        var routing = new FollowerLogRoutingGateway(followers.Logs);
+        var clock = new FakeTimeProvider();
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        await using var committer = CreateCommitterOnBudgetClock(registry, routing, clock);
+        try
+        {
+            await CommitAsync(committer, "k1", cancellationToken);
+            await routing.AppendedAsync("n3", 1).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            routing.ParkNext("n3");
+            await CommitAsync(committer, "k2", cancellationToken);
+            await routing.Parked.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+            clock.Advance(committer.CommitBudget);
+
+            await routing.ParkCanceled.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(await committer.Probe.Repairs.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsTrue();
+            _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.CatchingUp);
+        }
+        finally
+        {
+            routing.Release();
+        }
+    }
+
+    /// <summary>The readiness service, woken by the demotion, repairs the follower whose append failed on its own.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadinessServiceRepairsDemoted(CancellationToken cancellationToken)
+    {
+        await using var followers = await OpenFollowersAsync(cancellationToken);
+        var routing = new FollowerLogRoutingGateway(followers.Logs);
+        var gateway = new FailingGateway(routing);
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        await using var committer = CreateCommitter(registry, gateway);
+        await CommitAsync(committer, "k1", cancellationToken);
+        await routing.AppendedAsync("n3", 1).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        var log = new SignalingLogger();
+        using var service = new ReplicaGroupReadinessService(committer, log, TimeProvider.System);
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            // The first pass finds the group ready; the failure below then reaches it only through the repair queue.
+            // The failure is reported only once the write is committed: the woken service then finds no uncommitted tail to re-send,
+            // and the follower can only come back through its catch-up session.
+            await log.LoggedAsync(VerificationCompleteEventId).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            gateway.FailNext("n3");
+            await CommitAsync(committer, "k2", cancellationToken);
+            gateway.ReleaseFailure();
+
+            await log.LoggedAsync(FollowerCaughtUpEventId).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.Ready);
+        _ = await Assert.That((await followers.Logs["n3"].GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
+    }
+
     /// <summary>The readiness service catches the behind follower up on its own and reports the group verified.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -157,13 +285,13 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         await SeedBehindFollowerAsync(gateway, cancellationToken);
         await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway);
-        var log = new SignalingLogger(VerificationCompleteEventId);
+        var log = new SignalingLogger();
         using var service = new ReplicaGroupReadinessService(committer, log, TimeProvider.System);
 
         await service.StartAsync(cancellationToken);
         try
         {
-            await log.Signaled.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            await log.LoggedAsync(VerificationCompleteEventId).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -175,6 +303,9 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
     }
 
     private static ReplicaCatchUpReporter Reporter() => new(GroupId, NullLogger.Instance, null);
+
+    private static Task CommitAsync(ReplicaGroupCommitter committer, string key, CancellationToken cancellationToken) =>
+        committer.CommitSetAsync(NewOperationId(), "cache", key, Entry(key), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
     /// <summary>
     /// Commits three writes while the append to n3 is parked, then disposes the owner, which cancels it: n2 holds the committed log
@@ -230,6 +361,35 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         }
     }
 
+    /// <summary>Routes appends to the follower logs and fails the next batch with entries to a chosen follower in transport.</summary>
+    private sealed class FailingGateway : IReplicaRpcGateway
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly IReplicaRpcGateway _routing;
+        private string? _failNode;
+
+        internal FailingGateway(IReplicaRpcGateway routing)
+        {
+            _routing = routing;
+        }
+
+        public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
+        {
+            if (batch.Records.Count == 0 || !string.Equals(Interlocked.CompareExchange(ref _failNode, null, nodeId), nodeId, StringComparison.Ordinal))
+                return await _routing.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
+
+            await _release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            throw new IOException($"Injected transport failure to {nodeId}.");
+        }
+
+        /// <summary>Makes the next batch with entries sent to <paramref name="node" /> fail in transport once <see cref="ReleaseFailure" /> runs.</summary>
+        /// <param name="node">The follower node.</param>
+        internal void FailNext(string node) => Volatile.Write(ref _failNode, node);
+
+        /// <summary>Lets the armed failure, and every later one, be reported.</summary>
+        internal void ReleaseFailure() => _ = _release.TrySetResult();
+    }
+
     /// <summary>Routes appends to the follower logs and parks the first accepted empty append that confirms a follower holds an index.</summary>
     private sealed class ConfirmationParkingGateway : IReplicaRpcGateway
     {
@@ -267,20 +427,11 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         internal void Release() => _ = _release.TrySetResult();
     }
 
-    /// <summary>Logger double that counts entries by event id and signals once an awaited event is logged.</summary>
+    /// <summary>Logger double that counts entries by event id and signals each event id once it is logged.</summary>
     private sealed class SignalingLogger : ILogger<ReplicaGroupReadinessService>
     {
         private readonly ConcurrentQueue<int> _events = new();
-        private readonly int _awaited;
-        private readonly TaskCompletionSource _signaled = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        internal SignalingLogger(int awaited)
-        {
-            _awaited = awaited;
-        }
-
-        /// <summary>Gets a task that completes once the awaited event was logged.</summary>
-        internal Task Signaled => _signaled.Task;
+        private readonly ConcurrentDictionary<int, TaskCompletionSource> _logged = new();
 
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
@@ -290,9 +441,13 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             _events.Enqueue(eventId.Id);
-            if (eventId.Id == _awaited)
-                _ = _signaled.TrySetResult();
+            _ = Signal(eventId.Id).TrySetResult();
         }
+
+        /// <summary>Gets a task that completes once an entry with <paramref name="eventId" /> is logged.</summary>
+        /// <param name="eventId">The event id.</param>
+        /// <returns>The task.</returns>
+        internal Task LoggedAsync(int eventId) => Signal(eventId).Task;
 
         internal int Count(int eventId)
         {
@@ -305,5 +460,8 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
 
             return count;
         }
+
+        private TaskCompletionSource Signal(int eventId) =>
+            _logged.GetOrAdd(eventId, static _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
     }
 }

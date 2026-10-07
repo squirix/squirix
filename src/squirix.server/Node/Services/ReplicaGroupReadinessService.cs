@@ -15,8 +15,8 @@ namespace Squirix.Server.Node.Services;
 /// committer's Log Matching verification with a bounded backoff until every slot is ready, which also lets
 /// followers that were not yet up at node start join later. A follower that answered but lacks entries is caught up
 /// from the leader log, one follower at a time, and verified again at once when it was admitted. It keeps polling at
-/// the maximum delay once everything is ready, so a slot demoted later is verified again. It runs on the host lifetime
-/// and stops with it.
+/// the maximum delay once everything is ready; a follower the commit path demotes is queued in <see cref="ReplicaRepairQueue" />,
+/// which wakes this service to verify and catch it up at once. It runs on the host lifetime and stops with it.
 /// </remarks>
 internal sealed class ReplicaGroupReadinessService : BackgroundService
 {
@@ -25,6 +25,7 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
 
     private readonly ReplicaCatchUpReporter _catchUp;
     private readonly ReplicaGroupCommitter _committer;
+    private readonly ReplicaRepairQueue _repairs;
     private readonly ILogger<ReplicaGroupReadinessService> _log;
     private readonly TimeProvider _timeProvider;
 
@@ -46,6 +47,7 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         _log = log;
         _timeProvider = timeProvider;
         _catchUp = new ReplicaCatchUpReporter(committer.GroupId, log, catchUpMetrics);
+        _repairs = committer.Probe.Repairs;
     }
 
     /// <inheritdoc />
@@ -71,7 +73,10 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
                 // Pending backs off exponentially toward the cap; a blocked or fully ready group is only re-checked at the cap.
                 var delay = outcome == ReplicaVerification.Pending ? backoff : MaxDelay;
                 backoff = outcome == ReplicaVerification.Pending ? TimeSpan.FromTicks(Math.Min(MaxDelay.Ticks, backoff.Ticks * 2)) : InitialDelay;
-                await Task.Delay(delay, _timeProvider, stoppingToken).ConfigureAwait(false);
+
+                // A follower the commit path demoted cuts the wait short: it is verified and caught up at once, with a fresh backoff.
+                if (await _repairs.WaitAsync(delay, _timeProvider, stoppingToken).ConfigureAwait(false))
+                    backoff = InitialDelay;
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

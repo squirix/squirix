@@ -98,19 +98,21 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         await AssertNotCompactedAsync(registry, cancellationToken);
     }
 
-    /// <summary>An entry appended locally but not committed keeps the log.</summary>
+    /// <summary>
+    /// An entry appended locally but not committed keeps the log, even with every follower verified: a recovered tail of an older term
+    /// is not committed by counting replicas.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task UncommittedTailKeepsLog(CancellationToken cancellationToken)
     {
-        var gateway = new ScriptedGateway();
         using var dir = new TempDirectory("squirix-owned-compaction-tail");
+        await SeedAsync(dir, cancellationToken);
+        await SeedTailAsync(dir, 2, cancellationToken, "t1");
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, gateway);
-        await WriteAsync(committer, 1, cancellationToken);
-        gateway.Set("n2", FollowerMode.Mismatch);
-        gateway.Set("n3", FollowerMode.Mismatch);
-        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken));
+        await using var committer = CreateCommitter(registry, new ScriptedGateway());
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken));
+        _ = await Assert.That(registry.EligibilityFor("n1").AllCanCountInWriteQuorum()).IsTrue();
 
         _ = await Assert.That(await committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.UncommittedTail);
         await AssertNotCompactedAsync(registry, cancellationToken);
@@ -141,10 +143,28 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway);
         await WriteAsync(committer, 1, cancellationToken);
-        gateway.Set("n3", FollowerMode.Down);
+        gateway.Set("n3", FollowerMode.Silent);
         await WriteAsync(committer, 1, cancellationToken);
 
         _ = await Assert.That(await committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.FollowerBehind);
+        await AssertNotCompactedAsync(registry, cancellationToken);
+    }
+
+    /// <summary>A follower whose append failed is taken out of the quorum, and its slot keeps the log as not ready.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DownFollowerKeepsLog(CancellationToken cancellationToken)
+    {
+        var gateway = new ScriptedGateway();
+        using var dir = new TempDirectory("squirix-owned-compaction-down");
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var committer = CreateCommitter(registry, gateway);
+        await WriteAsync(committer, 1, cancellationToken);
+        gateway.Set("n3", FollowerMode.Down);
+        await WriteAsync(committer, 1, cancellationToken);
+        _ = await committer.Probe.Repairs.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(await committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.FollowerNotReady);
         await AssertNotCompactedAsync(registry, cancellationToken);
     }
 

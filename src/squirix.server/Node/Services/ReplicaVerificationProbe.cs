@@ -59,7 +59,11 @@ internal sealed class ReplicaVerificationProbe
         _topologyFingerprint = topologyFingerprint;
         _generation = generation;
         _log = log;
+        Repairs = new ReplicaRepairQueue(locator.ReplicaCount);
     }
+
+    /// <summary>Gets the follower slots the commit path demoted, waiting for the readiness service to verify and catch them up.</summary>
+    internal ReplicaRepairQueue Repairs { get; }
 
     /// <summary>Builds the group members and the replication envelope identity for a term.</summary>
     /// <param name="term">The leader's current term.</param>

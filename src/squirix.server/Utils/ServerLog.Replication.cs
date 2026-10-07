@@ -136,6 +136,12 @@ internal static partial class ServerLog
         Message = "Replica group {GroupId} leader log entry could not be read back intact for the catch-up of follower {NodeId}; the log needs operator attention")]
     internal static partial void ReplicaCatchUpCorrupt(ILogger logger, string groupId, string nodeId);
 
+    [LoggerMessage(
+        EventId = 4026,
+        Level = LogLevel.Warning,
+        Message = "Replica group {GroupId} follower {NodeId} did not acknowledge the append of index {LogIndex}; it stops counting toward the write quorum until it is caught up")]
+    internal static partial void ReplicaFollowerDemoted(ILogger logger, string groupId, string nodeId, ulong logIndex);
+
     [LoggerMessage(EventId = 4025, Level = LogLevel.Debug, Message = "Replica group {GroupId} follower {NodeId} catch-up ended: {Outcome}; it is retried on the next verification")]
     internal static partial void ReplicaCatchUpInterrupted(ILogger logger, string groupId, string nodeId, string outcome);
 }
