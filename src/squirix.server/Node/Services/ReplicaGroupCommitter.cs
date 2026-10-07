@@ -481,6 +481,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (!_registry.TryGetLog(GroupId, out var log))
             throw new InvalidOperationException($"This node does not serve its owned replica group '{GroupId}'.");
 
+        var replacing = _coordinator != null;
         await RetireCoordinatorAsync().ConfigureAwait(false);
 
         // One read pairs the status with its tail: a commit left running by the disposed coordinator may still advance the log.
@@ -495,9 +496,14 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var tail = ReplicaLeaderTail.From(read);
 
         // A restart with durable progress leaves every slot recovering. Verify the leader's own log and every follower against its
-        // last entry before the first commit, so the quorum is built from verified slots only. An uncommitted tail is recovered by the
-        // coordinator and commits once verified slots hold it; followers lacking it are caught up through their senders, outside this gate.
+        // last entry before the first commit, so the quorum is built from verified slots only. A follower still ready under a replaced
+        // coordinator is verified again: it may hold less than the commit index the new coordinator starts it at. An uncommitted tail is
+        // recovered by the coordinator and commits once verified slots hold it; followers lacking it are caught up through their senders,
+        // outside this gate.
         var eligibility = _registry.EligibilityFor(GroupId);
+        if (replacing)
+            ReplicaReadinessProbe.UnverifyFollowers(eligibility);
+
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, in status, _topologyFingerprint, _generation);
         var results = eligibility.CanCountInWriteQuorum(0)
             ? await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility), members, header, status, ReplicaVerificationProbe.ProbeTimeout, cancellationToken)
@@ -591,9 +597,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (!await TryApplyPendingAsync().ConfigureAwait(false))
             throw ServerOpContract.TooManyRequests(PendingApplyRefusalReason);
 
-        // The old pipeline stops admitting and delivers what it queued to its followers, within the commit budget, before it closes:
-        // a follower that stays ready is not re-probed by the new start, so an entry dropped here would leave it refusing every later
-        // append. It also finishes before the new pipeline exists, so its appends cannot reach a follower after the new pipeline's.
+        // The old pipeline stops admitting and delivers what it queued to its followers, within the commit budget, before it closes, so
+        // the new start verifies them as holding its log instead of leaving them to catch up. It also finishes before the new pipeline
+        // exists, so its appends cannot reach a follower after the new pipeline's.
         if (_pipeline != null)
         {
             await _pipeline.DrainAsync(CommitBudget).ConfigureAwait(false);

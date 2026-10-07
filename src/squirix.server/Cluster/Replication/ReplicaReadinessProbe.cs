@@ -86,6 +86,21 @@ internal static class ReplicaReadinessProbe
         _ = eligibility.TryMarkReady(0, in progress, in progress);
     }
 
+    /// <summary>Takes every ready follower slot out of the write quorum, so it counts again only after a probe or a catch-up session verifies it.</summary>
+    /// <param name="eligibility">Participation gates of the owned group.</param>
+    /// <remarks>
+    /// A new coordinator starts every slot at the commit index. A follower can stay ready behind it: a slower follower is not demoted,
+    /// and a failure of its append that the retired coordinator never observed (a call that hangs past its cancellation) is lost.
+    /// </remarks>
+    internal static void UnverifyFollowers(ReplicaEligibility eligibility)
+    {
+        ArgumentNullException.ThrowIfNull(eligibility);
+
+        // No verified progress reaches the maximum index, so every ready slot is demoted.
+        for (var i = 1; i < eligibility.ReplicaCount; i++)
+            _ = eligibility.TryDemote(i, ulong.MaxValue);
+    }
+
     /// <summary>Selects the follower slots that still need verification.</summary>
     /// <param name="eligibility">Participation gates of the owned group.</param>
     /// <returns>A per-slot flag array; slot zero (the leader) is never selected.</returns>

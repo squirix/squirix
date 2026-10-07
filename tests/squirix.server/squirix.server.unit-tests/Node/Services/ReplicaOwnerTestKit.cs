@@ -88,6 +88,27 @@ internal static class ReplicaOwnerTestKit
             BudgetTimeProvider = budgetClock,
         };
 
+    /// <summary>Creates a committer whose follower request timeouts run on <paramref name="budgetClock" />, under short commit and shutdown budgets.</summary>
+    /// <param name="registry">Replica group registry of the owner.</param>
+    /// <param name="gateway">Follower transport double.</param>
+    /// <param name="budgetClock">The time source of the commit budget and of the follower request timeouts.</param>
+    /// <param name="commitBudget">The commit budget, which also bounds the drain of the senders when the coordinator is replaced.</param>
+    /// <param name="shutdownBudget">The shutdown budget, which also bounds the teardown of the senders and the coordinator it replaces.</param>
+    /// <returns>The committer.</returns>
+    internal static ReplicaGroupCommitter CreateCommitterOnBudgetClock(
+        ReplicaGroupRegistry registry,
+        IReplicaRpcGateway gateway,
+        TimeProvider budgetClock,
+        TimeSpan commitBudget,
+        TimeSpan shutdownBudget) =>
+        new(registry, new ThreeNodeLocator(), gateway, new StubCache(), "n1", new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+        {
+            Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            BudgetTimeProvider = budgetClock,
+            CommitBudget = commitBudget,
+            ShutdownBudget = shutdownBudget,
+        };
+
     internal static Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, CancellationToken cancellationToken) => OpenRegistryAsync(dir, null, cancellationToken);
 
     internal static async Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, FollowerLogOptions? options, CancellationToken cancellationToken)
