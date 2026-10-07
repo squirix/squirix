@@ -252,8 +252,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         // completed write ack (barrier callers only over frames whose applies already returned), and write acks are completed by the
         // journal thread before it exits at the shutdown marker, so the frame is ahead of the marker and its final flush seals the
         // group commit. A caller that waits without a write-acked frame would succeed after the seal.
-        if (GroupCommit is { } groupCommit)
-            return groupCommit.AwaitCommitAsync(cancellationToken);
+        if (GroupCommit != null)
+            return GroupCommit.AwaitCommitAsync(cancellationToken);
 
         _producerGate.ThrowIfShutdownInitiated();
         return DurabilityPipeline.EnqueueFlushAsync(cancellationToken);

@@ -111,7 +111,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             // outcome in the group log), so it is not exported as Started; restored records always are.
             foreach (var stored in CollectionsMarshal.AsSpan(ordered))
             {
-                if (stored.Appended == null && stored.Record.State == IdempotencyRecordState.Started && stored.CreatedTimestamp != null && !stored.Stamped)
+                if (stored.Appended == null && stored.Record.State == IdempotencyRecordState.Started && stored is { CreatedTimestamp: not null, Stamped: false })
                     continue;
 
                 destination.Add(stored.Appended ?? stored.Record);

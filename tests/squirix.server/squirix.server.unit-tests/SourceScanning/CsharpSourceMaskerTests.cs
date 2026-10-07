@@ -43,7 +43,7 @@ public sealed class CsharpSourceMaskerTests : ServerUnitTestBase
     [Arguments("x = @\"a\\\"; y", "x =      ; y")]
     [Arguments("x = '\"'; y", "x =    ; y")]
     [Arguments("x = '\\''; y", "x =     ; y")]
-    [Arguments("x = '\\\\'; y", "x =     ; y")]
+    [Arguments(@"x = '\\'; y", "x =     ; y")]
     [Arguments("$\"a{b}c\"", "    b   ")]
     [Arguments("$\"{v:N2}\"", "   v     ")]
     [Arguments("$\"{f(\"s\")}\"", "   f(   )  ")]

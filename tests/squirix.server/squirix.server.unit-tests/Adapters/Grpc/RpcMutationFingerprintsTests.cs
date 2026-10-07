@@ -85,8 +85,13 @@ public sealed class RpcMutationFingerprintsTests
 
     private static byte[] CreateEntryPiece(string field, double number)
     {
-        var value = new Struct();
-        value.Fields[field] = Value.ForNumber(number);
+        var value = new Struct
+        {
+            Fields =
+            {
+                [field] = Value.ForNumber(number),
+            },
+        };
         return new SetEntryAsyncRequest { Entry = new CacheEntryWire { Value = value } }.ToByteArray();
     }
 }

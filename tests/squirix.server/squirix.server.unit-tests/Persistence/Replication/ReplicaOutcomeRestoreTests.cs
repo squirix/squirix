@@ -133,5 +133,5 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     }
 
     private static GroupIdempotencyRecord Outcome(string operationId, ulong logIndex, byte outcome = 200) =>
-        new("client", operationId, new byte[] { 1 }, new byte[] { outcome }, GroupRecordKind.UserMutation, DateTime.UnixEpoch, DateTime.UnixEpoch, logIndex, 1UL);
+        new("client", operationId, new byte[] { 1 }, new[] { outcome }, GroupRecordKind.UserMutation, DateTime.UnixEpoch, DateTime.UnixEpoch, logIndex, 1UL);
 }

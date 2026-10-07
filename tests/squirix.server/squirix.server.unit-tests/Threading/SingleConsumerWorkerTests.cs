@@ -75,7 +75,7 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
 
         await faults.WaitUntilAsync(static queue => !queue.IsEmpty, cancellationToken);
         _ = await Assert.That(Volatile.Read(ref reports.Value)).IsEqualTo(1);
-        _ = await Assert.That(faults.TryPeek(out var refused) && refused.Item == 2 && refused.Fault is ObjectDisposedException).IsTrue();
+        _ = await Assert.That(faults.TryPeek(out var refused) && refused is { Item: 2, Fault: ObjectDisposedException }).IsTrue();
         _ = await Assert.That(handler.Handled).IsEqualTo(1);
     }
 

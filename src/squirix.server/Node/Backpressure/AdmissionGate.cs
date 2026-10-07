@@ -501,10 +501,9 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
                     }
                 }
 
-                var entry = enumerator.Current;
-                var client = entry.Value;
+                var (key, client) = enumerator.Current;
                 if (client.QueueDepth == 0 && client.IsRefilled(now) && client.TryRetire())
-                    _ = _clients.TryRemove(new KeyValuePair<string, ClientState>(entry.Key, client));
+                    _ = _clients.TryRemove(new KeyValuePair<string, ClientState>(key, client));
             }
         }
     }

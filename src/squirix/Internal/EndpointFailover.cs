@@ -69,16 +69,15 @@ internal sealed class EndpointFailover
     {
         ArgumentNullException.ThrowIfNull(action);
 
-        var clock = Clock;
-        var deadlineUtc = clock.GetUtcNow() + _operationDeadline;
-        using var deadlineScope = RpcDeadlineContext.Push(deadlineUtc.UtcDateTime, clock);
+        var deadlineUtc = Clock.GetUtcNow() + _operationDeadline;
+        using var deadlineScope = RpcDeadlineContext.Push(deadlineUtc.UtcDateTime, Clock);
         var startIndex = ActiveIndexSnapshot();
         Exception? lastFailure = null;
         var rerouted = false;
 
         for (var attempt = 0; attempt < _bootstrapNodeIds.Count; attempt++)
         {
-            if (IsExpired(clock, deadlineUtc))
+            if (IsExpired(Clock, deadlineUtc))
                 break;
 
             var nodeIndex = (startIndex + attempt) % _bootstrapNodeIds.Count;
@@ -115,7 +114,7 @@ internal sealed class EndpointFailover
         // Defensive: with no captured failure the loop ended before its first attempt, which only happens when the clock moved past the
         // deadline between the start of the operation and that attempt.
         if (lastFailure == null)
-            ThrowIfExpired(clock, deadlineUtc, _bootstrapNodeIds[startIndex]);
+            ThrowIfExpired(Clock, deadlineUtc, _bootstrapNodeIds[startIndex]);
 
         throw lastFailure ?? new InvalidOperationException("Bootstrap endpoint failover failed without a captured exception.");
     }

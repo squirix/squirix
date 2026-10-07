@@ -240,23 +240,20 @@ public sealed class ReplicaAckOrderTests
 
         private TaskCompletionSource StartedFor(ulong index)
         {
-            if (!_started.TryGetValue(index, out var started))
-            {
-                started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                _started[index] = started;
-            }
+            if (_started.TryGetValue(index, out var started))
+                return started;
+            started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _started[index] = started;
 
             return started;
         }
 
         private TaskCompletionSource AppliedFor(ulong index)
         {
-            if (!_applied.TryGetValue(index, out var applied))
-            {
-                applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                _applied[index] = applied;
-            }
-
+            if (_applied.TryGetValue(index, out var applied))
+                return applied;
+            applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _applied[index] = applied;
             return applied;
         }
 
@@ -264,12 +261,10 @@ public sealed class ReplicaAckOrderTests
         {
             lock (_sync)
             {
-                if (!_acks.TryGetValue((replicaIndex, index), out var ack))
-                {
-                    ack = new TaskCompletionSource<ReplicaDurableAcknowledgement>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    _acks[(replicaIndex, index)] = ack;
-                }
-
+                if (_acks.TryGetValue((replicaIndex, index), out var ack))
+                    return ack;
+                ack = new TaskCompletionSource<ReplicaDurableAcknowledgement>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _acks[(replicaIndex, index)] = ack;
                 return ack;
             }
         }

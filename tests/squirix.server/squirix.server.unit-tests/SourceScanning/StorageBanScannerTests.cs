@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -108,7 +107,7 @@ public sealed class StorageBanScannerTests : ServerUnitTestBase
     [Arguments("/* c */ JsonDocument.Parse(m);")]
     [Arguments("var q = '\"'; x.GetRawText();")]
     [Arguments("var q = '\\''; x.GetRawText();")]
-    [Arguments("var q = '\\\\'; x.GetRawText();")]
+    [Arguments(@"var q = '\\'; x.GetRawText();")]
     [Arguments("var s = @\"a\\\"; x.GetRawText();")]
     [Arguments("var s = \"\"; x.GetRawText();")]
     [Arguments("var s = $\"{JsonDocument.Parse(m)}\";")]

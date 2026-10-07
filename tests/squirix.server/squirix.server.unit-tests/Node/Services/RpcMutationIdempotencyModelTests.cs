@@ -113,12 +113,10 @@ public sealed class RpcMutationIdempotencyModelTests : DisposableServerUnitTestB
                 RestoreSnapshot(random, store, model, clock);
                 return "restore snapshot";
             case < 70:
-                if (tokens[key] is { } execution)
-                {
-                    store.CompleteExecution(id, execution);
-                    model.CompleteExecution(id, execution);
-                }
-
+                if (tokens[key] is not { } execution)
+                    return "complete execution";
+                store.CompleteExecution(id, execution);
+                model.CompleteExecution(id, execution);
                 return "complete execution";
             case < 74:
                 store.SweepExpired();
