@@ -310,6 +310,9 @@ internal static class ReplicaOwnerTestKit
         /// <summary>Gets the node, predecessor index, and entry count of every non-empty batch sent.</summary>
         internal ConcurrentQueue<(string Node, ulong PrevLogIndex, int Count)> Appends { get; } = new();
 
+        /// <summary>Gets the node and the replication envelope of every non-empty batch sent, in the order of <see cref="Appends" />.</summary>
+        internal ConcurrentQueue<(string Node, ReplicaRpcHeader Header)> AppendHeaders { get; } = new();
+
         public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
             var last = batch.Records.Count == 0 ? batch.PrevLogIndex : batch.Records[^1].LogIndex;
@@ -317,6 +320,7 @@ internal static class ReplicaOwnerTestKit
             if (batch.Records.Count > 0)
             {
                 Appends.Enqueue((nodeId, batch.PrevLogIndex, batch.Records.Count));
+                AppendHeaders.Enqueue((nodeId, header));
                 OnAppend?.Invoke();
             }
 

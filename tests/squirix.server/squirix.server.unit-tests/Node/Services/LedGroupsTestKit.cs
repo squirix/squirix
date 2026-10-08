@@ -29,6 +29,7 @@ internal static class LedGroupsTestKit
     /// <param name="cache">Local cache pipeline.</param>
     /// <param name="clock">The clock of the decisions.</param>
     /// <param name="applier">The applier of the group; a new one applying to <paramref name="cache" /> when not set.</param>
+    /// <param name="budgetClock">The time source of the commit budget and of the follower request timeouts; the system clock when not set.</param>
     /// <returns>The committer.</returns>
     internal static ReplicaGroupCommitter CreateGroupCommitter(
         ReplicaGroupRegistry registry,
@@ -36,12 +37,14 @@ internal static class LedGroupsTestKit
         IReplicaRpcGateway gateway,
         ILogicalNamespacedCache<object?> cache,
         TimeProvider clock,
-        ReplicaGroupApplier? applier = null) =>
+        ReplicaGroupApplier? applier = null,
+        TimeProvider? budgetClock = null) =>
         new(registry, new RotatingLocator(), gateway, cache, (groupId, "n1"), new ReplicaTopologyStamp(ReplicaOwnerTestKit.Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             Applier = applier ?? new ReplicaGroupApplier(cache, NullLogger.Instance, groupId, "n1"),
             Clock = clock,
+            BudgetTimeProvider = budgetClock ?? TimeProvider.System,
         };
 
     /// <summary>Reads the keys of the entries a group log holds, in log order.</summary>
@@ -77,16 +80,18 @@ internal static class LedGroupsTestKit
     /// <param name="gateways">The follower transports of groups n1 and n2.</param>
     /// <param name="cache">The local cache both groups apply to.</param>
     /// <param name="clock">The clock of the decisions.</param>
+    /// <param name="appliers">The appliers of the served groups the committers drive; new appliers when not set.</param>
     /// <returns>The committers, which own the disposal of both committers.</returns>
     internal static ReplicaGroupCommitters LeadTwo(
         ReplicaGroupRegistry registry,
         (IReplicaRpcGateway OfN1, IReplicaRpcGateway OfN2) gateways,
         ILogicalNamespacedCache<object?> cache,
-        TimeProvider clock)
+        TimeProvider clock,
+        ReplicaGroupAppliers? appliers = null)
     {
         var led = new ReplicaGroupCommitter[2];
-        led[0] = CreateGroupCommitter(registry, "n1", gateways.OfN1, cache, clock);
-        led[1] = CreateGroupCommitter(registry, "n2", gateways.OfN2, cache, clock);
+        led[0] = CreateGroupCommitter(registry, "n1", gateways.OfN1, cache, clock, appliers?.For("n1"));
+        led[1] = CreateGroupCommitter(registry, "n2", gateways.OfN2, cache, clock, appliers?.For("n2"));
         return new ReplicaGroupCommitters(led, "n1", Owners(), clock);
     }
 
