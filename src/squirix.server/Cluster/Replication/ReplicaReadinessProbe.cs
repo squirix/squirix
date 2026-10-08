@@ -20,6 +20,24 @@ namespace Squirix.Server.Cluster.Replication;
 /// </remarks>
 internal static class ReplicaReadinessProbe
 {
+    /// <summary>Records every follower that answered a probe from its log as in contact with an elected leadership, like a heartbeat reply.</summary>
+    /// <param name="election">The election state of the group, or <see langword="null" /> for a group led statically.</param>
+    /// <param name="results">Per-slot probe outcomes.</param>
+    /// <param name="term">The led term the probes carried; a follower answers from its log only at or below it.</param>
+    /// <remarks>The contact is recorded when the probes end, at most one probe timeout after the answer.</remarks>
+    internal static void RecordContacts(ReplicaGroupState? election, ReplicaProbeResult[] results, ulong term)
+    {
+        ArgumentNullException.ThrowIfNull(results);
+        if (election == null)
+            return;
+
+        for (var i = 0; i < results.Length; i++)
+        {
+            if (results[i].Kind is ReplicaProbeKind.Accepted or ReplicaProbeKind.LogMismatch)
+                election.RecordFollowerContact(i, term);
+        }
+    }
+
     /// <summary>Applies the probe verdict of every follower slot.</summary>
     /// <param name="eligibility">Participation gates of the owned group.</param>
     /// <param name="leaderReplicaIndex">Zero-based slot of the leader, which no probe verdict touches.</param>

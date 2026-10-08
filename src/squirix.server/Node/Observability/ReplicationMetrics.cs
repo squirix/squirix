@@ -58,6 +58,10 @@ internal sealed class ReplicationMetrics
             "{entry}",
             "Entries retained in the replica group log file observed by the replica group log");
         _ = meter.CreateObservableGauge("squirix_replication_snapshot_index", ObserveSnapshotIndexes, IndexUnit, "Last log index the published replica group snapshot covers");
+        _ = meter.CreateObservableGauge(
+            "squirix_replication_role",
+            ObserveRoles,
+            description: "Election role in the replica group as 0=follower, 1=pre-candidate, 2=candidate, 3=leader without authority, 4=leader with authority");
     }
 
     /// <summary>Counts one compaction of the replica group log this node owns.</summary>
@@ -118,33 +122,16 @@ internal sealed class ReplicationMetrics
             snapshot.FingerprintMatch,
             snapshot.GenerationMatch,
             verdict == ReplicaReadinessVerdict.Ready,
-            new GroupRetention(snapshot.LogBytes, snapshot.RetainedEntries, long.CreateSaturating(snapshot.SnapshotIndex)));
+            new GroupRetention(snapshot.LogBytes, snapshot.RetainedEntries, long.CreateSaturating(snapshot.SnapshotIndex)))
+        {
+            Role = snapshot.Role,
+        };
 
         var (topologyRaised, generationRaised) = GetAndStoreTransitions(snapshot.GroupId, in observation);
         if (topologyRaised)
             AddMismatch(snapshot.NodeId, snapshot.GroupId, "topology");
         if (generationRaised)
             AddMismatch(snapshot.NodeId, snapshot.GroupId, "generation");
-    }
-
-    private static Measurement<long> MeasureNodeGroup(long value, string nodeId, string groupId)
-    {
-        var tags = new TagList
-        {
-            { "node", nodeId },
-            { "group", groupId },
-        };
-        return new Measurement<long>(value, in tags);
-    }
-
-    private static Measurement<int> MeasureNodeGroup(int value, string nodeId, string groupId)
-    {
-        var tags = new TagList
-        {
-            { "node", nodeId },
-            { "group", groupId },
-        };
-        return new Measurement<int>(value, in tags);
     }
 
     private void AddMismatch(string nodeId, string groupId, string reason)
@@ -179,77 +166,84 @@ internal sealed class ReplicationMetrics
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].AppliedIndex, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].AppliedIndex, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<long>> ObserveApplyLags()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].ApplyLag, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].ApplyLag, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<long>> ObserveCommitIndexes()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].CommitIndex, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].CommitIndex, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<long>> ObserveCommitLags()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].CommitLag, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].CommitLag, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<int>> ObserveGenerationMatches()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].GenerationMatch ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].GenerationMatch ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<long>> ObserveLogBytes()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].Retention.LogBytes, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Retention.LogBytes, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<int>> ObserveReady()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].Ready ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Ready ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<int>> ObserveRetainedEntries()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].Retention.RetainedEntries, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Retention.RetainedEntries, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private IEnumerable<Measurement<int>> ObserveRoles()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(ReplicaGroupMeasurements.RoleValue(snapshot[i].Role), snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<long>> ObserveSnapshotIndexes()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].Retention.SnapshotIndex, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Retention.SnapshotIndex, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<long>> ObserveTerms()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].Term, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Term, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<int>> ObserveTopologyMatches()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].TopologyMatch ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].TopologyMatch ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private GroupObservation[] SnapshotGroups()
@@ -282,6 +276,8 @@ internal sealed class ReplicationMetrics
         GroupRetention Retention)
     {
         internal string GroupId { get; init; } = string.Empty;
+
+        internal ReplicaElectionRole Role { get; init; }
     }
 
     /// <summary>The retained size of an observed replica group log.</summary>

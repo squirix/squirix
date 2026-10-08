@@ -38,6 +38,9 @@ internal readonly record struct ReplicaStatusSnapshot(
     /// <summary>Gets the number of entry frames the group log file holds.</summary>
     internal int RetainedEntries { get; init; }
 
+    /// <summary>Gets the election role of the observing node in the group; a follower unless set.</summary>
+    internal ReplicaElectionRole Role { get; init; }
+
     /// <summary>Gets the last log index the published group snapshot covers, or zero when none is published.</summary>
     internal ulong SnapshotIndex { get; init; }
 }

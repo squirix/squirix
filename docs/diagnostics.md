@@ -141,6 +141,10 @@ group log reached a threshold but was not compacted, `squirix_replication_log_co
 `stale_term`, `refused`, `unreachable`, `corrupt`, or `aborted`.
 A replica group log record whose effect contradicts its outcome, or that cannot be decoded, is never applied; each refusal
 is logged at error level and counted by `squirix_replication_inconsistent_records_total` (labels `node`, `group`).
+The gauge `squirix_replication_role` (labels `node`, `group`) reports the role of the node in each group: `0` follower,
+`1` pre-candidate, `2` candidate, `3` leader whose leader-term entry is not committed yet, `4` leader with authority. Without
+automatic failover the owner of a group reports `4` and every other member `0`. The replica status role names map as
+follows: `follower` is `0`, `candidate` covers `1`, `2` and `3`, and `leader` is `4`.
 
 Memory-pressure metrics remain owned by `MemoryPressureMetricsService`, `Gate`, and memory-pressure
 components; they are not part of the generic operation observability model. journal, snapshot, compaction, recovery,

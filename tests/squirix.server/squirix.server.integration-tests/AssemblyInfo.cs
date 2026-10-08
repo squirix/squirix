@@ -7,6 +7,8 @@ using TUnit.Core;
 
 [assembly: Rock(typeof(IReplicaCommitFaultHooks), BuildType.Create)]
 [assembly: Rock(typeof(IReplicaCommitPipeline), BuildType.Create)]
+[assembly: Rock(typeof(IReplicaLeadership), BuildType.Create)]
+[assembly: Rock(typeof(IReplicaVoteGateway), BuildType.Create)]
 [assembly: Rock(typeof(IJournalCoordinator), BuildType.Create)]
 [assembly: Rock(typeof(IFollowerLogFaultHooks), BuildType.Create)]
 [assembly: ParallelLimiter<ServerProcessorCountLimit>]

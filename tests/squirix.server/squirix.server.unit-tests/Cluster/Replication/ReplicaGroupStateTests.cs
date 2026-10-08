@@ -157,6 +157,55 @@ public sealed class ReplicaGroupStateTests : ServerUnitTestBase
         _ = await Assert.That(state.HighestObservedTerm).IsEqualTo(2UL);
     }
 
+    /// <summary>
+    /// The status reads a leader's majority contact from its quorum check and a follower's from its leader contact, with the highest term
+    /// seen.
+    /// </summary>
+    [Test]
+    public async Task StatusReadsContactByRole()
+    {
+        var time = new FakeTimeProvider();
+        var state = new ReplicaGroupState(3, Options, time);
+        state.SetElectionDriven(true);
+        state.ObserveLeaderContact("n2", 4UL);
+        var following = state.ObserveStatus();
+        time.Advance(Options.ElectionTimeout);
+        var silent = state.ObserveStatus();
+
+        _ = state.BecomeLeader(5UL);
+        _ = state.GrantAuthority(5UL);
+        var leading = state.ObserveStatus();
+        time.Advance(Options.ElectionTimeout);
+        var deposed = state.ObserveStatus();
+
+        _ = await Assert.That(following).IsEqualTo((ReplicaGroupRole.Follower, false, true, 4UL));
+        _ = await Assert.That(silent).IsEqualTo((ReplicaGroupRole.Follower, false, false, 4UL));
+        _ = await Assert.That(leading).IsEqualTo((ReplicaGroupRole.Leader, true, true, 5UL));
+        _ = await Assert.That(deposed).IsEqualTo((ReplicaGroupRole.Leader, true, false, 5UL));
+    }
+
+    /// <summary>The quorum grace restarts only for the leader of the term while it has no authority yet.</summary>
+    [Test]
+    public async Task QuorumGraceRestartsWithoutAuthorityOnly()
+    {
+        var time = new FakeTimeProvider();
+        var state = new ReplicaGroupState(3, Options, time);
+        state.SetElectionDriven(true);
+        _ = state.BecomeLeader(2UL);
+        time.Advance(Options.ElectionTimeout);
+        state.RestartQuorumGrace(3UL);
+        var otherTerm = state.HasQuorumContact(0, Options.ElectionTimeout);
+        state.RestartQuorumGrace(2UL);
+        var restarted = state.HasQuorumContact(0, Options.ElectionTimeout);
+
+        _ = state.GrantAuthority(2UL);
+        time.Advance(Options.ElectionTimeout);
+        state.RestartQuorumGrace(2UL);
+
+        _ = await Assert.That((otherTerm, restarted)).IsEqualTo((false, true));
+        _ = await Assert.That(state.HasQuorumContact(0, Options.ElectionTimeout)).IsFalse();
+    }
+
     /// <summary>Authority is granted only to the leader of the term, and stepping down clears it before anything else.</summary>
     [Test]
     public async Task AuthorityBelongsToLeaderOfTerm()

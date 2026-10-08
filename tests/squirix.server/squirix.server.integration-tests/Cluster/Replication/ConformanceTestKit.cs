@@ -44,10 +44,10 @@ internal static class ConformanceTestKit
         };
     }
 
-    internal static PreparedReplicaMutation CreateMutation(ulong index)
+    internal static PreparedReplicaMutation CreateMutation(ulong index, ulong term = 1)
     {
         var identity = new ReplicaOperationIdentity("group-a", "client", index.ToString("x32", CultureInfo.InvariantCulture), new[] { Convert.ToByte(index) });
-        return new PreparedReplicaMutation(identity, 1, index, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 7 }, Convert.ToUInt32(index)));
+        return new PreparedReplicaMutation(identity, term, index, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 7 }, Convert.ToUInt32(index)));
     }
 
     internal sealed record TracePoint(ulong Term, ulong LogIndex, ulong CommitIndex, ulong AppliedIndex);
@@ -62,6 +62,7 @@ internal static class ConformanceTestKit
 
         private readonly int _laggingReplica;
         private readonly int _unavailableReplica;
+        private ulong _lastTerm;
         private int _localAppendCalls;
 
         internal Pipeline(int laggingReplica = -1, bool blockFirstLocalAppend = false, int unavailableReplica = -1)
@@ -88,7 +89,7 @@ internal static class ConformanceTestKit
         public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
         {
             CommitIndex = commitIndex;
-            Trace.Add(new TracePoint(1, LocalIndexes[^1], CommitIndex, AppliedIndex));
+            Trace.Add(new TracePoint(_lastTerm, LocalIndexes[^1], CommitIndex, AppliedIndex));
             return ValueTask.CompletedTask;
         }
 
@@ -111,6 +112,7 @@ internal static class ConformanceTestKit
         public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
             LocalIndexes.Add(mutation.LogIndex);
+            _lastTerm = mutation.Term;
             Trace.Add(new TracePoint(mutation.Term, mutation.LogIndex, CommitIndex, AppliedIndex));
             if (!_blockFirstLocalAppend || Interlocked.Increment(ref _localAppendCalls) != 1)
                 return ValueTask.CompletedTask;

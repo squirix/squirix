@@ -35,6 +35,47 @@ After election, a leader appends and majority-commits a **current-term** entry (
 majority replication as a new commit that may be served. This preserves Raft’s “leader completeness” / current-term
 commit rule.
 
+### Elected leadership behind the automatic failover switch
+
+Automatic failover is an internal topology switch. It is off by default and not configurable in this release; with it
+off, the owner of each group leads it statically in the term of its log, exactly as before. With it on, the groups of
+three or more replicas elect their leader. Groups of one or two replicas are unchanged: no election driver, no
+heartbeats, and RF=2 never elects a replacement.
+
+- **Election.** Each node runs one election driver per served group. A follower campaigns once neither a leader contact
+  nor a granted vote happened for the election timeout plus a seeded jitter. It first runs a pre-vote for the next term,
+  which changes no term anywhere; with a majority of the static membership it persists the term and its own vote through
+  the same vote path a peer request takes, then asks the other members. A higher term seen in any reply is made durable
+  before the node follows it.
+- **Term one.** Term one belongs to the owner of a group: a node whose own group log never moved past term one leads it in
+  term one at start, without votes, and no vote is ever granted for term one. The first election is for term two.
+- **Leader contact.** A member refuses a pre-vote with `leader-contact` while it heard from a live leader within one
+  election timeout, so a node cut off from the leader alone keeps campaigning in vain instead of deposing it.
+- **Authority.** A winner appends a `leader-noop` record in its term, under the operation scope `squirix:leader-term`,
+  before it probes any follower. It gains authority only once a majority committed that entry for this promotion; until
+  then, and after any step-down, a write is refused before anything is appended: `Unavailable` with "Replica group has
+  no leader with authority on this node; nothing was written.", or the stale-owner refusal naming the leader this node
+  knows.
+- **Heartbeats and step-down.** A leader sends an empty append to every idle follower each heartbeat interval. It steps
+  down once fewer than a majority, itself included, answered within one election timeout, and at once on a higher term
+  in any reply. A new leader gets one timeout of grace. A follower that answered the probes of the start counts as
+  answered, and a leader without authority whose promotion held its driver for a heartbeat interval or more, such as a
+  start that waited for a dead follower, gets the grace again once the promotion returns. Authority is revoked before
+  the leader retires its pipeline.
+- **Repair.** A follower out of the write quorum that answers a heartbeat or an append from its log is queued for repair
+  at once, at most once per election timeout, instead of waiting for the readiness retry.
+- **Status.** While a driver runs, the replica status reports a node as leader only with authority, its majority contact
+  from the quorum check (leader) or a recent leader contact (follower), and the highest term it saw.
+
+Default timing: election timeout 1 s, jitter up to 1 s, heartbeat interval 100 ms, vote RPC timeout 250 ms. On
+three-node starts with nodes about 0.4 s apart, a 500 ms timeout deposed a provisional owner and elected a needless second
+term in half of the runs, and 1 s in none; a failover then took about 4 s from the stop of the leader to a new leader
+with authority.
+
+Not part of this release: routing a client write to the new leader of a group (a write that reaches a node without
+authority is refused as above and may be retried elsewhere), fencing reads on a node that stepped down, and quorum
+reads.
+
 ### Quorum reads (ReadIndex equivalent)
 
 For each linearizable/current read under RF>1:

@@ -25,9 +25,6 @@ namespace Squirix.Server.Node.Services;
 /// </remarks>
 internal sealed class ReplicaGroupReadinessService : BackgroundService
 {
-    private static readonly TimeSpan InitialDelay = TimeSpan.FromMilliseconds(250);
-    private static readonly TimeSpan MaxDelay = TimeSpan.FromSeconds(5);
-
     private readonly ReplicaCatchUpMetrics? _catchUpMetrics;
     private readonly ReplicaGroupCommitters _committers;
     private readonly ILogger<ReplicaGroupReadinessService> _log;
@@ -52,6 +49,9 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         _timeProvider = timeProvider;
         _catchUpMetrics = catchUpMetrics;
     }
+
+    /// <summary>Gets or initializes the retry schedule of the verification; the default schedule unless set.</summary>
+    internal ReplicaReadinessOptions Options { get; init; } = new();
 
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -84,7 +84,7 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
     {
         var catchUp = new ReplicaCatchUpReporter(committer.GroupId, _log, _catchUpMetrics);
         var repairs = committer.Probe.Repairs;
-        var backoff = InitialDelay;
+        var backoff = Options.InitialDelay;
         ReplicaVerification? reported = null;
         try
         {
@@ -102,12 +102,12 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
                     continue;
 
                 // Pending backs off exponentially toward the cap; a blocked or fully ready group is only re-checked at the cap.
-                var delay = outcome == ReplicaVerification.Pending ? backoff : MaxDelay;
-                backoff = outcome == ReplicaVerification.Pending ? TimeSpan.FromTicks(Math.Min(MaxDelay.Ticks, backoff.Ticks * 2)) : InitialDelay;
+                var delay = outcome == ReplicaVerification.Pending ? backoff : Options.MaxDelay;
+                backoff = outcome == ReplicaVerification.Pending ? TimeSpan.FromTicks(Math.Min(Options.MaxDelay.Ticks, backoff.Ticks * 2)) : Options.InitialDelay;
 
                 // A follower the commit path demoted cuts the wait short: it is verified and caught up at once, with a fresh backoff.
                 if (await repairs.WaitAsync(delay, _timeProvider, stoppingToken).ConfigureAwait(false))
-                    backoff = InitialDelay;
+                    backoff = Options.InitialDelay;
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

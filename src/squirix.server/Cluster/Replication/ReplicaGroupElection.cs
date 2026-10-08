@@ -196,8 +196,7 @@ internal sealed class ReplicaGroupElection
         return true switch
         {
             _ when !_state.BecomeLeader(term) => new ElectionOutcome(ElectionEvent.None, term),
-            _ when await _leadership.PromoteAsync(GroupId, term, cancellationToken).ConfigureAwait(false) && _state.GrantAuthority(term) =>
-                new ElectionOutcome(ElectionEvent.Authorized, term),
+            _ when await PromoteAsync(term, cancellationToken).ConfigureAwait(false) => new ElectionOutcome(ElectionEvent.Authorized, term),
             _ => new ElectionOutcome(ElectionEvent.Elected, term),
         };
     }
@@ -215,8 +214,7 @@ internal sealed class ReplicaGroupElection
         return true switch
         {
             _ when _state.HasAuthority => new ElectionOutcome(ElectionEvent.None, term),
-            _ when await _leadership.PromoteAsync(GroupId, term, cancellationToken).ConfigureAwait(false) && _state.GrantAuthority(term) =>
-                new ElectionOutcome(ElectionEvent.Authorized, term),
+            _ when await PromoteAsync(term, cancellationToken).ConfigureAwait(false) => new ElectionOutcome(ElectionEvent.Authorized, term),
             _ => new ElectionOutcome(ElectionEvent.PromotionPending, term),
         };
     }
@@ -245,6 +243,27 @@ internal sealed class ReplicaGroupElection
             // The log failed its readiness with the write: nothing acts on the term, and the step is retried.
             return 0UL;
         }
+    }
+
+    /// <summary>Promotes the led term once and grants authority when its leader-term entry is committed.</summary>
+    /// <param name="term">The led term.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><see langword="true" /> when this node now has authority in <paramref name="term" />.</returns>
+    /// <remarks>
+    /// A promotion that held the driver for a heartbeat interval or more, such as a start that waited for a dead follower's probe, sent
+    /// no heartbeat meanwhile: without authority, the quorum check then restarts its grace, so the leader is not deposed for followers
+    /// it could not ask. A quick promotion that stays pending restarts nothing, so a leader no majority answers still steps down.
+    /// </remarks>
+    private async Task<bool> PromoteAsync(ulong term, CancellationToken cancellationToken)
+    {
+        var started = _state.Clock.GetTimestamp();
+        if (await _leadership.PromoteAsync(GroupId, term, cancellationToken).ConfigureAwait(false) && _state.GrantAuthority(term))
+            return true;
+
+        if (_state.Clock.GetElapsedTime(started) >= _state.Options.HeartbeatInterval)
+            _state.RestartQuorumGrace(term);
+
+        return false;
     }
 
     private async Task<ElectionOutcome> RetireAsync(ulong term, CancellationToken cancellationToken)

@@ -16,6 +16,17 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class ElectionTimerTests : ServerUnitTestBase
 {
+    /// <summary>The default timing waits one second plus up to one second of jitter, with ten heartbeats per election timeout.</summary>
+    /// <returns>An asynchronous operation.</returns>
+    [Test]
+    public async Task DefaultTimingWaitsOneSecond()
+    {
+        var options = new ElectionTimerOptions();
+
+        _ = await Assert.That((options.ElectionTimeout, options.MaxJitter, options.HeartbeatInterval))
+                        .IsEqualTo((TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(100)));
+    }
+
     /// <summary>A dispose racing a running callback returns only after the callback finished, so no callback outlives the dispose.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

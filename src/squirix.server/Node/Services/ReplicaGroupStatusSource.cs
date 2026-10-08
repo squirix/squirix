@@ -12,9 +12,12 @@ namespace Squirix.Server.Node.Services;
 
 /// <summary>Reads replica-group status from the registry without mutating replication state.</summary>
 /// <remarks>
-/// Majority contact is derived from verified ready participants: fresh groups start fully ready while
-/// restarted groups stay recovering until a repair session verifies them. The owning node evaluates
-/// leader authority for its own group; other groups are observed as a follower.
+/// While automatic failover elects a group of three or more replicas, its election state decides: this node is the leader only with
+/// authority, its majority contact is the quorum check of a leader or the recent leader contact of a follower, and the observed term is
+/// the highest term it saw.
+/// Otherwise (automatic failover off, or fewer than three replicas) majority contact is derived from verified ready participants: fresh
+/// groups start fully ready while restarted groups stay recovering until a repair session verifies them; the owning node evaluates
+/// leader authority for its own group, and other groups are observed as a follower.
 /// </remarks>
 [Immutable]
 internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
@@ -57,14 +60,42 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
         return snapshots;
     }
 
+    /// <summary>Reads the leadership of a group from its election state.</summary>
+    /// <param name="election">The election state, read before the log status.</param>
+    /// <param name="currentTerm">The durable term of the group log.</param>
+    /// <returns>Whether this node leads with authority, its majority contact, the highest term it saw, and its role.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The role is not a named value.</exception>
+    private static (bool IsLeader, bool HasMajorityContact, ulong ObservedTerm, ReplicaElectionRole Role) Elected(
+        (ReplicaGroupRole Role, bool HasAuthority, bool HasMajorityContact, ulong ObservedTerm) election,
+        ulong currentTerm)
+    {
+        var (role, authority, contact, observed) = election;
+        var reported = role switch
+        {
+            ReplicaGroupRole.Follower => ReplicaElectionRole.Follower,
+            ReplicaGroupRole.PreCandidate => ReplicaElectionRole.PreCandidate,
+            ReplicaGroupRole.Candidate => ReplicaElectionRole.Candidate,
+            ReplicaGroupRole.Leader => authority ? ReplicaElectionRole.AuthorizedLeader : ReplicaElectionRole.Leader,
+            _ => throw new ArgumentOutOfRangeException(nameof(election), role, "Unsupported election role."),
+        };
+        return (role == ReplicaGroupRole.Leader && authority, contact, Math.Max(currentTerm, observed), reported);
+    }
+
     private async ValueTask<ReplicaStatusSnapshot?> ReadGroupAsync(string groupId, TopologyFingerprint expected, CancellationToken cancellationToken)
     {
         if (!_registry.TryGetLog(groupId, out var log))
             return null;
 
+        // The election state is read before the log: the log persists a term before the state observes it, so a vote persisted
+        // between the two reads never shows as an observed term above the durable one. A group is elected by configuration, so an
+        // owner whose driver has not started yet, or has stopped, reports a follower without authority, as its committer refuses.
+        var eligibility = _registry.EligibilityFor(groupId);
+        (ReplicaGroupRole Role, bool HasAuthority, bool HasMajorityContact, ulong ObservedTerm)? election = null;
+        if (_topology.AutomaticFailoverEnabled && eligibility.ReplicaCount >= 3)
+            election = _registry.StateFor(groupId).ObserveStatus();
+
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         var retention = await log.GetRetentionAsync(cancellationToken).ConfigureAwait(false);
-        var eligibility = _registry.EligibilityFor(groupId);
         var readyMembers = 0;
         for (var replica = 0; replica < eligibility.ReplicaCount; replica++)
         {
@@ -72,28 +103,41 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
                 readyMembers++;
         }
 
-        // FollowerLogStatus.CurrentTerm is already the highest term this node has observed and
-        // persisted (term validation lives inside the log); no distinct peer-term feed exists yet,
-        // so ObservedTerm mirrors it. The snapshot keeps both fields so ReplicaReadiness.Evaluate
-        // fences stale terms once peer tracking is wired; that path is proven by crafted snapshots.
+        // Without elections FollowerLogStatus.CurrentTerm is the highest term this node has observed and persisted (term validation
+        // lives inside the log), so ObservedTerm mirrors it. An election driver also sees terms in replies before it persists them.
+        var (isLeader, hasMajorityContact, observedTerm, role) = election is { } elected
+            ? Elected(elected, status.CurrentTerm)
+            : Static(groupId, readyMembers * 2 > eligibility.ReplicaCount, status.CurrentTerm);
         return new ReplicaStatusSnapshot(
             _nodeId,
             groupId,
             eligibility.ReplicaCount,
             status.CurrentTerm,
-            status.CurrentTerm,
+            observedTerm,
             status.LastLogIndex,
             status.CommitIndex,
             status.LastAppliedIndex,
             ReplicaTopologyMatch.MatchesFingerprint(status.TopologyFingerprint, expected.Bytes),
             ReplicaTopologyMatch.MatchesGeneration(status.ConfigurationGeneration, _topology.ConfigurationGeneration),
             status.Readiness == FollowerLogReadiness.Ready,
-            string.Equals(groupId, _nodeId, StringComparison.Ordinal),
-            readyMembers * 2 > eligibility.ReplicaCount)
+            isLeader,
+            hasMajorityContact)
         {
             LogBytes = retention.LogBytes,
             RetainedEntries = retention.RetainedEntries,
             SnapshotIndex = retention.SnapshotIndex,
+            Role = role,
         };
+    }
+
+    /// <summary>Reads the leadership of a group without an election driver: the owner leads its group statically.</summary>
+    /// <param name="groupId">The replica group identifier.</param>
+    /// <param name="readyMajority">Whether a majority of the slots is verified ready.</param>
+    /// <param name="currentTerm">The durable term of the group log.</param>
+    /// <returns>Whether this node leads, its majority contact, the observed term, and its role.</returns>
+    private (bool IsLeader, bool HasMajorityContact, ulong ObservedTerm, ReplicaElectionRole Role) Static(string groupId, bool readyMajority, ulong currentTerm)
+    {
+        var owner = string.Equals(groupId, _nodeId, StringComparison.Ordinal);
+        return (owner, readyMajority, currentTerm, owner ? ReplicaElectionRole.AuthorizedLeader : ReplicaElectionRole.Follower);
     }
 }

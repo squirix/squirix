@@ -158,6 +158,41 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
     }
 
+    /// <summary>
+    /// Verifies the owner leads its group statically without automatic failover; with it, only a leader with authority is the leader,
+    /// whether or not the driver runs, and the status carries the highest term the election saw and the role.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ElectionStateDecidesLeadership(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-readiness-election");
+        await using var registry = CreateRegistry(dir, CreateTopology(3));
+        await registry.OpenAsync(cancellationToken);
+        var statically = new ReplicaGroupStatusSource(registry, CreateTopology(3), new MtlsOptions(), "node-a");
+        var source = new ReplicaGroupStatusSource(registry, CreateTopology(3, true), new MtlsOptions(), "node-a");
+        var owned = (await statically.GetSnapshotsAsync(cancellationToken))[0];
+        var unstarted = (await source.GetSnapshotsAsync(cancellationToken))[0];
+        var state = registry.StateFor("node-a");
+        state.SetElectionDriven(true);
+        state.ObserveHigherTerm(4UL);
+        var following = (await source.GetSnapshotsAsync(cancellationToken))[0];
+        _ = state.BecomeLeader(4UL);
+        var elected = (await source.GetSnapshotsAsync(cancellationToken))[0];
+        _ = state.GrantAuthority(4UL);
+        var leading = (await source.GetSnapshotsAsync(cancellationToken))[0];
+        state.SetElectionDriven(false);
+        var stopped = (await source.GetSnapshotsAsync(cancellationToken))[0];
+
+        _ = await Assert.That((owned.IsLeader, owned.ObservedTerm, owned.Role)).IsEqualTo((true, 0UL, ReplicaElectionRole.AuthorizedLeader));
+        _ = await Assert.That((unstarted.IsLeader, unstarted.Role)).IsEqualTo((false, ReplicaElectionRole.Follower));
+        _ = await Assert.That((following.IsLeader, following.HasMajorityContact, following.ObservedTerm, following.Role))
+                        .IsEqualTo((false, false, 4UL, ReplicaElectionRole.Follower));
+        _ = await Assert.That((elected.IsLeader, elected.Role)).IsEqualTo((false, ReplicaElectionRole.Leader));
+        _ = await Assert.That((leading.IsLeader, leading.HasMajorityContact, leading.Role)).IsEqualTo((true, true, ReplicaElectionRole.AuthorizedLeader));
+        _ = await Assert.That((stopped.IsLeader, stopped.Role)).IsEqualTo((false, ReplicaElectionRole.Follower));
+    }
+
     /// <summary>Verifies an owned group with majority contact reports healthy.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -221,12 +256,13 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         return new ReplicaGroupRegistry(dir, ["node-a"], topology.ReplicaCount, fingerprint, topology.ConfigurationGeneration, NullLoggerFactory.Instance);
     }
 
-    private static TopologyOptions CreateTopology(int replicaCount) => new([new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6131") }])
+    private static TopologyOptions CreateTopology(int replicaCount, bool automaticFailover = false) => new([new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6131") }])
     {
         ClusterId = "readiness-c",
         NodeId = "node-a",
         Uri = new Uri("https://localhost:6131"),
         ReplicaCount = replicaCount,
+        AutomaticFailoverEnabled = automaticFailover,
     };
 
     private static ReplicaStatusSnapshot ReadyFollowerSnapshot(string group) => new("node-a", group, 3, 4, 4, 10, 7, 7, true, true, true, false, true);

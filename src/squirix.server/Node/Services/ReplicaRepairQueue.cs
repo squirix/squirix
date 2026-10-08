@@ -8,7 +8,8 @@ namespace Squirix.Server.Node.Services;
 
 /// <summary>The follower slots of the owned replica group waiting for repair, consumed by <see cref="ReplicaGroupReadinessService" />.</summary>
 /// <remarks>
-/// A slot is queued when the commit path demotes its follower, at most once until the readiness service takes it, so the queue never
+/// A slot is queued when the commit path demotes its follower, or when a follower out of the write quorum answers an elected leader, at
+/// most once until the readiness service takes it, so the queue never
 /// holds more entries than the group has slots. Enqueueing never waits and never throws: it runs on the commit and observation paths.
 /// The readiness service is the single reader; it verifies and catches up the queued followers on its own loop.
 /// </remarks>

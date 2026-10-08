@@ -230,6 +230,24 @@ internal sealed class ReplicaGroupState
         }
     }
 
+    /// <summary>Reads, in one consistent view, what the replica status reports of this node in the group.</summary>
+    /// <returns>
+    /// The role; whether this node leads with authority; whether it is in contact with a majority as far as its role can tell (a leader:
+    /// a majority answered within the election timeout, the quorum check of the driver; any other role: a leader contacted it within the
+    /// election timeout); and the highest term it saw.
+    /// </returns>
+    internal (ReplicaGroupRole Role, bool HasAuthority, bool HasMajorityContact, ulong ObservedTerm) ObserveStatus()
+    {
+        lock (_sync)
+        {
+            // The leader's own slot never records a contact: only its followers answer it. The lock is reentrant.
+            var contact = _role == ReplicaGroupRole.Leader
+                ? HasQuorumContact(-1, Options.ElectionTimeout)
+                : _lastLeaderContact != NoContact && Clock.GetElapsedTime(_lastLeaderContact) < Options.ElectionTimeout;
+            return (_role, _hasAuthority, contact, _highestObservedTerm);
+        }
+    }
+
     /// <summary>Reads the leader this node last accepted contact from.</summary>
     /// <param name="leaderId">The leader identifier.</param>
     /// <param name="term">The term it led.</param>
@@ -340,6 +358,22 @@ internal sealed class ReplicaGroupState
 
             _hasAuthority = true;
             return true;
+        }
+    }
+
+    /// <summary>Restarts the quorum grace of a leader still without authority, after a promotion attempt that held its driver.</summary>
+    /// <param name="term">The led term.</param>
+    /// <remarks>
+    /// A promotion that starts the leadership probes every follower before any heartbeat, and a dead follower holds that probe for its
+    /// whole timeout; the grace then restarts when the heartbeats can, so the leader is not deposed for followers it could not ask. A
+    /// leader without authority serves nothing, so the longer tenure admits nothing; a leader already authorized keeps its grace.
+    /// </remarks>
+    internal void RestartQuorumGrace(ulong term)
+    {
+        lock (_sync)
+        {
+            if (_role == ReplicaGroupRole.Leader && _term == term && !_hasAuthority)
+                _leaderSince = Clock.GetTimestamp();
         }
     }
 
