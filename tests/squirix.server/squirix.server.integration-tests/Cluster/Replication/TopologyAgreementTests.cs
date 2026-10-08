@@ -89,6 +89,32 @@ public sealed class TopologyAgreementTests : NodeIntegrationTestBase
         _ = await Assert.That(exception.Message).Contains(Unsupported, StringComparison.Ordinal);
     }
 
+    /// <summary>A restart that turns automatic failover and quorum reads on is refused at startup, and the error names the switches.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailoverSwitchFlipIsRejected(CancellationToken cancellationToken)
+    {
+        var options = new IntegrationStartOptions { ReplicaCount = 3, UsePersistence = true, ExtraScope = "topology-switches" };
+
+        await using var cluster = await StartClusterAsync("n1", "n2", "n3", options, cancellationToken);
+        await cluster.StopNodeAsync("n1");
+
+        var opt = new IntegrationStartOptions
+        {
+            ReplicaCount = 3,
+            UsePersistence = true,
+            CleanTestDir = false,
+            ExtraScope = "topology-switches",
+            AutomaticFailoverEnabled = true,
+            QuorumReadsEnabled = true,
+        };
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", opt, cancellationToken));
+
+        _ = await Assert.That(exception.Message).Contains(": topology fingerprint changed (stamped ", StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains("or the automatic failover and quorum read switches differ", StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains(Unsupported, StringComparison.Ordinal);
+    }
+
     /// <summary>A restart with a new replica count is refused at startup and names the changed replica count.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
