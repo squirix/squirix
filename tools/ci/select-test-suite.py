@@ -71,7 +71,8 @@ SUITES = {
 #    server unit tests as a separate job).
 #  - `e2e-cluster`: the multi-node and the failover end-to-end tests (macOS).
 #  - `desktop-integration`: the short suites Windows and macOS run, plus the server integration tests.
-#  - `arm-client`, `arm-server`: every suite ARM covers; nothing waits for ARM, so two jobs are enough.
+#  - `arm-client`, `arm-server`: every suite ARM covers, the failover end-to-end tests included; nothing waits for ARM,
+#    so two jobs are enough.
 GROUPS = {
     "light": ("unit", "client-integration", "protocol-model", "smoke", "e2e-single-node"),
     "light-e2e": ("unit", "client-integration", "protocol-model", "smoke", "e2e-single-node", "e2e-multi-node"),
@@ -79,7 +80,7 @@ GROUPS = {
     "server-unit-e2e": ("server-unit", "e2e-multi-node", "e2e-failover"),
     "e2e-cluster": ("e2e-multi-node", "e2e-failover"),
     "desktop-integration": ("unit", "client-integration", "e2e-single-node", "server-integration"),
-    "arm-client": ("unit", "client-integration", "protocol-model", "e2e-single-node", "e2e-multi-node"),
+    "arm-client": ("unit", "client-integration", "protocol-model", "e2e-single-node", "e2e-multi-node", "e2e-failover"),
     "arm-server": ("server-unit", "server-integration"),
 }
 
