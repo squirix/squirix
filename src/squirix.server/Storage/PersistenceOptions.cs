@@ -119,19 +119,6 @@ internal sealed record PersistenceOptions
         RequirePositive(SnapshotRetentionCount, nameof(SnapshotRetentionCount));
     }
 
-    private void ValidateGroupCommit()
-    {
-        if (JournalGroupCommitMaxBatch is < 1 or > MaxGroupCommitBatch)
-            throw new InvalidOperationException($"Journal GroupCommitMaxBatch must be between 1 and {MaxGroupCommitBatch}.");
-
-        var wait = JournalGroupCommitMaxWait;
-        if (wait == TimeSpan.Zero)
-            return;
-
-        if (wait < MinGroupCommitWait || wait > MaxGroupCommitWait || wait.Ticks % TimeSpan.TicksPerMillisecond != 0)
-            throw new InvalidOperationException($"Journal GroupCommitMaxWait must be zero or between {MinGroupCommitWait.TotalMilliseconds} and {MaxGroupCommitWait.TotalMilliseconds} whole milliseconds (for example \"00:00:00.005\").");
-    }
-
     /// <summary>Refuses a journal size that cannot hold the largest frame, under which valid writes would be refused forever.</summary>
     /// <param name="valueMb">The configured size in megabytes.</param>
     /// <param name="name">The option name.</param>
@@ -155,6 +142,19 @@ internal sealed record PersistenceOptions
     {
         if (value <= TimeSpan.Zero)
             throw new InvalidOperationException($"Persistence {name} must be greater than zero.");
+    }
+
+    private void ValidateGroupCommit()
+    {
+        if (JournalGroupCommitMaxBatch is < 1 or > MaxGroupCommitBatch)
+            throw new InvalidOperationException($"Journal GroupCommitMaxBatch must be between 1 and {MaxGroupCommitBatch}.");
+
+        var wait = JournalGroupCommitMaxWait;
+        if (wait == TimeSpan.Zero)
+            return;
+
+        if (wait < MinGroupCommitWait || wait > MaxGroupCommitWait || wait.Ticks % TimeSpan.TicksPerMillisecond != 0)
+            throw new InvalidOperationException($"Journal GroupCommitMaxWait must be zero or between {MinGroupCommitWait.TotalMilliseconds} and {MaxGroupCommitWait.TotalMilliseconds} whole milliseconds (for example \"00:00:00.005\").");
     }
 
     private static class PersistenceOptionsDefaults
