@@ -35,6 +35,21 @@ internal static class CachePipelineRegistration
         return services;
     }
 
+    /// <summary>Creates the lookup that asks the replica group owning a key whether it recorded an operation's outcome.</summary>
+    /// <param name="registry">The groups this node serves.</param>
+    /// <param name="owners">The ring owner of a key, which names its replica group.</param>
+    /// <returns>The lookup by cache name, key and operation id; a group this node does not serve records nothing.</returns>
+    /// <remarks>
+    /// A key that passed the ownership guard belongs to a group this node leads. Without elections that is always the group this node
+    /// owns, so the lookup asks the same group as before; with elections each led group answers for its own keys.
+    /// </remarks>
+    internal static Func<string, string, string, bool> RecordedOutcomeLookup(ReplicaGroupRegistry registry, INodeLocator owners)
+    {
+        ArgumentNullException.ThrowIfNull(registry);
+        ArgumentNullException.ThrowIfNull(owners);
+        return (cacheName, key, operationId) => registry.HasRecordedOutcome(owners.GetOwner(cacheName, key), cacheName, operationId);
+    }
+
     /// <summary>
     /// Outermost decorator runs first: Tracing → DomainError → Validation → OwnershipGuard → Backpressure → Metrics → Memory.
     /// The ownership guard sits above admission and everything that commits, journals or takes key gates, so a remote key is refused before any of them.
@@ -108,18 +123,13 @@ internal static class CachePipelineRegistration
         _ = services.AddKeyedSingleton<ILogicalNamespacedCache<object?>>(LocalChainKey, static (sp, _) => sp.GetRequiredService<OwnerPutPayloadGuardDecorator<object?>>());
     }
 
-    /// <summary>Returns how memory admission asks whether the owned replica group recorded an operation's outcome; none on single-copy hosts.</summary>
+    /// <summary>Returns how memory admission asks whether the replica group of a key recorded an operation's outcome; none on single-copy hosts.</summary>
     /// <param name="sp">The service provider.</param>
     /// <returns>The lookup, or <see langword="null" /> when mutations do not commit through a replica group.</returns>
-    private static Func<string, string, bool>? HasRecordedOutcome(IServiceProvider sp)
-    {
-        if (!sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled)
-            return null;
-
-        var registry = sp.GetRequiredService<ReplicaGroupRegistry>();
-        var groupId = sp.GetRequiredService<TopologyOptions>().NodeId;
-        return (cacheName, operationId) => registry.HasRecordedOutcome(groupId, cacheName, operationId);
-    }
+    private static Func<string, string, string, bool>? HasRecordedOutcome(IServiceProvider sp) =>
+        sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled
+            ? RecordedOutcomeLookup(sp.GetRequiredService<ReplicaGroupRegistry>(), sp.GetRequiredService<INodeLocator>())
+            : null;
 
     /// <summary>Resolves the owner-local cache: replicated commits on activated hosts, direct pipeline otherwise.</summary>
     /// <param name="sp">Service provider.</param>
