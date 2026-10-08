@@ -108,7 +108,13 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         _ = await Assert.That(stale.CommitIndex).IsLessThan(current);
         _ = await Assert.That((stale.IsLeader, read.Allowed)).IsEqualTo((false, false));
         _ = await Assert.That(stale.Role).IsNotEqualTo(ReplicaElectionRole.AuthorizedLeader);
-        _ = await Assert.That((cutOff.StatusCode, deposed.StatusCode)).IsEqualTo((StatusCode.Unavailable, StatusCode.Unavailable));
+
+        // Right after the cut the leader may still hold authority, so its round goes unconfirmed, or it may have lost it already.
+        _ = await Assert.That(cutOff.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(
+            string.Equals(cutOff.Status.Detail, ServerOpContract.ReadQuorumUnconfirmedDetail, StringComparison.Ordinal) ||
+            string.Equals(cutOff.Status.Detail, ServerOpContract.NoLeaderAuthorityDetail, StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That((deposed.StatusCode, deposed.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }
 
     /// <summary>

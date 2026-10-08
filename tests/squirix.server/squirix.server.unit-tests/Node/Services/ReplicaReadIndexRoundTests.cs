@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
@@ -55,6 +57,37 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
         leader.Rounds.Observe(ticket, 2, Rejected(FollowerLogRefusal.LogMismatch));
 
         _ = await Assert.That((heldBack, await confirming.WaitAsync(HangGuard, TimeProvider.System, cancellationToken))).IsEqualTo((true, 4UL));
+    }
+
+    /// <summary>
+    /// Through the observing transport, the reply to a request sent before the round started does not confirm it; the sender, busy when the
+    /// round asked for a heartbeat, sends one as soon as its send loop ran out of work, and that reply does.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BusySenderBeatsOnceIdle(CancellationToken cancellationToken)
+    {
+        var gateway = new HeldGateway();
+        var rounds = new ReplicaReadIndexRound(Term, 3, 0);
+        var header = new ReplicaRpcHeader("n1", new byte[] { 9, 8, 7 }, 1, Term, "n1", "n1");
+        var sender = new ReplicaFollowerSender(rounds.Observing(gateway, ["n1", "n2", "n3"]), "n2", in header, 0, 0, HangGuard);
+        try
+        {
+            var idle = sender.TryEnqueueHeartbeat(0UL);
+            var inFlight = await gateway.NextAsync(cancellationToken);
+            var confirming = rounds.ConfirmAsync(sender, static _ => 1UL, static busy => _ = busy.TryEnqueueHeartbeat(1UL, true), cancellationToken).AsTask();
+            _ = inFlight.TrySetResult(Accepted(Term));
+            var deferred = await gateway.NextAsync(cancellationToken);
+            var heldBack = !confirming.IsCompleted;
+            _ = deferred.TrySetResult(Accepted(Term));
+
+            _ = await Assert.That((idle, heldBack, await confirming.WaitAsync(HangGuard, TimeProvider.System, cancellationToken))).IsEqualTo((true, true, 1UL));
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
     }
 
     /// <summary>A reply in a higher term fails the round in flight and every later one as the loss of leader authority.</summary>
@@ -110,6 +143,7 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
 
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
         _ = await Assert.That(later.Status.Detail).IsEqualTo(ServerOpContract.ReadQuorumUnconfirmedDetail);
+        _ = await Assert.That(later).IsNotSameReferenceAs(refused);
     }
 
     /// <summary>A reader that gives up leaves its round in flight: a reader waiting behind it still waits for that round, then gets its own.</summary>
@@ -137,6 +171,34 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
     private static FollowerLogAppendResult Accepted(ulong term) => new(true, string.Empty, term, 0UL);
 
     private static FollowerLogAppendResult Rejected(string refusal) => new(false, refusal, Term, 0UL);
+
+    /// <summary>Follower transport that holds every request until the test answers it, handing the requests out in arrival order.</summary>
+    private sealed class HeldGateway : IReplicaRpcGateway
+    {
+        private readonly Channel<TaskCompletionSource<FollowerLogAppendResult>> _arrivals = Channel.CreateUnbounded<TaskCompletionSource<FollowerLogAppendResult>>();
+        private readonly ConcurrentQueue<TaskCompletionSource<FollowerLogAppendResult>> _held = new();
+
+        public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
+        {
+            var answer = new TaskCompletionSource<FollowerLogAppendResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _held.Enqueue(answer);
+            _ = _arrivals.Writer.TryWrite(answer);
+            return answer.Task;
+        }
+
+        /// <summary>Waits for the next request.</summary>
+        /// <param name="cancellationToken">The test cancellation token.</param>
+        /// <returns>The answer of the request.</returns>
+        internal Task<TaskCompletionSource<FollowerLogAppendResult>> NextAsync(CancellationToken cancellationToken) =>
+            _arrivals.Reader.ReadAsync(cancellationToken).AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        /// <summary>Answers every held request, so no send loop outlives the test.</summary>
+        internal void ReleaseAll()
+        {
+            foreach (var answer in _held)
+                _ = answer.TrySetResult(Accepted(Term));
+        }
+    }
 
     /// <summary>The leader side of the rounds: a commit index the test moves, and a heartbeat that reports the ticket of the requests it sends.</summary>
     private sealed class Leader

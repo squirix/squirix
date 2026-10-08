@@ -73,11 +73,60 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         var reading = new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken).AsTask();
         var waited = !reading.IsCompleted;
         await committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken);
-        time.Advance(TimeSpan.FromMilliseconds(1));
+        await PollAsync(time, reading);
         var read = await reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((appliedBefore, waited, applier.AppliedIndex)).IsEqualTo((1UL, true, 3UL));
         _ = await Assert.That(read?.Value).IsEqualTo("b");
+    }
+
+    /// <summary>A leader that sees a higher term while its read waits for the read index to be applied refuses the read once memory applied it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HigherTermDuringApplyRefusesRead(CancellationToken cancellationToken)
+    {
+        var time = new FakeTimeProvider();
+        using var dir = new TempDirectory("squirix-quorum-read-deposed");
+        await using var registry = await OpenAsync(dir, time, cancellationToken);
+        var cache = new StubCache();
+        await using var committers = Lead(registry, new ScriptedGateway(), cache);
+        var committer = await AuthorizeAsync(registry, committers, cancellationToken);
+        cache.OnApplied = static () => throw new IOException("memory refused the apply");
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        cache.OnApplied = null;
+
+        var reading = new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken).AsTask();
+        var waited = !reading.IsCompleted;
+        registry.StateFor("n2").ObserveHigherTerm(3UL);
+        var applied = await committer.TryApplyPendingAsync();
+        await PollAsync(time, reading);
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+
+        _ = await Assert.That((waited, applied)).IsEqualTo((true, true));
+        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+    }
+
+    /// <summary>A read waiting for its round fails at once, as unconfirmed, when the leadership retires and closes the pipeline of the round.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RetiredLeaderFailsPendingRead(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-quorum-read-retired");
+        await using var registry = await OpenAsync(dir, new FakeTimeProvider(), cancellationToken);
+        var gateway = new ScriptedGateway();
+        var cache = new StubCache();
+        await using var committers = Lead(registry, gateway, cache);
+        _ = await AuthorizeAsync(registry, committers, cancellationToken);
+        gateway.Set("n2", FollowerMode.Down);
+        gateway.Set("n3", FollowerMode.Down);
+
+        var reading = new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken).AsTask();
+        var waited = !reading.IsCompleted;
+        var retired = await committers.RetireAsync("n2", cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+
+        _ = await Assert.That((waited, retired)).IsEqualTo((true, true));
+        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
     }
 
     /// <summary>A leader whose followers stop answering refuses a read once the election timeout passed without a majority confirming its read index.</summary>
@@ -122,6 +171,19 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         return authorized ? committers.For("n2") : throw new InvalidOperationException("Node n1 must lead group n2 with authority in term 2.");
     }
 
+    /// <summary>Moves the fake clock a millisecond at a time until a read waiting on the applied-index poll completes, staying well inside its bound.</summary>
+    /// <param name="time">The fake clock of the poll.</param>
+    /// <param name="reading">The read.</param>
+    /// <returns>A task that completes once the read completed or the steps ran out.</returns>
+    private static async Task PollAsync(FakeTimeProvider time, Task reading)
+    {
+        for (var step = 0; step < 100 && !reading.IsCompleted; step++)
+        {
+            time.Advance(TimeSpan.FromMilliseconds(1));
+            await Task.Yield();
+        }
+    }
+
     private static ReplicaGroupCommitters Lead(ReplicaGroupRegistry registry, ScriptedGateway gateway, StubCache cache, ReplicaGroupApplier? applier = null) =>
         new(
             groupId => CreateElectedCommitter(registry, groupId, gateway, cache, applier ?? new ReplicaGroupApplier(cache, NullLogger.Instance, groupId, "n1")),
@@ -136,6 +198,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         {
             Election = Timing,
             ElectionClock = time,
+            QuorumReads = true,
         };
 
         try
