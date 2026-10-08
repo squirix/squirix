@@ -81,11 +81,10 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
                     continue;
 
                 // A key of a group this node only follows is expired by its own leader, never here.
-                var owner = _locator.GetOwner(key.Namespace, key.Key);
-                if (!_committers.Leads(owner))
+                if (_committers.Find(_locator.GetOwner(key.Namespace, key.Key)) is not { } committer)
                     continue;
 
-                _ = await _committers.For(owner).ExpireAsync(key.Namespace, key.Key, cancellationToken).ConfigureAwait(false);
+                _ = await committer.ExpireAsync(key.Namespace, key.Key, cancellationToken).ConfigureAwait(false);
                 expired++;
             }
         }

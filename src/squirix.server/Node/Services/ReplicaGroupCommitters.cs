@@ -108,4 +108,9 @@ internal sealed class ReplicaGroupCommitters : IAsyncDisposable
     /// <param name="groupId">Replica group identifier.</param>
     /// <returns><see langword="true" /> when this node leads the group.</returns>
     internal bool Leads(string groupId) => _byGroup.ContainsKey(groupId);
+
+    /// <summary>Finds the committer of a group in one lookup.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <returns>The committer, or <see langword="null" /> when this node does not lead the group.</returns>
+    internal ReplicaGroupCommitter? Find(string groupId) => _byGroup.GetValueOrDefault(groupId);
 }
