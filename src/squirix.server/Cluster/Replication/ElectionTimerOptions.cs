@@ -14,6 +14,8 @@ namespace Squirix.Server.Cluster.Replication;
 [Immutable]
 internal sealed class ElectionTimerOptions
 {
+    private readonly TimeSpan? _leaderWaitTimeout;
+
     /// <summary>Gets the time without leader contact after which a follower starts an election; also the window of the leader quorum check.</summary>
     internal TimeSpan ElectionTimeout { get; init; } = TimeSpan.FromSeconds(1);
 
@@ -23,6 +25,17 @@ internal sealed class ElectionTimerOptions
     /// <summary>Gets the seed of the election jitter; every group mixes its identifier in, so groups draw different delays.</summary>
     /// <remarks>Drawn once per options instance unless set, so nodes differ while a test can pin it for a deterministic run.</remarks>
     internal ulong JitterSeed { get; init; } = BinaryPrimitives.ReadUInt64LittleEndian(RandomNumberGenerator.GetBytes(sizeof(ulong)));
+
+    /// <summary>Gets the longest wait of an entry node for a leader of a served group that has none known.</summary>
+    /// <remarks>
+    /// Defaults to <see cref="ElectionTimeout" /> plus <see cref="MaxJitter" />, the longest a follower waits before it campaigns; the remaining
+    /// deadline of the request caps it further.
+    /// </remarks>
+    internal TimeSpan LeaderWaitTimeout
+    {
+        get => _leaderWaitTimeout ?? (ElectionTimeout + MaxJitter);
+        init => _leaderWaitTimeout = value;
+    }
 
     /// <summary>Gets the largest random delay added to <see cref="ElectionTimeout" /> each time a follower arms its election.</summary>
     internal TimeSpan MaxJitter { get; init; } = TimeSpan.FromSeconds(1);
