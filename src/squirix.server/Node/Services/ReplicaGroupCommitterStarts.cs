@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
-using Squirix.Server.Errors;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
 
@@ -22,7 +21,7 @@ internal static class ReplicaGroupCommitterStarts
         /// The new pipeline, the mutation factory of the led term, the leader tail read last, the led term, the eligibility of the group, and
         /// the probe results to admit once the coordinator exists.
         /// </returns>
-        /// <exception cref="Grpc.Core.RpcException">A static leader whose log moved past term one: Unavailable, nothing was written.</exception>
+        /// <exception cref="StaticLeaderTermExceededException">A static leader whose log moved past term one; nothing was written.</exception>
         /// <remarks>Runs under the commit gate, after the coordinator of the previous start is retired.</remarks>
         internal async Task<(ReplicaGroupCommitPipeline Pipeline, ReplicaMutationFactory Factory, FollowerLogTail Read, ulong Term, ReplicaEligibility Eligibility, ReplicaProbeResult[] Results)>
             LaunchAsync(IFollowerLog log, ReplicaLeaderTenure? tenure, bool replacing, CancellationToken cancellationToken)
@@ -38,7 +37,7 @@ internal static class ReplicaGroupCommitterStarts
             // elected one leads its won term and appends its leader-term entry before any follower is probed, so verification can admit the
             // followers that hold it; the entry commits like a recovered tail.
             var term = tenure?.TermFor(in status, committer.GroupId)
-                       ?? (StaticLeaderTerm.TryResolve(in status, out var staticTerm) ? staticTerm : throw ServerOpContract.NoLeaderAuthority());
+                       ?? (StaticLeaderTerm.TryResolve(in status, out var staticTerm) ? staticTerm : throw StaticTermExceeded(committer.GroupId, status.CurrentTerm));
             var factory = new ReplicaMutationFactory(committer.Local, committer.GroupId, term, committer.Clock, committer.Log);
             if (tenure != null)
             {
@@ -110,4 +109,7 @@ internal static class ReplicaGroupCommitterStarts
                 budget => ServerLog.ReplicaFollowerSenderLeakedOnShutdown(log, budget));
         }
     }
+
+    private static StaticLeaderTermExceededException StaticTermExceeded(string groupId, ulong term) =>
+        new($"Replica group '{groupId}' log is at term {term}, which only an election sets; this node leads it statically in term one only.");
 }
