@@ -147,6 +147,32 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         _ = await Assert.That((await log.GetRetentionAsync(cancellationToken)).SnapshotIndex).IsEqualTo(1UL);
     }
 
+    /// <summary>
+    /// A compaction step that outlasts its wait budget once it holds the gate is never cut short: the durability barrier inside it outlives
+    /// the budget, and the log still compacts and stays ready.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BudgetNeverCutsCompaction(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-maintenance-led-budget");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await using var committer = CreateWaitBoundCommitter(registry, "n1", new ScriptedGateway(), new StubCache(), TimeSpan.FromMilliseconds(50));
+        await committer.CommitSetAsync(NewOperationId(), "cache", "a", Entry("a"), cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), "cache", "b", Entry("b"), cancellationToken);
+        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
+
+        // The barrier ends only after the wait budget elapsed, and observes the token it was given: a budget-bound token cancels it.
+        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>())
+                      .Callback(static token => new ValueTask(Task.Delay(TimeSpan.FromMilliseconds(200), TimeProvider.System, token)));
+
+        var outcome = await committer.CompactOwnedLogAsync(new ReplicaLogCompactionPolicy(long.MaxValue, 1), durability.Instance(), cancellationToken);
+
+        var log = OwnedLogOf(registry);
+        _ = await Assert.That((outcome, (await log.GetStatusAsync(cancellationToken)).Readiness)).IsEqualTo((ReplicaLogCompactionOutcome.Compacted, FollowerLogReadiness.Ready));
+        _ = await Assert.That((await log.GetRetentionAsync(cancellationToken)).SnapshotIndex).IsEqualTo(2UL);
+    }
+
     /// <summary>A group whose applier lease is held by a committer leading it is skipped by the follower pass: its log is neither flushed nor compacted.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

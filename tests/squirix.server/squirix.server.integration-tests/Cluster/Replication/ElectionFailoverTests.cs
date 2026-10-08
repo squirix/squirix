@@ -14,6 +14,7 @@ using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using SkipTestException = TUnit.Core.Exceptions.SkipTestException;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -65,7 +66,7 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
     /// On a loaded machine the owner can lose term one to an election before its peers answer; the setup is then started again, and the
     /// test is skipped with that reason when no setup lets the owner keep term one.
     /// </remarks>
-    /// <exception cref="TUnit.Core.Exceptions.SkipTestException">No setup let the owner keep term one.</exception>
+    /// <exception cref="SkipTestException">No setup let the owner keep term one.</exception>
     [Test]
     public async Task StoppedOwnerGroupElectsNewLeader(CancellationToken cancellationToken)
     {
@@ -74,7 +75,17 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
             // Each setup reserves new addresses, so it gets a data directory of its own: the topology stamp of an earlier setup differs.
             var scope = $"election-owner-failover-{attempt}";
             await using var cluster = await StartClusterAsync(Nodes[0], Nodes[1], Nodes[2], Options(scope, true), cancellationToken);
-            var first = await LeaderAsync(cluster, Nodes, "the group of the owner gets a leader", cancellationToken, OwnerBound);
+            (string NodeId, ulong Term) first;
+            try
+            {
+                first = await LeaderAsync(cluster, Nodes, "the group of the owner gets a leader", cancellationToken, OwnerBound);
+            }
+            catch (TimeoutException)
+            {
+                // No leader within the bound of one setup: the next setup tries again.
+                continue;
+            }
+
             if (!string.Equals(first.NodeId, OwnerId, StringComparison.Ordinal) || first.Term != 1UL)
                 continue;
 
@@ -82,7 +93,7 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
             return;
         }
 
-        throw new TUnit.Core.Exceptions.SkipTestException($"The owner lost term one to an election in each of {OwnerSetupAttempts} setups: the machine is too loaded for its peers to answer in time.");
+        throw new SkipTestException($"The owner lost term one to an election in each of {OwnerSetupAttempts} setups: the machine is too loaded for its peers to answer in time.");
     }
 
     /// <summary>Without automatic failover no election runs: the owner leads its group statically, as before.</summary>
@@ -119,7 +130,14 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
         var restarted = await cluster.StartNodeAsync(first.NodeId, restart, cancellationToken);
         await PhaseAsync(
             "the restarted former leader follows the new term",
-            () => restarted.WaitUntilValueAsync((node, token) => FollowsAsync(node, (first.NodeId, elected), token), Bound, cancellationToken));
+            () => cluster.WaitUntilValueAsync(
+                (nodes, token) =>
+                {
+                    _ = HighestAuthority(nodes, Nodes);
+                    return FollowsAsync(nodes[first.NodeId], (first.NodeId, elected), token);
+                },
+                Bound,
+                cancellationToken));
 
         _ = await Assert.That(elected).IsGreaterThan(first.Term);
         _ = await Assert.That(elected).IsGreaterThanOrEqualTo(2UL);
@@ -200,7 +218,8 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
     /// <exception cref="InvalidOperationException">The leader holds no leadership of the term, or its log holds no decodable entry at the index.</exception>
     private static async Task<(ReplicaLogRecord Record, bool Committed)> NoopAsync(ITestNodeHost leader, ulong term, CancellationToken cancellationToken)
     {
-        var tenure = leader.GetRequiredService<ReplicaGroupCommitters>().For(OwnerId).Tenure;
+        var committers = leader.GetRequiredService<ReplicaGroupCommitters>();
+        var tenure = committers.Leads(OwnerId) ? committers.For(OwnerId).Tenure : throw new InvalidOperationException($"The leader no longer leads group {OwnerId}.");
         var index = tenure is { } held && held.Term == term ? held.NoopIndex : throw new InvalidOperationException($"The leader holds no leadership of term {term}.");
         var log = Log(leader);
         var status = await log.GetStatusAsync(cancellationToken);

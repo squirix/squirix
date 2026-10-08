@@ -1,8 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -109,6 +111,58 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         _ = await Assert.That(service.ExecuteTask?.IsCompletedSuccessfully).IsTrue().Because("A retirement ends the leadership loop normally.");
     }
 
+    /// <summary>
+    /// A verification whose probe was out while the leadership retired admits nothing: it reports blocked and starts no coordinator for the
+    /// leadership that is over.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VerifyAfterRetireIsBlocked(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-verify-retire");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var gateway = new HoldingGateway();
+        await using var committer = Elected(registry, gateway);
+        _ = await committer.PromoteAsync(2UL, cancellationToken);
+        gateway.HoldProbes = true;
+
+        var verifying = committer.VerifyReplicasAsync(cancellationToken);
+        await gateway.ProbesHeld.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        var retired = await committer.RetireAsync(cancellationToken);
+        gateway.ReleaseProbes();
+        var verdict = await verifying.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That((retired, verdict)).IsEqualTo((true, ReplicaVerification.Blocked));
+        _ = await Assert.That(committer.RunningPipeline).IsNull();
+    }
+
+    /// <summary>
+    /// A write that holds the committer of a leadership that retired reaches the next leadership before its leader-term entry is committed:
+    /// it is refused as retryable, and nothing is appended.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WriteIntoUnauthorizedTenureIsRefused(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-write-next-tenure");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var log = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var gateway = new HoldingGateway { MatchFollowers = true };
+        await using var committer = Elected(registry, gateway);
+        _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
+        _ = await committer.RetireAsync(cancellationToken);
+        _ = await log.ObserveTermAsync(3UL, cancellationToken);
+        gateway.DownFollowers = true;
+        _ = await committer.PromoteAsync(3UL, cancellationToken);
+        var appended = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
+
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "b", Entry("b"), cancellationToken));
+
+        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(appended);
+    }
+
     /// <summary>A leader-term entry that a leader of a higher term replaced in the log never authorizes the leadership of the old term.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -162,6 +216,8 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
     private sealed class HoldingGateway : IReplicaRpcGateway
     {
         private readonly TaskCompletionSource _entriesHeld = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _probesHeld = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _probesReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly ScriptedGateway _followers = new();
 
         internal HoldingGateway()
@@ -173,6 +229,12 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         internal bool DownFollowers { get; set; }
 
         internal Task EntriesHeld => _entriesHeld.Task;
+
+        internal bool HoldProbes { get; set; }
+
+        internal bool MatchFollowers { get; set; }
+
+        internal Task ProbesHeld => _probesHeld.Task;
 
         internal bool FailProbes { get; set; }
 
@@ -187,13 +249,25 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
             if (empty && FailProbes)
                 throw new NotSupportedException("Injected probe fault after the leader-term entry.");
 
+            if (empty && HoldProbes)
+            {
+                _ = _probesHeld.TrySetResult();
+                await _probesReleased.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             if (!empty && HoldEntries)
             {
                 _ = _entriesHeld.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, cancellationToken).ConfigureAwait(false);
             }
 
-            return await _followers.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
+            if (!MatchFollowers)
+                return await _followers.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
+
+            var last = empty ? batch.PrevLogIndex : batch.Records[^1].LogIndex;
+            return new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last);
         }
+
+        internal void ReleaseProbes() => _ = _probesReleased.TrySetResult();
     }
 }
