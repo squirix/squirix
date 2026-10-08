@@ -14,8 +14,6 @@ using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
-#pragma warning disable VSTHRD003 // One expiry run is handed to every caller of a key, which is the behavior under test; the gates are completion sources the tests own.
-
 /// <summary>Integration evidence for the leader-owned expiration path over the common majority pipeline.</summary>
 public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
 {
@@ -43,7 +41,9 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var expiration = new ReplicaExpirationCoordinator<string>(async (_, _) =>
         {
+#pragma warning disable VSTHRD003 // The gate is a completion source this test owns and signals.
             await started.Task.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
             _ = await commit.CommitAsync(tombstone, TimeSpan.FromSeconds(2), CancellationToken.None).ConfigureAwait(false);
             return null;
         });
