@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -189,22 +188,6 @@ internal sealed class ReplicaGroupState
             _wake.Notify();
     }
 
-    /// <summary>Records a follower reply to an append or heartbeat of this leader, as a contact or as an observed term.</summary>
-    /// <param name="replicaIndex">The slot of the follower.</param>
-    /// <param name="reply">The reply.</param>
-    /// <remarks>
-    /// Only an answer from the follower's log is a contact: accepted, a log mismatch the leader repairs, or a log not ready yet. A refusal
-    /// before the log (another topology, another membership) proves nothing, and its term is still observed.
-    /// </remarks>
-    internal void RecordFollowerReply(int replicaIndex, in FollowerLogAppendResult reply)
-    {
-        if (reply.Success || string.Equals(reply.RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal) ||
-            string.Equals(reply.RefusalCode, FollowerLogRefusal.NotReady, StringComparison.Ordinal))
-            RecordFollowerContact(replicaIndex, reply.CurrentTerm);
-        else
-            ObserveHigherTerm(reply.CurrentTerm);
-    }
-
     /// <summary>Tells whether this leader heard from enough followers lately to form a majority with itself.</summary>
     /// <param name="leaderReplicaIndex">The slot of this node, which counts for itself.</param>
     /// <param name="window">How recent a follower reply must be.</param>
@@ -284,10 +267,7 @@ internal sealed class ReplicaGroupState
     internal void BecomePreCandidate()
     {
         lock (_sync)
-        {
-            _hasAuthority = false;
-            _role = ReplicaGroupRole.PreCandidate;
-        }
+            SetRoleLocked(ReplicaGroupRole.PreCandidate);
     }
 
     /// <summary>Starts a vote round in a term the log already holds durably with this node's own vote.</summary>
@@ -296,8 +276,7 @@ internal sealed class ReplicaGroupState
     {
         lock (_sync)
         {
-            _hasAuthority = false;
-            _role = ReplicaGroupRole.Candidate;
+            SetRoleLocked(ReplicaGroupRole.Candidate);
             _term = term;
             _ = RaiseLocked(term);
         }
@@ -310,8 +289,7 @@ internal sealed class ReplicaGroupState
     {
         lock (_sync)
         {
-            _hasAuthority = false;
-            _role = ReplicaGroupRole.Follower;
+            SetRoleLocked(ReplicaGroupRole.Follower);
             _term = term;
             _ = RaiseLocked(term);
             if (!forgetLeader)
@@ -330,11 +308,14 @@ internal sealed class ReplicaGroupState
     {
         lock (_sync)
         {
-            _hasAuthority = false;
             if (!_driven)
+            {
+                // No driver runs any more: the role stays as it is, and only the authority is cleared.
+                SetRoleLocked(_role);
                 return false;
+            }
 
-            _role = ReplicaGroupRole.Leader;
+            SetRoleLocked(ReplicaGroupRole.Leader);
             _term = term;
             _ = RaiseLocked(term);
             _leaderSince = Clock.GetTimestamp();
@@ -388,9 +369,17 @@ internal sealed class ReplicaGroupState
             if (driven)
                 return;
 
-            _hasAuthority = false;
-            _role = ReplicaGroupRole.Follower;
+            SetRoleLocked(ReplicaGroupRole.Follower);
         }
+    }
+
+    /// <summary>Moves this node to a role without authority; authority comes only with <see cref="GrantAuthority" />.</summary>
+    /// <param name="role">The new role.</param>
+    /// <remarks>Called under <see cref="_sync" />.</remarks>
+    private void SetRoleLocked(ReplicaGroupRole role)
+    {
+        _hasAuthority = false;
+        _role = role;
     }
 
     /// <summary>Raises the highest observed term; a leader loses its authority at once to a term above its own.</summary>

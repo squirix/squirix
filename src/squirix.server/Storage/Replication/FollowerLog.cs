@@ -394,8 +394,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         if (leaderTerm <= _meta.CurrentTerm)
             return await FollowerLogSnapshot.InstallAsync(_journal, this, snapshot, cancellationToken).ConfigureAwait(false);
         var candidate = _meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty };
-        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
-        _meta = candidate;
+        await StoreMetaAsync(candidate, cancellationToken).ConfigureAwait(false);
         return await FollowerLogSnapshot.InstallAsync(_journal, this, snapshot, cancellationToken).ConfigureAwait(false);
     }
 
@@ -446,8 +445,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         // The higher term is durable before anyone acts on it; any vote of an older term is cleared with it.
         var observed = _meta with { CurrentTerm = term, VotedFor = string.Empty };
-        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, observed, cancellationToken).ConfigureAwait(false);
-        _meta = observed;
+        await StoreMetaAsync(observed, cancellationToken).ConfigureAwait(false);
         return term;
     }
 
@@ -557,8 +555,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         byte[] owned = [.. fingerprint.Span];
         var candidate = _meta with { TopologyFingerprint = owned, ConfigurationGeneration = generation };
-        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
-        _meta = candidate;
+        await StoreMetaAsync(candidate, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Appends a batch after the readiness, term, and consistency checks.</summary>
@@ -582,6 +579,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <summary>Builds the status of the durable log state.</summary>
     /// <returns>The durable log status.</returns>
     /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
+    /// <summary>Persists new metadata durably and only then makes it the metadata of the log.</summary>
+    /// <param name="candidate">The new metadata.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes once the metadata is durable and current.</returns>
+    /// <remarks>Runs under the log gate. A failed write leaves the metadata as it was; it fails the readiness unless it was canceled or faulted by a dispose.</remarks>
+    private async Task StoreMetaAsync(GroupLogMetadata candidate, CancellationToken cancellationToken)
+    {
+        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
+        _meta = candidate;
+    }
+
     private FollowerLogStatus CaptureStatus()
     {
         var lastLogTerm = 0UL;
