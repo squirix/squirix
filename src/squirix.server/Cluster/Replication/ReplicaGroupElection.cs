@@ -112,7 +112,12 @@ internal sealed class ReplicaGroupElection
         if (_retirePending)
             return await RetireAsync(_state.Term, cancellationToken).ConfigureAwait(false);
 
+        // The log may have adopted a newer term on a follower path (an append or a vote of another node): the state follows it, so
+        // later contacts in that term are not mistaken for a higher term that wakes the driver.
         var status = await _log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        if (status.CurrentTerm > _state.Term)
+            _state.BecomeFollower(status.CurrentTerm, false);
+
         return true switch
         {
             _ when _state.HighestObservedTerm > status.CurrentTerm => await FollowAsync(_state.HighestObservedTerm, cancellationToken).ConfigureAwait(false),

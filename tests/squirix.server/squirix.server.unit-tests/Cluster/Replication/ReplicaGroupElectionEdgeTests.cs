@@ -132,6 +132,29 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
         _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.Authorized, 2UL));
     }
 
+    /// <summary>
+    /// A term the log adopted from a new leader is followed at the start of the next step, so a later contact in that term no longer wakes
+    /// the driver.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NewerDurableTermIsFollowed(CancellationToken cancellationToken)
+    {
+        await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
+        var election = CreateElection(scope, Three);
+        _ = await election.StepAsync(cancellationToken);
+        _ = await scope.Log.AppendAsync(new FollowerLogAppendRequest("n2", 3UL, 0UL, 0UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Empty), cancellationToken);
+        scope.State.ObserveLeaderContact("n2", 3UL);
+        _ = await scope.State.WaitAsync(TimeSpan.Zero, cancellationToken);
+
+        var outcome = await election.StepAsync(cancellationToken);
+        scope.State.ObserveLeaderContact("n2", 3UL);
+
+        _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.None, 3UL));
+        _ = await Assert.That((scope.State.Term, scope.State.Role)).IsEqualTo((3UL, ReplicaGroupRole.Follower));
+        _ = await Assert.That(await scope.State.WaitAsync(TimeSpan.Zero, cancellationToken)).IsFalse();
+    }
+
     private static ReplicaGroupElection Create(ReplicaGroupState state, IFollowerLog log, string groupId, string[] members) =>
         new(state, log, new ScriptedVotes(Grant), new RecordingLeadership(state), members, Header(groupId));
 
