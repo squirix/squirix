@@ -32,7 +32,7 @@ internal sealed class ReplicaVerificationProbe
     /// <summary>The followers the last admitted verification found answering, and the pipeline lookup of their catch-up target.</summary>
     private CatchUpOffer? _catchUp;
 
-    /// <summary>The blocked older-term tail last reported, so the warning is logged once per blocked state, not on every verification pass.</summary>
+    /// <summary>The blocked tail last reported, so the warning is logged once per blocked state, not on every verification pass.</summary>
     private BlockedTail? _reportedBlockedTail;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaVerificationProbe" /> class.</summary>
@@ -90,13 +90,13 @@ internal sealed class ReplicaVerificationProbe
 
     /// <summary>Probes the non-ready followers against the leader log.</summary>
     /// <param name="log">The group log.</param>
-    /// <param name="leaderTerm">
-    /// The term this node leads the group in when it won it by election; zero when it leads its own group statically, in the term of its
-    /// log.
-    /// </param>
+    /// <param name="leaderTerm">The term this node leads the group in when it won it by election; zero when it leads its own group statically, in term one.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The final verification state, or the probing the admission under the commit gate continues from.</returns>
-    /// <remarks>A log whose term moved past the elected leader term is blocked: a newer leader exists, and this one verifies nothing for it.</remarks>
+    /// <remarks>
+    /// A log whose term moved past the elected leader term, or past term one for a static leader, is blocked: a newer leader exists, and
+    /// this one verifies nothing for it.
+    /// </remarks>
     internal async Task<ReplicaVerificationSnapshot> ProbeAsync(IFollowerLog log, ulong leaderTerm, CancellationToken cancellationToken)
     {
         var eligibility = _registry.EligibilityFor(_groupId);
@@ -105,13 +105,15 @@ internal sealed class ReplicaVerificationProbe
         if (status.Readiness != FollowerLogReadiness.Ready || (leaderTerm != 0 && status.CurrentTerm > leaderTerm))
             return new ReplicaVerificationSnapshot(ReplicaVerification.Blocked);
 
-        var term = leaderTerm != 0 ? leaderTerm : Math.Max(1UL, status.CurrentTerm);
+        if (!TryResolveTerm(in status, leaderTerm, out var term))
+            return new ReplicaVerificationSnapshot(ReplicaVerification.Blocked);
+
         var tail = ReplicaLeaderTail.From(read);
         if (!tail.IsCommittableIn(term))
         {
             // Counting replicas must not commit it, and no current-term entry exists yet to commit it transitively. The state is
             // reported when it starts or changes; the readiness report keeps showing it as blocked on every pass.
-            if (ReportBlockedTail(new BlockedTail(tail.LastIndex, term)))
+            if (ReportBlockedTail(new BlockedTail(tail.LastIndex, term, false)))
                 ServerLog.ReplicaTailOfOlderTerm(_log, tail.LastIndex, term);
 
             return new ReplicaVerificationSnapshot(ReplicaVerification.Blocked);
@@ -199,6 +201,24 @@ internal sealed class ReplicaVerificationProbe
         return targets;
     }
 
+    /// <summary>Resolves the term this node verifies the group in, and reports a static leader whose log moved past term one.</summary>
+    /// <param name="status">Durable log status of the group.</param>
+    /// <param name="leaderTerm">The elected leader term, or zero for a static leader.</param>
+    /// <param name="term">The term to verify in; zero when the group is blocked.</param>
+    /// <returns><see langword="false" /> when a static leader's log moved past term one.</returns>
+    /// <remarks>A static leader leads term one only: a log an election raised past it has another leader, and this node verifies nothing for it.</remarks>
+    private bool TryResolveTerm(in FollowerLogStatus status, ulong leaderTerm, out ulong term)
+    {
+        term = leaderTerm;
+        if (term != 0 || StaticLeaderTerm.TryResolve(in status, out term))
+            return true;
+
+        if (ReportBlockedTail(new BlockedTail(status.LastLogIndex, status.CurrentTerm, true)))
+            ServerLog.ReplicaStaticLeaderTermAboveOne(_log, _groupId, status.CurrentTerm);
+
+        return false;
+    }
+
     private bool ReportBlockedTail(BlockedTail? blocked)
     {
         lock (_reportSync)
@@ -209,11 +229,12 @@ internal sealed class ReplicaVerificationProbe
         }
     }
 
-    /// <summary>A leader tail that cannot be committed yet because it holds no entry of the current term.</summary>
+    /// <summary>A leader tail that cannot be committed yet: it holds no entry of the current term, or a static leader's log moved past term one.</summary>
     /// <param name="LastIndex">The last index of the tail.</param>
-    /// <param name="Term">The leader's current term.</param>
+    /// <param name="Term">The leader's current term, or the log term a static leader cannot lead.</param>
+    /// <param name="AboveStaticTerm">Whether a static leader's log moved past term one.</param>
     [Immutable]
-    private sealed record BlockedTail(ulong LastIndex, ulong Term);
+    private sealed record BlockedTail(ulong LastIndex, ulong Term, bool AboveStaticTerm);
 
     /// <summary>The followers an admitted verification found answering, with the target lookup of the pipeline it ran against.</summary>
     /// <param name="Answered">Per-slot flags of the followers that answered their probe.</param>

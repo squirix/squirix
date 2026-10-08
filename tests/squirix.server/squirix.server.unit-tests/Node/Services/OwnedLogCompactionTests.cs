@@ -99,19 +99,20 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// An entry appended locally but not committed keeps the log, even with every follower verified: a recovered tail of an older term
-    /// is not committed by counting replicas.
+    /// An entry appended locally but not committed keeps the log, even with every follower verified at the commit index: the followers may
+    /// still need it.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task UncommittedTailKeepsLog(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-owned-compaction-tail");
-        await SeedAsync(dir, cancellationToken);
-        await SeedTailAsync(dir, 2, cancellationToken, "t1");
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken));
+        await WriteAsync(committer, 1, cancellationToken);
+        await AppendTailAsync(registry, 1, new StubCache(), cancellationToken, "t1");
+        var status = await OwnedLog(registry).GetStatusAsync(cancellationToken);
+        _ = await Assert.That((status.LastLogIndex, status.CommitIndex)).IsEqualTo((2UL, 1UL));
         _ = await Assert.That(registry.EligibilityFor("n1").AllCanCountInWriteQuorum()).IsTrue();
 
         _ = await Assert.That(await committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.UncommittedTail);
