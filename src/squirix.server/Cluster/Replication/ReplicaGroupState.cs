@@ -231,29 +231,18 @@ internal sealed class ReplicaGroupState
         }
     }
 
-    /// <summary>Reads the leader this node last accepted contact from.</summary>
-    /// <param name="leaderId">The leader identifier.</param>
-    /// <param name="term">The term it led.</param>
-    /// <returns><see langword="true" /> when a leader is known and this node is a follower.</returns>
-    internal bool TryGetKnownLeader(out string leaderId, out ulong term)
+    /// <summary>Reads, in one consistent view, the authority of this node and the leader it last accepted contact from.</summary>
+    /// <returns>
+    /// A served view; its known leader is the last accepted contact while this node is a follower, and <see langword="default" /> in any
+    /// other role, so a candidate or a leader names no other node. The state does not know this node's identifier, so authority does not
+    /// name it either.
+    /// </returns>
+    internal GroupLeaderView ReadRoute()
     {
         lock (_sync)
         {
-            leaderId = _knownLeader;
-            term = _knownLeaderTerm;
-            return _role == ReplicaGroupRole.Follower && _knownLeader.Length != 0;
-        }
-    }
-
-    /// <summary>Reads whether this node leads the group with authority, and the term it leads.</summary>
-    /// <param name="term">The led term when this node has authority; otherwise zero.</param>
-    /// <returns><see langword="true" /> when this node is the leader of the group and its leader-term entry is committed.</returns>
-    internal bool TryGetAuthority(out ulong term)
-    {
-        lock (_sync)
-        {
-            term = _hasAuthority ? _term : 0;
-            return _hasAuthority;
+            var known = _role == ReplicaGroupRole.Follower && _knownLeader.Length != 0 ? new LeaderRoute(_knownLeader, _knownLeaderTerm) : default;
+            return new GroupLeaderView(true, _hasAuthority, _role == ReplicaGroupRole.Leader && !_hasAuthority, _term, _highestObservedTerm, known);
         }
     }
 

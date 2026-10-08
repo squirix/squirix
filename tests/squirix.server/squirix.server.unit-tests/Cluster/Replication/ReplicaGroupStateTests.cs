@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.UnitTests.Support;
@@ -32,8 +33,7 @@ public sealed class ReplicaGroupStateTests : ServerUnitTestBase
 
         _ = await Assert.That(live).IsTrue();
         _ = await Assert.That(state.HasRecentLeaderContact(Options.ElectionTimeout)).IsFalse();
-        _ = await Assert.That(state.TryGetKnownLeader(out var leader, out var term)).IsTrue();
-        _ = await Assert.That((leader, term, state.HighestObservedTerm)).IsEqualTo(("n2", 4UL, 4UL));
+        _ = await Assert.That((state.ReadRoute().Known, state.HighestObservedTerm)).IsEqualTo((new LeaderRoute("n2", 4UL), 4UL));
     }
 
     /// <summary>A granted vote postpones the own election but does not count as a leader, so pre-votes are still answered.</summary>

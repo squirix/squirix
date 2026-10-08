@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -42,8 +43,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
 
         _ = await Assert.That((refused.Granted, refused.RefusalCode, refused.CurrentTerm)).IsEqualTo((false, RefusalCodes.LeaderContact, 7UL));
         _ = await Assert.That(answered.Granted).IsTrue();
-        _ = await Assert.That(registry.StateFor(GroupId).TryGetKnownLeader(out var leader, out var term)).IsTrue();
-        _ = await Assert.That((leader, term)).IsEqualTo(("n2", 7UL));
+        _ = await Assert.That(registry.StateFor(GroupId).ReadRoute().Known).IsEqualTo(new LeaderRoute("n2", 7UL));
     }
 
     /// <summary>A group no election driver runs for answers a pre-vote from its log right after a leader contact, exactly as before.</summary>
@@ -179,8 +179,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         var result = await follower.AppendAsync(GroupId, Fingerprint, 1UL, new FollowerBatch([], "n2", 3UL, 5UL, 1UL, 0UL), cancellationToken);
 
         _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.LogMismatch);
-        _ = await Assert.That(registry.StateFor(GroupId).TryGetKnownLeader(out var leader, out var term)).IsTrue();
-        _ = await Assert.That((leader, term)).IsEqualTo(("n2", 3UL));
+        _ = await Assert.That(registry.StateFor(GroupId).ReadRoute().Known).IsEqualTo(new LeaderRoute("n2", 3UL));
     }
 
     /// <summary>A stale-term append is no leader contact: it neither names a leader nor delays the election.</summary>
@@ -198,7 +197,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         var stale = await follower.AppendAsync(GroupId, Fingerprint, 1UL, new FollowerBatch([], "n2", 4UL, 0UL, 0UL, 0UL), cancellationToken);
 
         _ = await Assert.That(stale.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleTerm);
-        _ = await Assert.That(state.TryGetKnownLeader(out _, out _)).IsFalse();
+        _ = await Assert.That(state.ReadRoute().HasLeader).IsFalse();
         _ = await Assert.That(state.ElectionResetTimestamp()).IsEqualTo(reset);
     }
 
