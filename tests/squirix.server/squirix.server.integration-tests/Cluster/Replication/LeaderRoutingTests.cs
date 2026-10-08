@@ -67,6 +67,47 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         _ = await Assert.That(read.Found).IsTrue();
     }
 
+    /// <summary>
+    /// An entry node whose table still names a follower as the leader forwards the write there; the follower refuses it as stale-owner naming
+    /// the leader, and the entry node reroutes once to that leader, with the same operation id, where the write commits.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StaleRouteReroutesOnceToLeader(CancellationToken cancellationToken)
+    {
+        var probe = new LeaderRouteProbe();
+        await using var cluster = await StartClusterAsync(Nodes[0], Nodes[1], Nodes[2], Options("leader-reroute", true, probe.Register), cancellationToken);
+        var leader = await LeaderAsync(cluster, Nodes, cancellationToken);
+        var others = Array.FindAll(Nodes, id => !string.Equals(id, leader, StringComparison.Ordinal));
+        var (follower, entry) = (others[0], others[1]);
+        var term = 0UL;
+        await cluster.WaitUntilAsync(
+            nodes => Follows(nodes[follower], leader, out term) && Follows(nodes[entry], leader, out _),
+            Bound,
+            cancellationToken);
+        probe.Arm(entry, OwnerId, new LeaderRoute(follower, term));
+
+        var key = KeyOwnedByOwner(cluster[entry]);
+        using var channel = CreateGrpcChannel(cluster[entry].Uri);
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var request = new SetEntryAsyncRequest
+        {
+            OperationId = RpcOperationIdentity.New(),
+            CacheName = CacheName,
+            Key = key,
+            Entry = new NodeCacheEntry<object?> { Value = "rerouted", Version = 1 }.MapToProto(),
+        };
+
+        var refusal = await SetAsync(client, request, cancellationToken);
+
+        _ = await Assert.That(refusal).IsNull().Because($"the reroute must reach the leader {leader}, not fail with '{refusal?.Status.Detail}'");
+        _ = await Assert.That(probe.Refuted).IsTrue();
+        var forwards = probe.Forwards();
+        _ = await Assert.That(forwards.Length).IsEqualTo(2);
+        _ = await Assert.That(forwards[0]).IsEqualTo((follower, request.OperationId));
+        _ = await Assert.That(forwards[1]).IsEqualTo((leader, request.OperationId));
+    }
+
     /// <summary>Without automatic failover a write sent to another node is forwarded to the ring owner, as before leader routing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -156,21 +197,37 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         return leader;
     }
 
-    private static IntegrationStartOptions Options(string scope, bool failover) => new()
+    private static IntegrationStartOptions Options(string scope, bool failover, Action<IServiceCollection>? configure = null) => new()
     {
         ReplicaCount = 3,
         UsePersistence = true,
         CleanTestDir = true,
         ExtraScope = scope,
         AutomaticFailoverEnabled = failover,
-        ServicesConfigure = static services => services.AddSingleton(new ElectionTimerOptions
+        ServicesConfigure = services =>
         {
-            ElectionTimeout = TimeSpan.FromSeconds(4),
-            HeartbeatInterval = TimeSpan.FromMilliseconds(250),
-            MaxJitter = TimeSpan.FromSeconds(2),
-            VoteRpcTimeout = TimeSpan.FromSeconds(2),
-        }),
+            _ = services.AddSingleton(new ElectionTimerOptions
+            {
+                ElectionTimeout = TimeSpan.FromSeconds(4),
+                HeartbeatInterval = TimeSpan.FromMilliseconds(250),
+                MaxJitter = TimeSpan.FromSeconds(2),
+                VoteRpcTimeout = TimeSpan.FromSeconds(2),
+            });
+            configure?.Invoke(services);
+        },
     };
+
+    /// <summary>Tells whether a node follows the leader of the owner group.</summary>
+    /// <param name="node">The node.</param>
+    /// <param name="leader">The leader.</param>
+    /// <param name="term">The term of the leader when the node follows it.</param>
+    /// <returns><see langword="true" /> once the node knows the leader.</returns>
+    private static bool Follows(ITestNodeHost node, string leader, out ulong term)
+    {
+        var known = Table(node).TryGetLeader(OwnerId, out var route) && string.Equals(route.NodeId, leader, StringComparison.Ordinal);
+        term = known ? route.Term : 0;
+        return known;
+    }
 
     private static IGroupLeaderTable Table(ITestNodeHost host) => host.GetRequiredService<IGroupLeaderTable>();
 }
