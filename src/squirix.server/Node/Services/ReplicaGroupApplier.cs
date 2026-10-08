@@ -11,7 +11,6 @@ using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
-using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
@@ -71,10 +70,10 @@ internal sealed class ReplicaGroupApplier
     /// <summary>Gets the lease of the one driver of this applier.</summary>
     /// <remarks>
     /// A committer that leads the group by election holds it for its whole tenure, until its coordinator is disposed; the apply loop and
-    /// the follower log maintenance take it for one pass without waiting and skip the pass while it is held. A committer that leads its own
-    /// group statically never takes it: no apply loop runs for that group.
+    /// the follower log maintenance enter one pass at a time without waiting, share it with each other, and skip the pass during a tenure.
+    /// A committer that leads its own group statically never takes it: no apply loop runs for that group.
     /// </remarks>
-    internal AsyncLock DriverLease { get; } = new();
+    internal ReplicaDriverLease DriverLease { get; } = new();
 
     /// <summary>Gets the identifier of the replica group whose entries this applier applies.</summary>
     internal string GroupId { get; }

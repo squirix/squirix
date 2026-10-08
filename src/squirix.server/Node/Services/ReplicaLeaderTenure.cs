@@ -3,7 +3,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
-using Squirix.Server.Threading;
 
 namespace Squirix.Server.Node.Services;
 
@@ -15,14 +14,15 @@ namespace Squirix.Server.Node.Services;
 internal sealed class ReplicaLeaderTenure : IDisposable
 {
     private readonly CancellationTokenSource _ending = new();
-    private AsyncLockHolder _lease;
+    private readonly ReplicaDriverLease _lease;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaLeaderTenure" /> class.</summary>
     /// <param name="term">The won term.</param>
     /// <param name="lease">The applier lease the leadership holds until it ends.</param>
-    internal ReplicaLeaderTenure(ulong term, AsyncLockHolder lease)
+    internal ReplicaLeaderTenure(ulong term, ReplicaDriverLease lease)
     {
         ArgumentOutOfRangeException.ThrowIfZero(term);
+        ArgumentNullException.ThrowIfNull(lease);
         Term = term;
         _lease = lease;
         Token = _ending.Token;
@@ -80,7 +80,7 @@ internal sealed class ReplicaLeaderTenure : IDisposable
     internal async ValueTask EndAsync()
     {
         await _ending.CancelAsync().ConfigureAwait(false);
-        _lease.Dispose();
+        _lease.EndLeading();
         _ending.Dispose();
     }
 

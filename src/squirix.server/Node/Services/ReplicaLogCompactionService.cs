@@ -38,6 +38,9 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
     private readonly ReplicaLogCompactionPolicy _policy;
     private readonly ReplicaGroupRegistry _registry;
 
+    /// <summary>The follower groups whose pass a leadership skips, logged once until a pass runs again; written by the service loop only.</summary>
+    private readonly HashSet<string> _skipped = [with(StringComparer.Ordinal)];
+
     /// <summary>The compaction outcome last reported per group; the passes run one at a time, on the service loop only.</summary>
     private readonly Dictionary<string, ReplicaLogCompactionOutcome> _reported = [with(StringComparer.Ordinal)];
 
@@ -146,10 +149,20 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
     /// <returns>A task that completes when the group was maintained or its failure was logged.</returns>
     private async Task MaintainFollowerLogAsync(string groupId, CancellationToken stoppingToken)
     {
-        // A committer leading the group by election holds the lease of its applier and maintains the log under its commit gate.
         var applier = _appliers.For(groupId);
-        if (!_registry.TryGetLog(groupId, out var log) || !applier.DriverLease.TryLock(out var lease))
+        if (!_registry.TryGetLog(groupId, out var log))
             return;
+
+        // A committer leading the group by election maintains the log under its commit gate: the group is skipped meanwhile.
+        if (!applier.DriverLease.TryEnterPass())
+        {
+            if (_skipped.Add(groupId))
+                ServerLog.ReplicaPassSkippedWhileLeading(_log, groupId, "maintenance");
+
+            return;
+        }
+
+        _ = _skipped.Remove(groupId);
 
         try
         {
@@ -168,7 +181,7 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
         }
         finally
         {
-            lease.Dispose();
+            applier.DriverLease.ExitPass();
         }
 
         _ = _failed.Remove(groupId);

@@ -34,6 +34,9 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
 
     private const int RetryEventId = 4029;
 
+    /// <summary>The event id of the passes a leadership skips.</summary>
+    private const int PassSkippedEventId = 4047;
+
     private static readonly byte[] Fingerprint = [9, 8, 7];
 
     private static readonly string[] Groups = ["n1", "n2", "n3"];
@@ -127,8 +130,8 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// While another driver holds the lease of a group applier, the apply loop of the group skips its passes, so nothing is applied twice;
-    /// once the lease is released, the next pass applies the committed entries.
+    /// While a leadership drives a group applier, the apply loop of the group skips its passes and says so once, so nothing is applied
+    /// twice; once the leadership ends, the next pass applies the committed entries.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -141,13 +144,14 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         var cache = new StubCache();
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache, meter);
-        _ = appliers.For("n2").DriverLease.TryLock(out var lease);
+        await appliers.For("n2").DriverLease.LeadAsync(cancellationToken);
+        var log = new EventRecordingLogger();
         using var service = new ReplicaApplyService(
             registry,
             appliers,
             LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
-            NullLogger<ReplicaApplyService>.Instance,
+            log,
             new FakeTimeProvider());
         var other = WhenAppliedAsync(cache, 1);
 
@@ -155,12 +159,11 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         ulong whileHeld;
         try
         {
-            // The loop of n2 skipped its first pass and every pass its signal wakes while the lease is held.
             await other.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-            registry.ApplySignalFor("n2").Notify();
+            await log.WhenLoggedAsync(PassSkippedEventId, "group n2 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             whileHeld = appliers.For("n2").AppliedIndex;
             var released = WhenAppliedAsync(cache, 2);
-            lease.Dispose();
+            appliers.For("n2").DriverLease.EndLeading();
             registry.ApplySignalFor("n2").Notify();
             await released.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         }
@@ -170,6 +173,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         }
 
         _ = await Assert.That((whileHeld, appliers.For("n2").AppliedIndex)).IsEqualTo((0UL, 1UL));
+        _ = await Assert.That(log.Count(PassSkippedEventId)).IsEqualTo(1);
         await SequenceAssert.EqualAsync(["m1", "k1"], cache.Applied.ToArray(), StringComparer.Ordinal);
     }
 

@@ -508,8 +508,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var tenure = Volatile.Read(ref _tenure);
         if (tenure == null)
         {
-            var lease = await Applier.DriverLease.LockAsync(cancellationToken).ConfigureAwait(false);
-            _tenure = new ReplicaLeaderTenure(term, lease);
+            await Applier.DriverLease.LeadAsync(cancellationToken).ConfigureAwait(false);
+            _tenure = new ReplicaLeaderTenure(term, Applier.DriverLease);
             tenure = _tenure;
         }
         else if (tenure.Term != term)

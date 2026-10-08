@@ -211,6 +211,9 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 4046, Level = LogLevel.Information, Message = "Replica group elections stopped because the host is shutting down; every group is left a follower without authority")]
     internal static partial void ReplicaElectionStopped(ILogger logger);
 
+    [LoggerMessage(EventId = 4047, Level = LogLevel.Debug, Message = "Replica group {GroupId} {Pass} passes are skipped while this node leads the group")]
+    internal static partial void ReplicaPassSkippedWhileLeading(ILogger logger, string groupId, string pass);
+
     [LoggerMessage(EventId = 4034, Level = LogLevel.Debug, Message = "Replica expiration sweep stopped because the host is shutting down")]
     internal static partial void ReplicaExpirationSweepStopped(ILogger logger);
 }

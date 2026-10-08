@@ -173,11 +173,11 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
             registry,
             NullLogger<ReplicaLogCompactionService>.Instance,
             TimeProvider.System);
-        _ = appliers.For("n2").DriverLease.TryLock(out var lease);
+        await appliers.For("n2").DriverLease.LeadAsync(cancellationToken);
 
         await service.RunOnceAsync(cancellationToken);
         var whileHeld = (await log.GetStatusAsync(cancellationToken)).LastAppliedIndex;
-        lease.Dispose();
+        appliers.For("n2").DriverLease.EndLeading();
         await service.RunOnceAsync(cancellationToken);
 
         var status = await log.GetStatusAsync(cancellationToken);

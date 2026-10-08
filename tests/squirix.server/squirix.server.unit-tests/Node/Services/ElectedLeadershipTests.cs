@@ -108,17 +108,17 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
         var applier = new ReplicaGroupApplier(new StubCache(), NullLogger.Instance, "n2", "n1");
         await using var committer = Elected(registry, "n2", new ScriptedGateway(), applier);
-        _ = applier.DriverLease.TryLock(out var pass);
+        _ = applier.DriverLease.TryEnterPass();
 
         var promoting = committer.PromoteAsync(2UL, cancellationToken);
         var waited = !promoting.IsCompleted;
-        pass.Dispose();
+        applier.DriverLease.ExitPass();
         var authorized = await promoting.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-        var heldWhileLeading = !applier.DriverLease.TryLock(out _);
+        var heldWhileLeading = !applier.DriverLease.TryEnterPass();
         var tenure = committer.Tenure?.Token ?? CancellationToken.None;
         var retired = await committer.RetireAsync(cancellationToken);
-        var freed = applier.DriverLease.TryLock(out var after);
-        after.Dispose();
+        var freed = applier.DriverLease.TryEnterPass();
+        applier.DriverLease.ExitPass();
 
         _ = await Assert.That((waited, authorized, heldWhileLeading, retired, freed)).IsEqualTo((true, true, true, true, true));
         _ = await Assert.That(tenure.IsCancellationRequested).IsTrue();
@@ -187,7 +187,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
 
         var refused = await committer.RetireAsync(cancellationToken);
-        var leaseKept = !applier.DriverLease.TryLock(out _);
+        var leaseKept = applier.DriverLease.IsLeading;
         cache.OnApplied = null;
         var retired = await committer.RetireAsync(cancellationToken);
 

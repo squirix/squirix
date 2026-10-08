@@ -86,7 +86,8 @@ internal sealed class ReplicaApplyService : BackgroundService
         var loops = new List<Task>(groupIds.Count);
         for (var i = 0; i < groupIds.Count; i++)
         {
-            // A led group's committer is the one driver of its applier; the led set is fixed for the node lifetime.
+            // A group led statically from the start gets no loop: its committer drives its applier for the node lifetime. A group the
+            // election may hand this node keeps its loop, which skips its passes while a committer leads the group.
             if (!_committers.Leads(groupIds[i]))
                 loops.Add(ApplyLoopAsync(groupIds[i], stopping.Token));
         }
@@ -116,41 +117,65 @@ internal sealed class ReplicaApplyService : BackgroundService
         var applier = _appliers.For(groupId);
         var signal = _registry.ApplySignalFor(groupId);
         (Type Type, ulong AppliedIndex)? reported = null;
+        var skipping = false;
         while (true)
         {
-            // A committer leading the group by election holds the lease and drives the applier itself: the pass is skipped until it hands
-            // the group back.
-            if (applier.DriverLease.TryLock(out var lease))
+            // A committer leading the group by election drives the applier itself: the pass is skipped until it hands the group back.
+            if (!applier.DriverLease.TryEnterPass())
             {
-                try
-                {
-                    await CatchUpAsync(groupId, applier, log, stoppingToken).ConfigureAwait(false);
-                    reported = null;
-                }
-                catch (InvalidDataException exception)
-                {
-                    // The record never reached memory, and every later entry depends on it: the group stops here instead of skipping it.
-                    ServerLog.ReplicaFollowerApplyStopped(_log, groupId, exception);
+                if (!skipping)
+                    ServerLog.ReplicaPassSkippedWhileLeading(_log, groupId, "apply");
+
+                skipping = true;
+            }
+            else
+            {
+                skipping = false;
+                (var stopped, reported) = await ApplyPassAsync(groupId, (applier, log), reported, stoppingToken).ConfigureAwait(false);
+                if (stopped)
                     return;
-                }
-                catch (Exception exception) when (IsRetryable(exception) && !stoppingToken.IsCancellationRequested)
-                {
-                    // The same fault repeats on every pass until it clears, so it is logged when its kind or the entry it stops at changes,
-                    // not on every retry; its message may name the commit index, which moves on while the fault stays.
-                    var fault = (exception.GetType(), applier.AppliedIndex);
-                    if (reported != fault)
-                    {
-                        reported = fault;
-                        ServerLog.ReplicaFollowerApplyRetry(_log, groupId, exception);
-                    }
-                }
-                finally
-                {
-                    lease.Dispose();
-                }
             }
 
             _ = await signal.WaitAsync(FallbackInterval, _timeProvider, stoppingToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Runs one apply pass the caller entered, and ends it.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="group">The group applier and the group log.</param>
+    /// <param name="reported">The fault last logged, if any.</param>
+    /// <param name="stoppingToken">The host stopping token.</param>
+    /// <returns>Whether a committed record stopped the group, and the fault logged last.</returns>
+    private async Task<(bool Stopped, (Type Type, ulong AppliedIndex)? Reported)> ApplyPassAsync(
+        string groupId,
+        (ReplicaGroupApplier Applier, IFollowerLog Log) group,
+        (Type Type, ulong AppliedIndex)? reported,
+        CancellationToken stoppingToken)
+    {
+        try
+        {
+            await CatchUpAsync(groupId, group.Applier, group.Log, stoppingToken).ConfigureAwait(false);
+            return (false, null);
+        }
+        catch (InvalidDataException exception)
+        {
+            // The record never reached memory, and every later entry depends on it: the group stops here instead of skipping it.
+            ServerLog.ReplicaFollowerApplyStopped(_log, groupId, exception);
+            return (true, reported);
+        }
+        catch (Exception exception) when (IsRetryable(exception) && !stoppingToken.IsCancellationRequested)
+        {
+            // The same fault repeats on every pass until it clears, so it is logged when its kind or the entry it stops at changes, not on
+            // every retry; its message may name the commit index, which moves on while the fault stays.
+            var fault = (exception.GetType(), group.Applier.AppliedIndex);
+            if (reported != fault)
+                ServerLog.ReplicaFollowerApplyRetry(_log, groupId, exception);
+
+            return (false, fault);
+        }
+        finally
+        {
+            group.Applier.DriverLease.ExitPass();
         }
     }
 
