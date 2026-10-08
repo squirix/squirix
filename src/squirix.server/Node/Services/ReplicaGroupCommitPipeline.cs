@@ -142,12 +142,13 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     public void RecordLaggingReplica(int replicaIndex, ulong logIndex) => _lagging.Record(replicaIndex, logIndex, _senders[_slots.SenderOf(replicaIndex)].NodeId);
 
     /// <summary>Sends one heartbeat, carrying the commit index, to every follower whose sender is idle.</summary>
+    /// <param name="deferWhileBusy">Whether a busy sender sends the heartbeat once it runs out of entries, as a read-index round needs.</param>
     /// <remarks>Called outside the commit gate; it never waits and never throws, and a closed sender sends nothing.</remarks>
-    internal void Heartbeat()
+    internal void Heartbeat(bool deferWhileBusy = false)
     {
         var commitIndex = ReadCommitIndex();
         for (var i = 0; i < _senders.Length; i++)
-            _ = _senders[i].TryEnqueueHeartbeat(commitIndex);
+            _ = _senders[i].TryEnqueueHeartbeat(commitIndex, deferWhileBusy);
     }
 
     /// <summary>Confirms a read index for a leader read: the commit index, once a majority answered this leader in its term after it was taken.</summary>
@@ -158,7 +159,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <remarks>Called outside the commit gate; readers that arrive while a round is in flight share the next round.</remarks>
     internal ValueTask<ulong> ConfirmReadIndexAsync(CancellationToken cancellationToken) =>
         ReadIndex is { } rounds
-            ? rounds.ConfirmAsync(this, static pipeline => pipeline.ReadCommitIndex(), static pipeline => pipeline.Heartbeat(), cancellationToken)
+            ? rounds.ConfirmAsync(this, static pipeline => pipeline.ReadCommitIndex(), static pipeline => pipeline.Heartbeat(true), cancellationToken)
             : ValueTask.FromException<ulong>(new InvalidOperationException("A pipeline of a static leader confirms no read index."));
 
     /// <summary>Gets what a catch-up of a follower slot runs against: this pipeline, the slot's sender, the leader log and term.</summary>

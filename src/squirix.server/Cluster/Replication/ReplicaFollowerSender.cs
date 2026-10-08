@@ -32,6 +32,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     private readonly Lock _sync = new();
     private TaskCompletionSource? _catchUpRequest;
     private bool _closed;
+    private ulong? _deferredHeartbeat;
     private ulong _lastEnqueuedIndex;
     private ulong _lastEnqueuedTerm;
     private TaskCompletionSource? _leaseDone;
@@ -361,19 +362,31 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
 
     /// <summary>Sends one heartbeat when the slot is idle: an empty append at the last enqueued entry, carrying the leader commit index.</summary>
     /// <param name="leaderCommitIndex">Leader commit index to carry.</param>
+    /// <param name="deferWhileBusy">
+    /// Whether a busy slot sends the heartbeat once the send loop runs out of entries, unless a later request of the loop goes out first; a
+    /// read-index round needs a request sent after it started, and the one in flight was sent before.
+    /// </param>
     /// <returns><see langword="true" /> when the heartbeat went out; <see langword="false" /> when an append, a catch-up, or a drain is under way, or the sender is closed.</returns>
     /// <remarks>
-    /// Never waits. Entries enqueued while the heartbeat is in flight are sent after it. A busy slot needs no heartbeat: its live appends
-    /// reach the follower and their replies are observed the same way.
+    /// Never waits. Entries enqueued while the heartbeat is in flight are sent after it. A busy slot needs no heartbeat to keep the follower
+    /// in contact: its live appends reach the follower and their replies are observed the same way.
     /// </remarks>
-    internal bool TryEnqueueHeartbeat(ulong leaderCommitIndex)
+    internal bool TryEnqueueHeartbeat(ulong leaderCommitIndex, bool deferWhileBusy = false)
     {
         TaskCompletionSource started;
         FollowerBatch heartbeat;
         lock (_sync)
         {
-            if (_closed || Draining || _backlog.Count > 0 || _loopDone != null || _leaseDone != null)
+            if (_closed || Draining)
                 return false;
+
+            if (_backlog.Count > 0 || _loopDone != null || _leaseDone != null)
+            {
+                if (deferWhileBusy)
+                    _deferredHeartbeat = leaderCommitIndex;
+
+                return false;
+            }
 
             heartbeat = new FollowerBatch([], _header.LeaderNodeId, _header.Term, _lastEnqueuedIndex, _lastEnqueuedTerm, leaderCommitIndex);
             started = ClaimLoop();
@@ -428,10 +441,21 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             _ = await SendHeartbeatAsync(empty).CaptureFailureAsync().ConfigureAwait(false);
 
         // A pending-free exit is decided under the lock in TakeBatch, so an enqueue racing the exit starts a loop of its own.
-        while (TakeBatch() is { } batch)
+        while (true)
         {
-            if (await SendBatchAsync(batch).CaptureFailureAsync().ConfigureAwait(false) is { } error)
-                Backlog.Fail(batch, error);
+            if (TakeBatch(out var deferred) is { } batch)
+            {
+                if (await SendBatchAsync(batch).CaptureFailureAsync().ConfigureAwait(false) is { } error)
+                    Backlog.Fail(batch, error);
+            }
+            else if (deferred is { } beat)
+            {
+                _ = await SendHeartbeatAsync(beat).CaptureFailureAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                break;
+            }
         }
 
         _ = done.TrySetResult();
@@ -510,18 +534,29 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     }
 
     /// <summary>Takes the next request from the waiting entries, or ends the loop when none wait or a catch-up lease paused the sends.</summary>
-    /// <returns>The entries of the next request, or <see langword="null" /> when the loop ended.</returns>
+    /// <param name="heartbeat">The heartbeat deferred while the slot was busy, to send next when no entry waits; otherwise <see langword="null" />.</param>
+    /// <returns>The entries of the next request, or <see langword="null" /> when the loop sends the deferred heartbeat or ended.</returns>
     /// <remarks>The loop ends, and a later enqueue or lease end starts a new one, under the same lock hold that saw the entries run out.</remarks>
-    private List<PendingAppend>? TakeBatch()
+    private List<PendingAppend>? TakeBatch(out FollowerBatch? heartbeat)
     {
+        heartbeat = null;
         lock (_sync)
         {
             if (_backlog.Count == 0 || _leaseDone != null)
             {
+                if (_deferredHeartbeat is { } commitIndex && _leaseDone == null && !_closed && !Draining)
+                {
+                    _deferredHeartbeat = null;
+                    heartbeat = new FollowerBatch([], _header.LeaderNodeId, _header.Term, _lastEnqueuedIndex, _lastEnqueuedTerm, commitIndex);
+                    return null;
+                }
+
                 _loopDone = null;
                 return null;
             }
 
+            // The request taken now is sent after the deferral, so it stands in for the deferred heartbeat.
+            _deferredHeartbeat = null;
             return _backlog.TakeBatch(MaxBatchEntries, MaxBatchBytes);
         }
     }
