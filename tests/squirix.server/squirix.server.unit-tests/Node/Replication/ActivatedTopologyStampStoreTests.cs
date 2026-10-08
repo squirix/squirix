@@ -33,7 +33,8 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
 
         _ = await Assert.That(description).IsEqualTo(
             $"topology fingerprint changed (stamped {Hex(0xAB)}, configured {Hex(0x0C)}) while generation and replica count match, " +
-            "so the cluster id, virtual nodes, peers (including internode addresses), minimum cluster package version, or replication policy constants differ");
+            "so the cluster id, virtual nodes, peers (including internode addresses), minimum cluster package version, replication policy constants, " +
+            "or the automatic failover and quorum read switches differ");
     }
 
     /// <summary>A generation change is named with both values; the fingerprint that hashes it is not.</summary>

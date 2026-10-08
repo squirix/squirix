@@ -70,6 +70,8 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         AppendInt32(hasher, inputs.VirtualNodes);
         AppendUInt64(hasher, inputs.ConfigurationGeneration);
         AppendString(hasher, inputs.MinClusterPackageVersion);
+        AppendInt32(hasher, inputs.AutomaticFailoverEnabled ? 1 : 0);
+        AppendInt32(hasher, inputs.QuorumReadsEnabled ? 1 : 0);
 
         // Append each peer as a length-prefixed UTF-8 tuple: node id, client URI, internode URI.
         AppendInt32(hasher, peers.Length);
@@ -129,6 +131,8 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
                 Policy = FingerprintPolicy.Default,
                 MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
                 QuorumAckMode = PolicyOptions.QuorumAckMode,
+                AutomaticFailoverEnabled = topology.AutomaticFailoverEnabled,
+                QuorumReadsEnabled = topology.QuorumReadsEnabled,
             });
     }
 

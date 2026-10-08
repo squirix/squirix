@@ -54,6 +54,28 @@ public sealed class TopologyOptionsFingerprintTests
         _ = await Assert.That(fingerprint.ToString().Length).IsEqualTo(64);
     }
 
+    /// <summary>The fingerprint of a topology hashes its automatic failover and quorum read switches.</summary>
+    [Test]
+    public async Task CreateFromTopologyHashesSwitches()
+    {
+        ServerPeer[] peers =
+        [
+            new() { NodeId = "n1", Uri = new Uri("https://127.0.0.1:6001") },
+            new() { NodeId = "n2", Uri = new Uri("https://127.0.0.1:6002") },
+            new() { NodeId = "n3", Uri = new Uri("https://127.0.0.1:6003") },
+        ];
+        var off = TopologyFingerprint.CreateFromTopology(Topology(peers, false, false), new MtlsOptions());
+        var failover = TopologyFingerprint.CreateFromTopology(Topology(peers, true, false), new MtlsOptions());
+        var quorumReads = TopologyFingerprint.CreateFromTopology(Topology(peers, false, true), new MtlsOptions());
+        var both = TopologyFingerprint.CreateFromTopology(Topology(peers, true, true), new MtlsOptions());
+
+        _ = await Assert.That(failover).IsNotEqualTo(off);
+        _ = await Assert.That(quorumReads).IsNotEqualTo(off);
+        _ = await Assert.That(both).IsNotEqualTo(failover);
+        _ = await Assert.That(both).IsNotEqualTo(quorumReads);
+        _ = await Assert.That(TopologyFingerprint.CreateFromTopology(Topology(peers, true, true), new MtlsOptions())).IsEqualTo(both);
+    }
+
     /// <summary>Explicit InterNodeUri is preferred over InternalListenPort rewriting.</summary>
     [Test]
     public async Task FingerprintPrefersConfiguredInterNodeUri()
@@ -90,4 +112,15 @@ public sealed class TopologyOptionsFingerprintTests
             new MtlsOptions { InternalListenPort = 1 });
         _ = await Assert.That(baseline).IsEqualTo(withExplicit);
     }
+
+    private static TopologyOptions Topology(ServerPeer[] peers, bool failover, bool quorumReads) =>
+        new(peers)
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = peers[0].Uri,
+            ReplicaCount = 3,
+            AutomaticFailoverEnabled = failover,
+            QuorumReadsEnabled = quorumReads,
+        };
 }
