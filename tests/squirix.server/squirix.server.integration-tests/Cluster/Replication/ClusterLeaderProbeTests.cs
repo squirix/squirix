@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
@@ -121,7 +122,7 @@ public sealed class ClusterLeaderProbeTests : NodeIntegrationTestBase
         var raised = timeline[FailoverPhase.TermRaised] ?? TimeSpan.MaxValue;
         var elected = timeline[FailoverPhase.NewLeader] ?? TimeSpan.MaxValue;
         var converged = timeline[FailoverPhase.Converged] ?? TimeSpan.MaxValue;
-        _ = await Assert.That(timeline.Baseline).IsEqualTo(new LeaderRoute(former, formerTerm)).Because(dump);
+        _ = await Assert.That(timeline.Baseline).IsEqualTo((former, formerTerm)).Because(dump);
         _ = await Assert.That(timeline.NewLeader.Term).IsGreaterThan(formerTerm).Because(dump);
         _ = await Assert.That(lost <= elected && raised <= elected && elected <= converged).IsTrue().Because(dump);
     }
@@ -145,6 +146,42 @@ public sealed class ClusterLeaderProbeTests : NodeIntegrationTestBase
             var clock = await Assert.That(cluster[Three[i]].GetRequiredService<TimeProvider>()).IsTypeOf<SkewedTimeProvider>();
             _ = await Assert.That(clock!.Offset).IsEqualTo(offsets[i]);
         }
+    }
+
+    /// <summary>A start hook that registers its own election options wins over the election timing of the start options.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HookOverridesElectionTiming(CancellationToken cancellationToken)
+    {
+        var hook = new ElectionTimerOptions { ElectionTimeout = TimeSpan.FromSeconds(5) };
+        var options = new IntegrationStartOptions
+        {
+            ExtraScope = "probe-hook",
+            ElectionTiming = Timing,
+            ServicesConfigure = services => services.AddSingleton(hook),
+        };
+        await using var cluster = await StartClusterAsync(Three[0], options, cancellationToken);
+
+        _ = await Assert.That(cluster[Three[0]].GetRequiredService<ElectionTimerOptions>()).IsSameReferenceAs(hook);
+    }
+
+    /// <summary>
+    /// A member started alone cannot elect a leader: the no-election watch refuses to start without one unless told not to require it, and
+    /// then sees no node gain authority and no term rise.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NoElectionWatchWithoutLeader(CancellationToken cancellationToken)
+    {
+        await using var cluster = CreateCluster([new ClusterNode(Three[0], GetNextHttpUri()), new ClusterNode(Three[1], GetNextHttpUri()), new ClusterNode(Three[2], GetNextHttpUri())]);
+        _ = await cluster.StartNodeAsync(Three[1], Options("probe-no-leader"), cancellationToken);
+        var probe = new ClusterLeaderProbe<IntegrationStartOptions>(cluster);
+
+        var refused = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(probe.AssertNoElectionAsync(Group, Timing.Round, cancellationToken));
+        await probe.AssertNoElectionAsync(Group, Timing.Round * 2, false, cancellationToken);
+
+        _ = await Assert.That(refused.Message).Contains("No running node holds authority", StringComparison.Ordinal);
+        _ = await Assert.That(probe.Ledger(Group).Terms).IsEqualTo(0);
     }
 
     private static IntegrationStartOptions Options(string scope, PartitionFabric? fabric = null) => new()

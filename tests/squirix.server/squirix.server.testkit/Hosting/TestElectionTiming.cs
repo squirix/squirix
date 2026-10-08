@@ -42,6 +42,7 @@ public sealed record TestElectionTiming
     /// <param name="nodeId">The identifier of the node, mixed into a fixed jitter seed.</param>
     /// <returns>The election options the node registers.</returns>
     /// <exception cref="InvalidOperationException">A timeout is not positive, the jitter is negative, or the heartbeat is not below the election timeout.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The wait for a leader is not positive or above the longest the product allows.</exception>
     internal ElectionTimerOptions ToOptions(string nodeId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
@@ -56,8 +57,11 @@ public sealed record TestElectionTiming
         };
         var valid = ElectionTimeout > TimeSpan.Zero && HeartbeatInterval > TimeSpan.Zero && HeartbeatInterval < ElectionTimeout && MaxJitter >= TimeSpan.Zero &&
                     VoteRpcTimeout > TimeSpan.Zero;
-        return valid ? options
-            : throw new InvalidOperationException($"The election timing {this} needs positive timeouts, a non-negative jitter and a heartbeat below the election timeout.");
+        if (!valid)
+            throw new InvalidOperationException($"The election timing {this} needs positive timeouts, a non-negative jitter and a heartbeat below the election timeout.");
+
+        ElectionTimerOptions.EnsureValidLeaderWait(options);
+        return options;
     }
 
     /// <summary>Mixes a node identifier into a seed with FNV-1a, so one fixed seed gives every node its own stable jitter.</summary>

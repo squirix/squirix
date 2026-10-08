@@ -104,7 +104,8 @@ internal static class NodeHost
                 if (timeProvider != null)
                     services = services.RemoveAll<TimeProvider>().AddSingleton(timeProvider);
 
-                // Registered before the test hook, so a hook that registers its own election options still wins.
+                // Registered before the test hook: a hook that adds its own election options wins, one that only tries to add them loses.
+                // The last registration is the one resolved.
                 if (election != null)
                     services = services.RemoveAll<ElectionTimerOptions>().AddSingleton(election);
 

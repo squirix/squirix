@@ -12,12 +12,13 @@ namespace Squirix.Server.TestKit.Hosting;
 /// election safety through the <see cref="GroupAuthorityLedger{TOptions}" /> of the group.
 /// </summary>
 /// <typeparam name="TOptions">Node startup options type of the cluster.</typeparam>
-/// <remarks>Every wait is a bounded poll. Used from one test at a time.</remarks>
-[Mutable]
+/// <remarks>Every wait is a bounded poll. Waits on different groups, or on one group, may run at once.</remarks>
+[ThreadSafe]
 internal sealed class ClusterLeaderProbe<TOptions>
     where TOptions : ClusterStartOptions
 {
     private readonly TestCluster<TOptions> _cluster;
+    private readonly Lock _gate = new();
     private readonly Dictionary<string, GroupAuthorityLedger<TOptions>> _ledgers = [with(StringComparer.Ordinal)];
     private readonly string[] _nodeIds;
 
@@ -37,11 +38,32 @@ internal sealed class ClusterLeaderProbe<TOptions>
     /// <param name="watch">How long the group is watched.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A task that completes once the watch ended without an election.</returns>
-    /// <exception cref="InvalidOperationException">A running node saw a later term, the leader changed, or two nodes held authority in one term.</exception>
-    internal async Task AssertNoElectionAsync(string groupId, TimeSpan watch, CancellationToken cancellationToken)
+    /// <exception cref="InvalidOperationException">
+    /// No running node holds authority when the watch starts, a running node saw a later term, the leader changed, or two nodes held
+    /// authority in one term.
+    /// </exception>
+    internal Task AssertNoElectionAsync(string groupId, TimeSpan watch, CancellationToken cancellationToken) => AssertNoElectionAsync(groupId, watch, true, cancellationToken);
+
+    /// <summary>Checks for a while that no election runs in a group: no running node sees a later term and the leader keeps its authority.</summary>
+    /// <param name="groupId">The replica group.</param>
+    /// <param name="watch">How long the group is watched.</param>
+    /// <param name="requireLeader">
+    /// Whether a running node must hold authority when the watch starts; when <see langword="false" /> and none does, the watch checks that
+    /// no node gains authority and no node sees a term above the highest one seen at the start.
+    /// </param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes once the watch ended without an election.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// A leader is required but none holds authority at the start, a running node saw a later term, the leader changed, or two nodes held
+    /// authority in one term.
+    /// </exception>
+    internal async Task AssertNoElectionAsync(string groupId, TimeSpan watch, bool requireLeader, CancellationToken cancellationToken)
     {
         var ledger = Ledger(groupId);
         var leader = ledger.Observe();
+        if (requireLeader && leader.Term == 0UL)
+            throw new InvalidOperationException($"No running node holds authority over group {groupId} when the no-election watch starts.");
+
         var term = HighestTerm(groupId);
         await ledger.HoldsAsync(
             () => ledger.Observe() == leader && HighestTerm(groupId) == term,
@@ -55,13 +77,16 @@ internal sealed class ClusterLeaderProbe<TOptions>
     /// <returns>The ledger every wait of this probe for the group checks.</returns>
     internal GroupAuthorityLedger<TOptions> Ledger(string groupId)
     {
-        if (!_ledgers.TryGetValue(groupId, out var ledger))
+        lock (_gate)
         {
-            ledger = new GroupAuthorityLedger<TOptions>(_cluster, groupId);
-            _ledgers.Add(groupId, ledger);
-        }
+            if (!_ledgers.TryGetValue(groupId, out var ledger))
+            {
+                ledger = new GroupAuthorityLedger<TOptions>(_cluster, groupId);
+                _ledgers.Add(groupId, ledger);
+            }
 
-        return ledger;
+            return ledger;
+        }
     }
 
     /// <summary>Waits until a running node holds authority over a group in a term above the given one.</summary>
@@ -105,11 +130,7 @@ internal sealed class ClusterLeaderProbe<TOptions>
     {
         for (var i = 0; i < members.Count; i++)
         {
-            if (!_cluster.TryGetNode(members[i], out var node))
-                return false;
-
-            var view = node.GetRequiredService<IGroupLeaderTable>().Read(groupId);
-            if (view.Term != leader.Term || view.Known != leader)
+            if (!LeaderTableReads.TryRead(_cluster, members[i], groupId, out var view) || view.Term != leader.Term || view.Known != leader)
                 return false;
         }
 
@@ -121,8 +142,8 @@ internal sealed class ClusterLeaderProbe<TOptions>
         var term = 0UL;
         for (var i = 0; i < _nodeIds.Length; i++)
         {
-            if (_cluster.TryGetNode(_nodeIds[i], out var node))
-                term = Math.Max(term, node.GetRequiredService<IGroupLeaderTable>().Read(groupId).HighestObservedTerm);
+            if (LeaderTableReads.TryRead(_cluster, _nodeIds[i], groupId, out var view))
+                term = Math.Max(term, view.HighestObservedTerm);
         }
 
         return term;

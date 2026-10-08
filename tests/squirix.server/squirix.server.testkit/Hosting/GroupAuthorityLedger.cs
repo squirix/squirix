@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Cluster;
 
 namespace Squirix.Server.TestKit.Hosting;
 
@@ -14,14 +13,15 @@ namespace Squirix.Server.TestKit.Hosting;
 /// <typeparam name="TOptions">Node startup options type of the cluster.</typeparam>
 /// <remarks>
 /// Election safety allows at most one leader per term over the whole run, not only at one instant: every observation is checked against
-/// all earlier ones. Nodes of the topology that do not run are skipped, so a test may stop and restart nodes between waits. Used from one
-/// test at a time.
+/// all earlier ones. Nodes of the topology that do not run, or are stopping, are skipped, so a test may stop and restart nodes between
+/// waits. Observations are serialized, so several waits may run on one ledger at once.
 /// </remarks>
-[Mutable]
+[ThreadSafe]
 internal sealed class GroupAuthorityLedger<TOptions>
     where TOptions : ClusterStartOptions
 {
     private readonly TestCluster<TOptions> _cluster;
+    private readonly Lock _gate = new();
     private readonly string _groupId;
     private readonly Dictionary<ulong, string> _holders = [];
     private readonly string[] _nodes;
@@ -30,8 +30,12 @@ internal sealed class GroupAuthorityLedger<TOptions>
     /// <param name="cluster">The cluster.</param>
     /// <param name="groupId">The replica group watched.</param>
     /// <param name="bound">The longest wait of each wait this ledger runs; ninety seconds when not set.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="cluster" /> is <see langword="null" />.</exception>
+    /// <exception cref="ArgumentException"><paramref name="groupId" /> is null, empty or white space.</exception>
     internal GroupAuthorityLedger(TestCluster<TOptions> cluster, string groupId, TimeSpan? bound = null)
     {
+        ArgumentNullException.ThrowIfNull(cluster);
+        ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
         _cluster = cluster;
         _groupId = groupId;
         Bound = bound ?? TimeSpan.FromSeconds(90);
@@ -44,7 +48,14 @@ internal sealed class GroupAuthorityLedger<TOptions>
     internal TimeSpan Bound { get; }
 
     /// <summary>Gets the number of terms in which some node held authority so far.</summary>
-    internal int Terms => _holders.Count;
+    internal int Terms
+    {
+        get
+        {
+            lock (_gate)
+                return _holders.Count;
+        }
+    }
 
     /// <summary>Checks that an invariant holds on every poll for a while, checking election safety over every node as well.</summary>
     /// <param name="invariant">The invariant.</param>
@@ -102,23 +113,28 @@ internal sealed class GroupAuthorityLedger<TOptions>
     /// <exception cref="InvalidOperationException">Two nodes held authority over the group in the same term.</exception>
     internal (string NodeId, ulong Term) Observe() => Observe(_nodes);
 
-    /// <summary>Reads which of the given nodes hold authority over the group now, and records them; nodes that do not run are skipped.</summary>
+    /// <summary>Reads which of the given nodes hold authority over the group now, and records them; nodes that do not run or are stopping are skipped.</summary>
     /// <param name="nodes">The nodes to read.</param>
     /// <returns>The node holding authority in the highest term, and that term; a zero term when none holds it.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="nodes" /> is <see langword="null" />.</exception>
     /// <exception cref="InvalidOperationException">Two nodes held authority over the group in the same term.</exception>
     internal (string NodeId, ulong Term) Observe(IReadOnlyList<string> nodes)
     {
+        ArgumentNullException.ThrowIfNull(nodes);
         var leader = (NodeId: string.Empty, Term: 0UL);
-        for (var i = 0; i < nodes.Count; i++)
+        lock (_gate)
         {
-            if (!_cluster.TryGetNode(nodes[i], out var node) || !node.GetRequiredService<IGroupLeaderTable>().HasLocalAuthority(_groupId, out var term))
-                continue;
+            for (var i = 0; i < nodes.Count; i++)
+            {
+                if (!LeaderTableReads.TryGetAuthority(_cluster, nodes[i], _groupId, out var term))
+                    continue;
 
-            if (!_holders.TryAdd(term, nodes[i]) && !string.Equals(_holders[term], nodes[i], StringComparison.Ordinal))
-                throw new InvalidOperationException($"Nodes {_holders[term]} and {nodes[i]} both held authority over group {_groupId} in term {term}.");
+                if (!_holders.TryAdd(term, nodes[i]) && !string.Equals(_holders[term], nodes[i], StringComparison.Ordinal))
+                    throw new InvalidOperationException($"Nodes {_holders[term]} and {nodes[i]} both held authority over group {_groupId} in term {term}.");
 
-            if (term > leader.Term)
-                leader = (nodes[i], term);
+                if (term > leader.Term)
+                    leader = (nodes[i], term);
+            }
         }
 
         return leader;
