@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
@@ -30,14 +31,14 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
 
     private readonly Lazy<ReplicaGroupApplier> _applier;
+    private readonly Lazy<ReplicaExpirationCoordinator<NodeCacheEntry<object?>>> _expiration;
     private readonly AsyncLock _gate = new();
     private readonly IReplicaRpcGateway _gateway;
-    private readonly ulong _generation;
     private readonly ILogicalNamespacedCache<object?> _local;
     private readonly IReplicaGroupLocator _locator;
     private readonly ReplicaGroupRegistry _registry;
     private readonly Lazy<ReplicaVerificationProbe> _probe;
-    private readonly ReadOnlyMemory<byte> _topologyFingerprint;
+    private readonly ReplicaTopologyStamp _topology;
     private ReplicaCommitCoordinator? _coordinator;
     private int _disposed;
     private ReplicaMutationFactory? _factory;
@@ -76,14 +77,37 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _local = local;
         _applier = new Lazy<ReplicaGroupApplier>(() => new ReplicaGroupApplier(local, Log, selfId, selfId, Metrics), LazyThreadSafetyMode.ExecutionAndPublication);
         GroupId = selfId;
-        _topologyFingerprint = topology.Fingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topology))
-            : topology.Fingerprint;
-        _generation = topology.Generation;
+        _topology = topology.Fingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topology)) : topology;
         _probe = new Lazy<ReplicaVerificationProbe>(
-            () => new ReplicaVerificationProbe(registry, locator, gateway, selfId, _topologyFingerprint, _generation, Log),
+            () => new ReplicaVerificationProbe(registry, locator, gateway, selfId, _topology.Fingerprint, _topology.Generation, Log),
             LazyThreadSafetyMode.ExecutionAndPublication);
         CommitBudget = DefaultCommitBudget;
         ShutdownBudget = DefaultShutdownBudget;
+
+        // Created on first use, after the init-only budgets are set. One run of the expiry serves every caller of the key, so it takes no
+        // caller token: the commit budget bounds the wait before the append, and the commit itself is budget-bounded.
+        _expiration = new Lazy<ReplicaExpirationCoordinator<NodeCacheEntry<object?>>>(
+            () => new ReplicaExpirationCoordinator<NodeCacheEntry<object?>>(async (cacheName, key) =>
+            {
+                ThrowIfDisposed();
+                using var budget = new CancellationTokenSource(CommitBudget, BudgetTimeProvider);
+                await WaitForLocalRecoveryAsync(budget.Token).ConfigureAwait(false);
+                ThrowIfDisposed();
+                using var guard = await _gate.LockAsync(budget.Token).ConfigureAwait(false);
+                var (coordinator, factory) = await EnsureStartedAsync(true, budget.Token).ConfigureAwait(false);
+                var (tombstone, current) = await factory.PrepareExpireAsync(cacheName, key, PeekNextIndex(), budget.Token).ConfigureAwait(false);
+                if (tombstone == null)
+                    return current;
+
+                _ = await this.CommitWithPreAppendResyncAsync(coordinator, tombstone).ConfigureAwait(false);
+                return null;
+            })
+            {
+                ShutdownBudget = ShutdownBudget,
+                ShutdownTimeProvider = ShutdownTimeProvider,
+                ShutdownLeakReporter = budget => ServerLog.ReplicaExpirationLeakedOnShutdown(Log, budget),
+            },
+            LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     /// <summary>Gets the budget of one commit attempt up to its durable majority; 5 seconds unless set.</summary>
@@ -138,6 +162,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
     }
 
+    /// <summary>Gets the expiry of the owned group: one run per key decides it on the leader clock and commits the tombstone of an expired entry.</summary>
+    /// <remarks>Disposed first by <see cref="DisposeAsync" />, so it refuses expiries once this committer is disposing.</remarks>
+    internal ReplicaExpirationCoordinator<NodeCacheEntry<object?>> Expiration => _expiration.Value;
+
     /// <summary>Gets the logger for lifecycle failures.</summary>
     internal ILogger Log { get; }
 
@@ -151,6 +179,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
+
+        // Expiries in flight go first: they queue on the gate the drain below takes. The wait is bounded, and an expiry left running
+        // is faulted by the gate disposal below.
+        await _expiration.Value.DisposeAsync().ConfigureAwait(false);
 
         // Drain in-flight committer operations holding _gate so their AsyncLockHolder can release
         // the gate before it is disposed of. New admissions fail closed via ThrowIfDisposed. The drain stays held until the
@@ -359,7 +391,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         var eligibility = _registry.EligibilityFor(GroupId);
         var wasReady = eligibility.CanCountInWriteQuorum(replicaIndex);
-        ReplicaReadinessProbe.AdmitCaughtUp(eligibility, replicaIndex, in result, status.CommitIndex, _topologyFingerprint, _generation, coordinator);
+        ReplicaReadinessProbe.AdmitCaughtUp(eligibility, replicaIndex, in result, status.CommitIndex, _topology.Fingerprint, _topology.Generation, coordinator);
         if (wasReady || !eligibility.CanCountInWriteQuorum(replicaIndex))
             return false;
 
@@ -496,7 +528,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (replacing)
             ReplicaReadinessProbe.UnverifyFollowers(eligibility);
 
-        ReplicaReadinessProbe.MarkLeaderReady(eligibility, in status, _topologyFingerprint, _generation);
+        ReplicaReadinessProbe.MarkLeaderReady(eligibility, in status, _topology.Fingerprint, _topology.Generation);
         var results = eligibility.CanCountInWriteQuorum(0)
             ? await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility), members, header, status, ReplicaVerificationProbe.ProbeTimeout, cancellationToken)
                                          .ConfigureAwait(false)
@@ -515,7 +547,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             await RestoreOutcomesAsync(log, pipeline, cancellationToken).ConfigureAwait(false);
 
         // Verified slots are admitted at the leader's last index before they count, so they cover the recovered tail.
-        ReplicaReadinessProbe.ApplyAll(eligibility, results, in status, _topologyFingerprint, _generation, _coordinator);
+        ReplicaReadinessProbe.ApplyAll(eligibility, results, in status, _topology.Fingerprint, _topology.Generation, _coordinator);
         _factory = factory;
         _started = true;
     }

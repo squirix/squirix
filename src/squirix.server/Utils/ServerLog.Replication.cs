@@ -162,4 +162,10 @@ internal static partial class ServerLog
 
     [LoggerMessage(EventId = 4031, Level = LogLevel.Warning, Message = "Replica group {GroupId} has no open log on this node, so this follower applies none of its committed entries")]
     internal static partial void ReplicaFollowerApplyNoLog(ILogger logger, string groupId);
+
+    [LoggerMessage(
+        EventId = 4032,
+        Level = LogLevel.Error,
+        Message = "Replica expiration did not drain within the shutdown budget of {Budget}; the expiry still running is left to finish on its own")]
+    internal static partial void ReplicaExpirationLeakedOnShutdown(ILogger logger, TimeSpan budget);
 }

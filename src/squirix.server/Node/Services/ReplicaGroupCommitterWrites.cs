@@ -11,6 +11,19 @@ internal static class ReplicaGroupCommitterWrites
 {
     extension(ReplicaGroupCommitter committer)
     {
+        /// <summary>Expires a key whose stored entry may be past its deadline, sharing one run with the concurrent expiries of the key.</summary>
+        /// <param name="cacheName">Target cache name.</param>
+        /// <param name="key">Target key.</param>
+        /// <param name="cancellationToken">Ends this caller's wait only; the shared expiry goes on.</param>
+        /// <returns>
+        /// <see langword="null" /> once the tombstone of the expired entry is committed and applied, or when the key is absent; the stored
+        /// entry when the leader finds it live.
+        /// </returns>
+        /// <exception cref="ObjectDisposedException">The committer is disposing or disposed.</exception>
+        /// <remarks>Any other failure leaves the expiry undecided: the key may not be reported absent until a later expiry commits.</remarks>
+        internal Task<NodeCacheEntry<object?>?> ExpireAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            committer.Expiration.ExpireAsync(cacheName, key, cancellationToken);
+
         /// <summary>Commits a replicated remove and returns the removed entry, if any.</summary>
         /// <param name="operationId">Client operation identifier.</param>
         /// <param name="cacheName">Target cache name.</param>
