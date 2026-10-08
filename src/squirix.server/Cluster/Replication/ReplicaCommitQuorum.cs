@@ -42,10 +42,6 @@ internal sealed class ReplicaCommitQuorum
             _matchIndexes[i] = initialMatchIndex;
     }
 
-    internal int ReplicaCount { get; }
-
-    internal int RequiredCopies { get; }
-
     /// <summary>Gets a counter that moves whenever a recorded match index advances.</summary>
     /// <remarks>
     /// A commit that waits on its own followers reads it before it checks for a majority and then waits with
@@ -61,42 +57,9 @@ internal sealed class ReplicaCommitQuorum
         }
     }
 
-    /// <summary>Checks whether an acknowledgement at or below an index is buffered behind a missing prefix.</summary>
-    /// <param name="logIndex">The highest index of interest.</param>
-    /// <returns><see langword="true" /> when some slot holds a buffered acknowledgement that the arrival of its prefix would count.</returns>
-    internal bool HasBufferedThrough(ulong logIndex)
-    {
-        lock (_sync)
-        {
-            foreach (var buffered in _futureAcks.Values)
-                foreach (var index in buffered)
-                {
-                    if (index <= logIndex)
-                        return true;
-                }
+    internal int ReplicaCount { get; }
 
-            return false;
-        }
-    }
-
-    /// <summary>Waits until the progress version moves past a value read earlier.</summary>
-    /// <param name="seenVersion">The version read before the check that found no majority.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes once the version differs from <paramref name="seenVersion" />.</returns>
-    internal Task WaitForProgressAsync(ulong seenVersion, CancellationToken cancellationToken)
-    {
-        Task changed;
-        lock (_sync)
-        {
-            if (_version != seenVersion)
-                return Task.CompletedTask;
-
-            _progress ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            changed = _progress.Task;
-        }
-
-        return changed.WaitAsync(cancellationToken);
-    }
+    internal int RequiredCopies { get; }
 
     /// <summary>Raises the recorded match index of a replica to a leader-verified durable position.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
@@ -161,6 +124,24 @@ internal sealed class ReplicaCommitQuorum
         }
     }
 
+    /// <summary>Checks whether an acknowledgement at or below an index is buffered behind a missing prefix.</summary>
+    /// <param name="logIndex">The highest index of interest.</param>
+    /// <returns><see langword="true" /> when some slot holds a buffered acknowledgement that the arrival of its prefix would count.</returns>
+    internal bool HasBufferedThrough(ulong logIndex)
+    {
+        lock (_sync)
+        {
+            foreach (var buffered in _futureAcks.Values)
+                foreach (var index in buffered)
+                {
+                    if (index <= logIndex)
+                        return true;
+                }
+
+            return false;
+        }
+    }
+
     /// <summary>Returns the highest contiguous durable index recorded for one replica.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
     /// <returns>The replica match index.</returns>
@@ -201,45 +182,38 @@ internal sealed class ReplicaCommitQuorum
             return RecordLocked(replicaIndex, in acknowledgement);
     }
 
-    /// <summary>Records a verified acknowledgement for one replica slot.</summary>
-    /// <param name="replicaIndex">Zero-based replica slot.</param>
-    /// <param name="acknowledgement">Durable acknowledgement to record.</param>
-    /// <returns>
-    /// <see langword="true" /> when the acknowledgement identity is valid and recorded: contiguously, or buffered
-    /// when it arrives ahead of its missing prefix; otherwise, <see langword="false" />.
-    /// </returns>
-    /// <remarks>Must be called under <see cref="_sync" />.</remarks>
-    private bool RecordLocked(int replicaIndex, in ReplicaDurableAcknowledgement acknowledgement)
+    /// <summary>Waits until the progress version moves past a value read earlier.</summary>
+    /// <param name="seenVersion">The version read before the check that found no majority.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes once the version differs from <paramref name="seenVersion" />.</returns>
+    internal Task WaitForProgressAsync(ulong seenVersion, CancellationToken cancellationToken)
     {
-        // The eligibility verdict is read under _sync so a Ready-to-CatchingUp transition cannot slip
-        // an acknowledgement between the check and the record. Lock order is always quorum then eligibility;
-        // eligibility never calls back into the quorum, so this ordering cannot deadlock.
-        if (_eligibility?.CanCountInWriteQuorum(replicaIndex) == false)
-            return false;
-
-        var current = _matchIndexes[replicaIndex];
-        if (acknowledgement.LogIndex <= current)
-            return acknowledgement.LogIndex == current;
-
-        if (acknowledgement.LogIndex == current + 1)
+        Task changed;
+        lock (_sync)
         {
-            _matchIndexes[replicaIndex] = acknowledgement.LogIndex;
-            AdvanceThroughBuffered(replicaIndex);
-            SignalProgressLocked();
-            return true;
+            if (_version != seenVersion)
+                return Task.CompletedTask;
+
+            _progress ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            changed = _progress.Task;
         }
 
-        return BufferFutureLocked(replicaIndex, acknowledgement.LogIndex);
+        return changed.WaitAsync(cancellationToken);
     }
 
-    /// <summary>Moves the progress version and completes the wait of the previous one, if any waits.</summary>
-    /// <remarks>Must be called under <see cref="_sync" />.</remarks>
-    private void SignalProgressLocked()
+    /// <summary>Advances one replica through buffered future indexes while they form a contiguous run.</summary>
+    /// <param name="replicaIndex">Zero-based replica slot.</param>
+    /// <remarks>Must be called under <see cref="_sync" /> after a contiguous advance.</remarks>
+    private void AdvanceThroughBuffered(int replicaIndex)
     {
-        _version++;
-        var done = _progress;
-        _progress = null;
-        _ = done?.TrySetResult();
+        if (!_futureAcks.TryGetValue(replicaIndex, out var buffered))
+            return;
+
+        while (_matchIndexes[replicaIndex] != ulong.MaxValue && buffered.Remove(_matchIndexes[replicaIndex] + 1))
+            _matchIndexes[replicaIndex]++;
+
+        if (buffered.Count == 0)
+            _ = _futureAcks.Remove(replicaIndex);
     }
 
     /// <summary>Buffers a future index arriving ahead of its missing prefix, up to <see cref="MaxBufferedAcks" /> per slot.</summary>
@@ -262,18 +236,41 @@ internal sealed class ReplicaCommitQuorum
         return true;
     }
 
-    /// <summary>Advances one replica through buffered future indexes while they form a contiguous run.</summary>
+    /// <summary>Records a verified acknowledgement for one replica slot.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
-    /// <remarks>Must be called under <see cref="_sync" /> after a contiguous advance.</remarks>
-    private void AdvanceThroughBuffered(int replicaIndex)
+    /// <param name="acknowledgement">Durable acknowledgement to record.</param>
+    /// <returns>
+    /// <see langword="true" /> when the acknowledgement identity is valid and recorded: contiguously, or buffered
+    /// when it arrives ahead of its missing prefix; otherwise, <see langword="false" />.
+    /// </returns>
+    /// <remarks>Must be called under <see cref="_sync" />.</remarks>
+    private bool RecordLocked(int replicaIndex, in ReplicaDurableAcknowledgement acknowledgement)
     {
-        if (!_futureAcks.TryGetValue(replicaIndex, out var buffered))
-            return;
+        // The eligibility verdict is read under _sync so a Ready-to-CatchingUp transition cannot slip
+        // an acknowledgement between the check and the record. Lock order is always quorum then eligibility;
+        // eligibility never calls back into the quorum, so this ordering cannot deadlock.
+        if (_eligibility?.CanCountInWriteQuorum(replicaIndex) == false)
+            return false;
 
-        while (_matchIndexes[replicaIndex] != ulong.MaxValue && buffered.Remove(_matchIndexes[replicaIndex] + 1))
-            _matchIndexes[replicaIndex]++;
+        var current = _matchIndexes[replicaIndex];
+        if (acknowledgement.LogIndex <= current)
+            return acknowledgement.LogIndex == current;
 
-        if (buffered.Count == 0)
-            _ = _futureAcks.Remove(replicaIndex);
+        if (acknowledgement.LogIndex != current + 1)
+            return BufferFutureLocked(replicaIndex, acknowledgement.LogIndex);
+        _matchIndexes[replicaIndex] = acknowledgement.LogIndex;
+        AdvanceThroughBuffered(replicaIndex);
+        SignalProgressLocked();
+        return true;
+    }
+
+    /// <summary>Moves the progress version and completes the wait of the previous one, if any waits.</summary>
+    /// <remarks>Must be called under <see cref="_sync" />.</remarks>
+    private void SignalProgressLocked()
+    {
+        _version++;
+        var done = _progress;
+        _progress = null;
+        _ = done?.TrySetResult();
     }
 }

@@ -423,7 +423,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 
         internal int Value => Volatile.Read(ref _value);
 
-        internal void Increment() => _ = Interlocked.Increment(ref _value);
+        private void Increment() => _ = Interlocked.Increment(ref _value);
     }
 
     /// <summary>A fake clock whose wall time can step backward while its monotonic timestamp keeps moving forward only.</summary>

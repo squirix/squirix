@@ -27,11 +27,4 @@ internal sealed class DueTimerClock : FakeTimeProvider
 
         return timer;
     }
-
-    /// <summary>Discards the signals of timers created so far.</summary>
-    internal void ForgetCreated()
-    {
-        while (TimerCreated.CurrentCount > 0)
-            _ = TimerCreated.Wait(0, CancellationToken.None);
-    }
 }

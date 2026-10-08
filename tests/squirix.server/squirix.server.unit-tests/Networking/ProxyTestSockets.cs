@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.TestKit.Diagnostics;
 
 namespace Squirix.Server.UnitTests.Networking;
 
@@ -27,39 +28,22 @@ internal static class ProxyTestSockets
         }
     }
 
-    /// <summary>Binds and listens on an ephemeral loopback port.</summary>
-    /// <returns>The listening socket; the caller disposes it.</returns>
-    internal static Socket Listen()
+    /// <summary>Connects and tells whether the proxy refuses the connection, whether the reset lands during the connect or after it.</summary>
+    /// <param name="endPoint">The proxy endpoint to dial.</param>
+    /// <param name="cancellationToken">Bounds the connect and the probe.</param>
+    /// <returns><see langword="true" /> when the connect fails with a reset or refusal, or the connection is reset without an echo.</returns>
+    internal static async Task<bool> ConnectIsRefusedAsync(IPEndPoint endPoint, CancellationToken cancellationToken)
     {
-        var listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         try
         {
-            listener.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-            listener.Listen();
-            return listener;
+            using var socket = await ConnectAsync(endPoint, cancellationToken);
+            return await IsRefusedAsync(socket, cancellationToken);
         }
-        catch
+        catch (SocketException)
         {
-            listener.Dispose();
-            throw;
+            return true;
         }
     }
-
-    /// <summary>Returns a loopback endpoint nothing listens on, by binding an ephemeral port and releasing it.</summary>
-    /// <returns>An endpoint whose connects are refused.</returns>
-    internal static IPEndPoint ReserveClosedEndPoint()
-    {
-        using var probe = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        probe.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-        return LocalEndPointOf(probe);
-    }
-
-    /// <summary>Returns the loopback endpoint a bound socket is bound to.</summary>
-    /// <param name="socket">A bound loopback socket.</param>
-    /// <returns>The bound endpoint.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when the socket is not bound to an IP endpoint.</exception>
-    internal static IPEndPoint LocalEndPointOf(Socket socket) =>
-        socket.LocalEndPoint is IPEndPoint endPoint ? endPoint : throw new InvalidOperationException("The socket is not bound to an IP endpoint.");
 
     /// <summary>Tells whether the peer closed or reset the connection instead of sending more bytes.</summary>
     /// <param name="socket">The connected socket to read from.</param>
@@ -100,22 +84,29 @@ internal static class ProxyTestSockets
         return await IsClosedAsync(socket, cancellationToken);
     }
 
-    /// <summary>Connects and tells whether the proxy refuses the connection, whether the reset lands during the connect or after it.</summary>
-    /// <param name="endPoint">The proxy endpoint to dial.</param>
-    /// <param name="cancellationToken">Bounds the connect and the probe.</param>
-    /// <returns><see langword="true" /> when the connect fails with a reset or refusal, or the connection is reset without an echo.</returns>
-    internal static async Task<bool> ConnectIsRefusedAsync(IPEndPoint endPoint, CancellationToken cancellationToken)
+    /// <summary>Binds and listens on an ephemeral loopback port.</summary>
+    /// <returns>The listening socket; the caller disposes it.</returns>
+    internal static Socket Listen()
     {
+        var listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         try
         {
-            using var socket = await ConnectAsync(endPoint, cancellationToken);
-            return await IsRefusedAsync(socket, cancellationToken);
+            listener.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+            listener.Listen();
+            return listener;
         }
-        catch (SocketException)
+        catch
         {
-            return true;
+            listener.Dispose();
+            throw;
         }
     }
+
+    /// <summary>Returns the loopback endpoint a bound socket is bound to.</summary>
+    /// <param name="socket">A bound loopback socket.</param>
+    /// <returns>The bound endpoint.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the socket is not bound to an IP endpoint.</exception>
+    internal static IPEndPoint LocalEndPointOf(Socket socket) => KitThrowHelper.Required(socket.LocalEndPoint as IPEndPoint, "The socket is not bound to an IP endpoint.");
 
     internal static async Task<byte[]> ReceiveExactlyAsync(Socket socket, int count, CancellationToken cancellationToken)
     {
@@ -131,5 +122,14 @@ internal static class ProxyTestSockets
         }
 
         return buffer;
+    }
+
+    /// <summary>Returns a loopback endpoint nothing listens on, by binding an ephemeral port and releasing it.</summary>
+    /// <returns>An endpoint whose connects are refused.</returns>
+    internal static IPEndPoint ReserveClosedEndPoint()
+    {
+        using var probe = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        probe.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        return LocalEndPointOf(probe);
     }
 }

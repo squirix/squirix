@@ -102,26 +102,6 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(0UL);
     }
 
-    /// <summary>A failure of the cache write itself is not reported as an inconsistent record, even when it is an invalid-data failure.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task WriteFailureIsNotInconsistentRecord(CancellationToken cancellationToken)
-    {
-        using var meter = new Meter("test");
-        var total = new long[1];
-        using var listener = CountMetric(meter, total);
-        var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
-                 .Callback(static (_, _, _, _, _) => ValueTask.FromException(new InvalidDataException("entry exceeds the payload limit")));
-        var applier = new ReplicaGroupApplier(cache.Instance(), NullLogger.Instance, "n1", "n1", new ReplicationMetrics(meter));
-        var valid = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance).PrepareSet(NewOperationId(), "cache", "k1", Entry("k1"), 1UL);
-
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, valid.CanonicalPayload, cancellationToken));
-
-        _ = await Assert.That(Interlocked.Read(ref total[0])).IsEqualTo(0L);
-        _ = await Assert.That(applier.AppliedIndex).IsEqualTo(0UL);
-    }
-
     /// <summary>An uncommitted tail entry whose entry payload does not decode stops the committer from starting.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -149,6 +129,26 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
         _ = await Assert.That(Interlocked.Read(ref total[0])).IsEqualTo(1L);
     }
 
+    /// <summary>A failure of the cache write itself is not reported as an inconsistent record, even when it is an invalid-data failure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WriteFailureIsNotInconsistentRecord(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("test");
+        var total = new long[1];
+        using var listener = CountMetric(meter, total);
+        var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
+        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+                 .Callback(static (_, _, _, _, _) => ValueTask.FromException(new InvalidDataException("entry exceeds the payload limit")));
+        var applier = new ReplicaGroupApplier(cache.Instance(), NullLogger.Instance, "n1", "n1", new ReplicationMetrics(meter));
+        var valid = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance).PrepareSet(NewOperationId(), "cache", "k1", Entry("k1"), 1UL);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, valid.CanonicalPayload, cancellationToken));
+
+        _ = await Assert.That(Interlocked.Read(ref total[0])).IsEqualTo(0L);
+        _ = await Assert.That(applier.AppliedIndex).IsEqualTo(0UL);
+    }
+
     private static MeterListener CountMetric(Meter meter, long[] total)
     {
         var listener = new MeterListener
@@ -159,12 +159,11 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
                     target.EnableMeasurementEvents(instrument, total);
             },
         };
-        listener.SetMeasurementEventCallback<long>(
-            static (_, value, _, state) =>
-            {
-                if (state is long[] counts)
-                    _ = Interlocked.Add(ref counts[0], value);
-            });
+        listener.SetMeasurementEventCallback<long>(static (_, value, _, state) =>
+        {
+            if (state is long[] counts)
+                _ = Interlocked.Add(ref counts[0], value);
+        });
         listener.Start();
         return listener;
     }

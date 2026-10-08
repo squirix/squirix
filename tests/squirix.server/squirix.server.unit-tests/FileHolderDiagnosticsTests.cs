@@ -28,11 +28,20 @@ public sealed class FileHolderDiagnosticsTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-holders-held");
         var path = Path.Join(dir, "held.bin");
         await File.WriteAllBytesAsync(path, ReadOnlyMemory<byte>.Of(1), cancellationToken);
-        using var holder = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var holder = File.OpenHandle(path);
 
         var description = FileHolderDiagnostics.DescribeHolders(path);
 
         _ = await Assert.That(description).Contains($"pid {Environment.ProcessId}");
+    }
+
+    /// <summary>A missing path has no holder description and does not throw.</summary>
+    [Test]
+    public async Task MissingPathHasNoHolders()
+    {
+        using var dir = new TempDirectory("squirix-holders-missing");
+
+        _ = await Assert.That(FileHolderDiagnostics.DescribeHolders(Path.Join(dir, "missing.bin"))).IsNull();
     }
 
     /// <summary>A file nobody holds has no holder description.</summary>
@@ -48,14 +57,5 @@ public sealed class FileHolderDiagnosticsTests : ServerUnitTestBase
 
         // An on-close scanner may hold the new file briefly, but this process never does.
         _ = await Assert.That(description?.Contains($"pid {Environment.ProcessId}", StringComparison.Ordinal) != true).IsTrue();
-    }
-
-    /// <summary>A missing path has no holder description and does not throw.</summary>
-    [Test]
-    public async Task MissingPathHasNoHolders()
-    {
-        using var dir = new TempDirectory("squirix-holders-missing");
-
-        _ = await Assert.That(FileHolderDiagnostics.DescribeHolders(Path.Join(dir, "missing.bin"))).IsNull();
     }
 }

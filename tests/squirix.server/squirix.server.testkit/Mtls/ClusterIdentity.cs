@@ -25,8 +25,8 @@ public sealed class ClusterIdentity : IDisposable
     private readonly Dictionary<string, HeldPort> _internalPorts = [with(StringComparer.Ordinal)];
     private readonly List<X509Certificate2> _ownedCertificates = [];
     private TestBundle? _bundle;
-    private X509Certificate2? _untrustedCertificateAuthority;
     private int _disposed;
+    private X509Certificate2? _untrustedCertificateAuthority;
 
     /// <summary>Gets the outbound handlers of the nodes started from this identity, released when a node's host is disposed.</summary>
     internal PeerHandlerRegistry NodeHandlers { get; } = new();
@@ -90,11 +90,9 @@ public sealed class ClusterIdentity : IDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options, material, the per-peer outbound handler factory (<see langword="null" /> without a fabric), and the scope that releases the factory's handlers when the node's host is disposed.</returns>
     /// <exception cref="InvalidOperationException">Thrown when <paramref name="fabric" /> is set but the topology has no internode mTLS.</exception>
-    internal static async Task<(ClusterIdentity? Identity, MtlsOptions? Options, MtlsCertificate? Certificate, Func<string, HttpMessageHandler>? PeerHandlerFactory, IDisposable? HandlerScope)> ResolveForBindAsync(
-        ClusterIdentity? identity,
-        TopologyOptions cluster,
-        PartitionFabric? fabric,
-        CancellationToken cancellationToken = default)
+    internal static async
+        Task<(ClusterIdentity? Identity, MtlsOptions? Options, MtlsCertificate? Certificate, Func<string, HttpMessageHandler>? PeerHandlerFactory, IDisposable? HandlerScope)>
+        ResolveForBindAsync(ClusterIdentity? identity, TopologyOptions cluster, PartitionFabric? fabric, CancellationToken cancellationToken = default)
     {
         if (!MtlsTopology.RequiresInterNodeMtls(cluster))
             return fabric == null ? (identity, null, null, null, null) : throw new InvalidOperationException(FabricWithoutMtlsMessage);
@@ -138,7 +136,11 @@ public sealed class ClusterIdentity : IDisposable
     /// <param name="fabric">Fabric the node dials its remote peers through, or <see langword="null" /> for direct dialing.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options, material, and the per-peer outbound handler factory; with a fabric the factory is always set.</returns>
-    internal async Task<NodeMtlsStartup> ResolveNodeStartupForBindAsync(TopologyOptions cluster, TestNodeProfile profile, PartitionFabric? fabric, CancellationToken cancellationToken = default)
+    internal async Task<NodeMtlsStartup> ResolveNodeStartupForBindAsync(
+        TopologyOptions cluster,
+        TestNodeProfile profile,
+        PartitionFabric? fabric,
+        CancellationToken cancellationToken = default)
     {
         var result = await ResolveNodeStartupAsync(cluster, profile, fabric, cancellationToken).ConfigureAwait(false);
         ReleaseHeldInternalPort(cluster.NodeId);
@@ -227,7 +229,7 @@ public sealed class ClusterIdentity : IDisposable
         try
         {
             certificate = MtlsCertificate.Create(serverCertificate, trustAnchor);
-            var startup = redirect == null ? new NodeMtlsStartup(options, certificate, null) : redirect.CreateStartup(owner, options, certificate);
+            var startup = redirect?.CreateStartup(owner, options, certificate) ?? new NodeMtlsStartup(options, certificate, null);
             certificate = null;
             return startup;
         }
@@ -300,7 +302,11 @@ public sealed class ClusterIdentity : IDisposable
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="profile" /> is not supported.</exception>
     /// <exception cref="ObjectDisposedException">Thrown when this identity has already been disposed.</exception>
     /// <exception cref="InvalidOperationException">Thrown when <paramref name="fabric" /> is set but the topology has no internode mTLS.</exception>
-    private async Task<NodeMtlsStartup> ResolveNodeStartupAsync(TopologyOptions cluster, TestNodeProfile profile, PartitionFabric? fabric, CancellationToken cancellationToken = default)
+    private async Task<NodeMtlsStartup> ResolveNodeStartupAsync(
+        TopologyOptions cluster,
+        TestNodeProfile profile,
+        PartitionFabric? fabric,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(cluster);
 
@@ -322,7 +328,10 @@ public sealed class ClusterIdentity : IDisposable
         var startup = profile switch
         {
             TestNodeProfile.Normal => ThrowHelper.Required(redirect, "A redirect is set when the default wiring needs a factory.").CreateStartup(owner, options, certificate),
-            TestNodeProfile.NoOutboundClientCertificate => new NodeMtlsStartup(options, certificate, new NoClientCertificateHandlerFactory(owner, certificate.TrustAnchor!, redirect).Create),
+            TestNodeProfile.NoOutboundClientCertificate => new NodeMtlsStartup(
+                options,
+                certificate,
+                new NoClientCertificateHandlerFactory(owner, certificate.TrustAnchor!, redirect).Create),
             TestNodeProfile.UntrustedOutboundClientCertificate => CreateUntrustedOutboundStartup(cluster.NodeId, options, certificate, owner, redirect),
             TestNodeProfile.UntrustedInboundServerCertificate => CreateUntrustedInboundServerStartup(cluster.NodeId, options, certificate, owner, redirect),
             TestNodeProfile.ExpiredPeerCertificate => CreateExpiredPeerStartup(cluster.NodeId, options, certificate, owner, redirect),
@@ -423,8 +432,10 @@ public sealed class ClusterIdentity : IDisposable
         /// <param name="options">Internode mTLS options for host startup overrides.</param>
         /// <param name="material">Loaded certificate material backing the options.</param>
         /// <returns>Options, material, and a redirected per-peer outbound handler factory.</returns>
-        internal NodeMtlsStartup CreateStartup(PeerHandlers owner, MtlsOptions options, MtlsCertificate material) =>
-            new(options, material, new HandlerFactory(owner, material.NodeCertificate!, material.TrustAnchor!, this).Create);
+        internal NodeMtlsStartup CreateStartup(PeerHandlers owner, MtlsOptions options, MtlsCertificate material) => new(
+            options,
+            material,
+            new HandlerFactory(owner, material.NodeCertificate!, material.TrustAnchor!, this).Create);
     }
 
     [Immutable]

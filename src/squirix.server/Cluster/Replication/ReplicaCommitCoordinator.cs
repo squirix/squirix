@@ -31,6 +31,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
     /// <summary>Completed when disposal starts: admission then refuses new commits and background follower observation stops waiting.</summary>
     private readonly TaskCompletionSource _disposing = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     private readonly IReplicaCommitFaultHooks _faultHooks;
     private readonly GroupIdempotencyState _idempotency;
     private readonly Dictionary<OperationKey, CommitOperation> _operations = [];
@@ -105,13 +106,17 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         ShutdownBudget = DefaultShutdownBudget;
     }
 
-    /// <summary>Gets a value indicating whether some locally appended entry is not applied to memory yet.</summary>
-    /// <remarks>The owner reads it under its commit gate, where no commit body runs, so only background follower observation can change it.</remarks>
-    internal bool HasPendingApply => !_pendingApply.IsEmpty;
+    /// <summary>Initializes the owner callback that reports a fault of owned work that dispose abandoned after the shutdown budget and that failed later.</summary>
+    /// <remarks>This namespace does not log; the owner turns the report into an error log. Unset, the fault is only observed.</remarks>
+    internal Action<Exception>? AbandonedWorkFaultReporter { private get; init; }
 
     /// <summary>Initializes the time source of the commit budget; the system clock unless set.</summary>
     /// <remarks>Test seam: production coordinators keep the system clock.</remarks>
     internal TimeProvider BudgetTimeProvider { private get; init; } = TimeProvider.System;
+
+    /// <summary>Gets a value indicating whether some locally appended entry is not applied to memory yet.</summary>
+    /// <remarks>The owner reads it under its commit gate, where no commit body runs, so only background follower observation can change it.</remarks>
+    internal bool HasPendingApply => !_pendingApply.IsEmpty;
 
     /// <summary>Initializes the time source bounding the first wait of background follower observation; the system clock unless set.</summary>
     /// <remarks>Test seam: production coordinators keep the system clock.</remarks>
@@ -134,10 +139,6 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// <remarks>This namespace does not log; the owner turns the report into an error log. Unset, the leak is not reported.</remarks>
     internal Action<TimeSpan>? ShutdownLeakReporter { private get; init; }
 
-    /// <summary>Initializes the owner callback that reports a fault of owned work that dispose abandoned after the shutdown budget and that failed later.</summary>
-    /// <remarks>This namespace does not log; the owner turns the report into an error log. Unset, the fault is only observed.</remarks>
-    internal Action<Exception>? AbandonedWorkFaultReporter { private get; init; }
-
     /// <summary>Observes all owned post-appending work before releasing resources.</summary>
     /// <returns>An asynchronous operation.</returns>
     /// <remarks>
@@ -153,6 +154,33 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             _disposeTask ??= DisposeCoreAsync();
             return new ValueTask(_disposeTask);
         }
+    }
+
+    /// <summary>Raises a replica's recorded match index to a position the leader verified against its own log.</summary>
+    /// <param name="replicaIndex">Zero-based replica slot.</param>
+    /// <param name="matchIndex">Verified contiguous durable index on the replica.</param>
+    /// <remarks>Call before marking the slot ready and while holding the committer gate, so the slot never counts a stale match index.</remarks>
+    internal void AdmitReplica(int replicaIndex, ulong matchIndex) => _quorum.Admit(replicaIndex, matchIndex);
+
+    /// <summary>Commits and applies the locally appended entries a recorded majority already covers, outside any caller's commit.</summary>
+    /// <returns><see langword="true" /> when no locally appended entry is left unapplied.</returns>
+    /// <remarks>
+    /// Drives entries whose own commit gave up after the local append: a majority that arrived late, or an apply that failed after
+    /// the majority, or an uncommitted tail recovered at start. Every such entry is past its decision point once a majority covers
+    /// it, so the work runs on <see cref="CancellationToken.None" /> under the commit gate, ordered with commit bodies; it resolves the
+    /// idempotency record of each applied entry. An entry no recorded majority covers stays retained, and so does a recovered entry
+    /// of an older term that no current-term entry reaches yet. Prepared outcomes are computed from live memory, so callers that
+    /// prepare mutations must not prepare while this returns <see langword="false" />.
+    /// A call that runs counts as running work: dispose does not tear the gates and the sequencer down under it, and reports the leak
+    /// when the call outlasts the shutdown budget. While dispose drains the owned follower observation, which can apply a late majority,
+    /// calls still run; once the drain is over, no new call runs.
+    /// </remarks>
+    /// <exception cref="ObjectDisposedException">Disposal has closed the coordinator to applies and an entry is still to be applied.</exception>
+    internal async Task<bool> ApplyCommittedAsync()
+    {
+        var applied = await ApplyUnlessClosedAsync().ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(applied == null, this);
+        return applied.GetValueOrDefault();
     }
 
     /// <summary>Commits a prepared mutation or reports an ambiguous post-appended outcome.</summary>
@@ -209,33 +237,6 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         {
             throw new InvalidOperationException($"{CommitOutcomeUnknownCode}: operation '{mutation.OperationId}'.", error);
         }
-    }
-
-    /// <summary>Raises a replica's recorded match index to a position the leader verified against its own log.</summary>
-    /// <param name="replicaIndex">Zero-based replica slot.</param>
-    /// <param name="matchIndex">Verified contiguous durable index on the replica.</param>
-    /// <remarks>Call before marking the slot ready and while holding the committer gate, so the slot never counts a stale match index.</remarks>
-    internal void AdmitReplica(int replicaIndex, ulong matchIndex) => _quorum.Admit(replicaIndex, matchIndex);
-
-    /// <summary>Commits and applies the locally appended entries a recorded majority already covers, outside any caller's commit.</summary>
-    /// <returns><see langword="true" /> when no locally appended entry is left unapplied.</returns>
-    /// <remarks>
-    /// Drives entries whose own commit gave up after the local append: a majority that arrived late, or an apply that failed after
-    /// the majority, or an uncommitted tail recovered at start. Every such entry is past its decision point once a majority covers
-    /// it, so the work runs on <see cref="CancellationToken.None" /> under the commit gate, ordered with commit bodies; it resolves the
-    /// idempotency record of each applied entry. An entry no recorded majority covers stays retained, and so does a recovered entry
-    /// of an older term that no current-term entry reaches yet. Prepared outcomes are computed from live memory, so callers that
-    /// prepare mutations must not prepare while this returns <see langword="false" />.
-    /// A call that runs counts as running work: dispose does not tear the gates and the sequencer down under it, and reports the leak
-    /// when the call outlasts the shutdown budget. While dispose drains the owned follower observation, which can apply a late majority,
-    /// calls still run; once the drain is over, no new call runs.
-    /// </remarks>
-    /// <exception cref="ObjectDisposedException">Disposal has closed the coordinator to applies and an entry is still to be applied.</exception>
-    internal async Task<bool> ApplyCommittedAsync()
-    {
-        var applied = await ApplyUnlessClosedAsync().ConfigureAwait(false);
-        ObjectDisposedException.ThrowIf(applied == null, this);
-        return applied ?? false;
     }
 
     /// <summary>Returns the highest contiguous durable index recorded for one replica.</summary>
@@ -326,7 +327,8 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
                     {
                         // Always the system clock, not ObserveTimeProvider: a test clock nobody advances would park disposal forever
                         // behind a follower that never finishes, and the budget exists to bound exactly that wait.
-                        completed = await ReplicaFollowerObservation.TakeNextCompletedAsync(tasks, ShutdownBudget, TimeProvider.System, AbandonedWorkFaultReporter).ConfigureAwait(false);
+                        completed = await ReplicaFollowerObservation.TakeNextCompletedAsync(tasks, ShutdownBudget, TimeProvider.System, AbandonedWorkFaultReporter)
+                                                                    .ConfigureAwait(false);
                     }
                     catch (TimeoutException)
                     {
@@ -725,6 +727,17 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             }
         }
 
+        /// <summary>Refuses every later drive of the committed entries.</summary>
+        /// <returns><see langword="true" /> when a drive that started earlier is still running.</returns>
+        internal bool CloseForApplies()
+        {
+            lock (_sync)
+            {
+                _closed = true;
+                return _activeApplies > 0;
+            }
+        }
+
         /// <summary>Clamps a majority-backed commit candidate to the current-term commit rule of the recovered tail.</summary>
         /// <param name="commitIndex">Current durable group commit index.</param>
         /// <param name="candidate">Highest index a recorded majority backs.</param>
@@ -745,31 +758,6 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
                 return _entries.Count > 0 && _entries.Keys[0] <= commitIndex;
         }
 
-        /// <summary>Counts a drive of the committed entries that starts running, unless applies are closed.</summary>
-        /// <returns><see langword="false" /> when <see cref="CloseForApplies" /> already ran and no drive may start.</returns>
-        internal bool TryBeginApply()
-        {
-            lock (_sync)
-            {
-                if (_closed)
-                    return false;
-
-                _activeApplies++;
-                return true;
-            }
-        }
-
-        /// <summary>Refuses every later drive of the committed entries.</summary>
-        /// <returns><see langword="true" /> when a drive that started earlier is still running.</returns>
-        internal bool CloseForApplies()
-        {
-            lock (_sync)
-            {
-                _closed = true;
-                return _activeApplies > 0;
-            }
-        }
-
         /// <summary>Counts a drive of the committed entries that stopped running.</summary>
         internal void EndApply()
         {
@@ -783,6 +771,20 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         {
             lock (_sync)
                 _entries[mutation.LogIndex] = mutation;
+        }
+
+        /// <summary>Counts a drive of the committed entries that starts running, unless applies are closed.</summary>
+        /// <returns><see langword="false" /> when <see cref="CloseForApplies" /> already ran and no drive may start.</returns>
+        internal bool TryBeginApply()
+        {
+            lock (_sync)
+            {
+                if (_closed)
+                    return false;
+
+                _activeApplies++;
+                return true;
+            }
         }
 
         /// <summary>Applies an entry whose outcome belongs to no caller of the current execution.</summary>
@@ -813,11 +815,10 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         }
 
         private Task StartApplyAsync(PreparedReplicaMutation entry) => Task.Factory.StartNew(
-                async () => await _pipeline.ApplyMemoryAsync(entry, CancellationToken.None).ConfigureAwait(false),
-                CancellationToken.None,
-                TaskCreationOptions.DenyChildAttach,
-                TaskScheduler.Default)
-            .Unwrap();
+            async () => await _pipeline.ApplyMemoryAsync(entry, CancellationToken.None).ConfigureAwait(false),
+            CancellationToken.None,
+            TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default).Unwrap();
 
         private bool TryPeekDue(ulong commitIndex, [NotNullWhen(true)] out PreparedReplicaMutation? pending)
         {

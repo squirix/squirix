@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -81,7 +82,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         await harness.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v"), cancellationToken);
 
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before + 1);
-        _ = await Assert.That(harness.Inner.SetCalls).IsEqualTo(1);
+        _ = await Assert.That(harness.Calls.Set).IsEqualTo(1);
     }
 
     /// <summary>Local-owner touch appends one put record holding the touched entry.</summary>
@@ -117,7 +118,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         _ = await Assert.That(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "w", cancellationToken)).IsTrue();
         _ = await Assert.That(await harness.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, "k", cancellationToken)).IsTrue();
 
-        var callsBeforeRead = harness.Inner.GetEntryCalls;
+        var callsBeforeRead = harness.Calls.GetEntry;
         var entry = await harness.Inner.GetEntryAsync(CacheName, "k", cancellationToken);
         _ = await Assert.That(callsBeforeRead).IsEqualTo(0);
         _ = await Assert.That(entry!.Value).IsEqualTo("w");
@@ -257,11 +258,12 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             TimeProvider.System,
             out _);
         var physical = new PhysicalCache<string>();
-        var inner = new RecordingLogicalCache(physical);
+        var calls = new InnerCalls();
+        var inner = CreateInner(physical, calls, false);
         var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
         var rawReader = useRawReader ? physical.RawReader : null;
         var cache = new JournalLoggingCacheDecorator<string>(inner, journal, executor, null, rawReader);
-        return new Harness(dir, manifestStore, journal, inner, cache);
+        return new Harness(dir, manifestStore, journal, inner, calls, cache);
     }
 
     /// <summary>Creates a journal-logging decorator harness with a race-simulating inner cache.</summary>
@@ -285,10 +287,42 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             TimeProvider.System,
             out _);
         var physical = new PhysicalCache<string>();
-        var inner = new RaceSimulatingInnerCache(physical);
+        var calls = new InnerCalls();
+        var inner = CreateInner(physical, calls, true);
         var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
         var cache = new JournalLoggingCacheDecorator<string>(inner, journal, executor);
-        return new Harness(dir, manifestStore, journal, inner, cache);
+        return new Harness(dir, manifestStore, journal, inner, calls, cache);
+    }
+
+    /// <summary>Creates the inner cache: a recording pass-through to a client cache over <paramref name="physical" />.</summary>
+    /// <param name="physical">The physical cache the inner client cache reads and writes.</param>
+    /// <param name="calls">Receives the counted calls.</param>
+    /// <param name="vanishing">Whether every public read misses, as when the key vanishes before the durable apply.</param>
+    /// <returns>The inner cache.</returns>
+    private static ILogicalNamespacedCache<string> CreateInner(PhysicalCache<string> physical, InnerCalls calls, bool vanishing)
+    {
+        var client = new ClientCache<string>(physical, physical);
+        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
+        _ = inner.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback((cacheName, key, cancellationToken) =>
+        {
+            calls.CountGetEntry();
+            return vanishing ? ValueTask.FromResult<NodeCacheEntry<string>?>(null) : client.GetEntryAsync(cacheName, key, cancellationToken);
+        });
+        _ = inner.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback((cacheName, key, cancellationToken) =>
+            vanishing ? ValueTask.FromResult(new NodeCacheValueResult<string>(false, null)) : client.GetValueAsync(cacheName, key, cancellationToken));
+        _ = inner.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                 .Callback((operationId, cacheName, key, entry, cancellationToken) =>
+                  {
+                      calls.CountSet();
+                      return client.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
+                  });
+        _ = inner.Setups.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                 .Callback(client.TryAddEntryAsync);
+        _ = inner.Setups.RemoveAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback(client.RemoveAsync);
+        _ = inner.Setups.RemoveExpirationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback(client.RemoveExpirationAsync);
+        _ = inner.Setups.TouchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Callback(client.TouchAsync);
+        _ = inner.Setups.UpdateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Callback(client.UpdateAsync);
+        return inner.Instance();
     }
 
     [Immutable]
@@ -297,20 +331,29 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         private readonly TempDirectory _dir;
         private readonly Ledger _manifestStore;
 
-        internal Harness(TempDirectory dir, Ledger manifestStore, IJournalCoordinator journal, RecordingLogicalCache inner, JournalLoggingCacheDecorator<string> cache)
+        internal Harness(
+            TempDirectory dir,
+            Ledger manifestStore,
+            IJournalCoordinator journal,
+            ILogicalNamespacedCache<string> inner,
+            InnerCalls calls,
+            JournalLoggingCacheDecorator<string> cache)
         {
             _dir = dir;
             _manifestStore = manifestStore;
             Journal = journal;
             Inner = inner;
+            Calls = calls;
             Cache = cache;
         }
 
         internal JournalLoggingCacheDecorator<string> Cache { get; }
 
+        internal InnerCalls Calls { get; }
+
         internal string Dir => _dir;
 
-        internal RecordingLogicalCache Inner { get; }
+        internal ILogicalNamespacedCache<string> Inner { get; }
 
         internal IJournalCoordinator Journal { get; }
 
@@ -322,66 +365,19 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         }
     }
 
-    private sealed class RaceSimulatingInnerCache : RecordingLogicalCache
+    /// <summary>Counts the inner cache calls the tests assert on.</summary>
+    [ThreadSafe]
+    private sealed class InnerCalls
     {
-        internal RaceSimulatingInnerCache(PhysicalCache<string> physical)
-            : base(physical)
-        {
-        }
+        private int _getEntry;
+        private int _set;
 
-        public override ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult<NodeCacheEntry<string>?>(null);
+        internal int GetEntry => Volatile.Read(ref _getEntry);
 
-        public override ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new NodeCacheValueResult<string>(false, null));
-    }
+        internal int Set => Volatile.Read(ref _set);
 
-    private class RecordingLogicalCache : ILogicalNamespacedCache<string>
-    {
-        private readonly ClientCache<string> _inner;
+        internal void CountGetEntry() => _ = Interlocked.Increment(ref _getEntry);
 
-        internal RecordingLogicalCache(PhysicalCache<string> physical)
-        {
-            _inner = new ClientCache<string>(physical, physical);
-        }
-
-        internal int GetEntryCalls { get; private set; }
-
-        internal int RemoveCalls { get; private set; }
-
-        internal int SetCalls { get; private set; }
-
-        public virtual ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
-        {
-            GetEntryCalls++;
-            return _inner.GetEntryAsync(cacheName, key, cancellationToken);
-        }
-
-        public virtual ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            _inner.GetValueAsync(cacheName, key, cancellationToken);
-
-        public ValueTask<CacheRemoveResult<string>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-        {
-            RemoveCalls++;
-            return _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
-        }
-
-        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-            _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
-
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken)
-        {
-            SetCalls++;
-            return _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
-        }
-
-        public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
-            _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
-
-        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken) =>
-            _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
-
-        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, string? value, CancellationToken cancellationToken) =>
-            _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
+        internal void CountSet() => _ = Interlocked.Increment(ref _set);
     }
 }

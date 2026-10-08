@@ -15,18 +15,6 @@ namespace Squirix.Server.UnitTests.Support;
 /// <summary>Writes binary journal segments for persistence unit tests.</summary>
 internal static class BinaryJournalTestSegmentWriter
 {
-    internal static JournalRecord BuildBrokenPutRecord(ulong seq, string key)
-    {
-        return new JournalRecord
-        {
-            Sequence = seq,
-            UnixMs = 1,
-            Operation = JournalOperationKind.Put,
-            Key = CacheKey.Default(key),
-            PutEntryBytes = new byte[] { 1, 2, 3 },
-        };
-    }
-
     internal static JournalRecord BuildIdempotencyRecord(string operationId, string fingerprint, byte[] responseBytes, long unixMs, ulong seq)
     {
         return new JournalRecord
@@ -82,8 +70,9 @@ internal static class BinaryJournalTestSegmentWriter
     /// <param name="dir">The data directory.</param>
     /// <param name="index">The segment index.</param>
     /// <returns>The segment path.</returns>
-    internal static string SegmentPath(string dir, int index) =>
-        NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+    internal static string SegmentPath(string dir, int index) => NodePathKit.Combine(
+        dir,
+        $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
 
     /// <summary>Overwrites the file format version byte of a segment header.</summary>
     /// <param name="path">The segment path.</param>
@@ -92,6 +81,18 @@ internal static class BinaryJournalTestSegmentWriter
     {
         using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write);
         RandomAccess.Write(handle, [version], 4);
+    }
+
+    internal static void WriteJournalSegment(string dir, int index, JournalRecord record)
+    {
+        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+        WriteSegment(path, record);
+    }
+
+    internal static void WriteJournalSegment(string dir, int index, ReadOnlySpan<JournalRecord> records)
+    {
+        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+        WriteSegment(path, records);
     }
 
     /// <summary>Writes a segment whose only frame carries the given raw opcode byte, framed with a valid checksum.</summary>
@@ -124,18 +125,6 @@ internal static class BinaryJournalTestSegmentWriter
         offset += frame.Length;
         for (var i = 0; i < followedBy.Length; i++)
             WriteRecordFrame(handle, ref offset, followedBy[i]);
-    }
-
-    internal static void WriteJournalSegment(string dir, int index, JournalRecord record)
-    {
-        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
-        WriteSegment(path, record);
-    }
-
-    internal static void WriteJournalSegment(string dir, int index, ReadOnlySpan<JournalRecord> records)
-    {
-        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
-        WriteSegment(path, records);
     }
 
     internal static void WriteSegment(string path, JournalRecord record)

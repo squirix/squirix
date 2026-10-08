@@ -22,7 +22,7 @@ public sealed class TestNodeMemoryPressureOptions
     internal PressureOptions ToServerOptions()
     {
         var defaults = new PressureOptions();
-        return defaults with
+        return new PressureOptions
         {
             CriticalPressureThresholdPercent = CriticalPressureThresholdPercent ?? defaults.CriticalPressureThresholdPercent,
             HighPressureThresholdPercent = HighPressureThresholdPercent ?? defaults.HighPressureThresholdPercent,

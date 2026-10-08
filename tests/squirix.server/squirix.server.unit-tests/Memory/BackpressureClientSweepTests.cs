@@ -23,6 +23,120 @@ public sealed class BackpressureClientSweepTests : DisposableServerUnitTestBase
 
     private readonly Meter _testMeter = new("test");
 
+    /// <summary>Verifies a sweep examines at most the maximum batch and carries the remainder over to the next sweeps without waiting.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CappedSweepCarriesRemainderOver(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider();
+        using var gate = CreateGate(clock, RateLimitedOptions(1, 2));
+        for (var i = 0; i < 40000; i++)
+            (await gate.AcquireAsync("rest", "get", $"rest:client-{NodeInvariantIndexStrings.Format(i)}", cancellationToken)).Lease.Dispose();
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await TriggerSweepAsync(gate, cancellationToken);
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(40000 - 16384);
+
+        // The clock stays put: a capped sweep leaves the next one due at once.
+        await TriggerSweepAsync(gate, cancellationToken);
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(40000 - (2 * 16384));
+
+        await TriggerSweepAsync(gate, cancellationToken);
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
+    }
+
+    /// <summary>Verifies sweeps running between churning acquires and releases never let one client exceed its concurrency limit.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ChurnWithSweepsNeverExceedsClientLimit(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider();
+        using var gate = CreateGate(
+            clock,
+            new AdmissionOptions
+            {
+                MaxInFlight = 8,
+                MaxQueue = 8,
+                SlowdownThreshold = 8,
+                MaxSlowdownDelay = TimeSpan.Zero,
+                PerClientMaxInFlight = 1,
+                PerClientRateLimitPerSecond = 1000,
+                PerClientRateLimitBurst = 1000,
+            });
+
+        var held = new int[2];
+        await Parallel.ForEachAsync(
+            [0, 1, 2, 3, 4, 5, 6, 7],
+            cancellationToken,
+            async (__, token) =>
+            {
+                for (var i = 0; i < 200; i++)
+                {
+                    clock.Advance(TimeSpan.FromSeconds(2));
+                    var (decision, lease) = await gate.AcquireAsync("rest", "get", "rest:client-a", token);
+                    if (!decision.IsAccepted)
+                        continue;
+
+                    var now = Interlocked.Increment(ref held[0]);
+                    if (now > 1)
+                        _ = Interlocked.Exchange(ref held[1], now);
+
+                    await Task.Yield();
+                    _ = Interlocked.Decrement(ref held[0]);
+                    lease.Dispose();
+                }
+            });
+
+        _ = await Assert.That(Volatile.Read(ref held[1])).IsEqualTo(0);
+        clock.Advance(TimeSpan.FromSeconds(2));
+        await TriggerSweepAsync(gate, cancellationToken);
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
+    }
+
+    /// <summary>Verifies a sweep after the gate sweeper was disposed neither throws nor touches entries.</summary>
+    [Test]
+    public async Task SweepAfterDisposeIsHarmless()
+    {
+        var clock = new FakeTimeProvider();
+        var clients = new ConcurrentDictionary<string, AdmissionGate.ClientState>(StringComparer.Ordinal);
+        var sweeper = new AdmissionGate.ClientSweeper(clients, clock);
+        _ = clients.TryAdd("rest:client-a", new AdmissionGate.ClientState(RateLimitedOptions(1, 2), clock));
+        clock.Advance(TimeSpan.FromSeconds(5));
+        sweeper.SweepIfDue();
+        _ = await Assert.That(clients.Count).IsEqualTo(0);
+
+        _ = clients.TryAdd("rest:client-b", new AdmissionGate.ClientState(RateLimitedOptions(1, 2), clock));
+        sweeper.Dispose();
+        clock.Advance(TimeSpan.FromSeconds(5));
+        sweeper.SweepIfDue();
+        sweeper.Dispose();
+
+        _ = await Assert.That(clients.Count).IsEqualTo(1);
+    }
+
+    /// <summary>Verifies a burst whose buckets refill slower than the sweep interval keeps a large budget instead of draining at the minimum rate.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SweepBudgetDecaysWhileBucketsRefill(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider();
+        using var gate = CreateGate(clock, RateLimitedOptions(1, 4));
+        for (var i = 0; i < 3000; i++)
+        {
+            var clientId = $"rest:client-{NodeInvariantIndexStrings.Format(i)}";
+            for (var attempt = 0; attempt < 3; attempt++)
+                (await gate.AcquireAsync("rest", "get", clientId, cancellationToken)).Lease.Dispose();
+        }
+
+        // Buckets are full again only after the third second, so the first two sweeps keep everything.
+        foreach (var tracked in DecayingTrackedCounts)
+        {
+            clock.Advance(TimeSpan.FromSeconds(1));
+            await TriggerSweepAsync(gate, cancellationToken);
+            _ = await Assert.That(gate.TrackedClients).IsEqualTo(tracked);
+        }
+    }
+
     /// <summary>Verifies idle client entries with a refilled bucket, including those left by rate-limit rejects, are swept by a later admission.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -75,70 +189,23 @@ public sealed class BackpressureClientSweepTests : DisposableServerUnitTestBase
         _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
     }
 
-    /// <summary>Verifies a sweep examines at most the maximum batch and carries the remainder over to the next sweeps without waiting.</summary>
+    /// <summary>Verifies a client entry whose bucket has not refilled to burst is kept, so its rate limit is not reset.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CappedSweepCarriesRemainderOver(CancellationToken cancellationToken)
-    {
-        var clock = new FakeTimeProvider();
-        using var gate = CreateGate(clock, RateLimitedOptions(1, 2));
-        for (var i = 0; i < 40000; i++)
-            (await gate.AcquireAsync("rest", "get", $"rest:client-{NodeInvariantIndexStrings.Format(i)}", cancellationToken)).Lease.Dispose();
-
-        clock.Advance(TimeSpan.FromSeconds(1));
-        await TriggerSweepAsync(gate, cancellationToken);
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(40000 - 16384);
-
-        // The clock stays put: a capped sweep leaves the next one due at once.
-        await TriggerSweepAsync(gate, cancellationToken);
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(40000 - (2 * 16384));
-
-        await TriggerSweepAsync(gate, cancellationToken);
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
-    }
-
-    /// <summary>Verifies a burst whose buckets refill slower than the sweep interval keeps a large budget instead of draining at the minimum rate.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task SweepBudgetDecaysWhileBucketsRefill(CancellationToken cancellationToken)
+    public async Task SweepKeepsClientWithUnrefilledBucket(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider();
         using var gate = CreateGate(clock, RateLimitedOptions(1, 4));
-        for (var i = 0; i < 3000; i++)
-        {
-            var clientId = $"rest:client-{NodeInvariantIndexStrings.Format(i)}";
-            for (var attempt = 0; attempt < 3; attempt++)
-                (await gate.AcquireAsync("rest", "get", clientId, cancellationToken)).Lease.Dispose();
-        }
+        for (var i = 0; i < 4; i++)
+            (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease.Dispose();
 
-        // Buckets are full again only after the third second, so the first two sweeps keep everything.
-        foreach (var tracked in DecayingTrackedCounts)
-        {
-            clock.Advance(TimeSpan.FromSeconds(1));
-            await TriggerSweepAsync(gate, cancellationToken);
-            _ = await Assert.That(gate.TrackedClients).IsEqualTo(tracked);
-        }
-    }
+        clock.Advance(TimeSpan.FromSeconds(2));
+        await TriggerSweepAsync(gate, cancellationToken);
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(1);
 
-    /// <summary>Verifies a sweep after the gate sweeper was disposed neither throws nor touches entries.</summary>
-    [Test]
-    public async Task SweepAfterDisposeIsHarmless()
-    {
-        var clock = new FakeTimeProvider();
-        var clients = new ConcurrentDictionary<string, AdmissionGate.ClientState>(StringComparer.Ordinal);
-        var sweeper = new AdmissionGate.ClientSweeper(clients, clock);
-        _ = clients.TryAdd("rest:client-a", new AdmissionGate.ClientState(RateLimitedOptions(1, 2), clock));
         clock.Advance(TimeSpan.FromSeconds(5));
-        sweeper.SweepIfDue();
-        _ = await Assert.That(clients.Count).IsEqualTo(0);
-
-        _ = clients.TryAdd("rest:client-b", new AdmissionGate.ClientState(RateLimitedOptions(1, 2), clock));
-        sweeper.Dispose();
-        clock.Advance(TimeSpan.FromSeconds(5));
-        sweeper.SweepIfDue();
-        sweeper.Dispose();
-
-        _ = await Assert.That(clients.Count).IsEqualTo(1);
+        await TriggerSweepAsync(gate, cancellationToken);
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
     }
 
     /// <summary>Verifies a sweep examines enough entries to keep up when many entries were added since the previous one.</summary>
@@ -204,73 +271,6 @@ public sealed class BackpressureClientSweepTests : DisposableServerUnitTestBase
         held.Dispose();
     }
 
-    /// <summary>Verifies a client entry whose bucket has not refilled to burst is kept, so its rate limit is not reset.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task SweepKeepsClientWithUnrefilledBucket(CancellationToken cancellationToken)
-    {
-        var clock = new FakeTimeProvider();
-        using var gate = CreateGate(clock, RateLimitedOptions(1, 4));
-        for (var i = 0; i < 4; i++)
-            (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease.Dispose();
-
-        clock.Advance(TimeSpan.FromSeconds(2));
-        await TriggerSweepAsync(gate, cancellationToken);
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(1);
-
-        clock.Advance(TimeSpan.FromSeconds(5));
-        await TriggerSweepAsync(gate, cancellationToken);
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
-    }
-
-    /// <summary>Verifies sweeps running between churning acquires and releases never let one client exceed its concurrency limit.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ChurnWithSweepsNeverExceedsClientLimit(CancellationToken cancellationToken)
-    {
-        var clock = new FakeTimeProvider();
-        using var gate = CreateGate(
-            clock,
-            new AdmissionOptions
-            {
-                MaxInFlight = 8,
-                MaxQueue = 8,
-                SlowdownThreshold = 8,
-                MaxSlowdownDelay = TimeSpan.Zero,
-                PerClientMaxInFlight = 1,
-                PerClientRateLimitPerSecond = 1000,
-                PerClientRateLimitBurst = 1000,
-            });
-
-        var held = new int[2];
-        await Parallel.ForEachAsync(
-            [0, 1, 2, 3, 4, 5, 6, 7],
-            cancellationToken,
-            async (_, token) =>
-            {
-                for (var i = 0; i < 200; i++)
-                {
-                    clock.Advance(TimeSpan.FromSeconds(2));
-                    var (decision, lease) = await gate.AcquireAsync("rest", "get", "rest:client-a", token);
-                    if (!decision.IsAccepted)
-                        continue;
-
-                    var now = Interlocked.Increment(ref held[0]);
-                    if (now > 1)
-                        _ = Interlocked.Exchange(ref held[1], now);
-
-                    await Task.Yield();
-                    _ = Interlocked.Decrement(ref held[0]);
-                    lease.Dispose();
-                }
-            });
-
-        _ = await Assert.That(Volatile.Read(ref held[1])).IsEqualTo(0);
-        clock.Advance(TimeSpan.FromSeconds(2));
-        await TriggerSweepAsync(gate, cancellationToken);
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
-    }
-
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 
@@ -285,15 +285,15 @@ public sealed class BackpressureClientSweepTests : DisposableServerUnitTestBase
         PerClientRateLimitBurst = burst,
     };
 
+    private static Task<(Decision Decision, Lease Lease)> StartAcquireAsync(AdmissionGate gate, string clientId, CancellationToken cancellationToken) =>
+        gate.AcquireAsync("rest", "get", clientId, cancellationToken).AsTask();
+
     /// <summary>Triggers the sweep with an internal owner call, which is never tracked, so it adds no client entry.</summary>
     /// <param name="gate">The gate to sweep.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A task that completes when the call returns.</returns>
     private static async Task TriggerSweepAsync(AdmissionGate gate, CancellationToken cancellationToken) =>
         (await gate.AcquireAsync("rest", "get", HttpContextClientIdResolver.InternalOwnerClientId, cancellationToken)).Lease.Dispose();
-
-    private static Task<(Decision Decision, Lease Lease)> StartAcquireAsync(AdmissionGate gate, string clientId, CancellationToken cancellationToken) =>
-        gate.AcquireAsync("rest", "get", clientId, cancellationToken).AsTask();
 
     private AdmissionGate CreateGate(TimeProvider timeProvider, AdmissionOptions options) => new(options, new BackpressureMetrics(_testMeter), timeProvider);
 }

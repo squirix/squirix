@@ -89,11 +89,10 @@ internal sealed class ReplicaApplyService : BackgroundService
             _ = loops.Remove(ended);
 
             // A canceled loop is a normal shutdown only when the host or a failed loop asked for it.
-            if (failed == null && (ended.IsFaulted || (ended.IsCanceled && !stopping.IsCancellationRequested)))
-            {
-                failed = ended;
-                await stopping.CancelAsync().ConfigureAwait(false);
-            }
+            if (failed != null || (!ended.IsFaulted && (!ended.IsCanceled || stopping.IsCancellationRequested)))
+                continue;
+            failed = ended;
+            await stopping.CancelAsync().ConfigureAwait(false);
         }
 
         // Without a failed loop, every loop ended with the host: memory keeps what was applied, and a restart applies the committed entries
@@ -106,32 +105,6 @@ internal sealed class ReplicaApplyService : BackgroundService
     /// <param name="exception">The fault of the pass.</param>
     /// <returns><see langword="true" /> for storage and journal faults, and for a full journal or memory that refused the write.</returns>
     private static bool IsRetryable(Exception exception) => exception is IOException or InvalidOperationException or JournalCapacityExceededException or ResourceExhaustedException;
-
-    /// <summary>Applies the committed entries of a ready group log that memory lacks.</summary>
-    /// <param name="groupId">Replica group identifier.</param>
-    /// <param name="applier">The group applier.</param>
-    /// <param name="log">The group log.</param>
-    /// <param name="stoppingToken">The host stopping token.</param>
-    /// <returns>A task that completes when memory holds every entry through the commit index read at the start.</returns>
-    /// <remarks>
-    /// The first pass over a ready log rebuilds the outcomes of its committed entries first, as the leader committer does for its own
-    /// group: the applier records the outcome of each entry it applies, and a retry of an operation committed before the restart then
-    /// replays its outcome on this node too. A rebuild that fails is run again on the next pass.
-    /// </remarks>
-    private async Task CatchUpAsync(string groupId, ReplicaGroupApplier applier, IFollowerLog log, CancellationToken stoppingToken)
-    {
-        var status = await log.GetStatusAsync(stoppingToken).ConfigureAwait(false);
-        if (status.Readiness != FollowerLogReadiness.Ready)
-            return;
-
-        if (!log.Idempotency.OutcomesRebuilt)
-        {
-            var restored = await ReplicaOutcomeRecovery.RestoreAsync(log, _timeProvider, stoppingToken).ConfigureAwait(false);
-            ServerLog.ReplicaOutcomesRestored(_log, groupId, restored);
-        }
-
-        await applier.CatchUpAsync(log, status.LastAppliedIndex, status.CommitIndex, stoppingToken).ConfigureAwait(false);
-    }
 
     /// <summary>Applies the committed entries of one follower group until the host stops or a committed record stops the group.</summary>
     /// <param name="groupId">Replica group identifier.</param>
@@ -175,5 +148,31 @@ internal sealed class ReplicaApplyService : BackgroundService
 
             _ = await signal.WaitAsync(FallbackInterval, _timeProvider, stoppingToken).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>Applies the committed entries of a ready group log that memory lacks.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="applier">The group applier.</param>
+    /// <param name="log">The group log.</param>
+    /// <param name="stoppingToken">The host stopping token.</param>
+    /// <returns>A task that completes when memory holds every entry through the commit index read at the start.</returns>
+    /// <remarks>
+    /// The first pass over a ready log rebuilds the outcomes of its committed entries first, as the leader committer does for its own
+    /// group: the applier records the outcome of each entry it applies, and a retry of an operation committed before the restart then
+    /// replays its outcome on this node too. A rebuild that fails is run again on the next pass.
+    /// </remarks>
+    private async Task CatchUpAsync(string groupId, ReplicaGroupApplier applier, IFollowerLog log, CancellationToken stoppingToken)
+    {
+        var status = await log.GetStatusAsync(stoppingToken).ConfigureAwait(false);
+        if (status.Readiness != FollowerLogReadiness.Ready)
+            return;
+
+        if (!log.Idempotency.OutcomesRebuilt)
+        {
+            var restored = await ReplicaOutcomeRecovery.RestoreAsync(log, _timeProvider, stoppingToken).ConfigureAwait(false);
+            ServerLog.ReplicaOutcomesRestored(_log, groupId, restored);
+        }
+
+        await applier.CatchUpAsync(log, status.LastAppliedIndex, status.CommitIndex, stoppingToken).ConfigureAwait(false);
     }
 }

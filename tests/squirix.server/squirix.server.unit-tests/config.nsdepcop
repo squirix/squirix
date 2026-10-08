@@ -260,4 +260,9 @@
       From="/^Squirix\.Server\.UnitTests\.Utils(?:\.|$)/"
       To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Utils|Support)(?:\.|$)).*)$/" />
 
+  <!-- Partition proxy tests are product-free like the TestKit networking kit they cover: no server namespace beyond that kit. -->
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Networking(?:\.|$)/"
+      To="/^Squirix\.Server(?:$|\.(?!TestKit$|TestKit\.(?:Networking|Diagnostics)(?:\.|$)|Attributes(?:\.|$)|UnitTests(?:\.|$)).*)$/" />
+
 </NsDepCopConfig>

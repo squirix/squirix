@@ -85,7 +85,7 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         var looserCaller = contextDeadline.AddSeconds(30);
         var tighterCaller = contextDeadline.AddSeconds(-2);
 
-        using (var none = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", default), capture.OnContinueAsync))
+        using (var __ = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", default), capture.OnContinueAsync))
             _ = await Assert.That(capture.Deadline).IsNull();
 
         using (ServerRpcDeadlineContext.Push(contextDeadline, TimeProvider.System))
@@ -221,12 +221,6 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>Checks that a forwarded deadline matches the expected one within the time the test itself takes to run.</summary>
-    /// <param name="actual">The forwarded deadline.</param>
-    /// <param name="expected">The expected deadline.</param>
-    /// <returns><see langword="true" /> when they are within one second.</returns>
-    private static bool IsNear(DateTime? actual, DateTime expected) => actual is { } value && (value - expected).Duration() < TimeSpan.FromSeconds(1);
-
     private static async Task AssertEntriesEqualAsync(List<string> expected, List<string> actual)
     {
         _ = await Assert.That(actual.Count).IsEqualTo(expected.Count);
@@ -267,6 +261,12 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
             state.Capture.OnContinueAsync);
         _ = await call.ResponseAsync.ConfigureAwait(false);
     }
+
+    /// <summary>Checks that a forwarded deadline matches the expected one within the time the test itself takes to run.</summary>
+    /// <param name="actual">The forwarded deadline.</param>
+    /// <param name="expected">The expected deadline.</param>
+    /// <returns><see langword="true" /> when they are within one second.</returns>
+    private static bool IsNear(DateTime? actual, DateTime expected) => actual is { } value && (value - expected).Duration() < TimeSpan.FromSeconds(1);
 
     private static List<string> SnapshotEntries(Metadata headers)
     {

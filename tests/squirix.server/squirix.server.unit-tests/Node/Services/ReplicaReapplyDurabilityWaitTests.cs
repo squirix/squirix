@@ -64,42 +64,10 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
 
         _ = await Assert.That(stalled).IsEqualTo(new FlushState(false, 0UL));
         _ = await Assert.That(flushed).IsEqualTo(new FlushState(true, 3UL));
-        _ = await Assert.That(frames).IsEqualTo(StallableJournal.Describe([new CacheKey("cache", "k1").ToString(), new CacheKey("cache", "k2").ToString(), new CacheKey("cache", "k3").ToString(), CacheKey.Default("w").ToString()]));
+        _ = await Assert.That(frames).IsEqualTo(
+            StallableJournal.Describe(
+                [new CacheKey("cache", "k1").ToString(), new CacheKey("cache", "k2").ToString(), new CacheKey("cache", "k3").ToString(), CacheKey.Default("w").ToString()]));
         await SequenceAssert.EqualAsync(["k1", "k2", "k3"], memory.Applied.ToArray(), StringComparer.Ordinal);
-    }
-
-    /// <summary>A restarted owner catches memory up with the committed entries above the durable applied index while the node journal flush is stalled.</summary>
-    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task RestartCatchUpDoesNotWaitForFlush(bool groupCommit, CancellationToken cancellationToken)
-    {
-        await using (var registry = await OpenRegistryAsync(GroupDir(), cancellationToken))
-        {
-            await using var committer = CreateCommitter(registry, new ScriptedGateway());
-            await WriteAsync(committer, ["k1", "k2", "k3"], cancellationToken);
-        }
-
-        await using var journal = await CreateWarmJournalAsync(groupCommit, cancellationToken);
-        var memory = new StubCache();
-        await using var restarted = await OpenRegistryAsync(GroupDir(), cancellationToken);
-        await using var owner = CreateCommitter(restarted, new ScriptedGateway(), CreateJournaledCache(journal, memory));
-        journal.Writer.Flush.Arm();
-        bool flushEntered;
-        try
-        {
-            await owner.CommitSetAsync(NewOperationId(), "cache", "k4", Entry("k4"), cancellationToken).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            flushEntered = journal.Writer.Flush.Entered.IsCompleted;
-        }
-        finally
-        {
-            journal.Writer.ReleaseAll();
-        }
-
-        _ = await Assert.That(flushEntered).IsFalse();
-        await SequenceAssert.EqualAsync(["k1", "k2", "k3", "k4"], memory.Applied.ToArray(), StringComparer.Ordinal);
     }
 
     /// <summary>The retained entry a later write applies on behalf of the earlier one does not wait for its node journal flush either.</summary>
@@ -116,10 +84,9 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
         var failing = 1;
         var flaky = new ILogicalNamespacedCacheCreateExpectations<object?>();
         _ = flaky.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
-                 .Callback(
-                     (operationId, cacheName, key, entry, token) => Interlocked.Exchange(ref failing, 0) == 1
-                         ? ValueTask.FromException(new IOException("Injected memory apply failure after the majority."))
-                         : journaled.SetEntryAsync(operationId, cacheName, key, entry, token));
+                 .Callback((operationId, cacheName, key, entry, token) => Interlocked.Exchange(ref failing, 0) == 1
+                      ? ValueTask.FromException(new IOException("Injected memory apply failure after the majority."))
+                      : journaled.SetEntryAsync(operationId, cacheName, key, entry, token));
         await using var registry = await OpenRegistryAsync(GroupDir(), cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), flaky.Instance());
         var first = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken));
@@ -175,8 +142,44 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
         await SequenceAssert.EqualAsync(["k1", "k2", "k3"], memory.Applied.ToArray(), StringComparer.Ordinal);
     }
 
-    private static JournalLoggingCacheDecorator<object?> CreateJournaledCache(StallableJournal journal, ILogicalNamespacedCache<object?> memory) =>
-        new(memory, journal.Journal, new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance));
+    /// <summary>A restarted owner catches memory up with the committed entries above the durable applied index while the node journal flush is stalled.</summary>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task RestartCatchUpDoesNotWaitForFlush(bool groupCommit, CancellationToken cancellationToken)
+    {
+        await using (var registry = await OpenRegistryAsync(GroupDir(), cancellationToken))
+        {
+            await using var committer = CreateCommitter(registry, new ScriptedGateway());
+            await WriteAsync(committer, ["k1", "k2", "k3"], cancellationToken);
+        }
+
+        await using var journal = await CreateWarmJournalAsync(groupCommit, cancellationToken);
+        var memory = new StubCache();
+        await using var restarted = await OpenRegistryAsync(GroupDir(), cancellationToken);
+        await using var owner = CreateCommitter(restarted, new ScriptedGateway(), CreateJournaledCache(journal, memory));
+        journal.Writer.Flush.Arm();
+        bool flushEntered;
+        try
+        {
+            await owner.CommitSetAsync(NewOperationId(), "cache", "k4", Entry("k4"), cancellationToken).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            flushEntered = journal.Writer.Flush.Entered.IsCompleted;
+        }
+        finally
+        {
+            journal.Writer.ReleaseAll();
+        }
+
+        _ = await Assert.That(flushEntered).IsFalse();
+        await SequenceAssert.EqualAsync(["k1", "k2", "k3", "k4"], memory.Applied.ToArray(), StringComparer.Ordinal);
+    }
+
+    private static JournalLoggingCacheDecorator<object?> CreateJournaledCache(StallableJournal journal, ILogicalNamespacedCache<object?> memory) => new(
+        memory,
+        journal.Journal,
+        new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance));
 
     private static async Task ReapplyAsync(ReplicaGroupApplier applier, byte[][] payloads, CancellationToken cancellationToken)
     {
@@ -193,8 +196,6 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
         foreach (var key in keys)
             await committer.CommitSetAsync(NewOperationId(), "cache", key, Entry(key), cancellationToken).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
     }
-
-    private string GroupDir() => Directory.CreateDirectory(Path.Join(Dir, "group")).FullName;
 
     /// <summary>Creates a journal whose segment header and a first frame are already durable, so a later stall catches only the frames under test.</summary>
     /// <param name="groupCommit">Whether journal group commit is enabled.</param>
@@ -215,6 +216,8 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
             throw;
         }
     }
+
+    private string GroupDir() => Directory.CreateDirectory(Path.Join(Dir, "group")).FullName;
 
     private readonly record struct FlushState(bool FlushCompleted, ulong LastAppliedIndex);
 }

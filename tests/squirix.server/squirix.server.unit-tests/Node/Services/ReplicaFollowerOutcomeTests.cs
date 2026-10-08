@@ -26,76 +26,6 @@ public sealed class ReplicaFollowerOutcomeTests : ServerUnitTestBase
 
     private static readonly string[] Groups = ["n1", "n2", "n3"];
 
-    /// <summary>The uncommitted entries a follower group log holds at open are pinned before the group is published.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RecoveredTailIsPinned(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-outcome-pinned");
-        var records = await SeedTailAsync(dir, cancellationToken, "k1", "k2");
-
-        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var log = LogOf(registry);
-
-        _ = await Assert.That(Lookup(log, in records[0])).IsEqualTo(GroupIdempotencyLookup.Unresolved);
-        _ = await Assert.That(Lookup(log, in records[1])).IsEqualTo(GroupIdempotencyLookup.Unresolved);
-        _ = await Assert.That(log.Idempotency.HasUnresolvedThrough(1UL)).IsTrue();
-    }
-
-    /// <summary>A tail entry whose record cannot be read is left unpinned and does not keep the group from opening.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task UnreadableTailEntryIsNotPinned(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-outcome-unreadable");
-        await using (var seed = await OpenRegistryAsync(dir, Groups, null, cancellationToken))
-        {
-            FollowerLogEntry[] entries = [new(1UL, 1UL, new byte[] { 1, 2, 3 })];
-            await AppendAsync(LogOf(seed), 0UL, 1UL, entries, 0UL, cancellationToken);
-        }
-
-        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-
-        _ = await Assert.That(LogOf(registry).Idempotency.HasUnresolvedThrough(1UL)).IsFalse();
-    }
-
-    /// <summary>A truncation of the recovered tail releases the pins of the entries it drops.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task TruncationReleasesRecoveredPin(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-outcome-truncated");
-        var records = await SeedTailAsync(dir, cancellationToken, "k1", "k2");
-        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var log = LogOf(registry);
-        var replacement = Prepare("k9", 1UL) with { Term = 2UL };
-
-        await AppendAsync(log, 0UL, 2UL, [new(1UL, 2UL, ReplicaLogCodec.Encode(in replacement))], 0UL, cancellationToken);
-
-        _ = await Assert.That(Lookup(log, in records[0])).IsEqualTo(GroupIdempotencyLookup.Miss);
-        _ = await Assert.That(Lookup(log, in records[1])).IsEqualTo(GroupIdempotencyLookup.Miss);
-    }
-
-    /// <summary>The apply of a pinned entry that commits after the restart resolves its pin with the outcome its record carries.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task CommittedPinIsResolvedByApply(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-outcome-resolved");
-        var records = await SeedTailAsync(dir, cancellationToken, "k1", "k2");
-        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var log = LogOf(registry);
-        _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
-        await AppendAsync(log, 2UL, 1UL, [], 2UL, cancellationToken);
-        var applier = new ReplicaGroupApplier(new StubCache(), NullLogger.Instance, GroupId, "n1") { RecordsOutcomes = true };
-
-        await applier.CatchUpAsync(log, 0UL, 2UL, cancellationToken);
-
-        _ = await Assert.That(Lookup(log, in records[1], out var outcome)).IsEqualTo(GroupIdempotencyLookup.Found);
-        await SequenceAssert.EqualAsync(records[1].OutcomePayload.ToArray(), outcome.OutcomePayload.ToArray());
-        _ = await Assert.That(log.Idempotency.HasUnresolvedThrough(2UL)).IsFalse();
-    }
-
     /// <summary>
     /// A catch-up that could not record the outcomes applies nothing: before the outcomes of the log are rebuilt, no effect reaches memory
     /// and the applied index stays; after the rebuild every entry is applied with its outcome.
@@ -123,26 +53,74 @@ public sealed class ReplicaFollowerOutcomeTests : ServerUnitTestBase
         _ = await Assert.That(Lookup(log, in records[1])).IsEqualTo(GroupIdempotencyLookup.Found);
     }
 
-    private static IFollowerLog LogOf(ReplicaGroupRegistry registry) =>
-        registry.TryGetLog(GroupId, out var log) ? log : throw new InvalidOperationException($"The group log {GroupId} is not open.");
-
-    private static GroupIdempotencyLookup Lookup(IFollowerLog log, in ReplicaLogRecord record) => Lookup(log, in record, out _);
-
-    private static GroupIdempotencyLookup Lookup(IFollowerLog log, in ReplicaLogRecord record, out GroupIdempotencyRecord outcome) =>
-        log.Idempotency.Lookup(record.OperationScope, record.OperationId, record.OperationFingerprint.Span, out outcome);
-
-    private static FollowerLogEntry Entry(in ReplicaLogRecord record) => new(record.LogIndex, record.Term, ReplicaLogCodec.Encode(in record));
-
-    /// <summary>Prepares a record that sets <paramref name="key" /> at <paramref name="logIndex" /> in term one.</summary>
-    /// <param name="key">The key the record writes.</param>
-    /// <param name="logIndex">The log index of the record.</param>
-    /// <returns>The decoded record.</returns>
-    /// <exception cref="InvalidOperationException">The prepared record does not decode.</exception>
-    private static ReplicaLogRecord Prepare(string key, ulong logIndex)
+    /// <summary>The apply of a pinned entry that commits after the restart resolves its pin with the outcome its record carries.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CommittedPinIsResolvedByApply(CancellationToken cancellationToken)
     {
-        var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance);
-        var prepared = factory.PrepareSet(NewOperationId(), "cache", key, ReplicaOwnerTestKit.Entry(key), logIndex);
-        return ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
+        using var dir = new TempDirectory("squirix-follower-outcome-resolved");
+        var records = await SeedTailAsync(dir, cancellationToken, "k1", "k2");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var log = LogOf(registry);
+        _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
+        await AppendAsync(log, 2UL, 1UL, [], 2UL, cancellationToken);
+        var applier = new ReplicaGroupApplier(new StubCache(), NullLogger.Instance, GroupId, "n1") { RecordsOutcomes = true };
+
+        await applier.CatchUpAsync(log, 0UL, 2UL, cancellationToken);
+
+        _ = await Assert.That(Lookup(log, in records[1], out var outcome)).IsEqualTo(GroupIdempotencyLookup.Found);
+        await SequenceAssert.EqualAsync(records[1].OutcomePayload.ToArray(), outcome.OutcomePayload.ToArray());
+        _ = await Assert.That(log.Idempotency.HasUnresolvedThrough(2UL)).IsFalse();
+    }
+
+    /// <summary>The uncommitted entries a follower group log holds at open are pinned before the group is published.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RecoveredTailIsPinned(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-outcome-pinned");
+        var records = await SeedTailAsync(dir, cancellationToken, "k1", "k2");
+
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var log = LogOf(registry);
+
+        _ = await Assert.That(Lookup(log, in records[0])).IsEqualTo(GroupIdempotencyLookup.Unresolved);
+        _ = await Assert.That(Lookup(log, in records[1])).IsEqualTo(GroupIdempotencyLookup.Unresolved);
+        _ = await Assert.That(log.Idempotency.HasUnresolvedThrough(1UL)).IsTrue();
+    }
+
+    /// <summary>A truncation of the recovered tail releases the pins of the entries it drops.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TruncationReleasesRecoveredPin(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-outcome-truncated");
+        var records = await SeedTailAsync(dir, cancellationToken, "k1", "k2");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var log = LogOf(registry);
+        var replacement = Prepare("k9", 1UL) with { Term = 2UL };
+
+        await AppendAsync(log, 0UL, 2UL, [new FollowerLogEntry(1UL, 2UL, ReplicaLogCodec.Encode(in replacement))], 0UL, cancellationToken);
+
+        _ = await Assert.That(Lookup(log, in records[0])).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(Lookup(log, in records[1])).IsEqualTo(GroupIdempotencyLookup.Miss);
+    }
+
+    /// <summary>A tail entry whose record cannot be read is left unpinned and does not keep the group from opening.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnreadableTailEntryIsNotPinned(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-outcome-unreadable");
+        await using (var seed = await OpenRegistryAsync(dir, Groups, null, cancellationToken))
+        {
+            FollowerLogEntry[] entries = [new(1UL, 1UL, new byte[] { 1, 2, 3 })];
+            await AppendAsync(LogOf(seed), 0UL, 1UL, entries, 0UL, cancellationToken);
+        }
+
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+
+        _ = await Assert.That(LogOf(registry).Idempotency.HasUnresolvedThrough(1UL)).IsFalse();
     }
 
     /// <summary>Appends entries to a group log after <paramref name="prevLogIndex" /> in term one, failing the test when the log refuses them.</summary>
@@ -159,6 +137,31 @@ public sealed class ReplicaFollowerOutcomeTests : ServerUnitTestBase
         var appended = await log.AppendAsync(new FollowerLogAppendRequest(GroupId, term, prevLogIndex, prevLogIndex == 0 ? 0UL : 1UL, commitIndex, entries), cancellationToken);
         if (!appended.Success)
             throw new InvalidOperationException($"The group log refused the append: {appended.RefusalCode}.");
+    }
+
+    private static FollowerLogEntry Entry(in ReplicaLogRecord record) => new(record.LogIndex, record.Term, ReplicaLogCodec.Encode(in record));
+
+    private static IFollowerLog LogOf(ReplicaGroupRegistry registry) =>
+        registry.TryGetLog(GroupId, out var log) ? log : throw new InvalidOperationException($"The group log {GroupId} is not open.");
+
+    private static GroupIdempotencyLookup Lookup(IFollowerLog log, in ReplicaLogRecord record) => Lookup(log, in record, out _);
+
+    private static GroupIdempotencyLookup Lookup(IFollowerLog log, in ReplicaLogRecord record, out GroupIdempotencyRecord outcome) => log.Idempotency.Lookup(
+        record.OperationScope,
+        record.OperationId,
+        record.OperationFingerprint.Span,
+        out outcome);
+
+    /// <summary>Prepares a record that sets <paramref name="key" /> at <paramref name="logIndex" /> in term one.</summary>
+    /// <param name="key">The key the record writes.</param>
+    /// <param name="logIndex">The log index of the record.</param>
+    /// <returns>The decoded record.</returns>
+    /// <exception cref="InvalidOperationException">The prepared record does not decode.</exception>
+    private static ReplicaLogRecord Prepare(string key, ulong logIndex)
+    {
+        var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance);
+        var prepared = factory.PrepareSet(NewOperationId(), "cache", key, ReplicaOwnerTestKit.Entry(key), logIndex);
+        return ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
     }
 
     /// <summary>Appends uncommitted records of the given keys to the follower group log, then closes it, as a follower that stopped before they committed.</summary>

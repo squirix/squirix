@@ -38,76 +38,30 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
     private const string PoolDisposalsTotalInstrumentName = "squirix_peer_pool_disposals_total";
 
-    /// <summary>Disposal refuses new channel leases and cancels the leased calls, then waits for the leases to end before it disposes the channels.</summary>
+    /// <summary>Aborting closes the wrapped stream of a connection a handler dialed itself, but the gate is left only when the owner disposes the returned stream.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DisposeAwaitsLeasedCalls(CancellationToken cancellationToken)
+    public async Task AbortKeepsWrappedGateUntilDisposed(CancellationToken cancellationToken)
     {
-        using var meter = new Meter("Squirix");
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var certificate = LoadCertificate(bundle);
-        var created = new List<TrackingHandler>();
-        var pool = new ServerClientPool(BuildPeers(1), MtlsArgs(certificate, null, (_, _, _) => Track(created)), new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
-        var lease = pool.LeaseChannel("n0", cancellationToken);
-        Task disposing;
-        try
-        {
-            disposing = pool.DisposeAsync().AsTask();
+        var connections = new TrackedConnections();
+        var inner = new MemoryStream();
+        using var handler = new SocketsHttpHandler();
+        handler.ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(inner);
+        ServerClientPool.TrackFactoryConnections(handler, connections);
+        var context = Unsafe.As<SocketsHttpConnectionContext>(RuntimeHelpers.GetUninitializedObject(typeof(SocketsHttpConnectionContext)));
+        var callback = ThrowHelper.Required(handler.ConnectCallback, "Expected the tracked connect callback.");
 
-            _ = await Assert.That(disposing.IsCompleted).IsFalse();
-            await AwaitCancellationAsync(lease.Token, cancellationToken);
-            _ = await Assert.That(disposing.IsCompleted).IsFalse();
-            _ = await Assert.That(created[0].Disposed).IsFalse();
-            _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(pool, static p => _ = p.LeaseChannel("n0", CancellationToken.None));
-        }
-        finally
-        {
-            lease.Dispose();
-        }
+        var stream = await callback.Invoke(context, cancellationToken);
+        _ = await Assert.That(connections.Pending).IsEqualTo(1);
 
-        await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        connections.AbortAll();
 
-        await AssertAllDisposedAsync(created, 1);
-        _ = await Assert.That(certificate.IsReleased).IsFalse();
-        DisposeAsLoader(certificate);
-        _ = await Assert.That(certificate.IsReleased).IsTrue();
-    }
+        _ = await Assert.That(inner.CanRead).IsFalse();
+        _ = await Assert.That(connections.Pending).IsEqualTo(1);
 
-    /// <summary>A connection that outlives the shutdown budget keeps the material loaded: disposal returns, logs the leak and never frees the certificates.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task DisposeKeepsMaterialPastBudget(CancellationToken cancellationToken)
-    {
-        using var meter = new Meter("Squirix");
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var nodeCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
-        using var certificate = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
-        var log = new EventRecordingLogger();
-        var clock = new FakeTimeProvider();
-        var created = new List<TrackingHandler>();
-        var args = new ServerClientPoolArgs
-        {
-            PolicyFactory = static _ => new RecordingPolicy(null),
-            OwnedHandlerFactory = (_, _, connections) => OpenConnection(connections, created),
-            MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
-            Certificate = certificate,
-            InterNodeMtlsEnabled = true,
-            ShutdownBudget = TimeSpan.FromSeconds(10),
-            TimeProvider = clock,
-        };
-        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log);
+        await stream.DisposeAsync();
 
-        var disposing = pool.DisposeAsync().AsTask();
-        _ = await Assert.That(disposing.IsCompleted).IsFalse();
-        await AssertAllDisposedAsync(created, 1);
-
-        await AdvanceUntilCompletedAsync(clock, disposing, cancellationToken);
-
-        _ = await Assert.That(log.Find(MaterialLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
-        _ = await Assert.That(log.FindMessage(MaterialLeakedEventId)).Contains("1 connections were still open", StringComparison.Ordinal);
-        DisposeAsLoader(certificate);
-        _ = await Assert.That(certificate.IsReleased).IsFalse();
-        _ = await Assert.That(certificate.NodeCertificate!.Handle).IsNotEqualTo(nint.Zero);
+        _ = await Assert.That(connections.Pending).IsEqualTo(0);
     }
 
     /// <summary>A call drain that uses up the whole shutdown budget still leaves the aborted connections a short grace to dispose: no leak is reported and the hold is released.</summary>
@@ -161,67 +115,73 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         _ = await Assert.That(certificate.IsReleased).IsTrue();
     }
 
-    /// <summary>Once the connections that outlived the budget are gone, the pool releases its hold late and the material is freed with the loader's release.</summary>
+    /// <summary>A connect callback the factory handler already had keeps dialing, and its connection leaves the gate when the connection ends.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task LeakedMaterialReleasedOnDrain(CancellationToken cancellationToken)
+    public async Task ComposedConnectCallbackStillRedirects(CancellationToken cancellationToken)
     {
-        using var meter = new Meter("Squirix");
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var nodeCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
-        using var certificate = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
-        var log = new EventRecordingLogger();
-        var clock = new FakeTimeProvider();
-        var created = new List<TrackingHandler>();
-        TrackedConnections? tracked = null;
-        var args = new ServerClientPoolArgs
-        {
-            PolicyFactory = static _ => new RecordingPolicy(null),
-            OwnedHandlerFactory = (_, _, connections) =>
-            {
-                tracked = connections;
-                return OpenConnection(connections, created);
-            },
-            MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
-            Certificate = certificate,
-            InterNodeMtlsEnabled = true,
-            ShutdownBudget = TimeSpan.FromSeconds(10),
-            TimeProvider = clock,
-        };
-        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log);
-        var disposing = pool.DisposeAsync().AsTask();
-        await AdvanceUntilCompletedAsync(clock, disposing, cancellationToken);
-        DisposeAsLoader(certificate);
-        _ = await Assert.That(log.Find(MaterialLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
-        _ = await Assert.That(certificate.IsReleased).IsFalse();
-        _ = await Assert.That(pool.LateMaterialRelease.IsCompleted).IsFalse();
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var connections = new TrackedConnections();
+        var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var handler = new SocketsHttpHandler();
+        handler.ConnectCallback = (_, token) => ConnectSignallingAsync(listener, connected, token);
+        ServerClientPool.TrackFactoryConnections(handler, connections);
+        using var client = new HttpClient(handler, false);
 
-        tracked!.Exit();
-        await pool.LateMaterialRelease.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        var request = client.GetAsync(new Uri("https://localhost:1/"), cancellationToken);
+        using var accepted = await listener.AcceptTcpClientAsync(cancellationToken);
+        await connected.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(connections.Pending).IsEqualTo(1);
 
-        _ = await Assert.That(certificate.IsReleased).IsTrue();
-        _ = await Assert.That(log.Find(MaterialReleasedLateEventId)?.Level).IsEqualTo(LogLevel.Information);
-        _ = await Assert.That(certificate.NodeCertificate!.Handle).IsEqualTo(nint.Zero);
+        // Ending the connection from the server side fails the handshake; the handler disposes the stream, which leaves the gate.
+        accepted.Dispose();
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request);
+        await connections.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(connections.Pending).IsEqualTo(0);
     }
 
-    /// <summary>A callback registered on a lease token that throws does not stop disposal: the channels are disposed and the material hold is released.</summary>
+    /// <summary>The connect callback is replaced on the sockets handler at the end of a delegating chain.</summary>
+    [Test]
+    public async Task DelegatingHandlerChainIsUnwrapped()
+    {
+        var original = new Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>>(static (_, _) => ValueTask.FromResult(Stream.Null));
+        using var sockets = new SocketsHttpHandler();
+        sockets.ConnectCallback = original;
+        using var middle = new PassThroughHandler(sockets);
+        using var outer = new PassThroughHandler(middle);
+
+        ServerClientPool.TrackFactoryConnections(outer, new TrackedConnections());
+
+        _ = await Assert.That(ReferenceEquals(sockets.ConnectCallback, original)).IsFalse();
+    }
+
+    /// <summary>Disposal refuses new channel leases and cancels the leased calls, then waits for the leases to end before it disposes the channels.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DisposeSurvivesThrowingLeaseCallback(CancellationToken cancellationToken)
+    public async Task DisposeAwaitsLeasedCalls(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var certificate = LoadCertificate(bundle);
-        var log = new EventRecordingLogger();
         var created = new List<TrackingHandler>();
-        var pool = new ServerClientPool(BuildPeers(1), MtlsArgs(certificate, null, (_, _, _) => Track(created)), new ServerClientPoolMetrics(meter), log);
+        var pool = new ServerClientPool(
+            BuildPeers(1),
+            MtlsArgs(certificate, null, (_, _, _) => Track(created)),
+            new ServerClientPoolMetrics(meter),
+            NullLogger<ServerClientPool>.Instance);
         var lease = pool.LeaseChannel("n0", cancellationToken);
         Task disposing;
         try
         {
-            await using var registration = lease.Token.Register(static () => throw new InvalidOperationException("callback failure"));
             disposing = pool.DisposeAsync().AsTask();
+
+            _ = await Assert.That(disposing.IsCompleted).IsFalse();
             await AwaitCancellationAsync(lease.Token, cancellationToken);
+            _ = await Assert.That(disposing.IsCompleted).IsFalse();
+            _ = await Assert.That(created[0].Disposed).IsFalse();
+            _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(pool, static p => _ = p.LeaseChannel("n0", CancellationToken.None));
         }
         finally
         {
@@ -231,9 +191,9 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
         await AssertAllDisposedAsync(created, 1);
-        _ = await Assert.That(log.Find(LeaseCancelFailedEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(certificate.IsReleased).IsFalse();
         DisposeAsLoader(certificate);
-        _ = await Assert.That(certificate.IsReleased).IsTrue().Because("The pool must have released its hold despite the throwing callback.");
+        _ = await Assert.That(certificate.IsReleased).IsTrue();
     }
 
     /// <summary>
@@ -292,7 +252,11 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             ["n1"] = new(null),
             ["n2"] = new(null),
         };
-        var pool = new ServerClientPool(BuildPeers(3), new ServerClientPoolArgs { PolicyFactory = nodeId => policies[nodeId] }, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
+        var pool = new ServerClientPool(
+            BuildPeers(3),
+            new ServerClientPoolArgs { PolicyFactory = nodeId => policies[nodeId] },
+            new ServerClientPoolMetrics(meter),
+            NullLogger<ServerClientPool>.Instance);
         await using (pool)
         {
             await pool.DisposeAsync();
@@ -318,13 +282,110 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             ["n1"] = second,
             ["n2"] = third,
         };
-        var pool = new ServerClientPool(BuildPeers(3), new ServerClientPoolArgs { PolicyFactory = nodeId => policies[nodeId] }, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
+        var pool = new ServerClientPool(
+            BuildPeers(3),
+            new ServerClientPoolArgs { PolicyFactory = nodeId => policies[nodeId] },
+            new ServerClientPoolMetrics(meter),
+            NullLogger<ServerClientPool>.Instance);
 
         await pool.DisposeAsync();
 
         _ = await Assert.That(second.Disposed).IsTrue();
         _ = await Assert.That(third.Disposed).IsTrue();
         _ = await Assert.That(sink.HasEvent(PoolDisposalsTotalInstrumentName)).IsTrue();
+    }
+
+    /// <summary>A connection of a handler the factory supplied counts in the pool's gate, and disposal aborts it and releases the material hold.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeDrainsFactoryHandlerConnections(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = LoadCertificate(bundle);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var handler = new SocketsHttpHandler();
+        handler.ConnectCallback = (_, token) => ConnectSignallingAsync(listener, connected, token);
+        using var client = new HttpClient(handler, false);
+        var args = MtlsArgs(certificate, _ => handler, null);
+        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
+
+        // The listener never answers, so the TLS handshake stays open until the pool aborts the connection.
+        var request = client.GetAsync(new Uri("https://localhost:1/"), cancellationToken);
+        await connected.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(pool.OpenConnections).IsEqualTo(1);
+
+        await pool.DisposeAsync();
+
+        _ = await Assert.That(pool.OpenConnections).IsEqualTo(0);
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request);
+        DisposeAsLoader(certificate);
+        _ = await Assert.That(certificate.IsReleased).IsTrue();
+    }
+
+    /// <summary>Handlers from the peer handler factory stay owned by the factory's caller.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeKeepsFactoryHandlers(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = LoadCertificate(bundle);
+        var supplied = new List<TrackingHandler>();
+        try
+        {
+            var args = MtlsArgs(certificate, _ => Track(supplied), null);
+            var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
+            await pool.DisposeAsync();
+
+            _ = await Assert.That(supplied.Count).IsEqualTo(2);
+            for (var i = 0; i < supplied.Count; i++)
+                _ = await Assert.That(supplied[i].Disposed).IsFalse();
+        }
+        finally
+        {
+            for (var i = 0; i < supplied.Count; i++)
+                supplied[i].Dispose();
+        }
+    }
+
+    /// <summary>A connection that outlives the shutdown budget keeps the material loaded: disposal returns, logs the leak and never frees the certificates.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeKeepsMaterialPastBudget(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var nodeCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
+        using var certificate = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
+        var log = new EventRecordingLogger();
+        var clock = new FakeTimeProvider();
+        var created = new List<TrackingHandler>();
+        var args = new ServerClientPoolArgs
+        {
+            PolicyFactory = static _ => new RecordingPolicy(null),
+            OwnedHandlerFactory = (_, _, connections) => OpenConnection(connections, created),
+            MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
+            Certificate = certificate,
+            InterNodeMtlsEnabled = true,
+            ShutdownBudget = TimeSpan.FromSeconds(10),
+            TimeProvider = clock,
+        };
+        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log);
+
+        var disposing = pool.DisposeAsync().AsTask();
+        _ = await Assert.That(disposing.IsCompleted).IsFalse();
+        await AssertAllDisposedAsync(created, 1);
+
+        await AdvanceUntilCompletedAsync(clock, disposing, cancellationToken);
+
+        _ = await Assert.That(log.Find(MaterialLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(log.FindMessage(MaterialLeakedEventId)).Contains("1 connections were still open", StringComparison.Ordinal);
+        DisposeAsLoader(certificate);
+        _ = await Assert.That(certificate.IsReleased).IsFalse();
+        _ = await Assert.That(certificate.NodeCertificate!.Handle).IsNotEqualTo(nint.Zero);
     }
 
     /// <summary>Disposing the pool must dispose every default handler the pool created for its peers.</summary>
@@ -342,6 +403,79 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         await pool.DisposeAsync();
 
         await AssertAllDisposedAsync(created, 3);
+    }
+
+    /// <summary>Disposing the pool must dispose every mTLS handler the pool created from the node certificate.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeReleasesOwnedMtlsHandlers(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = LoadCertificate(bundle);
+        var created = new List<TrackingHandler>();
+        var args = MtlsArgs(certificate, null, (_, _, _) => Track(created));
+        var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
+        await pool.DisposeAsync();
+
+        await AssertAllDisposedAsync(created, 2);
+    }
+
+    /// <summary>A callback registered on a lease token that throws does not stop disposal: the channels are disposed and the material hold is released.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeSurvivesThrowingLeaseCallback(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = LoadCertificate(bundle);
+        var log = new EventRecordingLogger();
+        var created = new List<TrackingHandler>();
+        var pool = new ServerClientPool(BuildPeers(1), MtlsArgs(certificate, null, (_, _, _) => Track(created)), new ServerClientPoolMetrics(meter), log);
+        var lease = pool.LeaseChannel("n0", cancellationToken);
+        Task disposing;
+        try
+        {
+            await using var registration = lease.Token.Register(static () => throw new InvalidOperationException("callback failure"));
+            disposing = pool.DisposeAsync().AsTask();
+            await AwaitCancellationAsync(lease.Token, cancellationToken);
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+
+        await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        await AssertAllDisposedAsync(created, 1);
+        _ = await Assert.That(log.Find(LeaseCancelFailedEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        DisposeAsLoader(certificate);
+        _ = await Assert.That(certificate.IsReleased).IsTrue().Because("The pool must have released its hold despite the throwing callback.");
+    }
+
+    /// <summary>A handler without a connect callback of its own dials through the tracked connection stream, and the connection leaves the gate when it ends.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HandlerWithoutConnectCallbackIsTracked(CancellationToken cancellationToken)
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var connections = new TrackedConnections();
+        using var handler = new SocketsHttpHandler();
+        ServerClientPool.TrackFactoryConnections(handler, connections);
+        using var client = new HttpClient(handler, false);
+
+        var request = client.GetAsync(
+            new Uri($"https://127.0.0.1:{ThrowHelper.Required(listener.LocalEndpoint as IPEndPoint, "Expected an IP endpoint.").Port}/"),
+            cancellationToken);
+        using var accepted = await listener.AcceptTcpClientAsync(cancellationToken);
+        _ = await Assert.That(connections.Pending).IsEqualTo(1);
+
+        accepted.Dispose();
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request);
+        await connections.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(connections.Pending).IsEqualTo(0);
     }
 
     /// <summary>A shutdown budget that is negative but not infinite, or above the longest accepted timeout, is rejected.</summary>
@@ -364,6 +498,62 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             static state => _ = new ServerClientPool(BuildPeers(1), state.args, state.metrics, NullLogger<ServerClientPool>.Instance));
 
         _ = await Assert.That(failure.ParamName).IsEqualTo("args");
+    }
+
+    /// <summary>Once the connections that outlived the budget are gone, the pool releases its hold late and the material is freed with the loader's release.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LeakedMaterialReleasedOnDrain(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var nodeCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
+        using var certificate = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
+        var log = new EventRecordingLogger();
+        var clock = new FakeTimeProvider();
+        var created = new List<TrackingHandler>();
+        TrackedConnections? tracked = null;
+        var args = new ServerClientPoolArgs
+        {
+            PolicyFactory = static _ => new RecordingPolicy(null),
+            OwnedHandlerFactory = (_, _, connections) =>
+            {
+                tracked = connections;
+                return OpenConnection(connections, created);
+            },
+            MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
+            Certificate = certificate,
+            InterNodeMtlsEnabled = true,
+            ShutdownBudget = TimeSpan.FromSeconds(10),
+            TimeProvider = clock,
+        };
+        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log);
+        var disposing = pool.DisposeAsync().AsTask();
+        await AdvanceUntilCompletedAsync(clock, disposing, cancellationToken);
+        DisposeAsLoader(certificate);
+        _ = await Assert.That(log.Find(MaterialLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(certificate.IsReleased).IsFalse();
+        _ = await Assert.That(pool.LateMaterialRelease.IsCompleted).IsFalse();
+
+        tracked!.Exit();
+        await pool.LateMaterialRelease.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(certificate.IsReleased).IsTrue();
+        _ = await Assert.That(log.Find(MaterialReleasedLateEventId)?.Level).IsEqualTo(LogLevel.Information);
+        _ = await Assert.That(certificate.NodeCertificate!.Handle).IsEqualTo(nint.Zero);
+    }
+
+    /// <summary>A handler that is not a sockets handler is left untouched.</summary>
+    [Test]
+    public async Task NonSocketsHandlerStaysUntracked()
+    {
+        var connections = new TrackedConnections();
+        using var terminal = new TrackingHandler();
+        using var handler = new PassThroughHandler(terminal);
+
+        ServerClientPool.TrackFactoryConnections(handler, connections);
+
+        _ = await Assert.That(connections.Pending).IsEqualTo(0);
     }
 
     /// <summary>A registration failure releases the material hold and disposes the channels created before it.</summary>
@@ -395,178 +585,6 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         _ = await Assert.That(certificate.IsReleased).IsFalse();
         DisposeAsLoader(certificate);
         _ = await Assert.That(certificate.IsReleased).IsTrue();
-    }
-
-    /// <summary>Disposing the pool must dispose every mTLS handler the pool created from the node certificate.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task DisposeReleasesOwnedMtlsHandlers(CancellationToken cancellationToken)
-    {
-        using var meter = new Meter("Squirix");
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var certificate = LoadCertificate(bundle);
-        var created = new List<TrackingHandler>();
-        var args = MtlsArgs(certificate, null, (_, _, _) => Track(created));
-        var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
-        await pool.DisposeAsync();
-
-        await AssertAllDisposedAsync(created, 2);
-    }
-
-    /// <summary>Handlers from the peer handler factory stay owned by the factory's caller.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task DisposeKeepsFactoryHandlers(CancellationToken cancellationToken)
-    {
-        using var meter = new Meter("Squirix");
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var certificate = LoadCertificate(bundle);
-        var supplied = new List<TrackingHandler>();
-        try
-        {
-            var args = MtlsArgs(certificate, _ => Track(supplied), null);
-            var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
-            await pool.DisposeAsync();
-
-            _ = await Assert.That(supplied.Count).IsEqualTo(2);
-            for (var i = 0; i < supplied.Count; i++)
-                _ = await Assert.That(supplied[i].Disposed).IsFalse();
-        }
-        finally
-        {
-            for (var i = 0; i < supplied.Count; i++)
-                supplied[i].Dispose();
-        }
-    }
-
-    /// <summary>A connection of a handler the factory supplied counts in the pool's gate, and disposal aborts it and releases the material hold.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task DisposeDrainsFactoryHandlerConnections(CancellationToken cancellationToken)
-    {
-        using var meter = new Meter("Squirix");
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var certificate = LoadCertificate(bundle);
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var handler = new SocketsHttpHandler { ConnectCallback = (_, token) => ConnectSignallingAsync(listener, connected, token) };
-        using var client = new HttpClient(handler, false);
-        var args = MtlsArgs(certificate, _ => handler, null);
-        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
-
-        // The listener never answers, so the TLS handshake stays open until the pool aborts the connection.
-        var request = client.GetAsync(new Uri("https://localhost:1/"), cancellationToken);
-        await connected.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(pool.OpenConnections).IsEqualTo(1);
-
-        await pool.DisposeAsync();
-
-        _ = await Assert.That(pool.OpenConnections).IsEqualTo(0);
-        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request);
-        DisposeAsLoader(certificate);
-        _ = await Assert.That(certificate.IsReleased).IsTrue();
-    }
-
-    /// <summary>A connect callback the factory handler already had keeps dialing, and its connection leaves the gate when the connection ends.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ComposedConnectCallbackStillRedirects(CancellationToken cancellationToken)
-    {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var connections = new TrackedConnections();
-        var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var handler = new SocketsHttpHandler { ConnectCallback = (_, token) => ConnectSignallingAsync(listener, connected, token) };
-        ServerClientPool.TrackFactoryConnections(handler, connections);
-        using var client = new HttpClient(handler, false);
-
-        var request = client.GetAsync(new Uri("https://localhost:1/"), cancellationToken);
-        using var accepted = await listener.AcceptTcpClientAsync(cancellationToken);
-        await connected.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(connections.Pending).IsEqualTo(1);
-
-        // Ending the connection from the server side fails the handshake; the handler disposes the stream, which leaves the gate.
-        accepted.Dispose();
-        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request);
-        await connections.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
-
-        _ = await Assert.That(connections.Pending).IsEqualTo(0);
-    }
-
-    /// <summary>Aborting closes the wrapped stream of a connection a handler dialed itself, but the gate is left only when the owner disposes the returned stream.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task AbortKeepsWrappedGateUntilDisposed(CancellationToken cancellationToken)
-    {
-        var connections = new TrackedConnections();
-        var inner = new MemoryStream();
-        using var handler = new SocketsHttpHandler { ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(inner) };
-        ServerClientPool.TrackFactoryConnections(handler, connections);
-        var context = Unsafe.As<SocketsHttpConnectionContext>(RuntimeHelpers.GetUninitializedObject(typeof(SocketsHttpConnectionContext)));
-        var callback = ThrowHelper.Required(handler.ConnectCallback, "Expected the tracked connect callback.");
-
-        var stream = await callback.Invoke(context, cancellationToken);
-        _ = await Assert.That(connections.Pending).IsEqualTo(1);
-
-        connections.AbortAll();
-
-        _ = await Assert.That(inner.CanRead).IsFalse();
-        _ = await Assert.That(connections.Pending).IsEqualTo(1);
-
-        await stream.DisposeAsync();
-
-        _ = await Assert.That(connections.Pending).IsEqualTo(0);
-    }
-
-    /// <summary>A handler without a connect callback of its own dials through the tracked connection stream, and the connection leaves the gate when it ends.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task HandlerWithoutConnectCallbackIsTracked(CancellationToken cancellationToken)
-    {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var connections = new TrackedConnections();
-        using var handler = new SocketsHttpHandler();
-        ServerClientPool.TrackFactoryConnections(handler, connections);
-        using var client = new HttpClient(handler, false);
-
-        var request = client.GetAsync(new Uri($"https://127.0.0.1:{ThrowHelper.Required(listener.LocalEndpoint as IPEndPoint, "Expected an IP endpoint.").Port}/"), cancellationToken);
-        using var accepted = await listener.AcceptTcpClientAsync(cancellationToken);
-        _ = await Assert.That(connections.Pending).IsEqualTo(1);
-
-        accepted.Dispose();
-        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request);
-        await connections.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
-
-        _ = await Assert.That(connections.Pending).IsEqualTo(0);
-    }
-
-    /// <summary>The connect callback is replaced on the sockets handler at the end of a delegating chain.</summary>
-    [Test]
-    public async Task DelegatingHandlerChainIsUnwrapped()
-    {
-        var original = new Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>>(static (_, _) => ValueTask.FromResult<Stream>(Stream.Null));
-        using var sockets = new SocketsHttpHandler { ConnectCallback = original };
-        using var middle = new PassThroughHandler(sockets);
-        using var outer = new PassThroughHandler(middle);
-
-        ServerClientPool.TrackFactoryConnections(outer, new TrackedConnections());
-
-        _ = await Assert.That(ReferenceEquals(sockets.ConnectCallback, original)).IsFalse();
-    }
-
-    /// <summary>A handler that is not a sockets handler is left untouched.</summary>
-    [Test]
-    public async Task NonSocketsHandlerStaysUntracked()
-    {
-        var connections = new TrackedConnections();
-        using var terminal = new TrackingHandler();
-        using var handler = new PassThroughHandler(terminal);
-
-        ServerClientPool.TrackFactoryConnections(handler, connections);
-
-        _ = await Assert.That(connections.Pending).IsEqualTo(0);
     }
 
     /// <summary>A handler whose connect callback already tracks a pool's connections is rejected instead of being rewired.</summary>
@@ -614,6 +632,21 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
     }
 
+    private static ServerPeer[] BuildPeers(int count)
+    {
+        var peers = new ServerPeer[count];
+        for (var i = 0; i < count; i++)
+            peers[i] = new ServerPeer { NodeId = $"n{NodeInvariantIndexStrings.Format(i)}", Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", 6500 + i)) };
+
+        return peers;
+    }
+
+    private static void Complete(object? state)
+    {
+        if (state is TaskCompletionSource source)
+            _ = source.TrySetResult();
+    }
+
     private static async ValueTask<Stream> ConnectSignallingAsync(TcpListener listener, TaskCompletionSource connected, CancellationToken cancellationToken)
     {
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
@@ -631,12 +664,6 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         }
     }
 
-    private static void Complete(object? state)
-    {
-        if (state is TaskCompletionSource source)
-            _ = source.TrySetResult();
-    }
-
     /// <summary>Releases the loader's hold the way the DI container does on host shutdown.</summary>
     /// <param name="material">The material.</param>
     private static void DisposeAsLoader(MtlsCertificate material)
@@ -645,8 +672,11 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         loader.Dispose();
     }
 
-    private static MtlsCertificate LoadCertificate(MtlsTestCertificateBundle bundle) =>
-        MtlsCertificate.Load(new MtlsOptions { CaPath = bundle.CaPath, CertPfxPath = bundle.PfxPath, InternalListenPort = 6601 }, 6001, true, "node-a");
+    private static MtlsCertificate LoadCertificate(MtlsTestCertificateBundle bundle) => MtlsCertificate.Load(
+        new MtlsOptions { CaPath = bundle.CaPath, CertPfxPath = bundle.PfxPath, InternalListenPort = 6601 },
+        6001,
+        true,
+        "node-a");
 
     private static ServerClientPoolArgs MtlsArgs(
         MtlsCertificate certificate,
@@ -678,27 +708,38 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         return handler;
     }
 
-    private static ServerPeer[] BuildPeers(int count)
+    [Immutable]
+    private sealed class PassThroughHandler : DelegatingHandler
     {
-        var peers = new ServerPeer[count];
-        for (var i = 0; i < count; i++)
-            peers[i] = new ServerPeer { NodeId = $"n{NodeInvariantIndexStrings.Format(i)}", Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", 6500 + i)) };
-
-        return peers;
+        internal PassThroughHandler(HttpMessageHandler inner)
+            : base(inner)
+        {
+        }
     }
 
-    /// <summary>Records whether the owner disposed the handler; Rocks cannot observe the protected dispose overload.</summary>
-    private sealed class TrackingHandler : DelegatingHandler
+    private sealed class RecordingPolicy : IServerCallPolicy
     {
+        private readonly Exception? _disposeError;
+
+        internal RecordingPolicy(Exception? disposeError)
+        {
+            _disposeError = disposeError;
+        }
+
         internal bool Disposed { get; private set; }
 
-        protected override void Dispose(bool disposing)
+        public void BeginDrain()
         {
-            if (disposing)
-                Disposed = true;
-
-            base.Dispose(disposing);
         }
+
+        public ValueTask DisposeAsync()
+        {
+            Disposed = true;
+            return _disposeError != null ? ValueTask.FromException(_disposeError) : ValueTask.CompletedTask;
+        }
+
+        public ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("RecordingPolicy does not execute calls.");
     }
 
     /// <summary>A policy whose drain never completes, as a peer with an in-flight call that ignores cancellation.</summary>
@@ -738,37 +779,17 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             throw new NotSupportedException("ThrowingPolicy does not execute calls.");
     }
 
-    private sealed class RecordingPolicy : IServerCallPolicy
+    /// <summary>Records whether the owner disposed the handler; Rocks cannot observe the protected dispose overload.</summary>
+    private sealed class TrackingHandler : DelegatingHandler
     {
-        private readonly Exception? _disposeError;
-
-        internal RecordingPolicy(Exception? disposeError)
-        {
-            _disposeError = disposeError;
-        }
-
         internal bool Disposed { get; private set; }
 
-        public void BeginDrain()
+        protected override void Dispose(bool disposing)
         {
-        }
+            if (disposing)
+                Disposed = true;
 
-        public ValueTask DisposeAsync()
-        {
-            Disposed = true;
-            return _disposeError != null ? ValueTask.FromException(_disposeError) : ValueTask.CompletedTask;
-        }
-
-        public ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken) =>
-            throw new NotSupportedException("RecordingPolicy does not execute calls.");
-    }
-
-    [Immutable]
-    private sealed class PassThroughHandler : DelegatingHandler
-    {
-        internal PassThroughHandler(HttpMessageHandler inner)
-            : base(inner)
-        {
+            base.Dispose(disposing);
         }
     }
 }

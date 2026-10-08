@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -27,9 +28,9 @@ namespace Squirix.Server.Benchmarks;
 [SimpleJob(warmupCount: 1, iterationCount: 3)]
 public class ReplicaLeaderReapplyBenchmarks
 {
-    private JournalBenchmarkHost? _host;
     private ReplicaGroupApplier? _applier;
     private ILogicalNamespacedCache<object?>? _cache;
+    private JournalBenchmarkHost? _host;
     private byte[][] _records = [];
 
     /// <summary>Gets or sets the number of committed entries re-applied per invocation.</summary>
@@ -50,6 +51,10 @@ public class ReplicaLeaderReapplyBenchmarks
             await _host.DisposeAsync().ConfigureAwait(false);
         _host = null;
     }
+
+    /// <summary>Creates an applier whose applied index starts at zero, so each invocation re-applies the whole backlog.</summary>
+    [IterationSetup]
+    public void IterationSetup() => _applier = new ReplicaGroupApplier(ThrowHelper.Required(_cache, "Benchmark cache was not initialized."), NullLogger.Instance);
 
     /// <summary>Re-applies the backlog from a task started without the execution context.</summary>
     /// <returns>A task that completes when every entry is applied.</returns>
@@ -107,11 +112,6 @@ public class ReplicaLeaderReapplyBenchmarks
         }
     }
 
-    /// <summary>Creates an applier whose applied index starts at zero, so each invocation re-applies the whole backlog.</summary>
-    [IterationSetup]
-    public void IterationSetup() =>
-        _applier = new ReplicaGroupApplier(ThrowHelper.Required(_cache, "Benchmark cache was not initialized."), NullLogger.Instance);
-
     private static async Task ReapplyAsync(ReplicaGroupApplier applier, byte[][] records)
     {
         var logIndex = 0UL;
@@ -129,15 +129,14 @@ public class ReplicaLeaderReapplyBenchmarks
         private readonly ConcurrentDictionary<CacheKey, NodeCacheEntry<object?>> _store = new();
 
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(_store.TryGetValue(new CacheKey(cacheName, key), out var entry) ? entry : null);
+            ValueTask.FromResult(_store.GetValueOrDefault(new CacheKey(cacheName, key)));
 
-        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(
-                _store.TryGetValue(new CacheKey(cacheName, key), out var entry) ? new NodeCacheValueResult<object?>(true, entry.Value) : new NodeCacheValueResult<object?>(false, null));
+        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(
+            _store.TryGetValue(new CacheKey(cacheName, key), out var entry) ? new NodeCacheValueResult<object?>(true, entry.Value)
+                : new NodeCacheValueResult<object?>(false, null));
 
-        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(
-                _store.TryRemove(new CacheKey(cacheName, key), out var entry) ? new CacheRemoveResult<object?>(true, entry.Value) : new CacheRemoveResult<object?>(false, null));
+        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(
+            _store.TryRemove(new CacheKey(cacheName, key), out var entry) ? new CacheRemoveResult<object?>(true, entry.Value) : new CacheRemoveResult<object?>(false, null));
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
@@ -147,7 +146,8 @@ public class ReplicaLeaderReapplyBenchmarks
             return ValueTask.CompletedTask;
         }
 
-        public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => ValueTask.FromResult(false);
+        public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(false);
 
         public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
             ValueTask.FromResult(_store.TryAdd(new CacheKey(cacheName, key), entry));
