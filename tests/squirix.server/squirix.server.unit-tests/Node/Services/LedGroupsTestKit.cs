@@ -51,6 +51,26 @@ internal static class LedGroupsTestKit
             BudgetTimeProvider = seams.BudgetClock ?? TimeProvider.System,
         };
 
+    /// <summary>Creates the committer of a group on node n1 that leads it only in the terms its election state hands it.</summary>
+    /// <param name="registry">Replica group registry of node n1, serving the group.</param>
+    /// <param name="groupId">The group.</param>
+    /// <param name="gateway">Follower transport double.</param>
+    /// <param name="cache">Local cache pipeline.</param>
+    /// <param name="applier">The applier of the group.</param>
+    /// <returns>The committer, leading by the election state of the group in <paramref name="registry" />.</returns>
+    internal static ReplicaGroupCommitter CreateElectedCommitter(
+        ReplicaGroupRegistry registry,
+        string groupId,
+        IReplicaRpcGateway gateway,
+        ILogicalNamespacedCache<object?> cache,
+        ReplicaGroupApplier applier) =>
+        new(registry, new RotatingLocator(), gateway, cache, (groupId, "n1"), new ReplicaTopologyStamp(ReplicaOwnerTestKit.Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+        {
+            Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            Applier = applier,
+            Election = registry.StateFor(groupId),
+        };
+
     /// <summary>Reads the keys of the entries a group log holds, in log order.</summary>
     /// <param name="registry">The registry serving the group.</param>
     /// <param name="groupId">The group.</param>

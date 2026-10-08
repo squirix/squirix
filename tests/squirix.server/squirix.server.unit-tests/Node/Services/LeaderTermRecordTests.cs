@@ -37,7 +37,7 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
 
         _ = await Assert.That(record.LogIndex).IsEqualTo(3UL);
         _ = await Assert.That(record.Term).IsEqualTo(7UL);
-        _ = await Assert.That(record.OperationId).IsEqualTo("term-7");
+        _ = await Assert.That(record.OperationId).IsEqualTo("term-7-3");
         _ = await Assert.That(record.OperationScope).IsEqualTo(ReplicaLeaderOperationId.OperationScope);
         _ = await Assert.That(record.RecordKind).IsEqualTo(nameof(GroupRecordKind.LeaderTerm));
         _ = await Assert.That(record.MutationKind).IsEqualTo(ReplicaMutationKinds.LeaderNoop);

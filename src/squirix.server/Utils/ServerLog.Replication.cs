@@ -172,8 +172,11 @@ internal static partial class ServerLog
     [LoggerMessage(
         EventId = 4033,
         Level = LogLevel.Error,
-        Message = "Replica expiration sweep stopped its pass after expiring {Expired} keys: a tombstone could not commit, and the rest waits for the next pass")]
-    internal static partial void ReplicaExpirationSweepFailed(ILogger logger, int expired, Exception exception);
+        Message = "Replica group {GroupId} expiration sweep could not commit a tombstone after {Expired} keys of the pass; the group waits for the next pass")]
+    internal static partial void ReplicaExpirationSweepFailed(ILogger logger, string groupId, int expired, Exception exception);
+
+    [LoggerMessage(EventId = 4035, Level = LogLevel.Debug, Message = "Replica group {GroupId} could not start leading term {Term} and retries on the next election tick")]
+    internal static partial void ReplicaPromotionRetry(ILogger logger, string groupId, ulong term, Exception exception);
 
     [LoggerMessage(EventId = 4034, Level = LogLevel.Debug, Message = "Replica expiration sweep stopped because the host is shutting down")]
     internal static partial void ReplicaExpirationSweepStopped(ILogger logger);

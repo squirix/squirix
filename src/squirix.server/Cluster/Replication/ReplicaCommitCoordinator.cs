@@ -115,6 +115,9 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// <remarks>Test seam: production coordinators keep the system clock.</remarks>
     internal TimeProvider BudgetTimeProvider { private get; init; } = TimeProvider.System;
 
+    /// <summary>Gets the highest log index this coordinator committed, or the commit index it started from.</summary>
+    internal ulong CommitIndex => Volatile.Read(ref _commitIndex);
+
     /// <summary>Gets the zero-based replica slot of the leader; every other slot is a follower.</summary>
     internal int LeaderReplicaIndex { get; }
 

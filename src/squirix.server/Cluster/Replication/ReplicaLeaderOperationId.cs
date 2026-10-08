@@ -5,10 +5,11 @@ using System.Text;
 
 namespace Squirix.Server.Cluster.Replication;
 
-/// <summary>Derives the deterministic identity of the no-op a leader commits at the start of its term.</summary>
+/// <summary>Derives the deterministic identity of the no-op a leader appends at the start of its leadership.</summary>
 /// <remarks>
-/// One term has one leader, so the term alone names the entry within its group: a retry of the no-op in the same term keeps its
-/// identity and replays the retained entry instead of appending a second one.
+/// One term has one leader and one log index holds one entry, so the term and the index name the entry within its group. Every
+/// leadership appends a no-op of its own: a leader of the provisional term one that restarts appends another at a new index, which no
+/// entry of the earlier run can stand in for, and two no-ops of one term recovered together in a tail never share a pin.
 /// </remarks>
 internal static class ReplicaLeaderOperationId
 {
@@ -21,14 +22,16 @@ internal static class ReplicaLeaderOperationId
 
     private const string Domain = "squirix:leader-term:v1";
 
-    /// <summary>Creates the operation identifier of the no-op of a term.</summary>
+    /// <summary>Creates the operation identifier of the no-op of a term at a log index.</summary>
     /// <param name="term">The leader term.</param>
-    /// <returns>The identifier: <c language="text">term-</c> followed by the term in invariant decimal digits.</returns>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="term" /> is zero.</exception>
-    internal static string Create(ulong term)
+    /// <param name="logIndex">The log index of the no-op.</param>
+    /// <returns>The identifier: <c language="text">term-</c>, the term, a dash, and the log index, both in decimal digits.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="term" /> or <paramref name="logIndex" /> is zero.</exception>
+    internal static string Create(ulong term, ulong logIndex)
     {
         ArgumentOutOfRangeException.ThrowIfZero(term);
-        return $"term-{term}";
+        ArgumentOutOfRangeException.ThrowIfZero(logIndex);
+        return $"term-{term}-{logIndex}";
     }
 
     /// <summary>Computes the operation fingerprint of the no-op of a term in a group.</summary>

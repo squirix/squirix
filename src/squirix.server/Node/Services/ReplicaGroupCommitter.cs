@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -43,6 +44,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private ReplicaGroupCommitPipeline? _pipeline;
 
     private bool _started;
+
+    /// <summary>The leadership of the group by election, or <see langword="null" /> while there is none; written by the driver's calls only.</summary>
+    private ReplicaLeaderTenure? _tenure;
     private volatile bool _recovered;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitter" /> class.</summary>
@@ -144,6 +148,20 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the identifier of the replica group this committer leads.</summary>
     internal string GroupId { get; }
 
+    /// <summary>Initializes the election state of the group; when set, this committer leads only a term an election hands it.</summary>
+    /// <remarks>
+    /// Without it the committer leads the own group statically, in the term of its log, as long as the node runs. With it nothing starts
+    /// before <see cref="PromoteAsync" />: a promotion appends a leader-term entry of the won term, every follower reply is posted to the
+    /// state, and the committer stops leading at <see cref="RetireAsync" />.
+    /// </remarks>
+    internal ReplicaGroupState? Election { private get; init; }
+
+    /// <summary>Gets the pipeline of the running coordinator, whose senders carry the heartbeats of an elected leader.</summary>
+    internal ReplicaGroupCommitPipeline? RunningPipeline => Volatile.Read(ref _pipeline);
+
+    /// <summary>Gets the current leadership of the group by election, or <see langword="null" /> while there is none.</summary>
+    internal ReplicaLeaderTenure? Tenure => Volatile.Read(ref _tenure);
+
     /// <summary>Initializes the applier of the led group, which this committer drives for as long as it leads the group.</summary>
     /// <remarks>
     /// The applier lives as long as the node, so its applied index survives a replaced coordinator; while this committer leads the group
@@ -234,13 +252,14 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
                 // The senders close first: their pending and in-flight follower appends end at once, so the coordinator's teardown
                 // does not wait for a follower that is slow or gone.
                 if (_pipeline != null)
-                    await CloseSendersAsync(_pipeline).ConfigureAwait(false);
+                    await this.CloseSendersAsync(_pipeline).ConfigureAwait(false);
 
                 if (_coordinator != null)
                     await _coordinator.DisposeAsync().ConfigureAwait(false);
             }
             finally
             {
+                _tenure?.Dispose();
                 _gate.Dispose();
             }
         }
@@ -282,7 +301,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             // (possibly by the process before a restart) must neither re-execute nor be told it failed: its outcome stays unknown until a
             // commit resolves the entry. The same identifier with another request is a reuse, whatever the state of the entry. Without a
             // retained entry the refusal stands and is rethrown by the await below.
-            var retained = LookupRetained(write, state, fingerprint, out var recorded);
+            var retained = ReplicaGroupCommitterCommits.LookupRetained(_registry.TryGetLog(GroupId, out var log) ? log : null, write, state, fingerprint, out var recorded);
             if (retained == GroupIdempotencyLookup.Found)
                 return await decode(recorded.OutcomePayload).ConfigureAwait(false);
             if (retained == GroupIdempotencyLookup.Mismatch)
@@ -355,7 +374,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         ThrowIfDisposed();
-        return _started && _coordinator is { } coordinator
+
+        // An elected leader compacts only once its leader-term entry is committed: the authority check reads the term of that entry.
+        return _started && _coordinator is { } coordinator && (Election == null || _tenure is { Authorized: true })
             ? await ReplicaLogCompactionStep.RunAsync(log, coordinator, eligibility, Applier.AppliedIndex, durability, Clock, cancellationToken).ConfigureAwait(false)
             : ReplicaLogCompactionOutcome.NotReady;
     }
@@ -380,7 +401,12 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (!_registry.TryGetLog(GroupId, out var log))
             return ReplicaVerification.Blocked;
 
-        var snapshot = await Probe.ProbeAsync(log, cancellationToken).ConfigureAwait(false);
+        // A committer that leads by election verifies nothing once it no longer leads, and verifies in its led term while it does.
+        var tenure = Volatile.Read(ref _tenure);
+        if (Election != null && tenure == null)
+            return ReplicaVerification.Blocked;
+
+        var snapshot = await Probe.ProbeAsync(log, tenure?.Term ?? 0UL, cancellationToken).ConfigureAwait(false);
         if (snapshot.Verdict is { } verdict)
             return verdict;
 
@@ -426,6 +452,93 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Drops the started state, so the next attempt rebuilds the pipeline positions from the durable log status.</summary>
     /// <remarks>Runs under the commit gate.</remarks>
     internal void DropStartedState() => _started = false;
+
+    /// <summary>Leads the group in a won term and reports whether its leader-term entry is committed.</summary>
+    /// <param name="term">The won term.</param>
+    /// <param name="cancellationToken">Cancellation token; it ends the wait for the applier lease, local recovery, or the commit gate.</param>
+    /// <returns>
+    /// <see langword="true" /> once the leader-term entry this promotion appended is committed by a coordinator of this promotion and the
+    /// log still holds it in <paramref name="term" />; <see langword="false" /> while it is not, or when the start failed and is retried.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">The committer leads statically, or still leads another term.</exception>
+    /// <remarks>
+    /// The first call takes the lease of the applier, waiting for a running apply pass, and keeps it until <see cref="RetireAsync" />, so
+    /// the apply loop of the group never runs meanwhile. The entry is appended once per promotion, at a new index with an identity of its
+    /// own, so no entry of an earlier leadership, committed or not, stands in for it. It is committed without the write majority check of
+    /// client writes: every follower starts unverified, and verification needs an entry of the term in the tail.
+    /// </remarks>
+    internal async Task<bool> PromoteAsync(ulong term, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(term);
+        ThrowIfDisposed();
+        if (Election == null)
+            throw new InvalidOperationException($"Replica group '{GroupId}' is led statically and is never promoted.");
+
+        await WaitForLocalRecoveryAsync(cancellationToken).ConfigureAwait(false);
+        var tenure = Volatile.Read(ref _tenure);
+        if (tenure == null)
+        {
+            var lease = await Applier.DriverLease.LockAsync(cancellationToken).ConfigureAwait(false);
+            _tenure = new ReplicaLeaderTenure(term, lease);
+            tenure = _tenure;
+        }
+        else if (tenure.Term != term)
+        {
+            throw new InvalidOperationException($"Replica group '{GroupId}' still leads term {tenure.Term}; it cannot be promoted to term {term}.");
+        }
+
+        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        ThrowIfDisposed();
+        try
+        {
+            if (!_started)
+                await StartAsync(cancellationToken).ConfigureAwait(false);
+
+            _ = await TryApplyPendingAsync().ConfigureAwait(false);
+            return _registry.TryGetLog(GroupId, out var log) && await tenure.IsAuthorizedAsync(_coordinator, log, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or InvalidOperationException or SquirixException)
+        {
+            // The start is retried on the next call: a storage fault, an inconsistent record, a log that moved past the term, or committed
+            // entries of a replaced coordinator still to apply.
+            ServerLog.ReplicaPromotionRetry(Log, GroupId, term, exception);
+            return false;
+        }
+    }
+
+    /// <summary>Stops leading the group by election: closes its followers, disposes its coordinator, and releases the applier lease.</summary>
+    /// <param name="cancellationToken">Cancellation token for the wait on the commit gate.</param>
+    /// <returns>
+    /// <see langword="true" /> once the group is retired, or when it was not led; <see langword="false" /> while a committed entry is still
+    /// to be applied, when the coordinator and the lease are kept and the call is to be retried.
+    /// </returns>
+    /// <remarks>
+    /// The caller revokes the authority first, so no write is admitted meanwhile. Entries a majority never acknowledged are left in the log
+    /// for the next leader to commit or truncate; the apply loop of the group takes over from the applied index.
+    /// </remarks>
+    internal async Task<bool> RetireAsync(CancellationToken cancellationToken)
+    {
+        if (Volatile.Read(ref _tenure) is not { } tenure)
+            return true;
+
+        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        if (!await TryApplyPendingAsync().ConfigureAwait(false) && _coordinator is { } retained && Applier.AppliedIndex < retained.CommitIndex)
+            return false;
+
+        if (_pipeline != null)
+            await this.CloseSendersAsync(_pipeline).ConfigureAwait(false);
+
+        if (_coordinator != null)
+            await _coordinator.DisposeAsync().ConfigureAwait(false);
+
+        _coordinator = null;
+        Volatile.Write(ref _pipeline, null);
+        _factory = null;
+        _started = false;
+        Volatile.Write(ref _tenure, null);
+        await tenure.EndAsync().ConfigureAwait(false);
+        return true;
+    }
 
     /// <summary>Waits until local recovery has replayed the journal into memory, so no decision is prepared against a partly recovered cache.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -494,22 +607,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         };
     }
 
-    /// <summary>Looks up the entry retained in the owned group log for the identity of a write.</summary>
-    /// <typeparam name="TState">The type of the write arguments.</typeparam>
-    /// <param name="write">The cache scope and the client operation identifier of the write.</param>
-    /// <param name="state">The arguments of the write.</param>
-    /// <param name="fingerprint">Computes the operation fingerprint of the write.</param>
-    /// <param name="record">The retained record when the lookup finds the outcome; otherwise <see langword="default" />.</param>
-    /// <returns>The lookup; a miss when the owned group log is not open.</returns>
-    /// <remarks>The fingerprint, which encodes and hashes the request, is computed only once an entry with the identity is found.</remarks>
-    private GroupIdempotencyLookup LookupRetained<TState>((string Scope, string OperationId) write, TState state, Func<TState, byte[]> fingerprint, out GroupIdempotencyRecord record)
-    {
-        record = default;
-        return !_registry.TryGetLog(GroupId, out var log) || log.Idempotency.Lookup(write.Scope, write.OperationId, [], out _) == GroupIdempotencyLookup.Miss
-            ? GroupIdempotencyLookup.Miss
-            : log.Idempotency.Lookup(write.Scope, write.OperationId, fingerprint(state), out record);
-    }
-
     /// <summary>Returns the next group log index to prepare with: the one after the last entry appended to the local log.</summary>
     /// <remarks>
     /// The index follows the local appends of the running pipeline, so it moves only when an entry is appended: a prepare that fails, a
@@ -524,6 +621,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (!_registry.TryGetLog(GroupId, out var log))
             throw new InvalidOperationException($"This node does not serve the replica group '{GroupId}' it leads.");
 
+        var tenure = Election == null || _tenure != null ? _tenure : throw new InvalidOperationException($"This node does not lead the replica group '{GroupId}'.");
+
         var replacing = _coordinator != null;
         await RetireCoordinatorAsync().ConfigureAwait(false);
 
@@ -534,7 +633,16 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // Memory must hold every committed entry before anything new is prepared.
         await Applier.CatchUpAsync(log, status.LastAppliedIndex, status.CommitIndex, cancellationToken).ConfigureAwait(false);
 
-        var term = Math.Max(1UL, status.CurrentTerm);
+        // A static leader leads in the term of its log. An elected one leads its won term and appends its leader-term entry before any
+        // follower is probed, so verification can admit the followers that hold it; the entry commits like a recovered tail.
+        var term = tenure?.TermFor(in status, GroupId) ?? Math.Max(1UL, status.CurrentTerm);
+        var factory = new ReplicaMutationFactory(_local, GroupId, term, Clock, Log);
+        if (tenure != null)
+        {
+            read = await tenure.AppendNoopAsync(log, read, factory, Probe.SelfId, cancellationToken).ConfigureAwait(false);
+            status = read.Status;
+        }
+
         var (members, header) = Probe.BuildMembership(term);
         var leaderIndex = Probe.LeaderReplicaIndex;
         var tail = ReplicaLeaderTail.From(read);
@@ -545,7 +653,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // recovered by the coordinator and commits once verified slots hold it; followers lacking it are caught up through their senders,
         // outside this gate.
         var eligibility = _registry.EligibilityFor(GroupId);
-        if (replacing)
+        if (replacing || tenure != null)
             ReplicaReadinessProbe.UnverifyFollowers(eligibility, leaderIndex);
 
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, leaderIndex, in status, _topology.Fingerprint, _topology.Generation);
@@ -557,7 +665,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
         var lagging = new ReplicaLaggingFollowers(GroupId, eligibility, Probe.Repairs, Log);
         var pipeline = new ReplicaGroupCommitPipeline(Applier, log, CreateSenders(members, leaderIndex, in status, in header), (header.LeaderNodeId, leaderIndex), lagging, in status, term);
-        var factory = new ReplicaMutationFactory(_local, GroupId, term, Clock, Log);
         _pipeline = pipeline;
         _coordinator = this.CreateCoordinator((_locator.ReplicaCount, leaderIndex), pipeline, log, in status, eligibility, Applier.RecoverTail(tail, term, factory));
 
@@ -587,17 +694,11 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             leaderIndex,
             in status,
             in header,
-            new ReplicaFollowerSenders.SenderTiming(CommitBudget, ShutdownBudget, BudgetTimeProvider),
+            new ReplicaFollowerSenders.SenderTiming(CommitBudget, ShutdownBudget, BudgetTimeProvider)
+            {
+                Replies = Election is { } election ? (slot, reply) => election.RecordFollowerReply(slot, in reply) : null,
+            },
             budget => ServerLog.ReplicaFollowerSenderLeakedOnShutdown(Log, budget));
-    }
-
-    /// <summary>Closes the senders of a pipeline and logs a failure instead of throwing it, so the teardown that follows always runs.</summary>
-    /// <param name="pipeline">The pipeline to close.</param>
-    /// <returns>An asynchronous operation.</returns>
-    private async ValueTask CloseSendersAsync(ReplicaGroupCommitPipeline pipeline)
-    {
-        if (await pipeline.CloseAsync().ConfigureAwait(false) is { } failure)
-            ServerLog.ReplicaFollowerSenderCloseFailed(Log, failure);
     }
 
     /// <summary>Rebuilds the outcomes of the committed log entries once, after the coordinator of the first start pinned the recovered tail.</summary>
@@ -621,7 +722,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             var coordinator = _coordinator;
             _coordinator = null;
             _pipeline = null;
-            await CloseSendersAsync(pipeline).ConfigureAwait(false);
+            await this.CloseSendersAsync(pipeline).ConfigureAwait(false);
             if (coordinator != null)
                 await coordinator.DisposeAsync().ConfigureAwait(false);
             throw;
@@ -649,7 +750,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (_pipeline != null)
         {
             await _pipeline.DrainAsync(CommitBudget).ConfigureAwait(false);
-            await CloseSendersAsync(_pipeline).ConfigureAwait(false);
+            await this.CloseSendersAsync(_pipeline).ConfigureAwait(false);
         }
 
         await _coordinator.DisposeAsync().ConfigureAwait(false);

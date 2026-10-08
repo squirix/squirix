@@ -16,7 +16,8 @@ namespace Squirix.Server.Node.Services;
 /// <remarks>
 /// Each pass first maintains every group this node leads: it persists the committer's in-memory applied index once the cache journal
 /// holds the applied entries durably, which releases their payloads from memory; that runs outside the commit gate, so writes never wait
-/// on it. It then compacts the led log once it reaches a threshold, as one step under the commit gate. Afterwards it persists the applied
+/// on it. It then compacts the led log once it reaches a threshold, as one step under the commit gate; each led group gets at most one
+/// interval, so a group stalled on its commit gate holds back no other. Afterwards it persists the applied
 /// index of every follower group the same way and compacts that group's log through it once the log reaches a threshold. A change of a
 /// group's compaction outcome is logged once, not on every pass. A failed step of one group is retried on the next pass without holding back the other groups; a follower
 /// group's failure is logged when it starts or changes, not on every pass. The service runs on the host lifetime and stops with it.
@@ -122,15 +123,18 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
     /// <returns>A task that completes when the group was maintained or its failure was logged.</returns>
     private async Task MaintainLedLogAsync(ReplicaGroupCommitter committer, CancellationToken stoppingToken)
     {
+        // One interval bounds the group: a group stalled on its commit gate gives up and lets the next led group run.
+        using var timeout = new CancellationTokenSource(_interval, _timeProvider);
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, timeout.Token);
         try
         {
-            await committer.FlushAppliedAsync(_durability, stoppingToken).ConfigureAwait(false);
-            Report(committer.GroupId, await committer.CompactOwnedLogAsync(_policy, _durability, stoppingToken).ConfigureAwait(false));
+            await committer.FlushAppliedAsync(_durability, budget.Token).ConfigureAwait(false);
+            Report(committer.GroupId, await committer.CompactOwnedLogAsync(_policy, _durability, budget.Token).ConfigureAwait(false));
         }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException && !stoppingToken.IsCancellationRequested)
+        catch (Exception exception) when (exception is IOException or InvalidOperationException or OperationCanceledException && !stoppingToken.IsCancellationRequested)
         {
-            // Storage and journal faults are retried on the next pass; unexpected exceptions still fault the service so the host fails
-            // fast instead of silently retaining every applied entry.
+            // Storage and journal faults, and a group that ran out of its budget, are retried on the next pass; unexpected exceptions still
+            // fault the service so the host fails fast instead of silently retaining every applied entry.
             ServerLog.ReplicaLogMaintenanceRetry(_log, committer.GroupId, exception);
         }
     }
