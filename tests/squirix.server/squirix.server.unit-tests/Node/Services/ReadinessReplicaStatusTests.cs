@@ -158,6 +158,35 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
     }
 
+    /// <summary>
+    /// Verifies the owner leads its group statically until an election driver runs; then only a leader with authority is the leader, and
+    /// the status carries the highest term the election saw and the role.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ElectionStateDecidesLeadership(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-readiness-election");
+        await using var registry = CreateRegistry(dir, CreateTopology(3));
+        await registry.OpenAsync(cancellationToken);
+        var source = new ReplicaGroupStatusSource(registry, CreateTopology(3), new MtlsOptions(), "node-a");
+        var owned = (await source.GetSnapshotsAsync(cancellationToken))[0];
+        var state = registry.StateFor("node-a");
+        state.SetElectionDriven(true);
+        state.ObserveHigherTerm(4UL);
+        var following = (await source.GetSnapshotsAsync(cancellationToken))[0];
+        _ = state.BecomeLeader(4UL);
+        var elected = (await source.GetSnapshotsAsync(cancellationToken))[0];
+        _ = state.GrantAuthority(4UL);
+        var leading = (await source.GetSnapshotsAsync(cancellationToken))[0];
+
+        _ = await Assert.That((owned.IsLeader, owned.ObservedTerm, owned.Role)).IsEqualTo((true, 0UL, ReplicaElectionRole.AuthorizedLeader));
+        _ = await Assert.That((following.IsLeader, following.HasMajorityContact, following.ObservedTerm, following.Role))
+                        .IsEqualTo((false, false, 4UL, ReplicaElectionRole.Follower));
+        _ = await Assert.That((elected.IsLeader, elected.Role)).IsEqualTo((false, ReplicaElectionRole.Leader));
+        _ = await Assert.That((leading.IsLeader, leading.HasMajorityContact, leading.Role)).IsEqualTo((true, true, ReplicaElectionRole.AuthorizedLeader));
+    }
+
     /// <summary>Verifies an owned group with majority contact reports healthy.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

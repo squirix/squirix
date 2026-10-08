@@ -93,6 +93,27 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
         _ = await Assert.That(Count(records, "squirix_replication_log_compaction_skipped_total", "snapshot_too_large")).IsEqualTo(1);
     }
 
+    /// <summary>Verifies the role gauge reports the election role of each observed group, a follower unless the snapshot names another.</summary>
+    [Test]
+    public async Task ReportsElectionRole()
+    {
+        using var meter = new Meter("Squirix");
+        using var listener = CreateListener(meter, out var records);
+        var metrics = new ReplicationMetrics(meter);
+
+        var leading = new ReplicaStatusSnapshot("node-a", "group-a", 3, 4, 4, 10, 7, 7, true, true, true, true, true) { Role = ReplicaElectionRole.AuthorizedLeader };
+        var promoting = new ReplicaStatusSnapshot("node-a", "group-b", 3, 5, 5, 10, 7, 7, true, true, true, false, true) { Role = ReplicaElectionRole.Leader };
+        var following = new ReplicaStatusSnapshot("node-a", "group-c", 3, 4, 4, 10, 7, 7, true, true, true, false, true);
+        metrics.ReportGroup(in leading, ReplicaReadinessVerdict.Ready);
+        metrics.ReportGroup(in promoting, ReplicaReadinessVerdict.Ready);
+        metrics.ReportGroup(in following, ReplicaReadinessVerdict.Ready);
+        listener.RecordObservableInstruments();
+
+        await AssertGaugeAsync(records, "squirix_replication_role", "group-a", 4);
+        await AssertGaugeAsync(records, "squirix_replication_role", "group-b", 3);
+        await AssertGaugeAsync(records, "squirix_replication_role", "group-c", 0);
+    }
+
     /// <summary>Verifies each refused inconsistent log record is counted once on the owned group.</summary>
     [Test]
     public async Task CountsInconsistentRecords()

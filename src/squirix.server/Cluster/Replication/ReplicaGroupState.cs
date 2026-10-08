@@ -230,6 +230,24 @@ internal sealed class ReplicaGroupState
         }
     }
 
+    /// <summary>Reads, in one consistent view, what the replica status reports of this node in the group.</summary>
+    /// <returns>
+    /// The role; whether this node leads with authority; whether it is in contact with a majority as far as its role can tell (a leader:
+    /// a majority answered within the election timeout, the quorum check of the driver; any other role: a leader contacted it within the
+    /// election timeout); and the highest term it saw.
+    /// </returns>
+    internal (ReplicaGroupRole Role, bool HasAuthority, bool HasMajorityContact, ulong ObservedTerm) ObserveStatus()
+    {
+        lock (_sync)
+        {
+            // The leader's own slot never records a contact: only its followers answer it. The lock is reentrant.
+            var contact = _role == ReplicaGroupRole.Leader
+                ? HasQuorumContact(-1, Options.ElectionTimeout)
+                : _lastLeaderContact != NoContact && Clock.GetElapsedTime(_lastLeaderContact) < Options.ElectionTimeout;
+            return (_role, _hasAuthority, contact, _highestObservedTerm);
+        }
+    }
+
     /// <summary>Reads the leader this node last accepted contact from.</summary>
     /// <param name="leaderId">The leader identifier.</param>
     /// <param name="term">The term it led.</param>
