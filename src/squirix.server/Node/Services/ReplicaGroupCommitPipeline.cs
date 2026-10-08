@@ -134,7 +134,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     public void RecordLaggingReplica(int replicaIndex, ulong logIndex) => _lagging.Record(replicaIndex, logIndex, _senders[_slots.SenderOf(replicaIndex)].NodeId);
 
     /// <summary>Gets what a catch-up of a follower slot runs against: this pipeline, the slot's sender, the leader log and term.</summary>
-    /// <param name="replicaIndex">One-based follower slot.</param>
+    /// <param name="replicaIndex">Zero-based follower slot, never the leader slot.</param>
     /// <returns>The target.</returns>
     internal ReplicaCatchUpTarget CatchUpTargetFor(int replicaIndex) => new(replicaIndex, this, _senders[_slots.SenderOf(replicaIndex)], _log, _term);
 

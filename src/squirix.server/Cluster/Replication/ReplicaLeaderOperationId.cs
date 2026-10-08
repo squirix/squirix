@@ -35,6 +35,8 @@ internal static class ReplicaLeaderOperationId
     /// <param name="groupId">The replica group identifier.</param>
     /// <param name="term">The leader term.</param>
     /// <returns>The SHA-256 digest over the domain, the group identifier and the term.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="groupId" /> is <see langword="null" />.</exception>
+    /// <exception cref="ArgumentException"><paramref name="groupId" /> is empty or whitespace.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="term" /> is zero.</exception>
     internal static byte[] Fingerprint(string groupId, ulong term)
     {
