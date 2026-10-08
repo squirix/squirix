@@ -18,8 +18,8 @@ namespace Squirix.Server.Adapters.Grpc;
 /// so the call runs locally or is forwarded once to the owner, and every refusal is relayed. With an election-led table the router waits
 /// for a leader within the deadline, and when the chosen route answers as stale (nothing was appended), refutes it and reroutes once with
 /// the same request, so with the same operation id: at most two logical attempts. A second stale answer ends the operation as
-/// <see cref="ServerOpContract.LeaderChanged" />. For a group this node does not serve, a forward that could not connect to its target (so
-/// nothing was sent) takes the single reroute to the leader learned for the group or to the next member in slot order, and the leader a
+/// <see cref="ServerOpContract.LeaderChanged" />. For a group this node does not serve, a forward none of whose attempts connected to its target
+/// takes the single reroute to the leader learned for the group or to the next member in slot order, and the leader a
 /// member names is learned for the next calls. Other transport failures, an unknown commit outcome, and every other failure are never
 /// rerouted; the call policy of a forward may retry it on a transport failure, with the same request.
 /// </remarks>
@@ -186,7 +186,7 @@ internal sealed class OwnerRouter
 
     /// <summary>Forgets a route that could not be reached and picks the target of the single reroute.</summary>
     /// <param name="groupId">The group, which this node does not serve.</param>
-    /// <param name="unreachable">The route that could not be reached; nothing was sent to it.</param>
+    /// <param name="unreachable">The route no attempt of the forward connected to.</param>
     /// <param name="budget">The budget of the operation; created here when the first attempt failed.</param>
     /// <param name="next">The target of the reroute and whether the table reported it.</param>
     /// <returns><see langword="true" /> when the reroute was taken; <see langword="false" /> when it was already spent, the deadline passed, or no other member exists.</returns>
@@ -323,7 +323,8 @@ internal sealed class OwnerRouter
             }
             catch (RpcException ex) when (OwnerUnreachableFailure.IsLocal(ex) && !_table.Read(groupId).Served)
             {
-                // The forward never connected, so nothing was sent and another member of the group may take the same request.
+                // No attempt of the forward connected; another member of the group may take the same request, whose operation id and the
+                // idempotency of the group log keep it from applying twice.
                 if (!TryFallBack(groupId, in route, ref budget, out var next))
                     throw;
 

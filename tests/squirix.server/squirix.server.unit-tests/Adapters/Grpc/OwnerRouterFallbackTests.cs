@@ -157,6 +157,26 @@ public sealed class OwnerRouterFallbackTests
         _ = await Assert.That(table.TryGetLearnedLeader(Owner, out _)).IsFalse();
     }
 
+    /// <summary>
+    /// A forward that timed out, as when the host of the owner does not answer or its connect outlasts the per-attempt timeout, may have reached
+    /// the owner: it never falls back, and the client gets the timeout.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TimedOutForwardDoesNotFallBack(CancellationToken cancellationToken)
+    {
+        await using var registry = CreateRegistry();
+        var table = CreateTable(registry);
+        var timedOut = new RpcException(new Status(StatusCode.DeadlineExceeded, "All attempts Canceled by per-attempt timeout."));
+        var attempts = new Attempts(timedOut);
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table), cancellationToken));
+
+        _ = await Assert.That(failure).IsSameReferenceAs(timedOut);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo(Owner);
+    }
+
     /// <summary>A group this node serves follows its election state alone: an unreachable leader is not rerouted and no hint is learned for it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
