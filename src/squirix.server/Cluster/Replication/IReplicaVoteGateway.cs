@@ -8,7 +8,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// <remarks>
 /// The candidate is the sender of the header; the voter binds it to the peer certificate and ignores the leader identity.
 /// Transport failures propagate to the caller, unretried and bounded only by the caller token: an exception is no vote, never a
-/// grant and never an observed term. A vote counts only when it is granted and its term equals the term of the header.
+/// grant and never an observed term. How a reply counts differs per call; see each method.
 /// </remarks>
 internal interface IReplicaVoteGateway
 {
@@ -18,7 +18,11 @@ internal interface IReplicaVoteGateway
     /// <param name="lastLogIndex">The candidate durable last log index.</param>
     /// <param name="lastLogTerm">The term at the candidate durable last log index.</param>
     /// <param name="cancellationToken">Cancellation token bounding the call.</param>
-    /// <returns>The voter answer with its durable term; term zero when it refused before reaching its log.</returns>
+    /// <returns>The voter answer with its unchanged durable term; term zero when it refused before reaching its log.</returns>
+    /// <remarks>
+    /// A probe counts when it is granted: its reply term is the voter's unchanged term, usually below the proposed term. A reply
+    /// term above the proposed term is a term observation, never a grant.
+    /// </remarks>
     Task<FollowerLogVoteResult> PreVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken);
 
     /// <summary>Asks one voter for its vote in the candidate term.</summary>
@@ -28,5 +32,6 @@ internal interface IReplicaVoteGateway
     /// <param name="lastLogTerm">The term at the candidate durable last log index.</param>
     /// <param name="cancellationToken">Cancellation token bounding the call.</param>
     /// <returns>The voter answer with its durable term after the request; term zero when it refused before reaching its log.</returns>
+    /// <remarks>A vote counts only when it is granted and its reply term equals the term of <paramref name="header" />.</remarks>
     Task<FollowerLogVoteResult> RequestVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken);
 }
