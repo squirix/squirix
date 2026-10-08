@@ -138,11 +138,9 @@ internal static class ServerHostingComposition
         _ = services.AddHostedService(static sp => new ReplicaLogCompactionService(
             sp.GetRequiredService<ReplicaGroupCommitters>(),
             sp.GetRequiredService<IJournalCoordinator>(),
-            sp.GetRequiredService<ReplicaLogCompactionOptions>(),
-            ReplicaLogCompactionPolicy.From(sp.GetRequiredService<PersistenceOptions>()),
+            (sp.GetRequiredService<ReplicaLogCompactionOptions>(), ReplicaLogCompactionPolicy.From(sp.GetRequiredService<PersistenceOptions>())),
             sp.GetRequiredService<ReplicationMetrics>(),
-            sp.GetRequiredService<ReplicaGroupAppliers>(),
-            sp.GetRequiredService<ReplicaGroupRegistry>(),
+            (sp.GetRequiredService<ReplicaGroupAppliers>(), sp.GetRequiredService<ReplicaGroupRegistry>()),
             sp.GetRequiredService<ILogger<ReplicaLogCompactionService>>(),
             sp.GetService<TimeProvider>() ?? TimeProvider.System));
         AddReplicaExpirationSweep(services);

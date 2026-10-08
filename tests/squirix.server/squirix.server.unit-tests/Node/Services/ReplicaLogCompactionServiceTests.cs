@@ -51,11 +51,9 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         using var service = new ReplicaLogCompactionService(
             LeadOwn(committer),
             durability.Instance(),
-            new ReplicaLogCompactionOptions(),
-            new ReplicaLogCompactionPolicy(long.MaxValue, int.MaxValue),
+            (new ReplicaLogCompactionOptions(), new ReplicaLogCompactionPolicy(long.MaxValue, int.MaxValue)),
             metrics,
-            appliers,
-            registry,
+            (appliers, registry),
             NullLogger<ReplicaLogCompactionService>.Instance,
             TimeProvider.System);
 
@@ -89,11 +87,9 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         using var service = new ReplicaLogCompactionService(
             LeadOwn(committer),
             durability.Instance(),
-            new ReplicaLogCompactionOptions(),
-            new ReplicaLogCompactionPolicy(long.MaxValue, 2),
+            (new ReplicaLogCompactionOptions(), new ReplicaLogCompactionPolicy(long.MaxValue, 2)),
             metrics,
-            appliers,
-            registry,
+            (appliers, registry),
             NullLogger<ReplicaLogCompactionService>.Instance,
             TimeProvider.System);
 
@@ -124,11 +120,9 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         using var service = new ReplicaLogCompactionService(
             LeadOwn(committer),
             durability.Instance(),
-            new ReplicaLogCompactionOptions(),
-            new ReplicaLogCompactionPolicy(long.MaxValue, 1),
+            (new ReplicaLogCompactionOptions(), new ReplicaLogCompactionPolicy(long.MaxValue, 1)),
             metrics,
-            new ReplicaGroupAppliers(registry, cache, "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics),
-            registry,
+            (new ReplicaGroupAppliers(registry, cache, "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics), registry),
             NullLogger<ReplicaLogCompactionService>.Instance,
             TimeProvider.System);
         var log = OwnedLogOf(registry);
@@ -192,11 +186,9 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         using var service = new ReplicaLogCompactionService(
             LeadOwn(committer),
             durability.Instance(),
-            new ReplicaLogCompactionOptions(),
-            new ReplicaLogCompactionPolicy(long.MaxValue, 2),
+            (new ReplicaLogCompactionOptions(), new ReplicaLogCompactionPolicy(long.MaxValue, 2)),
             metrics,
-            appliers,
-            registry,
+            (appliers, registry),
             NullLogger<ReplicaLogCompactionService>.Instance,
             TimeProvider.System);
         await appliers.For("n2").DriverLease.LeadAsync(cancellationToken);
@@ -257,11 +249,9 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         using var service = new ReplicaLogCompactionService(
             LeadOwn(committer),
             durability.Instance(),
-            new ReplicaLogCompactionOptions(),
-            new ReplicaLogCompactionPolicy(long.MaxValue, int.MaxValue),
+            (new ReplicaLogCompactionOptions(), new ReplicaLogCompactionPolicy(long.MaxValue, int.MaxValue)),
             metrics,
-            appliers,
-            registry,
+            (appliers, registry),
             events,
             TimeProvider.System);
 
