@@ -53,28 +53,63 @@ public sealed class GroupLogAuditCheckTests
             ["node-b"] = [Client(1, 1, "op-1"), Client(2, 2, "op-2")],
         };
 
-        _ = GroupLogAudit.CompareCommittedRanges(logs, findings);
+        _ = GroupLogAudit.CompareCommittedRanges(logs, 2, false, findings);
 
         _ = await Assert.That(findings.Count).IsEqualTo(1);
         _ = await Assert.That(findings[0]).StartsWith("Index 2:", StringComparison.Ordinal);
     }
 
-    /// <summary>Only the range every member retains is compared: a compacted prefix of one member narrows it.</summary>
+    /// <summary>With compaction allowed, only the range every member retains is compared: a compacted prefix of one member narrows it.</summary>
     [Test]
     public async Task SharedRangeSkipsCompactedPrefix()
     {
         List<string> findings = [];
-        var logs = new Dictionary<string, IReadOnlyList<AuditedLogEntry>>(StringComparer.Ordinal)
-        {
-            ["node-a"] = [Client(1, 1, "op-1"), Client(2, 1, "op-2"), Entry(3, 2, string.Empty, ReplicaMutationKinds.LeaderNoop)],
-            ["node-b"] = [Client(2, 1, "op-2"), Entry(3, 2, string.Empty, ReplicaMutationKinds.LeaderNoop)],
-        };
 
-        var report = GroupLogAudit.CompareCommittedRanges(logs, findings);
+        var report = GroupLogAudit.CompareCommittedRanges(CompactedPrefix(), 3, true, findings);
 
         _ = await Assert.That(findings.Count).IsEqualTo(0);
         _ = await Assert.That(report).IsEqualTo(new GroupLogAuditReport(2, 3, 1));
     }
+
+    /// <summary>By default a member that retains the committed log only from above index one fails the audit.</summary>
+    [Test]
+    public async Task CompactedPrefixIsReportedByDefault()
+    {
+        List<string> findings = [];
+
+        _ = GroupLogAudit.CompareCommittedRanges(CompactedPrefix(), 3, false, findings);
+
+        _ = await Assert.That(findings.Count).IsEqualTo(1);
+        _ = await Assert.That(findings[0]).StartsWith("node-b retains the committed log only from 2", StringComparison.Ordinal);
+    }
+
+    /// <summary>A member that retains no committed entry leaves the shared range empty, which fails the audit unless compaction is allowed.</summary>
+    [Test]
+    public async Task EmptyMemberFailsUnlessAllowed()
+    {
+        List<string> strict = [];
+        List<string> lenient = [];
+        var logs = new Dictionary<string, IReadOnlyList<AuditedLogEntry>>(StringComparer.Ordinal)
+        {
+            ["node-a"] = [Client(1, 1, "op-1"), Client(2, 1, "op-2")],
+            ["node-b"] = [],
+        };
+
+        var report = GroupLogAudit.CompareCommittedRanges(logs, 2, false, strict);
+        _ = GroupLogAudit.CompareCommittedRanges(logs, 2, true, lenient);
+
+        _ = await Assert.That(strict.Count).IsEqualTo(2);
+        _ = await Assert.That(strict[0]).StartsWith("node-b retains no committed entry", StringComparison.Ordinal);
+        _ = await Assert.That(strict[1]).StartsWith("No committed entry is retained by every member", StringComparison.Ordinal);
+        _ = await Assert.That(lenient.Count).IsEqualTo(0);
+        _ = await Assert.That(report).IsEqualTo(new GroupLogAuditReport(1, 0, 0));
+    }
+
+    private static Dictionary<string, IReadOnlyList<AuditedLogEntry>> CompactedPrefix() => new(StringComparer.Ordinal)
+    {
+        ["node-a"] = [Client(1, 1, "op-1"), Client(2, 1, "op-2"), Entry(3, 2, string.Empty, ReplicaMutationKinds.LeaderNoop)],
+        ["node-b"] = [Client(2, 1, "op-2"), Entry(3, 2, string.Empty, ReplicaMutationKinds.LeaderNoop)],
+    };
 
     private static AuditedLogEntry Client(ulong index, ulong term, string operationId) => Entry(index, term, operationId, ReplicaMutationKinds.Set);
 
