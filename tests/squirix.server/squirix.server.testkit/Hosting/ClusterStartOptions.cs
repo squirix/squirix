@@ -22,6 +22,12 @@ public class ClusterStartOptions
     /// <summary>Gets the persistence data directory. When set, the node starts with journal/snapshot persistence enabled.</summary>
     public string? DataDir { get; init; }
 
+    /// <summary>
+    /// Gets the election timing of the node; when <see langword="null" />, the node runs the product defaults. Every node of a cluster should
+    /// use the same timing.
+    /// </summary>
+    public TestElectionTiming? ElectionTiming { get; init; }
+
     /// <summary>Gets a value indicating whether the node opts into RF&gt;1 replication. Defaults to <see langword="true" /> so existing multi-node tests keep exercising replication; opt-in gate tests set it to <see langword="false" /> explicitly.</summary>
     public bool EnableReplication { get; init; } = true;
 

@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Hosting;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -17,7 +18,7 @@ internal static class NodeHost
     {
         options ??= new NodeHostStartOptions();
         var builder = CreateBuilder(options.ConfigureLogging);
-        var configureArgs = new CompositionArgsConfigurator(options);
+        var configureArgs = new CompositionArgsConfigurator(options, cluster.NodeId);
 
         await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
 
@@ -61,18 +62,20 @@ internal static class NodeHost
     [Immutable]
     private sealed class CompositionArgsConfigurator
     {
+        private readonly string _nodeId;
         private readonly NodeHostStartOptions _options;
 
-        internal CompositionArgsConfigurator(NodeHostStartOptions options)
+        internal CompositionArgsConfigurator(NodeHostStartOptions options, string nodeId)
         {
             _options = options;
+            _nodeId = nodeId;
         }
 
         internal void Configure(ICompositionArgs args)
         {
             args.WaitForRecovery = _options.WaitForRecovery;
             args.ConfigureGrpc = _options.ConfigureGrpc;
-            args.ServicesConfigure = ComposeServices(_options);
+            args.ServicesConfigure = ComposeServices(_options, _nodeId);
             args.PersistenceOptions = _options.PersistenceOptions;
             args.PeerHandlerFactory = _options.PeerHandlerFactory;
             args.BackpressureOptions = _options.BackpressureOptions;
@@ -83,12 +86,13 @@ internal static class NodeHost
             args.FoundationOnly = _options.FoundationOnly;
         }
 
-        private static Action<IServiceCollection>? ComposeServices(NodeHostStartOptions options)
+        private static Action<IServiceCollection>? ComposeServices(NodeHostStartOptions options, string nodeId)
         {
-            if (options.TimeProvider == null)
+            if (options.TimeProvider == null && options.ElectionTiming == null)
                 return options.ServicesConfigure;
 
             var timeProvider = options.TimeProvider;
+            var election = options.ElectionTiming?.ToOptions(nodeId);
             var userConfigure = options.ServicesConfigure;
 
             return services =>
@@ -97,7 +101,13 @@ internal static class NodeHost
                 // (which resolves TimeProvider via DI) picks up the controllable fake instead of
                 // the real-time TimeProvider.System default. RemoveAll guarantees the fake wins
                 // over the TryAddSingleton(TimeProvider.System) registered by AddSquirixRuntimeServices.
-                services = services.RemoveAll<TimeProvider>().AddSingleton(timeProvider);
+                if (timeProvider != null)
+                    services = services.RemoveAll<TimeProvider>().AddSingleton(timeProvider);
+
+                // Registered before the test hook, so a hook that registers its own election options still wins.
+                if (election != null)
+                    services = services.RemoveAll<ElectionTimerOptions>().AddSingleton(election);
+
                 userConfigure?.Invoke(services);
             };
         }
