@@ -195,6 +195,40 @@ public sealed class ReplicaGroupElectionTests : ServerUnitTestBase
         _ = await Assert.That(scope.Leadership.Calls).IsEqualTo("promote:2,heartbeat,promote:2");
     }
 
+    /// <summary>A retried start that holds the driver longer than the election timeout does not depose the leader before its next heartbeat.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SlowRetriedStartKeepsQuorumGrace(CancellationToken cancellationToken)
+    {
+        await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
+        scope.Leadership.AnswerPromotions(false, false);
+        var election = await ElectAsync(scope, cancellationToken);
+        scope.Leadership.DuringNextPromotion = () => scope.Time.Advance(Options.ElectionTimeout * 2);
+
+        var retried = await election.StepAsync(cancellationToken);
+        var authorized = await election.StepAsync(cancellationToken);
+
+        _ = await Assert.That((retried.Event, authorized)).IsEqualTo((ElectionEvent.PromotionPending, new ElectionOutcome(ElectionEvent.Authorized, 2UL)));
+        _ = await Assert.That(scope.Leadership.Calls).IsEqualTo("promote:2,heartbeat,promote:2,heartbeat,promote:2");
+    }
+
+    /// <summary>Quick promotions that stay pending restart no grace: a leader no follower answers steps down after one timeout.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task QuickPendingPromotionStepsDown(CancellationToken cancellationToken)
+    {
+        await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
+        scope.Leadership.AnswerPromotions(false, false, false);
+        var election = await ElectAsync(scope, cancellationToken);
+        scope.Time.Advance(Options.ElectionTimeout / 2);
+        var pending = await election.StepAsync(cancellationToken);
+        scope.Time.Advance(Options.ElectionTimeout / 2);
+
+        var outcome = await election.StepAsync(cancellationToken);
+
+        _ = await Assert.That((pending.Event, outcome)).IsEqualTo((ElectionEvent.PromotionPending, new ElectionOutcome(ElectionEvent.SteppedDown, 2UL)));
+    }
+
     /// <summary>A leader authorized by its first promotion keeps the grace of its election: a silent majority still deposes it after one timeout.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

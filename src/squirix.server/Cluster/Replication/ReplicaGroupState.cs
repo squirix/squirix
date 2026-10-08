@@ -361,11 +361,11 @@ internal sealed class ReplicaGroupState
         }
     }
 
-    /// <summary>Restarts the quorum grace of a leader still without authority, once its first promotion attempt returned.</summary>
+    /// <summary>Restarts the quorum grace of a leader still without authority, after a promotion attempt that held its driver.</summary>
     /// <param name="term">The led term.</param>
     /// <remarks>
-    /// The first promotion probes every follower before the leader sends its first heartbeat, and a dead follower holds that probe for its
-    /// whole timeout; the grace then starts when the heartbeats can, so a new leader is not deposed for followers it could not ask yet. A
+    /// A promotion that starts the leadership probes every follower before any heartbeat, and a dead follower holds that probe for its
+    /// whole timeout; the grace then restarts when the heartbeats can, so the leader is not deposed for followers it could not ask. A
     /// leader without authority serves nothing, so the longer tenure admits nothing; a leader already authorized keeps its grace.
     /// </remarks>
     internal void RestartQuorumGrace(ulong term)

@@ -701,9 +701,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, leaderIndex, in status, _topology.Fingerprint, _topology.Generation);
         var results = eligibility.CanCountInWriteQuorum(leaderIndex)
-            ? await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility, leaderIndex), members, header, status, ReplicaVerificationProbe.ProbeTimeout, cancellationToken)
-                                         .ConfigureAwait(false)
+            ? await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility, leaderIndex), members, header, status, ReplicaVerificationProbe.ProbeTimeout, cancellationToken).ConfigureAwait(false)
             : [];
+        ReplicaReadinessProbe.RecordContacts(Election, results, term);
 
         // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
         var lagging = new ReplicaLaggingFollowers(GroupId, eligibility, Probe.Repairs, Log);
