@@ -54,6 +54,28 @@ public sealed class ReplicaGroupMembershipTests : ServerUnitTestBase
         }
     }
 
+    /// <summary>The replica set of a served group holds exactly its ring members; a group the node does not serve has none.</summary>
+    /// <returns>A task that completes when the assertions finish.</returns>
+    [Test]
+    public async Task MembersFollowRingReplicaSets()
+    {
+        var ring = new PhysicalNodeRing(Nodes);
+        var locator = new ReplicaGroupLocator(ring, 2);
+        var served = ReplicaGroupMembership.GroupsServedBy(locator, Nodes, "c");
+        var members = new ReplicaMembership(locator, served);
+        var group = new string[2];
+
+        for (var o = 0; o < Nodes.Length; o++)
+        {
+            ring.WriteReplicaGroup(Nodes[o], 2, group);
+            var isServed = IndexOf(served, Nodes[o]) >= 0;
+            for (var n = 0; n < Nodes.Length; n++)
+                _ = await Assert.That(members.IsMember(Nodes[o], Nodes[n])).IsEqualTo(isServed && IndexOf(group, Nodes[n]) >= 0);
+        }
+
+        _ = await Assert.That(served.Length).IsLessThan(Nodes.Length);
+    }
+
     /// <summary>The registry opens a log for each member group and none for the other groups.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

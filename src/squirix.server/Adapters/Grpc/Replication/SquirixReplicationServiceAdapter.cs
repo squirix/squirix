@@ -29,7 +29,12 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     private readonly TopologyFingerprint _topologyFingerprint;
     private readonly bool _votesEnabled;
 
-    internal SquirixReplicationServiceAdapter(TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificate mtls, ReplicaGroupRegistry? groups = null)
+    internal SquirixReplicationServiceAdapter(
+        TopologyOptions cluster,
+        MtlsOptions mtlsOptions,
+        MtlsCertificate mtls,
+        ReplicaGroupRegistry? groups = null,
+        IReplicaMembership? members = null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(mtlsOptions);
@@ -37,7 +42,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         _mtlsOptions = mtlsOptions;
         _mtls = mtls;
         _remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
-        _follower = groups == null ? null : new ReplicaFollower(groups);
+        _follower = groups == null ? null : new ReplicaFollower(groups, members ?? throw new ArgumentNullException(nameof(members)));
 
         // The static leader resumes at the durable term of its log, so a network vote must not raise that term: it would let the
         // static leader lead a new term no election granted. Votes stay disabled while automatic failover is off, and for the group

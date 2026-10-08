@@ -31,7 +31,7 @@ public sealed class ReplicaFollowerOrderTests : ServerUnitTestBase
         using var hooks = new StallableFollowerLogFaultHooks();
         await using var registry = new ReplicaGroupRegistry(dir, [GroupId], 1, Fingerprint, 1, NullLoggerFactory.Instance, new FollowerLogOptions { FaultHooks = hooks });
         await registry.OpenAsync(cancellationToken);
-        var follower = new ReplicaFollower(registry);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
 
         hooks.StallNextFrameWrite();
         var first = follower.AppendAsync(GroupId, Fingerprint, 1, Batch(1, 0), cancellationToken);

@@ -21,6 +21,9 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     private const string GroupId = "follower-service";
     private static readonly byte[] Fingerprint = [9, 8, 7];
 
+    /// <summary>The replica set of the group; every candidate of these tests is a member.</summary>
+    private static readonly ReplicaMembership Members = new(new ReplicaGroupLocator(new PhysicalNodeRing([GroupId, "node-b", "node-c"]), 3), [GroupId]);
+
     /// <summary>Commit advances within the durable prefix and refuses beyond it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -28,7 +31,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-follower-commit");
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry);
+        var service = new ReplicaFollower(registry, Members);
         _ = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("leader", 1UL, 0UL, 0UL, 0UL, Record(1UL, 1UL), Record(2UL, 1UL)), cancellationToken);
 
         var advanced = await service.AdvanceCommitAsync(GroupId, Fingerprint, 1UL, 2UL, 1UL, cancellationToken);
@@ -49,7 +52,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-follower-commit-unknown");
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry);
+        var service = new ReplicaFollower(registry, Members);
 
         var result = await service.AdvanceCommitAsync("missing", Fingerprint, 1UL, 1UL, 1UL, cancellationToken);
 
@@ -64,7 +67,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-follower-append");
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry);
+        var service = new ReplicaFollower(registry, Members);
 
         var result = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("leader", 1UL, 0UL, 0UL, 0UL, Record(1UL, 1UL), Record(2UL, 1UL)), cancellationToken);
 
@@ -83,7 +86,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-follower-stale");
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry);
+        var service = new ReplicaFollower(registry, Members);
         _ = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("leader", 2UL, 0UL, 0UL, 0UL, Record(1UL, 2UL)), cancellationToken);
 
         var result = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("leader", 1UL, 1UL, 2UL, 0UL, Record(2UL, 1UL)), cancellationToken);
@@ -103,7 +106,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-follower-unknown");
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry);
+        var service = new ReplicaFollower(registry, Members);
 
         var result = await service.AppendAsync("missing", Fingerprint, 1UL, Batch("leader", 1UL, 0UL, 0UL, 0UL, Record(1UL, 1UL)), cancellationToken);
 
@@ -118,7 +121,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-follower-topology");
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry);
+        var service = new ReplicaFollower(registry, Members);
         var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
         _ = await Assert.That((await service.InstallSnapshotAsync(GroupId, Fingerprint, 1UL, snapshot, 1UL, cancellationToken)).Success).IsTrue();
 
@@ -143,7 +146,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
         var fileBytes = await PublishAsync(dir2, snapshot, cancellationToken);
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry);
+        var service = new ReplicaFollower(registry, Members);
 
         var result = await service.InstallSnapshotUploadAsync(GroupId, Fingerprint, 1UL, Upload(fileBytes, in snapshot), 1UL, cancellationToken);
 
@@ -165,7 +168,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         var fileBytes = await PublishAsync(dir2, snapshot, cancellationToken);
         fileBytes[^1] ^= 0xFF;
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry);
+        var service = new ReplicaFollower(registry, Members);
 
         var result = await service.InstallSnapshotUploadAsync(GroupId, Fingerprint, 1UL, Upload(fileBytes, in snapshot), 1UL, cancellationToken);
 
@@ -198,7 +201,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-follower-vote-stale-log");
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry);
+        var service = new ReplicaFollower(registry, Members);
         _ = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("leader", 1UL, 0UL, 0UL, 0UL, Record(1UL, 1UL), Record(2UL, 1UL)), cancellationToken);
 
         var vote = await service.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("node-b", 3UL, 1UL, 1UL), cancellationToken);
@@ -218,7 +221,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-follower-status-unknown");
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry);
+        var service = new ReplicaFollower(registry, Members);
 
         _ = await Assert.That(await service.GetStatusAsync("missing", cancellationToken)).IsNull();
     }
@@ -230,7 +233,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-follower-prevote");
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry);
+        var service = new ReplicaFollower(registry, Members);
         _ = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("leader", 1UL, 0UL, 0UL, 0UL, Record(1UL, 1UL)), cancellationToken);
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await File.ReadAllBytesAsync(metaPath, cancellationToken);
@@ -254,7 +257,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         using var dir = new TempDirectory("squirix-follower-vote");
         await using (var registry = await OpenAsync(dir, GroupId, cancellationToken))
         {
-            var service = new ReplicaFollower(registry);
+            var service = new ReplicaFollower(registry, Members);
             _ = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("leader", 1UL, 0UL, 0UL, 0UL, Record(1UL, 1UL)), cancellationToken);
 
             var vote = await service.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);
@@ -264,7 +267,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         }
 
         await using var reopened = await OpenAsync(dir, GroupId, cancellationToken);
-        var status = await Assert.That(await new ReplicaFollower(reopened).GetStatusAsync(GroupId, cancellationToken)).IsNotNull();
+        var status = await Assert.That(await new ReplicaFollower(reopened, Members).GetStatusAsync(GroupId, cancellationToken)).IsNotNull();
         _ = await Assert.That(status.CurrentTerm).IsEqualTo(2UL);
         _ = await Assert.That(status.VotedFor).IsEqualTo("node-b");
     }
@@ -276,7 +279,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-follower-vote-exclusive");
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry);
+        var service = new ReplicaFollower(registry, Members);
         _ = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("leader", 1UL, 0UL, 0UL, 0UL, Record(1UL, 1UL)), cancellationToken);
         var first = await service.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);
         _ = await Assert.That(first.Granted).IsTrue();
@@ -302,7 +305,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-follower-vote-topology");
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry);
+        var service = new ReplicaFollower(registry, Members);
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await File.ReadAllBytesAsync(metaPath, cancellationToken);
 

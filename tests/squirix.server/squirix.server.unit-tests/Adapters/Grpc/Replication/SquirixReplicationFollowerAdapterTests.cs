@@ -304,7 +304,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var dir = new TempDirectory("squirix-replication-adapter");
         var registry = new ReplicaGroupRegistry(dir, [groupId], 1, ReadOnlyMemory<byte>.Of(9), topology.ConfigurationGeneration, NullLoggerFactory.Instance);
         await registry.OpenAsync(cancellationToken);
-        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material, registry);
+        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material, registry, RocksDoubles.CreateReplicaMembers());
         var header = new ReplicationEnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,

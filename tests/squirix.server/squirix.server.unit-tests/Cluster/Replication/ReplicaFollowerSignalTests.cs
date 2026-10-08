@@ -29,7 +29,7 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-signal-append");
         await using var registry = await OpenAsync(dir, cancellationToken);
-        var follower = new ReplicaFollower(registry);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
 
         var result = await follower.AppendAsync(GroupId, Fingerprint, 1, Batch(1, 0, 0), cancellationToken);
 
@@ -44,7 +44,7 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-signal-commit");
         await using var registry = await OpenAsync(dir, cancellationToken);
-        var follower = new ReplicaFollower(registry);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
         _ = await follower.AppendAsync(GroupId, Fingerprint, 1, Batch(1, 0, 0), cancellationToken);
         _ = await IsRaisedAsync(registry, cancellationToken);
 
@@ -63,7 +63,7 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
         using var sourceDir = new TempDirectory("squirix-follower-signal-install-source");
         var snapshot = await PublishSnapshotAsync(sourceDir, cancellationToken);
         await using var registry = await OpenAsync(dir, cancellationToken);
-        var follower = new ReplicaFollower(registry);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
 
         var result = await follower.InstallSnapshotAsync(GroupId, Fingerprint, 1, snapshot, 1UL, cancellationToken);
 
@@ -78,7 +78,7 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-signal-refused");
         await using var registry = await OpenAsync(dir, cancellationToken);
-        var follower = new ReplicaFollower(registry);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
 
         var result = await follower.AppendAsync(GroupId, Fingerprint, 1, Batch(2, 1, 0), cancellationToken);
 
