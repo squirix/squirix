@@ -1,9 +1,13 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -22,12 +26,22 @@ public sealed class ReplicaVoteGatewayTests : NodeIntegrationTestBase
     [Test]
     public async Task GatewayVoteRoundTripReportsRefusal(CancellationToken cancellationToken)
     {
-        var options = new IntegrationStartOptions { ReplicaCount = 3, UsePersistence = true, CleanTestDir = true, ExtraScope = "replica-vote-gateway" };
+        var options = new IntegrationStartOptions
+        {
+            ReplicaCount = 3,
+            UsePersistence = true,
+            CleanTestDir = true,
+            ExtraScope = "replica-vote-gateway",
+            ServicesConfigure = SetManualMaintenance,
+        };
         await using var cluster = await StartClusterAsync(CandidateId, VoterId, "node-c", options, cancellationToken);
         var candidate = cluster[CandidateId];
         await ReplicaGroupFollowers.AwaitVerifiedAsync(candidate, cancellationToken);
-        var voterLog = GroupLog(cluster[VoterId]);
+        var voter = cluster[VoterId];
+        var voterLog = GroupLog(voter);
         var before = await voterLog.GetStatusAsync(cancellationToken);
+        var metaPath = GroupStoragePaths.GetMetadataPath(voter.DataDir, CandidateId);
+        var metaBefore = await File.ReadAllBytesAsync(metaPath, cancellationToken);
         var header = new ReplicaRpcHeader(CandidateId, before.TopologyFingerprint, before.ConfigurationGeneration, before.CurrentTerm + 2UL, CandidateId, CandidateId);
         var gateway = candidate.GetRequiredService<IReplicaVoteGateway>();
 
@@ -39,6 +53,35 @@ public sealed class ReplicaVoteGatewayTests : NodeIntegrationTestBase
         var after = await voterLog.GetStatusAsync(cancellationToken);
         _ = await Assert.That(after.CurrentTerm).IsEqualTo(before.CurrentTerm);
         _ = await Assert.That(after.VotedFor).IsEqualTo(before.VotedFor);
+        var metaAfter = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        await SequenceAssert.EqualAsync(metaBefore, metaAfter);
+    }
+
+    /// <summary>The vote gateway and the replication gateway are one instance, sharing its pooled channels.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VoteGatewayIsTheReplicationGateway(CancellationToken cancellationToken)
+    {
+        await using var cluster = await StartClusterAsync(CandidateId, VoterId, new IntegrationStartOptions { FoundationOnly = true }, cancellationToken);
+        var node = cluster[CandidateId];
+
+        var replication = node.GetRequiredService<IReplicaRpcGateway>();
+        var votes = node.GetRequiredService<IReplicaVoteGateway>();
+
+        _ = await Assert.That(ReferenceEquals(replication, votes)).IsTrue();
+    }
+
+    /// <summary>Replaces the group log maintenance schedule, so no pass rewrites the voter metadata within the test.</summary>
+    /// <param name="services">The node service collection.</param>
+    private static void SetManualMaintenance(IServiceCollection services)
+    {
+        for (var i = services.Count - 1; i >= 0; i--)
+        {
+            if (services[i].ServiceType == typeof(ReplicaLogCompactionOptions))
+                services.RemoveAt(i);
+        }
+
+        _ = services.AddSingleton(new ReplicaLogCompactionOptions { Interval = TimeSpan.FromDays(1) });
     }
 
     private static IFollowerLog GroupLog(ITestNodeHost host) =>

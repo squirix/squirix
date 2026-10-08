@@ -230,6 +230,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     {
         await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
         var request = new ReplicaVoteRequest { Header = follower.Header };
+        var before = await File.ReadAllBytesAsync(MetaPath(follower), cancellationToken);
 
         var vote = await follower.Adapter.RequestVote(request, new TestServerCallContext(null, follower.HttpContext));
         var preVote = await follower.Adapter.PreVote(request, new TestServerCallContext(null, follower.HttpContext));
@@ -242,6 +243,8 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var status = await GroupStatusAsync(follower, cancellationToken);
         _ = await Assert.That(status.CurrentTerm).IsEqualTo(0UL);
         _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
+        var after = await File.ReadAllBytesAsync(MetaPath(follower), cancellationToken);
+        await SequenceAssert.EqualAsync(before, after);
     }
 
     /// <summary>Creates an adapter backed by an opened single-group registry, with automatic failover off.</summary>

@@ -191,6 +191,26 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         _ = await Assert.That(ReplicaLogCodec.Decode(trailed)).IsNull();
     }
 
+    /// <summary>A higher-term vote from a candidate whose log trails is refused, yet reports the stepped durable term.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StaleLogVoteStepsTermWithoutGrant(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-vote-stale-log");
+        await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
+        var service = new ReplicaFollower(registry);
+        _ = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("leader", 1UL, 0UL, 0UL, 0UL, Record(1UL, 1UL), Record(2UL, 1UL)), cancellationToken);
+
+        var vote = await service.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("node-b", 3UL, 1UL, 1UL), cancellationToken);
+
+        _ = await Assert.That(vote.Granted).IsFalse();
+        _ = await Assert.That(vote.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleLog);
+        _ = await Assert.That(vote.CurrentTerm).IsEqualTo(3UL);
+        var status = await Assert.That(await service.GetStatusAsync(GroupId, cancellationToken)).IsNotNull();
+        _ = await Assert.That(status.CurrentTerm).IsEqualTo(3UL);
+        _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
+    }
+
     /// <summary>Status of an unserved group is null.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -247,6 +267,32 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         var status = await Assert.That(await new ReplicaFollower(reopened).GetStatusAsync(GroupId, cancellationToken)).IsNotNull();
         _ = await Assert.That(status.CurrentTerm).IsEqualTo(2UL);
         _ = await Assert.That(status.VotedFor).IsEqualTo("node-b");
+    }
+
+    /// <summary>One candidate wins a term: a rival in the same term is refused, and a retry by the winner is granted without a rewrite.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VoteGrantIsExclusivePerTerm(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-vote-exclusive");
+        await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
+        var service = new ReplicaFollower(registry);
+        _ = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("leader", 1UL, 0UL, 0UL, 0UL, Record(1UL, 1UL)), cancellationToken);
+        var first = await service.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);
+        _ = await Assert.That(first.Granted).IsTrue();
+        var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
+        var before = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+
+        var rival = await service.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("node-c", 2UL, 1UL, 1UL), cancellationToken);
+        var retry = await service.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);
+
+        _ = await Assert.That(rival.Granted).IsFalse();
+        _ = await Assert.That(rival.RefusalCode).IsEqualTo(FollowerLogRefusal.AlreadyVoted);
+        _ = await Assert.That(rival.CurrentTerm).IsEqualTo(2UL);
+        _ = await Assert.That(retry.Granted).IsTrue();
+        _ = await Assert.That(retry.CurrentTerm).IsEqualTo(2UL);
+        var after = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        await SequenceAssert.EqualAsync(before, after);
     }
 
     /// <summary>A vote from a candidate with another topology is refused before the log is reached and changes nothing.</summary>
