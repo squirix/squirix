@@ -238,7 +238,9 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<MtlsOptions>(),
             sp.GetRequiredService<MtlsCertificate>(),
             sp.GetService<ReplicaGroupRegistry>()));
-        _ = services.AddSingleton<IReplicaRpcGateway>(static sp => new ReplicaRpcGateway(sp.GetRequiredService<IServerClientPool>()));
+        _ = services.AddSingleton(static sp => new ReplicaRpcGateway(sp.GetRequiredService<IServerClientPool>()));
+        _ = services.AddSingleton<IReplicaRpcGateway>(static sp => sp.GetRequiredService<ReplicaRpcGateway>());
+        _ = services.AddSingleton<IReplicaVoteGateway>(static sp => sp.GetRequiredService<ReplicaRpcGateway>());
     }
 
     private static async Task ConfigureBuilderCoreAsync(WebApplicationBuilder builder, TopologyOptions cluster, ICompositionArgs args, CancellationToken cancellationToken)
