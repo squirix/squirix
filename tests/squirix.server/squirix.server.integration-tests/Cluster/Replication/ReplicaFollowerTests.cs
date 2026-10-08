@@ -203,6 +203,75 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         _ = await Assert.That(await service.GetStatusAsync("missing", cancellationToken)).IsNull();
     }
 
+    /// <summary>A pre-vote probe answers from the log and leaves the durable term and metadata unchanged.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PreVoteLeavesTermUnchanged(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-prevote");
+        await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
+        var service = new ReplicaFollower(registry);
+        _ = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("leader", 1UL, 0UL, 0UL, 0UL, Record(1UL, 1UL)), cancellationToken);
+        var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
+        var before = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+
+        var probe = await service.PreVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);
+
+        _ = await Assert.That(probe.Granted).IsTrue();
+        _ = await Assert.That(probe.CurrentTerm).IsEqualTo(1UL);
+        var status = await Assert.That(await service.GetStatusAsync(GroupId, cancellationToken)).IsNotNull();
+        _ = await Assert.That(status.CurrentTerm).IsEqualTo(1UL);
+        _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
+        var after = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        await SequenceAssert.EqualAsync(before, after);
+    }
+
+    /// <summary>A granted vote is durable: the stepped term and the candidate survive a registry restart.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VoteGrantPersistsTermAndCandidate(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-vote");
+        await using (var registry = await OpenAsync(dir, GroupId, cancellationToken))
+        {
+            var service = new ReplicaFollower(registry);
+            _ = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("leader", 1UL, 0UL, 0UL, 0UL, Record(1UL, 1UL)), cancellationToken);
+
+            var vote = await service.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);
+
+            _ = await Assert.That(vote.Granted).IsTrue();
+            _ = await Assert.That(vote.CurrentTerm).IsEqualTo(2UL);
+        }
+
+        await using var reopened = await OpenAsync(dir, GroupId, cancellationToken);
+        var status = await Assert.That(await new ReplicaFollower(reopened).GetStatusAsync(GroupId, cancellationToken)).IsNotNull();
+        _ = await Assert.That(status.CurrentTerm).IsEqualTo(2UL);
+        _ = await Assert.That(status.VotedFor).IsEqualTo("node-b");
+    }
+
+    /// <summary>A vote from a candidate with another topology is refused before the log is reached and changes nothing.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VoteTopologyMismatchIsRefused(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-vote-topology");
+        await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
+        var service = new ReplicaFollower(registry);
+        var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
+        var before = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+
+        var vote = await service.RequestVoteAsync(GroupId, new byte[] { 4 }, 1UL, new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
+        var probe = await service.PreVoteAsync(GroupId, Fingerprint, 0UL, new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
+
+        _ = await Assert.That(vote.Granted).IsFalse();
+        _ = await Assert.That(vote.RefusalCode).IsEqualTo(FollowerLogRefusal.TopologyMismatch);
+        _ = await Assert.That(vote.CurrentTerm).IsEqualTo(0UL);
+        _ = await Assert.That(probe.Granted).IsFalse();
+        _ = await Assert.That(probe.RefusalCode).IsEqualTo(FollowerLogRefusal.TopologyMismatch);
+        var after = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        await SequenceAssert.EqualAsync(before, after);
+    }
+
     private static FollowerBatch Batch(string leader, ulong term, ulong prevIndex, ulong prevTerm, ulong commit, params ReplicaLogRecord[] records) =>
         new(records, leader, term, prevIndex, prevTerm, commit);
 

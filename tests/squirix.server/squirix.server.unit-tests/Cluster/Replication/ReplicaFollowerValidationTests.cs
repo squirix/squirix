@@ -85,6 +85,21 @@ public sealed class ReplicaFollowerValidationTests : ServerUnitTestBase
         _ = await Assert.That(result.Refusal).IsEqualTo(FollowerLogRefusal.NotMember);
     }
 
+    /// <summary>Verifies that a pre-vote on an unserved group is refused before any log is reached.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PreVoteOnUnknownGroupIsRefusedAsync(CancellationToken cancellationToken)
+    {
+        await using var registry = CreateClosedRegistry();
+        var follower = new ReplicaFollower(registry);
+
+        var result = await follower.PreVoteAsync("unknown-group", ReadOnlyMemory<byte>.Empty, 1, new ElectionVoteRequest("node-b", 7, 0, 0), cancellationToken);
+
+        _ = await Assert.That(result.Granted).IsFalse();
+        _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.NotMember);
+        _ = await Assert.That(result.CurrentTerm).IsEqualTo(0UL);
+    }
+
     /// <summary>Verifies that status on an unserved group is missing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -96,6 +111,21 @@ public sealed class ReplicaFollowerValidationTests : ServerUnitTestBase
         var status = await follower.GetStatusAsync("unknown-group", cancellationToken);
 
         _ = await Assert.That(status).IsNull();
+    }
+
+    /// <summary>Verifies that a vote on an unserved group is refused before any log is reached.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VoteOnUnknownGroupIsRefusedAsync(CancellationToken cancellationToken)
+    {
+        await using var registry = CreateClosedRegistry();
+        var follower = new ReplicaFollower(registry);
+
+        var result = await follower.RequestVoteAsync("unknown-group", ReadOnlyMemory<byte>.Empty, 1, new ElectionVoteRequest("node-b", 7, 0, 0), cancellationToken);
+
+        _ = await Assert.That(result.Granted).IsFalse();
+        _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.NotMember);
+        _ = await Assert.That(result.CurrentTerm).IsEqualTo(0UL);
     }
 
     /// <summary>Creates a registry that was never opened, so every lookup misses.</summary>
