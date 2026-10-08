@@ -250,8 +250,20 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         await fabric.PartitionAsync(leader, isolated);
 
         // A stall of the leader under load may cost it its authority and move the term without the isolated follower; the follower itself
-        // must never lead, and must never hold a term the connected nodes did not reach.
-        await ledger.HoldsAsync(() => !string.Equals(ledger.Observe(Three).NodeId, isolated, StringComparison.Ordinal), Watch, "the isolated follower never holds authority", cancellationToken);
+        // must never lead, and no node may ever persist a vote for it in a term above the original one.
+        var deadline = Environment.TickCount64 + Convert.ToInt64(Watch.TotalMilliseconds);
+        while (Environment.TickCount64 < deadline)
+        {
+            _ = await Assert.That(ledger.Observe(Three).NodeId).IsNotEqualTo(isolated);
+            foreach (var node in Three)
+            {
+                var status = await Log(cluster[node]).GetStatusAsync(cancellationToken);
+                var votedForIsolated = status.CurrentTerm > term && string.Equals(status.VotedFor, isolated, StringComparison.Ordinal);
+                _ = await Assert.That(votedForIsolated).IsFalse().Because($"{node} must not vote for the isolated follower in term {status.CurrentTerm}");
+            }
+
+            await Task.Delay(25, cancellationToken);
+        }
 
         var isolatedTerm = (await Log(cluster[isolated]).GetStatusAsync(cancellationToken)).CurrentTerm;
         var connectedTerm = 0UL;
