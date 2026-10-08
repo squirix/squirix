@@ -402,6 +402,13 @@ jobs:
                 shell: bash
                 run: echo "NUGET_PACKAGES=${RUNNER_TEMP}\\nuget-packages" >> "$GITHUB_ENV"
 
+            # Defender scans every file the build writes (restored packages, intermediate and output assemblies). The runner is
+            # disposable and builds only this repository's code, so its work folders are excluded from scanning.
+            -   name: Exclude Work Folders From Defender
+                if: steps.gate.outputs.build == 'true'
+                shell: pwsh
+                run: Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, $env:TEMP
+
             -   name: Build Release Outputs
                 if: steps.gate.outputs.build == 'true'
                 uses: ./.github/actions/build-release
