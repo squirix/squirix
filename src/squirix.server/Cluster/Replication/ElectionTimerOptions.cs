@@ -1,12 +1,27 @@
 using System;
+using System.Buffers.Binary;
+using System.Security.Cryptography;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Replication;
 
-/// <summary>Fixed configuration for the deterministic election timer.</summary>
+/// <summary>Fixed configuration of the replica group elections: the timeouts, the heartbeat, and the jitter that breaks split votes.</summary>
 [Immutable]
 internal sealed class ElectionTimerOptions
 {
-    /// <summary>Gets the one-shot election timeout armed while the node awaits a leader heartbeat.</summary>
-    internal TimeSpan ElectionTimeout { get; init; } = TimeSpan.FromSeconds(1);
+    /// <summary>Gets the time without leader contact after which a follower starts an election; also the window of the leader quorum check.</summary>
+    internal TimeSpan ElectionTimeout { get; init; } = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>Gets the time between two heartbeats of a leader; it must stay well below <see cref="ElectionTimeout" />.</summary>
+    internal TimeSpan HeartbeatInterval { get; init; } = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>Gets the seed of the election jitter; every group mixes its identifier in, so groups draw different delays.</summary>
+    /// <remarks>Drawn once per options instance unless set, so nodes differ while a test can pin it for a deterministic run.</remarks>
+    internal ulong JitterSeed { get; init; } = BinaryPrimitives.ReadUInt64LittleEndian(RandomNumberGenerator.GetBytes(sizeof(ulong)));
+
+    /// <summary>Gets the largest random delay added to <see cref="ElectionTimeout" /> each time a follower arms its election.</summary>
+    internal TimeSpan MaxJitter { get; init; } = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>Gets the longest wait for one pre-vote or vote reply; an unanswered voter counts as a refusal.</summary>
+    internal TimeSpan VoteRpcTimeout { get; init; } = TimeSpan.FromMilliseconds(250);
 }

@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
@@ -223,15 +224,21 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         _ = await Assert.That(await service.GetStatusAsync("missing", cancellationToken)).IsNull();
     }
 
-    /// <summary>A pre-vote probe answers from the log and leaves the durable term and metadata unchanged.</summary>
+    /// <summary>
+    /// A pre-vote probe, once the contact of the last leader has expired, answers from the log and leaves the durable term and metadata
+    /// unchanged.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task PreVoteLeavesTermUnchanged(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-prevote");
-        await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
+        var time = new FakeTimeProvider();
+        await using var registry = new ReplicaGroupRegistry(dir, [GroupId], 1, Fingerprint, 1UL, NullLoggerFactory.Instance) { ElectionClock = time };
+        await registry.OpenAsync(cancellationToken);
         var service = new ReplicaFollower(registry);
         _ = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("leader", 1UL, 0UL, 0UL, 0UL, Record(1UL, 1UL)), cancellationToken);
+        time.Advance(registry.Election.ElectionTimeout);
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await File.ReadAllBytesAsync(metaPath, cancellationToken);
 

@@ -15,11 +15,15 @@ namespace Squirix.Server.Cluster.Replication;
 /// durable fingerprint adopts nothing here but never conflicts, and an older generation is refused);
 /// term validation stays inside the log, which persists higher terms durably before responding. An accepted append, commit advance, or
 /// snapshot install wakes the group's apply loop, so committed entries reach memory without waiting for its fallback interval; votes
-/// and pre-votes apply nothing and wake nothing.
+/// and pre-votes apply nothing and wake nothing. Every leader call the log accepted, and every term a vote made durable, is posted to
+/// the election state of the group; a pre-vote is refused while that state knows a live leader.
 /// </remarks>
 [Immutable]
 internal sealed class ReplicaFollower
 {
+    private const string CandidateRole = "candidate";
+    private const string FollowerRole = "follower";
+
     private readonly ReplicaGroupRegistry _groups;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaFollower" /> class.</summary>
@@ -50,6 +54,9 @@ internal sealed class ReplicaFollower
 
         var result = await log.AdvanceCommitAsync(commit, leader, cancellationToken).ConfigureAwait(false);
         NotifyApplyWhen(result.Success, id);
+        if (result.Success)
+            ObserveLeader(id, null, leader);
+
         return result;
     }
 
@@ -88,6 +95,11 @@ internal sealed class ReplicaFollower
             new ReadOnlyMemory<FollowerLogEntry>(entries));
         var result = await log.AppendAsync(request, fingerprint, generation, cancellationToken).ConfigureAwait(false);
         NotifyApplyWhen(result.Success, groupId);
+
+        // A log mismatch still comes from the current leader: the follower only lacks entries, which the leader repairs.
+        if (result.Success || string.Equals(result.RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal))
+            ObserveLeader(groupId, batch.LeaderNodeId, result.CurrentTerm);
+
         return result;
     }
 
@@ -182,7 +194,12 @@ internal sealed class ReplicaFollower
             return new FollowerLogVoteResult(false, FollowerLogRefusal.NotMember, 0UL);
 
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        return status.IsTopologyMismatch(fingerprint, generation) ? new FollowerLogVoteResult(false, FollowerLogRefusal.TopologyMismatch, 0UL)
+        if (status.IsTopologyMismatch(fingerprint, generation))
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.TopologyMismatch, 0UL);
+
+        // A live leader keeps its followers from campaigning: a node cut off for a while must not depose it once it returns.
+        var state = _groups.StateFor(groupId);
+        return state.HasRecentLeaderContact(state.Options.ElectionTimeout) ? new FollowerLogVoteResult(false, RefusalCodes.LeaderContact, status.CurrentTerm)
             : await log.CheckPreVoteAsync(ballot, cancellationToken).ConfigureAwait(false);
     }
 
@@ -206,8 +223,45 @@ internal sealed class ReplicaFollower
             return new FollowerLogVoteResult(false, FollowerLogRefusal.NotMember, 0UL);
 
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        return status.IsTopologyMismatch(fingerprint, generation) ? new FollowerLogVoteResult(false, FollowerLogRefusal.TopologyMismatch, 0UL)
-            : await log.RequestVoteAsync(ballot, cancellationToken).ConfigureAwait(false);
+        if (status.IsTopologyMismatch(fingerprint, generation))
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.TopologyMismatch, 0UL);
+
+        // The log holds a higher term durably before it answers, so a leader of an older term here steps down to it; a granted vote
+        // postpones this node's own election.
+        var result = await log.RequestVoteAsync(ballot, cancellationToken).ConfigureAwait(false);
+        var state = _groups.StateFor(groupId);
+        state.ObserveHigherTerm(result.CurrentTerm);
+        if (result.Granted)
+            state.ObserveGrantedVote();
+
+        return result;
+    }
+
+    /// <summary>Tells whether an election driver runs for a served group, so the leader term of this node comes from an election.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <returns><see langword="false" /> when this node does not serve the group or no driver runs for it.</returns>
+    internal bool IsElectionDriven(string groupId) => _groups.TryGetState(groupId, out var state) && state.IsElectionDriven;
+
+    /// <summary>Gets the election role of this node in a served group, as the replica status reports it.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <returns>
+    /// <c language="text">leader</c> once the leader has authority, <c language="text">candidate</c> from the election until then, otherwise
+    /// <c language="text">follower</c>.
+    /// </returns>
+    /// <exception cref="ArgumentOutOfRangeException">The state holds an unnamed role value.</exception>
+    internal string RoleOf(string groupId)
+    {
+        if (!_groups.TryGetState(groupId, out var state))
+            return FollowerRole;
+
+        var role = state.Role;
+        return role switch
+        {
+            ReplicaGroupRole.Follower => FollowerRole,
+            ReplicaGroupRole.PreCandidate or ReplicaGroupRole.Candidate => CandidateRole,
+            ReplicaGroupRole.Leader => state.HasAuthority ? "leader" : CandidateRole,
+            _ => throw new ArgumentOutOfRangeException(nameof(groupId), role, "Unsupported election role."),
+        };
     }
 
     /// <summary>Installs a validated snapshot into a group log and wakes the group's apply loop when it was installed.</summary>
@@ -221,7 +275,20 @@ internal sealed class ReplicaFollower
     {
         var result = await log.InstallSnapshotAsync(snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
         NotifyApplyWhen(result.Success, groupId);
+        if (result.Success)
+            ObserveLeader(groupId, null, leaderTerm);
+
         return result;
+    }
+
+    /// <summary>Records the contact of a leader whose call the log accepted, which postpones this node's own election.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="leaderId">The leader, when the call names it.</param>
+    /// <param name="term">The term of the leader, which the log holds durably now.</param>
+    private void ObserveLeader(string groupId, string? leaderId, ulong term)
+    {
+        if (_groups.TryGetState(groupId, out var state))
+            state.ObserveLeaderContact(leaderId, term);
     }
 
     /// <summary>Wakes the apply loop of a group after a change that may let it apply more committed entries.</summary>

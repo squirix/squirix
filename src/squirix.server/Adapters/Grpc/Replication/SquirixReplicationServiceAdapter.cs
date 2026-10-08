@@ -40,8 +40,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         _follower = groups == null ? null : new ReplicaFollower(groups);
 
         // The static leader resumes at the durable term of its log, so a network vote must not raise that term: it would let the
-        // static leader lead a new term no election granted. Votes stay disabled while automatic failover is off, and for a group
-        // this node leads until the leader derives its term from an election.
+        // static leader lead a new term no election granted. Votes stay disabled while automatic failover is off, and for the group
+        // this node owns while no election driver runs for it, so its leader term never comes from an election.
         _votesEnabled = cluster.AutomaticFailoverEnabled;
         _nodeId = cluster.NodeId;
 
@@ -110,7 +110,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         return new GetReplicaStatusResponse
         {
             Term = current.CurrentTerm,
-            Role = "follower",
+            Role = _follower?.RoleOf(header.GroupId) ?? "follower",
             LastLogIndex = current.LastLogIndex,
             CommitIndex = current.CommitIndex,
             Readiness = MapReadiness(current.Readiness),
@@ -345,7 +345,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         RefusalCode = RefusalCodes.NotReady,
     };
 
-    /// <summary>Refuses a vote without reaching storage: this node serves no groups, automatic failover is off, or this node leads the group.</summary>
+    /// <summary>Refuses a vote without reaching storage: this node serves no groups, automatic failover is off, or this node leads the group statically.</summary>
     /// <returns>A refusal reporting term zero, which observes no term.</returns>
     private static ReplicaVoteResponse StubVoteRefusal() => new()
     {
@@ -357,12 +357,12 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     /// <summary>Checks whether votes for a group are refused before storage is reached.</summary>
     /// <param name="groupId">Replica group identifier of the vote.</param>
     /// <returns>
-    /// <see langword="true" /> when this node serves no groups, automatic failover is off, or the group is the one this node
-    /// statically leads, whose identifier is this node's identifier.
+    /// <see langword="true" /> when this node serves no groups, automatic failover is off, or the group is the one this node owns,
+    /// whose identifier is this node's identifier, and no election driver runs for it, so this node leads it statically.
     /// </returns>
     [MemberNotNullWhen(false, nameof(_follower))]
     private bool RefusesVotes(string groupId) =>
-        _follower == null || !_votesEnabled || string.Equals(groupId, _nodeId, StringComparison.Ordinal);
+        _follower == null || !_votesEnabled || (string.Equals(groupId, _nodeId, StringComparison.Ordinal) && !_follower.IsElectionDriven(groupId));
 
     private ReplicationEnvelopeHeader EnsureHeader(ReplicationEnvelopeHeader? header, ServerCallContext context, bool requireLeader)
     {
