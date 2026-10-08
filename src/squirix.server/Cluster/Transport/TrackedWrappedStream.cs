@@ -36,14 +36,14 @@ internal sealed class TrackedWrappedStream : Stream
     /// Taken from the wrapped stream as it was connected, not as it is now: an abort may close the wrapped stream before the handler wraps this
     /// one in TLS, and a stream that reports itself unreadable makes the TLS constructor throw, after which the handler never disposes it.
     /// </remarks>
-    public override bool CanRead => _canRead && Volatile.Read(ref _released) == 0;
+    public override bool CanRead => _canRead && IsOpen();
 
     /// <inheritdoc />
     public override bool CanSeek => false;
 
     /// <inheritdoc />
     /// <remarks>Taken from the wrapped stream as it was connected, for the reason given on <see cref="CanRead" />.</remarks>
-    public override bool CanWrite => _canWrite && Volatile.Read(ref _released) == 0;
+    public override bool CanWrite => _canWrite && IsOpen();
 
     /// <inheritdoc />
     public override long Length => throw new NotSupportedException();
@@ -169,6 +169,8 @@ internal sealed class TrackedWrappedStream : Stream
             base.Dispose(disposing);
         }
     }
+
+    private bool IsOpen() => Volatile.Read(ref _released) == 0;
 
     private void Release()
     {

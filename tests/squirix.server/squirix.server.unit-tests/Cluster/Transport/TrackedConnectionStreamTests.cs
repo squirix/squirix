@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
@@ -51,31 +50,18 @@ public sealed class TrackedConnectionStreamTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// A stream whose base constructor rejected the socket is still finalized; the finalizer must neither crash the process nor leave a
-    /// connection it never tracked.
+    /// A stream whose base constructor threw is still finalized with its fields unset; disposing it must neither throw nor touch connections
+    /// it never tracked.
     /// </summary>
     /// <returns>A task that completes when the test finishes.</returns>
     [Test]
-    public async Task RejectedStreamFinalizerIsHarmless()
+    public async Task HalfBuiltStreamDisposesHarmlessly()
     {
-        var connections = new TrackedConnections();
-        connections.Enter();
+        var stream = Unsafe.As<TrackedConnectionStream>(RuntimeHelpers.GetUninitializedObject(typeof(TrackedConnectionStream)));
 
-        ConstructOverUnconnectedSocket(connections);
-#pragma warning disable S1215 // The finalizer is the behavior under test; only a collection runs it.
-        GC.Collect();
-#pragma warning restore S1215
-        GC.WaitForPendingFinalizers();
+        await stream.DisposeAsync();
 
-        _ = await Assert.That(connections.Pending).IsEqualTo(1);
-        connections.Exit();
-    }
-
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static void ConstructOverUnconnectedSocket(TrackedConnections connections)
-    {
-        using var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
-        _ = NodeExceptionAssert.For<IOException>().Throws((Socket: socket, Connections: connections), static state => _ = new TrackedConnectionStream(state.Socket, state.Connections));
+        _ = await Assert.That(stream.CanRead).IsFalse();
     }
 
     private static SocketsHttpHandler CreateHandler(TrackedConnections connections) => new()

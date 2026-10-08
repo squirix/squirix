@@ -23,11 +23,7 @@ internal sealed class TrackedConnectionStream : NetworkStream
     /// <summary>One while the stream holds its connection entry; set only once the base constructor succeeded, so the finalizer of a half-built stream releases nothing.</summary>
     private int _tracked;
 
-    /// <summary>Initializes a new instance of the <see cref="TrackedConnectionStream" /> class.</summary>
-    /// <param name="socket">The connected socket, owned by the stream.</param>
-    /// <param name="connections">The pool's connections, already entered and registered for <paramref name="socket" />; the stream leaves them once when disposed.</param>
-    /// <exception cref="IOException"><paramref name="socket" /> is not connected.</exception>
-    internal TrackedConnectionStream(Socket socket, TrackedConnections connections)
+    private TrackedConnectionStream(Socket socket, TrackedConnections connections)
         : base(socket, true)
     {
         _socket = socket;
