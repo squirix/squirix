@@ -73,7 +73,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         var follower = new ReplicaFollower(registry);
         var state = registry.StateFor(GroupId);
         state.SetElectionDriven(true);
-        state.BecomeLeader(2UL);
+        _ = state.BecomeLeader(2UL);
 
         var vote = await follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 5UL, 0UL, 0UL), cancellationToken);
 

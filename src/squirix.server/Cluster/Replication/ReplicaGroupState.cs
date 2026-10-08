@@ -295,11 +295,15 @@ internal sealed class ReplicaGroupState
 
     /// <summary>Leads a won term, without authority until its leader-term entry is committed.</summary>
     /// <param name="term">The won term.</param>
-    internal void BecomeLeader(ulong term)
+    /// <returns><see langword="false" /> when no driver runs any more, so the group stays a follower.</returns>
+    internal bool BecomeLeader(ulong term)
     {
         lock (_sync)
         {
             _hasAuthority = false;
+            if (!_driven)
+                return false;
+
             _role = ReplicaGroupRole.Leader;
             _term = term;
             _ = RaiseLocked(term);
@@ -308,17 +312,18 @@ internal sealed class ReplicaGroupState
             _knownLeader = string.Empty;
             _knownLeaderTerm = 0;
             _lastLeaderContact = NoContact;
+            return true;
         }
     }
 
     /// <summary>Grants the leader authority once its leader-term entry is committed, unless a higher term was seen meanwhile.</summary>
     /// <param name="term">The term whose leader-term entry is committed.</param>
-    /// <returns><see langword="true" /> when this node now has authority in <paramref name="term" />.</returns>
+    /// <returns><see langword="true" /> when this node now has authority in <paramref name="term" />; never once the driver stopped.</returns>
     internal bool GrantAuthority(ulong term)
     {
         lock (_sync)
         {
-            if (_role != ReplicaGroupRole.Leader || _term != term || _highestObservedTerm > term)
+            if (!_driven || _role != ReplicaGroupRole.Leader || _term != term || _highestObservedTerm > term)
                 return false;
 
             _hasAuthority = true;
@@ -342,13 +347,17 @@ internal sealed class ReplicaGroupState
         }
     }
 
-    /// <summary>Raises the highest observed term.</summary>
+    /// <summary>Raises the highest observed term; a leader loses its authority at once to a term above its own.</summary>
     /// <param name="term">The term seen.</param>
     /// <returns><see langword="true" /> when the term is above the driver's term while a driver runs, so the driver must be woken.</returns>
+    /// <remarks>The driver still steps down and retires; the authority is gone before it even wakes, so no write is admitted meanwhile.</remarks>
     private bool RaiseLocked(ulong term)
     {
         if (term > _highestObservedTerm)
             _highestObservedTerm = term;
+
+        if (term > _term && _role == ReplicaGroupRole.Leader)
+            _hasAuthority = false;
 
         return _driven && term > _term;
     }

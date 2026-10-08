@@ -168,14 +168,19 @@ internal sealed class ReplicaGroupElection
         };
     }
 
-    /// <summary>Makes a higher term durable and follows it.</summary>
+    /// <summary>Makes a higher term durable and follows it, re-arming the election with a fresh jitter.</summary>
     /// <param name="term">The higher term.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The outcome: the term followed, or the term that could not be made durable.</returns>
+    /// <remarks>
+    /// Re-arming keeps a follower of a new term from campaigning at once, and a log that cannot make the term durable from being retried
+    /// in a busy loop: the next attempt waits for the election timeout.
+    /// </remarks>
     private async Task<ElectionOutcome> FollowAsync(ulong term, CancellationToken cancellationToken)
     {
         var durable = await PersistTermAsync(term, cancellationToken).ConfigureAwait(false);
         _state.BecomeFollower(durable == 0 ? _state.Term : durable, false);
+        Arm();
         return durable == 0 ? new ElectionOutcome(ElectionEvent.TermNotDurable, term) : new ElectionOutcome(ElectionEvent.TermObserved, durable);
     }
 
@@ -187,10 +192,14 @@ internal sealed class ReplicaGroupElection
     /// <returns><see cref="ElectionEvent.Authorized" /> when the entry is already committed; otherwise <see cref="ElectionEvent.Elected" />.</returns>
     private async Task<ElectionOutcome> LeadAsync(ulong term, CancellationToken cancellationToken)
     {
-        _state.BecomeLeader(term);
-        return await _leadership.PromoteAsync(GroupId, term, cancellationToken).ConfigureAwait(false) && _state.GrantAuthority(term)
-            ? new ElectionOutcome(ElectionEvent.Authorized, term)
-            : new ElectionOutcome(ElectionEvent.Elected, term);
+        // A driver stopped meanwhile leaves the group a follower: nothing is promoted.
+        return true switch
+        {
+            _ when !_state.BecomeLeader(term) => new ElectionOutcome(ElectionEvent.None, term),
+            _ when await _leadership.PromoteAsync(GroupId, term, cancellationToken).ConfigureAwait(false) && _state.GrantAuthority(term) =>
+                new ElectionOutcome(ElectionEvent.Authorized, term),
+            _ => new ElectionOutcome(ElectionEvent.Elected, term),
+        };
     }
 
     /// <summary>One leader tick: step down on a higher term or a silent majority, otherwise heartbeat and finish the promotion.</summary>
@@ -254,7 +263,12 @@ internal sealed class ReplicaGroupElection
         _state.SetElectionDriven(true);
         var status = await _log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         var own = string.Equals(GroupId, _header.SenderNodeId, StringComparison.Ordinal);
-        if (!own || status.Readiness != FollowerLogReadiness.Ready || status.CurrentTerm > 1)
+
+        // The own group decides its provisional term only from a ready log; until then the start is retried, not skipped.
+        if (own && status.Readiness != FollowerLogReadiness.Ready)
+            return new ElectionOutcome(ElectionEvent.None, status.CurrentTerm);
+
+        if (!own || status.CurrentTerm > 1)
         {
             _started = true;
             _state.BecomeFollower(status.CurrentTerm, false);
@@ -327,6 +341,9 @@ internal sealed class ReplicaGroupElection
         return true switch
         {
             _ when highest > term => await FollowAsync(highest, cancellationToken).ConfigureAwait(false),
+
+            // A higher term posted while the round ran (a vote or an append from another node) wins over the grants counted here.
+            _ when _state.HighestObservedTerm > term => await FollowAsync(_state.HighestObservedTerm, cancellationToken).ConfigureAwait(false),
             _ when IsMajority(granted) => await LeadAsync(term, cancellationToken).ConfigureAwait(false),
             _ => Lose(ElectionEvent.VoteLost, term),
         };

@@ -50,8 +50,7 @@ public sealed class ReplicaGroupElectionTests : ServerUnitTestBase
     {
         var expectations = new IReplicaVoteGatewayCreateExpectations();
         _ = expectations.Setups.PreVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
-                        .ReturnValue(Task.FromResult(new FollowerLogVoteResult(false, RefusalCodes.LeaderContact, 0UL)))
-                        .ExpectedCallCount(2);
+                        .ReturnValue(Task.FromResult(new FollowerLogVoteResult(false, RefusalCodes.LeaderContact, 0UL)));
         await using var scope = await OpenAsync("n2", 3, expectations.Instance());
         var election = CreateElection(scope, Three);
         _ = await election.StepAsync(cancellationToken);

@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -55,7 +56,7 @@ public sealed class ReplicaGroupStateTests : ServerUnitTestBase
     {
         var state = new ReplicaGroupState(3, Options, new FakeTimeProvider());
         state.SetElectionDriven(true);
-        state.BecomeLeader(2UL);
+        _ = state.BecomeLeader(2UL);
 
         state.ObserveHigherTerm(3UL);
 
@@ -87,7 +88,7 @@ public sealed class ReplicaGroupStateTests : ServerUnitTestBase
         var time = new FakeTimeProvider();
         var state = new ReplicaGroupState(3, Options, time);
         state.SetElectionDriven(true);
-        state.BecomeLeader(2UL);
+        _ = state.BecomeLeader(2UL);
         var fresh = state.HasQuorumContact(0, Options.ElectionTimeout);
         time.Advance(Options.ElectionTimeout);
         var silent = state.HasQuorumContact(0, Options.ElectionTimeout);
@@ -101,6 +102,61 @@ public sealed class ReplicaGroupStateTests : ServerUnitTestBase
         _ = await Assert.That(state.HighestObservedTerm).IsEqualTo(3UL);
     }
 
+    /// <summary>A higher term from any source revokes the authority of a leader at once, before its driver even wakes.</summary>
+    [Test]
+    public async Task HigherTermRevokesAuthorityAtOnce()
+    {
+        var state = new ReplicaGroupState(3, Options, new FakeTimeProvider());
+        state.SetElectionDriven(true);
+        _ = state.BecomeLeader(2UL);
+        var granted = state.GrantAuthority(2UL);
+
+        state.RecordFollowerReply(1, new FollowerLogAppendResult(false, RefusalCodes.StaleTerm, 3UL, 0UL));
+
+        _ = await Assert.That(granted).IsTrue();
+        _ = await Assert.That((state.Role, state.HasAuthority)).IsEqualTo((ReplicaGroupRole.Leader, false));
+        _ = await Assert.That(state.HasRecentLeaderContact(Options.ElectionTimeout)).IsFalse();
+    }
+
+    /// <summary>Once the driver stopped, a step that finishes late can neither lead nor gain authority.</summary>
+    [Test]
+    public async Task StoppedDriverCannotLead()
+    {
+        var state = new ReplicaGroupState(3, Options, new FakeTimeProvider());
+        state.SetElectionDriven(true);
+        var led = state.BecomeLeader(2UL);
+        state.SetElectionDriven(false);
+
+        var authorized = state.GrantAuthority(2UL);
+        var ledAgain = state.BecomeLeader(3UL);
+
+        _ = await Assert.That((led, authorized, ledAgain)).IsEqualTo((true, false, false));
+        _ = await Assert.That((state.Role, state.HasAuthority)).IsEqualTo((ReplicaGroupRole.Follower, false));
+    }
+
+    /// <summary>
+    /// A follower answer from its log counts as contact, a not-ready log included; a refusal before the log does not, though its term is
+    /// still observed.
+    /// </summary>
+    [Test]
+    public async Task OnlyLogAnswersCountAsContact()
+    {
+        var time = new FakeTimeProvider();
+        var state = new ReplicaGroupState(3, Options, time);
+        state.SetElectionDriven(true);
+        _ = state.BecomeLeader(2UL);
+        time.Advance(Options.ElectionTimeout);
+
+        state.RecordFollowerReply(1, new FollowerLogAppendResult(false, RefusalCodes.TopologyMismatch, 0UL, 0UL));
+        var mismatched = state.HasQuorumContact(0, Options.ElectionTimeout);
+        state.RecordFollowerReply(2, new FollowerLogAppendResult(false, RefusalCodes.NotMember, 1UL, 0UL));
+        state.RecordFollowerReply(1, new FollowerLogAppendResult(false, RefusalCodes.NotReady, 2UL, 0UL));
+
+        _ = await Assert.That(mismatched).IsFalse();
+        _ = await Assert.That(state.HasQuorumContact(0, Options.ElectionTimeout)).IsTrue();
+        _ = await Assert.That(state.HighestObservedTerm).IsEqualTo(2UL);
+    }
+
     /// <summary>Authority is granted only to the leader of the term, and stepping down clears it before anything else.</summary>
     [Test]
     public async Task AuthorityBelongsToLeaderOfTerm()
@@ -108,7 +164,7 @@ public sealed class ReplicaGroupStateTests : ServerUnitTestBase
         var state = new ReplicaGroupState(3, Options, new FakeTimeProvider());
         state.SetElectionDriven(true);
         var follower = state.GrantAuthority(1UL);
-        state.BecomeLeader(2UL);
+        _ = state.BecomeLeader(2UL);
         var otherTerm = state.GrantAuthority(3UL);
         var granted = state.GrantAuthority(2UL);
         var leading = state.HasRecentLeaderContact(Options.ElectionTimeout);

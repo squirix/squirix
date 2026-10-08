@@ -174,7 +174,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var request = new GetReplicaStatusRequest { Header = follower.Header };
         var before = await follower.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, follower.HttpContext));
         state.SetElectionDriven(true);
-        state.BecomeLeader(2UL);
+        _ = state.BecomeLeader(2UL);
         var promoting = await follower.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, follower.HttpContext));
         _ = state.GrantAuthority(2UL);
 
