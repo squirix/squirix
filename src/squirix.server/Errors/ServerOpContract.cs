@@ -18,6 +18,9 @@ internal static class ServerOpContract
 
     internal const string NoWriteMajorityDetail = "Replica group has no verified write majority; nothing was written.";
 
+    /// <summary>The stable detail of the refusal of a leader read whose read index no majority confirmed in the leader term in time.</summary>
+    internal const string ReadQuorumUnconfirmedDetail = "read_quorum_unconfirmed";
+
     internal const string RingFencedDetail =
         "Cache operations are refused: the key owner or this node detected a cluster ring mismatch with a peer; make the peer lists agree and restart the affected nodes.";
 
@@ -49,6 +52,10 @@ internal static class ServerOpContract
     /// <param name="cause">The failure of the tombstone commit.</param>
     /// <returns><see cref="StatusCode.Unavailable" /> with <see cref="ExpirationPendingDetail" />: nothing was read, so a retry may succeed later.</returns>
     internal static RpcException ExpirationPending(Exception cause) => new(new Status(StatusCode.Unavailable, ExpirationPendingDetail, cause));
+
+    /// <summary>Creates the refusal of a leader read whose read index no majority confirmed in the leader term in time.</summary>
+    /// <returns><see cref="StatusCode.Unavailable" /> with <see cref="ReadQuorumUnconfirmedDetail" />: nothing was read, so a retry may succeed later.</returns>
+    internal static RpcException ReadQuorumUnconfirmed() => new(new Status(StatusCode.Unavailable, ReadQuorumUnconfirmedDetail));
 
     internal static SquirixException CommitOutcomeUnknown() => new(SquirixErrorCode.CommitOutcomeUnknown, "CommitOutcomeUnknown", CommitOutcomeUnknownDetail);
 

@@ -28,7 +28,6 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     private readonly string _selfId;
     private readonly ReplicaFollowerSender[] _senders;
     private readonly ReplicaSlots _slots;
-    private readonly ulong _term;
     private ulong _commitIndex;
     private Task<ReplicaDurableAcknowledgement>[] _enqueued = [];
     private ulong _enqueuedIndex;
@@ -63,7 +62,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         _slots = new ReplicaSlots(leader.ReplicaIndex);
         _senders = senders;
         _lagging = lagging;
-        _term = term;
+        Term = term;
         _prevLogIndex = status.LastLogIndex;
         _prevLogTerm = status.LastLogTerm;
         _commitIndex = status.CommitIndex;
@@ -72,6 +71,13 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <summary>Gets the group log index after the last entry this pipeline appended locally, or after the seeded status.</summary>
     /// <remarks>Read by the committer under its gate, between commits, once the commit that last appended has completed.</remarks>
     internal ulong NextLogIndex => _prevLogIndex + 1;
+
+    /// <summary>Gets the leader term the pipeline appends and replicates in.</summary>
+    internal ulong Term { get; }
+
+    /// <summary>Initializes the read-index rounds of an elected leader, which observe every follower reply; none for a static leader.</summary>
+    /// <remarks>The pipeline closes them together with its senders.</remarks>
+    internal ReplicaReadIndexRound? ReadIndex { private get; init; }
 
     /// <inheritdoc />
     public async ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
@@ -139,15 +145,26 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <remarks>Called outside the commit gate; it never waits and never throws, and a closed sender sends nothing.</remarks>
     internal void Heartbeat()
     {
-        var commitIndex = Volatile.Read(ref _commitIndex);
+        var commitIndex = ReadCommitIndex();
         for (var i = 0; i < _senders.Length; i++)
             _ = _senders[i].TryEnqueueHeartbeat(commitIndex);
     }
 
+    /// <summary>Confirms a read index for a leader read: the commit index, once a majority answered this leader in its term after it was taken.</summary>
+    /// <param name="cancellationToken">Cancellation token; it ends the wait of this read only.</param>
+    /// <returns>The confirmed read index.</returns>
+    /// <exception cref="Grpc.Core.RpcException">A follower answered in a higher term, or the pipeline closed: Unavailable, nothing was read.</exception>
+    /// <exception cref="InvalidOperationException">The pipeline leads statically and confirms no read index.</exception>
+    /// <remarks>Called outside the commit gate; readers that arrive while a round is in flight share the next round.</remarks>
+    internal ValueTask<ulong> ConfirmReadIndexAsync(CancellationToken cancellationToken) =>
+        ReadIndex is { } rounds
+            ? rounds.ConfirmAsync(this, static pipeline => pipeline.ReadCommitIndex(), static pipeline => pipeline.Heartbeat(), cancellationToken)
+            : ValueTask.FromException<ulong>(new InvalidOperationException("A pipeline of a static leader confirms no read index."));
+
     /// <summary>Gets what a catch-up of a follower slot runs against: this pipeline, the slot's sender, the leader log and term.</summary>
     /// <param name="replicaIndex">Zero-based follower slot, never the leader slot.</param>
     /// <returns>The target.</returns>
-    internal ReplicaCatchUpTarget CatchUpTargetFor(int replicaIndex) => new(replicaIndex, this, _senders[_slots.SenderOf(replicaIndex)], _log, _term);
+    internal ReplicaCatchUpTarget CatchUpTargetFor(int replicaIndex) => new(replicaIndex, this, _senders[_slots.SenderOf(replicaIndex)], _log, Term);
 
     /// <summary>Stops admitting entries to every follower sender and waits for the queued ones to be answered.</summary>
     /// <param name="budget">The longest wait, shared by all senders.</param>
@@ -165,6 +182,8 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <returns>The first failure of a sender close, or <see langword="null" />; this call never throws.</returns>
     internal async ValueTask<Exception?> CloseAsync()
     {
+        // Reads waiting for a round fail at once: no reply of a closed sender confirms them any more.
+        ReadIndex?.Close();
         var closing = new Task<Exception?>[_senders.Length];
         for (var i = 0; i < closing.Length; i++)
             closing[i] = _senders[i].CaptureFailureAsync().AsTask();
@@ -178,4 +197,8 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
 
         return null;
     }
+
+    /// <summary>Reads the commit index, which the commit path advances while heartbeats and reads run outside the commit gate.</summary>
+    /// <returns>The commit index.</returns>
+    private ulong ReadCommitIndex() => Volatile.Read(ref _commitIndex);
 }

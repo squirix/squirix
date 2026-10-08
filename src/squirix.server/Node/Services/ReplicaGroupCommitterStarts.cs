@@ -62,8 +62,11 @@ internal static class ReplicaGroupCommitterStarts
 
             // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
             var lagging = new ReplicaLaggingFollowers(committer.GroupId, eligibility, committer.Probe.Repairs, committer.Log);
-            var senders = committer.CreateSenders(members, leaderIndex, in status, in header);
-            var pipeline = new ReplicaGroupCommitPipeline(committer.Applier, log, senders, (header.LeaderNodeId, leaderIndex), lagging, in status, term);
+
+            // An elected leader confirms the read index of a leader read with the replies its senders get in the led term.
+            var rounds = committer.Election == null ? null : new ReplicaReadIndexRound(term, members.Length, leaderIndex);
+            var senders = committer.CreateSenders(members, leaderIndex, in status, in header, rounds);
+            var pipeline = new ReplicaGroupCommitPipeline(committer.Applier, log, senders, (header.LeaderNodeId, leaderIndex), lagging, in status, term) { ReadIndex = rounds };
             return (pipeline, factory, read, term, eligibility, results);
         }
 
@@ -72,12 +75,13 @@ internal static class ReplicaGroupCommitterStarts
         /// <param name="leaderIndex">The slot of this node, which gets no sender.</param>
         /// <param name="status">Durable log status of the leader.</param>
         /// <param name="header">Replication envelope identity for follower calls.</param>
+        /// <param name="rounds">The read-index rounds that observe every follower reply; none for a static leader.</param>
         /// <returns>The senders of the follower slots, in slot order.</returns>
         /// <remarks>
         /// The commit budget bounds one request, and the shutdown budget bounds waiting for one that ignores its cancellation on dispose. An
         /// elected leader posts every reply to the election state, and queues a follower out of the write quorum for repair once it answers.
         /// </remarks>
-        private ReplicaFollowerSender[] CreateSenders(string[] members, int leaderIndex, in FollowerLogStatus status, in ReplicaRpcHeader header)
+        private ReplicaFollowerSender[] CreateSenders(string[] members, int leaderIndex, in FollowerLogStatus status, in ReplicaRpcHeader header, ReplicaReadIndexRound? rounds)
         {
             Action<int, FollowerLogAppendResult>? replies = null;
             if (committer.Election is { } election)
@@ -92,7 +96,7 @@ internal static class ReplicaGroupCommitterStarts
 
             var log = committer.Log;
             return ReplicaFollowerSenders.Create(
-                committer.Gateway,
+                rounds?.Observing(committer.Gateway, members) ?? committer.Gateway,
                 members,
                 leaderIndex,
                 in status,
