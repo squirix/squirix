@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,6 +12,7 @@ using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Networking;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
@@ -23,12 +26,19 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 public sealed class LeaderRoutingTests : NodeIntegrationTestBase
 {
     private const string CacheName = "default";
+    private const string EntryOutsideGroup = "node-d";
     private const string OwnerId = "node-a";
+
+    /// <summary>The most writes the client sends once the owner stopped: each failed one waits for a new leader before the next.</summary>
+    private const int MaxWrites = 5;
 
     /// <summary>Bounds every wait for an election and every client call; the timeouts below elect within seconds.</summary>
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(90);
 
     private static readonly string[] Nodes = [OwnerId, "node-b", "node-c"];
+
+    /// <summary>Four nodes, three replicas: the group of the owner is the owner, node-b and node-c, so node-d serves no part of it.</summary>
+    private static readonly string[] FourNodes = [OwnerId, "node-b", "node-c", EntryOutsideGroup];
 
     /// <summary>
     /// Once the leader of the owner group stops and another node leads it, a write sent to the third node goes to the new leader and
@@ -106,6 +116,57 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         _ = await Assert.That(forwards.Length).IsEqualTo(2);
         _ = await Assert.That(forwards[0]).IsEqualTo((follower, request.OperationId));
         _ = await Assert.That(forwards[1]).IsEqualTo((leader, request.OperationId));
+    }
+
+    /// <summary>
+    /// With four nodes and three replicas, the owner of a group leads it and stops; a client that only reaches the node outside the group
+    /// keeps sending the same write, as the client library retries, until it succeeds: the entry node falls back from the unreachable owner
+    /// to another member, learns the new leader, and the write commits there within a few attempts.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NonMemberEntryReachesLeader(CancellationToken cancellationToken)
+    {
+        var topology = new ClusterNode[FourNodes.Length];
+        for (var i = 0; i < topology.Length; i++)
+            topology[i] = new ClusterNode(FourNodes[i], GetNextHttpUri());
+
+        await using var fabric = new PartitionFabric();
+        await using var cluster = await StartClusterAsync(topology, OwnerLeadsOptions("leader-routing-non-member", fabric), cancellationToken);
+        _ = await Assert.That(await LeaderAsync(cluster, Nodes, cancellationToken)).IsEqualTo(OwnerId);
+        var key = KeyOwnedByOwner(cluster[EntryOutsideGroup]);
+        using var channel = CreateGrpcChannel(cluster[EntryOutsideGroup].Uri);
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var request = new SetEntryAsyncRequest
+        {
+            OperationId = RpcOperationIdentity.New(),
+            CacheName = CacheName,
+            Key = key,
+            Entry = new NodeCacheEntry<object?> { Value = "outside", Version = 1 }.MapToProto(),
+        };
+
+        // A refused loopback connect takes about two seconds on Windows and can outlast the per-attempt timeout of a forward, which is ambiguous
+        // and never rerouted; resetting every dial towards the stopped owner makes its unreachability prompt on every platform.
+        await cluster.StopNodeAsync(OwnerId);
+        await fabric.IsolateAsync(OwnerId);
+        string[] survivors = [Nodes[1], Nodes[2]];
+        var outcomes = new List<string>();
+        RpcException? refusal;
+        do
+        {
+            var started = Stopwatch.GetTimestamp();
+            refusal = await SetAsync(client, request, cancellationToken);
+            outcomes.Add($"{(refusal == null ? "OK" : refusal.Status.Detail)} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms");
+            if (refusal is { StatusCode: StatusCode.Unavailable })
+                _ = await LeaderAsync(cluster, survivors, cancellationToken);
+        }
+        while (refusal is { StatusCode: StatusCode.Unavailable } && outcomes.Count < MaxWrites);
+
+        _ = await Assert.That(refusal).IsNull().Because($"the write through {EntryOutsideGroup} must reach the new leader; writes: {string.Join("; ", outcomes)}");
+        var leader = await LeaderAsync(cluster, survivors, cancellationToken);
+        _ = await Assert.That((Table(cluster[EntryOutsideGroup]).TryGetLearnedLeader(OwnerId, out var learned), learned.NodeId)).IsEqualTo((true, leader));
+        var read = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, deadline: DateTime.UtcNow.Add(Bound), cancellationToken: cancellationToken);
+        _ = await Assert.That(read.Found).IsTrue();
     }
 
     /// <summary>Without automatic failover a write sent to another node is forwarded to the ring owner, as before leader routing.</summary>
@@ -215,6 +276,30 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             });
             configure?.Invoke(services);
         },
+    };
+
+    /// <summary>
+    /// Options under which the owner wins the first election of its group: its election timeout is a quarter of the others, so it campaigns
+    /// first, while the others still elect a successor well within <see cref="Bound" /> once it stops.
+    /// </summary>
+    /// <param name="scope">The persistence scope.</param>
+    /// <param name="fabric">The fabric the nodes dial each other through.</param>
+    /// <returns>The options.</returns>
+    private static IntegrationStartOptions OwnerLeadsOptions(string scope, PartitionFabric fabric) => new()
+    {
+        ReplicaCount = 3,
+        UsePersistence = true,
+        CleanTestDir = true,
+        ExtraScope = scope,
+        AutomaticFailoverEnabled = true,
+        PartitionFabric = fabric,
+        ServicesConfigure = static services => _ = services.AddSingleton(static sp => new ElectionTimerOptions
+        {
+            ElectionTimeout = string.Equals(sp.GetRequiredService<TopologyOptions>().NodeId, OwnerId, StringComparison.Ordinal) ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(4),
+            HeartbeatInterval = TimeSpan.FromMilliseconds(250),
+            MaxJitter = TimeSpan.FromSeconds(1),
+            VoteRpcTimeout = TimeSpan.FromSeconds(2),
+        }),
     };
 
     /// <summary>Tells whether a node follows the leader of the owner group.</summary>
