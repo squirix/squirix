@@ -23,6 +23,7 @@ internal sealed class ReplicaFollower
 {
     private const string CandidateRole = "candidate";
     private const string FollowerRole = "follower";
+    private const string LeaderRole = "leader";
 
     private readonly ReplicaGroupRegistry _groups;
 
@@ -197,9 +198,11 @@ internal sealed class ReplicaFollower
         if (status.IsTopologyMismatch(fingerprint, generation))
             return new FollowerLogVoteResult(false, FollowerLogRefusal.TopologyMismatch, 0UL);
 
-        // A live leader keeps its followers from campaigning: a node cut off for a while must not depose it once it returns.
+        // A live leader keeps its followers from campaigning: a node cut off for a while must not depose it once it returns. Only a
+        // group an election driver runs for decides this; any other answers from its log as before.
         var state = _groups.StateFor(groupId);
-        return state.HasRecentLeaderContact(state.Options.ElectionTimeout) ? new FollowerLogVoteResult(false, RefusalCodes.LeaderContact, status.CurrentTerm)
+        return state.IsElectionDriven && state.HasRecentLeaderContact(state.Options.ElectionTimeout)
+            ? new FollowerLogVoteResult(false, RefusalCodes.LeaderContact, status.CurrentTerm)
             : await log.CheckPreVoteAsync(ballot, cancellationToken).ConfigureAwait(false);
     }
 
@@ -248,7 +251,7 @@ internal sealed class ReplicaFollower
     /// <c language="text">leader</c> once the leader has authority, <c language="text">candidate</c> from the election until then, otherwise
     /// <c language="text">follower</c>.
     /// </returns>
-    /// <exception cref="ArgumentOutOfRangeException">The state holds an unnamed role value.</exception>
+    /// <exception cref="InvalidOperationException">The state holds an unnamed role value.</exception>
     internal string RoleOf(string groupId)
     {
         if (!_groups.TryGetState(groupId, out var state))
@@ -259,8 +262,8 @@ internal sealed class ReplicaFollower
         {
             ReplicaGroupRole.Follower => FollowerRole,
             ReplicaGroupRole.PreCandidate or ReplicaGroupRole.Candidate => CandidateRole,
-            ReplicaGroupRole.Leader => state.HasAuthority ? "leader" : CandidateRole,
-            _ => throw new ArgumentOutOfRangeException(nameof(groupId), role, "Unsupported election role."),
+            ReplicaGroupRole.Leader => state.HasAuthority ? LeaderRole : CandidateRole,
+            _ => throw new InvalidOperationException($"Unsupported election role '{role}'."),
         };
     }
 

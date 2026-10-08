@@ -30,6 +30,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         var time = new FakeTimeProvider();
         using var dir = new TempDirectory("squirix-follower-election-contact");
         await using var registry = await OpenRegistryAsync(dir, time, cancellationToken);
+        registry.StateFor(GroupId).SetElectionDriven(true);
         var follower = new ReplicaFollower(registry);
         var ballot = new ElectionVoteRequest("n3", 8UL, 0UL, 0UL);
 
@@ -42,6 +43,73 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         _ = await Assert.That(answered.Granted).IsTrue();
         _ = await Assert.That(registry.StateFor(GroupId).TryGetKnownLeader(out var leader, out var term)).IsTrue();
         _ = await Assert.That((leader, term)).IsEqualTo(("n2", 7UL));
+    }
+
+    /// <summary>A group no election driver runs for answers a pre-vote from its log right after a leader contact, exactly as before.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UndrivenGroupAnswersPreVote(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-election-undriven");
+        await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
+        var follower = new ReplicaFollower(registry);
+        _ = await follower.AppendAsync(GroupId, Fingerprint, 1UL, new FollowerBatch([], "n2", 7UL, 0UL, 0UL, 0UL), cancellationToken);
+
+        var answered = await follower.PreVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 8UL, 0UL, 0UL), cancellationToken);
+
+        _ = await Assert.That(answered.Granted).IsTrue();
+    }
+
+    /// <summary>A leader with authority refuses the pre-votes of its group: it is the live leader.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PreVoteRefusedWhileLeading(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-election-leading");
+        await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
+        var state = registry.StateFor(GroupId);
+        state.SetElectionDriven(true);
+        _ = state.BecomeLeader(2UL);
+        _ = state.GrantAuthority(2UL);
+
+        var refused = await new ReplicaFollower(registry).PreVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 3UL, 0UL, 0UL), cancellationToken);
+
+        _ = await Assert.That((refused.Granted, refused.RefusalCode)).IsEqualTo((false, RefusalCodes.LeaderContact));
+    }
+
+    /// <summary>An accepted commit advance and an installed snapshot are leader contacts too, and their terms are observed.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CommitAndSnapshotAreLeaderContacts(CancellationToken cancellationToken)
+    {
+        using var commitDir = new TempDirectory("squirix-follower-election-commit");
+        using var snapshotDir = new TempDirectory("squirix-follower-election-snapshot");
+        await using var committed = await OpenRegistryAsync(commitDir, new FakeTimeProvider(), cancellationToken);
+        await using var installed = await OpenRegistryAsync(snapshotDir, new FakeTimeProvider(), cancellationToken);
+        var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, [], DateTime.UnixEpoch);
+
+        var commit = await new ReplicaFollower(committed).AdvanceCommitAsync(GroupId, Fingerprint, 1UL, 0UL, 3UL, cancellationToken);
+        var install = await new ReplicaFollower(installed).InstallSnapshotAsync(GroupId, Fingerprint, 1UL, snapshot, 4UL, cancellationToken);
+
+        _ = await Assert.That((commit.Success, install.Success)).IsEqualTo((true, true));
+        _ = await Assert.That(committed.StateFor(GroupId).HasRecentLeaderContact(TimeSpan.FromSeconds(1))).IsTrue();
+        _ = await Assert.That(installed.StateFor(GroupId).HasRecentLeaderContact(TimeSpan.FromSeconds(1))).IsTrue();
+        _ = await Assert.That((committed.StateFor(GroupId).HighestObservedTerm, installed.StateFor(GroupId).HighestObservedTerm)).IsEqualTo((3UL, 4UL));
+    }
+
+    /// <summary>A log mismatch still comes from the live leader: it names the leader, which then repairs the follower.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LogMismatchIsLeaderContact(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-election-mismatch");
+        await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
+
+        var result = await new ReplicaFollower(registry).AppendAsync(GroupId, Fingerprint, 1UL, new FollowerBatch([], "n2", 3UL, 5UL, 1UL, 0UL), cancellationToken);
+
+        _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.LogMismatch);
+        _ = await Assert.That(registry.StateFor(GroupId).TryGetKnownLeader(out var leader, out var term)).IsTrue();
+        _ = await Assert.That((leader, term)).IsEqualTo(("n2", 3UL));
     }
 
     /// <summary>A stale-term append is no leader contact: it neither names a leader nor delays the election.</summary>
