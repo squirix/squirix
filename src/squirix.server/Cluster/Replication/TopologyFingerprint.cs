@@ -83,16 +83,7 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
             AppendString(hasher, peer.InterNodeUri.AbsoluteUri);
         }
 
-        // Finish with algorithm / durability / RF>1 policy constants that close the M8 contract.
-        AppendInt32(hasher, inputs.Policy.HashAlgorithmVersion);
-        AppendInt32(hasher, inputs.Policy.PlacementAlgorithmVersion);
-        AppendInt32(hasher, inputs.Policy.ProtocolAlgorithmVersion);
-        AppendInt32(hasher, inputs.Policy.DurabilitySchemaVersion);
-        AppendString(hasher, inputs.QuorumAckMode);
-        AppendInt32(hasher, inputs.Policy.RfIdempotencyMaxInFlightRecords);
-        AppendInt64(hasher, inputs.Policy.RfIdempotencyRetentionTicks);
-        AppendInt32(hasher, inputs.Policy.ClosedMessageMaxBytes);
-        AppendInt32(hasher, inputs.Policy.ClosedSnapshotMaxBytes);
+        AppendClosingPolicy(hasher, inputs);
 
         const string message = "Failed to compute topology fingerprint digest.";
         Span<byte> span = stackalloc byte[32];
@@ -134,6 +125,22 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
                 AutomaticFailoverEnabled = topology.AutomaticFailoverEnabled,
                 QuorumReadsEnabled = topology.QuorumReadsEnabled,
             });
+    }
+
+    /// <summary>Appends the algorithm, durability and RF&gt;1 policy constants that close the M8 contract, in their canonical order.</summary>
+    /// <param name="hasher">The digest being built.</param>
+    /// <param name="inputs">Fingerprint inputs.</param>
+    private static void AppendClosingPolicy(IncrementalHash hasher, FingerprintInputs inputs)
+    {
+        AppendInt32(hasher, inputs.Policy.HashAlgorithmVersion);
+        AppendInt32(hasher, inputs.Policy.PlacementAlgorithmVersion);
+        AppendInt32(hasher, inputs.Policy.ProtocolAlgorithmVersion);
+        AppendInt32(hasher, inputs.Policy.DurabilitySchemaVersion);
+        AppendString(hasher, inputs.QuorumAckMode);
+        AppendInt32(hasher, inputs.Policy.RfIdempotencyMaxInFlightRecords);
+        AppendInt64(hasher, inputs.Policy.RfIdempotencyRetentionTicks);
+        AppendInt32(hasher, inputs.Policy.ClosedMessageMaxBytes);
+        AppendInt32(hasher, inputs.Policy.ClosedSnapshotMaxBytes);
     }
 
     private static void AppendInt32(IncrementalHash hasher, int value)
