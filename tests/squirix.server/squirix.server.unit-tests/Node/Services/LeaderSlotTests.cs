@@ -93,6 +93,48 @@ public sealed class LeaderSlotTests : ServerUnitTestBase
         }
     }
 
+    /// <summary>
+    /// A committer of node n2 leading group n1 starts with its own slot 1 ready, commits a write with slot 2 while slot 0 is down, never
+    /// sends to itself, and keeps verifying slot 0 as the one slot not ready.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CommitterLeadsFromSlotOne(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-leader-slot-committer");
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var gateway = new ScriptedGateway();
+        gateway.Set("n1", FollowerMode.Down);
+        await using var committer = new ReplicaGroupCommitter(
+            registry,
+            new FixedLocator(),
+            gateway,
+            new StubCache(),
+            ("n1", "n2"),
+            new ReplicaTopologyStamp(Fingerprint, 1),
+            NullLogger<ReplicaGroupCommitter>.Instance)
+        {
+            Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+        };
+
+        await committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken);
+        var verification = await committer.VerifyReplicasAsync(cancellationToken);
+
+        var eligibility = registry.EligibilityFor("n1");
+        _ = await Assert.That((eligibility.CanCountInWriteQuorum(0), eligibility.CanCountInWriteQuorum(1), eligibility.CanCountInWriteQuorum(2))).IsEqualTo((false, true, true));
+        _ = await Assert.That(verification).IsEqualTo(ReplicaVerification.Pending);
+        _ = await Assert.That(committer.Probe.LeaderReplicaIndex).IsEqualTo(1);
+        var toSelf = 0;
+        var toThird = 0;
+        foreach (var append in gateway.Appends)
+        {
+            toSelf += string.Equals(append.Node, "n2", StringComparison.Ordinal) ? 1 : 0;
+            toThird += string.Equals(append.Node, "n3", StringComparison.Ordinal) ? 1 : 0;
+        }
+
+        _ = await Assert.That((toSelf, toThird)).IsEqualTo((0, 1));
+    }
+
     /// <summary>Places n1, n2 and n3 in slots 0, 1 and 2 of every group.</summary>
     private sealed class FixedLocator : IReplicaGroupLocator
     {

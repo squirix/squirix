@@ -67,7 +67,29 @@ public sealed class LeaderReplicaIndexTests : ServerUnitTestBase
     public async Task OptionsRefuseOutsideLeaderSlot()
     {
         _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(3, static slot => _ = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2) { LeaderReplicaIndex = slot });
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(-1, static slot => _ = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2) { LeaderReplicaIndex = slot });
         _ = await Assert.That(new ReplicaCommitCoordinatorOptions(3, 0, 0, 2).LeaderReplicaIndex).IsEqualTo(0);
+    }
+
+    /// <summary>Applying probe verdicts leaves a leader at slot 1 as it is, even when a verdict for its slot would demote a follower.</summary>
+    [Test]
+    public async Task ApplyAllLeavesLeaderSlot()
+    {
+        var eligibility = new ReplicaEligibility(3);
+        var leader = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 4, 1, 4, 4, FollowerLogReadiness.Ready);
+        ReplicaReadinessProbe.MarkLeaderReady(eligibility, 1, in leader, Fingerprint, 1);
+        ReplicaProbeResult[] results =
+        [
+            new(ReplicaProbeKind.Accepted, 4),
+            new(ReplicaProbeKind.LogMismatch, 2),
+            new(ReplicaProbeKind.LogMismatch, 2),
+        ];
+
+        ReplicaReadinessProbe.ApplyAll(eligibility, 1, results, in leader, Fingerprint, 1, null);
+
+        _ = await Assert.That(eligibility.CanCountInWriteQuorum(1)).IsTrue();
+        _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsTrue();
+        _ = await Assert.That(eligibility.StateFor(2)).IsEqualTo(ReplicaParticipantState.CatchingUp);
     }
 
     /// <summary>The leader slot is marked ready from its own log, never selected for a probe, and never demoted with the followers.</summary>
