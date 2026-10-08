@@ -148,6 +148,41 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(before, after);
     }
 
+    /// <summary>Verifies that once an election driver runs for the own group, a vote for it reaches the log like any other group.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DrivenOwnGroupVoteReachesLogAsync(CancellationToken cancellationToken)
+    {
+        await using var follower = await CreateFollowerScopeAsync(CreateTopology().NodeId, true, cancellationToken);
+        follower.Registry.StateFor(follower.Header.GroupId).SetElectionDriven(true);
+        follower.Header.Term = 2;
+
+        var vote = await follower.Adapter.RequestVote(new ReplicaVoteRequest { Header = follower.Header }, new TestServerCallContext(null, follower.HttpContext));
+
+        _ = await Assert.That((vote.Granted, vote.Term)).IsEqualTo((true, 2UL));
+        var status = await GroupStatusAsync(follower, cancellationToken);
+        _ = await Assert.That((status.CurrentTerm, status.VotedFor)).IsEqualTo((2UL, "node-a"));
+    }
+
+    /// <summary>Verifies that the replica status reports the election role: a leader only once it has authority.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StatusReportsElectionRoleAsync(CancellationToken cancellationToken)
+    {
+        await using var follower = await CreateFollowerScopeAsync("node-a", true, cancellationToken);
+        var state = follower.Registry.StateFor(follower.Header.GroupId);
+        var request = new GetReplicaStatusRequest { Header = follower.Header };
+        var before = await follower.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, follower.HttpContext));
+        state.SetElectionDriven(true);
+        _ = state.BecomeLeader(2UL);
+        var promoting = await follower.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, follower.HttpContext));
+        _ = state.GrantAuthority(2UL);
+
+        var leading = await follower.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, follower.HttpContext));
+
+        _ = await Assert.That((before.Role, promoting.Role, leading.Role)).IsEqualTo(("follower", "candidate", "leader"));
+    }
+
     /// <summary>Verifies that a pre-vote on a served group answers from the log and leaves the term unchanged.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

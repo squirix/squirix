@@ -31,8 +31,12 @@ internal static class ReplicaFollowerSenders
         var slots = new ReplicaSlots(leaderReplicaIndex);
         for (var i = 0; i < senders.Length; i++)
         {
-            senders[i] = new ReplicaFollowerSender(gateway, members[slots.SlotOf(i)], in header, status.LastLogIndex, status.LastLogTerm, timing.CommitBudget)
+            var slot = slots.SlotOf(i);
+            senders[i] = new ReplicaFollowerSender(gateway, members[slot], in header, status.LastLogIndex, status.LastLogTerm, timing.CommitBudget)
             {
+                ReplicaIndex = slot,
+                ReplyObserver = timing.Replies,
+
                 // The senders' teardown is part of the committer's dispose, so it never waits longer than the committer's budget.
                 ShutdownBudget = senderShutdownBudget,
                 ShutdownLeakReporter = leakReporter,
@@ -48,5 +52,9 @@ internal static class ReplicaFollowerSenders
     /// <param name="ShutdownBudget">The committer's shutdown budget; each sender's teardown never waits longer than the coordinator default.</param>
     /// <param name="TimeProvider">The time source of each follower request timeout.</param>
     [Immutable]
-    internal readonly record struct SenderTiming(TimeSpan CommitBudget, TimeSpan ShutdownBudget, TimeProvider TimeProvider);
+    internal readonly record struct SenderTiming(TimeSpan CommitBudget, TimeSpan ShutdownBudget, TimeProvider TimeProvider)
+    {
+        /// <summary>Gets the callback that receives every follower reply with the slot it came from; none are reported unless set.</summary>
+        internal Action<int, FollowerLogAppendResult>? Replies { get; init; }
+    }
 }

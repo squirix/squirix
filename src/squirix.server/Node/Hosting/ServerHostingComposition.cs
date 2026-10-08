@@ -116,14 +116,7 @@ internal static class ServerHostingComposition
         for (var i = 0; i < peerIds.Length; i++)
             peerIds[i] = cluster.Peers[i].NodeId;
 
-        _ = services.AddSingleton(sp => new ReplicaGroupRegistry(
-            persistence.DataDir,
-            ReplicaGroupMembership.GroupsServedBy(sp.GetRequiredService<IReplicaGroupLocator>(), peerIds, cluster.NodeId),
-            cluster.ReplicaCount,
-            activation.Fingerprint.AsMemory(),
-            cluster.ConfigurationGeneration,
-            sp.GetRequiredService<ILoggerFactory>(),
-            ReplicaGroupLogOptions(sp)));
+        _ = services.AddSingleton(sp => CreateReplicaGroupRegistry(sp, cluster, persistence.DataDir, peerIds, activation));
 
         AddReplicaGroupAppliers(services);
 
@@ -166,6 +159,26 @@ internal static class ServerHostingComposition
                 HealthStatus.Unhealthy,
                 ["ready"]));
     }
+
+    /// <summary>Creates the registry of the groups this node serves, with the election timing and clock of the host.</summary>
+    /// <param name="sp">The service provider.</param>
+    /// <param name="cluster">Cluster topology configuration.</param>
+    /// <param name="dataDir">Exclusive node data directory.</param>
+    /// <param name="peerIds">The identifiers of every configured node.</param>
+    /// <param name="activation">The activated topology fingerprint.</param>
+    /// <returns>The registry; its logs open in <see cref="OpenStorageAsync" />.</returns>
+    private static ReplicaGroupRegistry CreateReplicaGroupRegistry(IServiceProvider sp, TopologyOptions cluster, string dataDir, string[] peerIds, ReplicaGroupActivation activation) => new(
+        dataDir,
+        ReplicaGroupMembership.GroupsServedBy(sp.GetRequiredService<IReplicaGroupLocator>(), peerIds, cluster.NodeId),
+        cluster.ReplicaCount,
+        activation.Fingerprint.AsMemory(),
+        cluster.ConfigurationGeneration,
+        sp.GetRequiredService<ILoggerFactory>(),
+        ReplicaGroupLogOptions(sp))
+    {
+        Election = sp.GetService<ElectionTimerOptions>() ?? new ElectionTimerOptions(),
+        ElectionClock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
+    };
 
     /// <summary>Registers the appliers of every served group, which the committers of the led groups and the apply loops of the others drive.</summary>
     /// <param name="services">DI service collection.</param>

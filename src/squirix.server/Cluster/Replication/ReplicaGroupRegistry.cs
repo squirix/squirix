@@ -70,6 +70,12 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         _options = options;
     }
 
+    /// <summary>Gets or initializes the election timing of every group; the defaults unless set.</summary>
+    internal ElectionTimerOptions Election { get; init; } = new();
+
+    /// <summary>Gets or initializes the time source of the election state of every group; the system clock unless set.</summary>
+    internal TimeProvider ElectionClock { get; init; } = TimeProvider.System;
+
     /// <summary>Gets the replica group identifiers served by this node.</summary>
     /// <returns>The group identifiers fixed at construction.</returns>
     internal IReadOnlyList<string> GroupIds => _groupIds;
@@ -110,6 +116,29 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     /// <exception cref="InvalidOperationException">Thrown when the registry is not opened.</exception>
     /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
     internal ReplicaApplySignal ApplySignalFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Signal;
+
+    /// <summary>Gets the election state of a served group.</summary>
+    /// <param name="id">Replica group identifier.</param>
+    /// <returns>The election state.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the registry is not opened.</exception>
+    /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
+    internal ReplicaGroupState StateFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Election;
+
+    /// <summary>Gets the election state of a served group, if the registry is opened and serves it.</summary>
+    /// <param name="id">Replica group identifier.</param>
+    /// <param name="state">The election state when this node serves the group; otherwise <see langword="null" />.</param>
+    /// <returns><see langword="true" /> when this node serves the group.</returns>
+    internal bool TryGetState(string id, [NotNullWhen(true)] out ReplicaGroupState? state)
+    {
+        if (_groups?.TryGetValue(id, out var group) == true)
+        {
+            state = group.Election;
+            return true;
+        }
+
+        state = null;
+        return false;
+    }
 
     /// <summary>Creates and opens every group log for durable replication.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -203,7 +232,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
                     _ = eligibility.TryMarkReady(r, in zero, in zero);
             }
 
-            var state = new GroupState(log, eligibility, new ReplicaApplySignal());
+            var state = new GroupState(log, eligibility, new ReplicaApplySignal(), new ReplicaGroupState(_replicaCount, Election, ElectionClock));
             log = null;
             return state;
         }
@@ -252,5 +281,5 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     }
 
     [Immutable]
-    private readonly record struct GroupState(FollowerLog Log, ReplicaEligibility Eligibility, ReplicaApplySignal Signal);
+    private readonly record struct GroupState(FollowerLog Log, ReplicaEligibility Eligibility, ReplicaApplySignal Signal, ReplicaGroupState Election);
 }
