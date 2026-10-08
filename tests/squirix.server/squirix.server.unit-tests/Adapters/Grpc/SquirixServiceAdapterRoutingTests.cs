@@ -64,6 +64,40 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
         _ = await Assert.That(invoker.Requests.Count).IsEqualTo(0);
     }
 
+    /// <summary>A reroute after a stale answer sends the same request, so the leader sees the operation id of the first attempt.</summary>
+    [Test]
+    public async Task RerouteKeepsOperationId()
+    {
+        var calls = 0;
+        var invoker = new CapturingCallInvoker(
+            static method => CreateResponse(method),
+            () => ++calls == 1 ? StaleOwnerWithHint("node-c") : null);
+        await using var policy = CreatePolicy();
+        var adapter = CreateAdapter(invoker, policy, false, new FakeLeaderTable(Self, new LeaderRoute(Remote, 2)));
+
+        _ = await adapter.SetEntry(new SetEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, new TestServerCallContext());
+
+        _ = await Assert.That(invoker.Requests.Count).IsEqualTo(2);
+        _ = await Assert.That((invoker.Requests[0] as SetEntryAsyncRequest)?.OperationId).IsEqualTo(OperationId);
+        _ = await Assert.That((invoker.Requests[1] as SetEntryAsyncRequest)?.OperationId).IsEqualTo(OperationId);
+    }
+
+    /// <summary>With the static table a stale answer of the owner reaches the client unchanged after one forward, without any wait.</summary>
+    [Test]
+    public async Task FlagOffForwardsOnceToOwner()
+    {
+        var invoker = new CapturingCallInvoker(static method => CreateResponse(method), static () => StaleOwnerWithHint("node-c"));
+        await using var policy = CreatePolicy();
+        var adapter = CreateAdapter(invoker, policy, false);
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            adapter.SetEntry(new SetEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, new TestServerCallContext()));
+
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
+        _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(invoker.Requests.Count).IsEqualTo(1);
+    }
+
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 
@@ -98,9 +132,13 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
         static async (adapter, context) => _ = await adapter.Update(new UpdateAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
     ];
 
+    private static RpcException StaleOwnerWithHint(string leader) => new(
+        new Status(StatusCode.FailedPrecondition, $"Key is owned by '{leader}', not current node '{Remote}'."),
+        new Metadata { { "squirix-error-code", "stale-owner" }, { StaleRouteSignals.LeaderNodeIdMetadataKey, leader }, { StaleRouteSignals.LeaderTermMetadataKey, "3" } });
+
     private static CacheEntryWire CreateEntry() => new() { Expiration = Duration.FromTimeSpan(TimeSpan.FromMinutes(1)) };
 
-    private static SquirixServiceAdapter<object?> CreateAdapter(CapturingCallInvoker invoker, ServerCallPolicy policy, bool internalCall)
+    private static SquirixServiceAdapter<object?> CreateAdapter(CapturingCallInvoker invoker, ServerCallPolicy policy, bool internalCall, IGroupLeaderTable? table = null)
     {
         var ownership = new INodeOwnershipResolverCreateExpectations();
         _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
@@ -116,10 +154,14 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
         _ = pool.Setups.ForNode(Arg.Any<string>()).ReturnValue(new SquirixCacheService.SquirixCacheServiceClient(invoker));
         _ = pool.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(policy);
 
+        var router = table == null
+            ? OwnerRouters.Static(ownership.Instance(), invocation.Instance(), Self)
+            : new OwnerRouter(ownership.Instance(), invocation.Instance(), RingAgreements.Create(), table, OwnerRouters.LeaderWait, TimeProvider.System);
+
         // The cache operations and the coordinator have no setups: any call to them fails the test.
         return new SquirixServiceAdapter<object?>(
             new IGrpcCacheOperationsCreateExpectations<object?>().Instance(),
-            new OwnerRouter(ownership.Instance(), invocation.Instance(), RingAgreements.Create()),
+            router,
             new OwnerRpcForwarder(pool.Instance(), gate.Instance(), clientIds.Instance(), RingAgreements.Create()),
             new IRpcMutationIdempotencyCoordinatorCreateExpectations().Instance(),
             TimeProvider.System);
