@@ -48,6 +48,31 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
     }
 
     /// <summary>
+    /// A leadership whose start throws is still published once: the group joins the led set and its readiness loop is queued, so the start
+    /// is retried; a later promotion of the same leadership queues nothing more.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ThrowingStartStillPublishesLeadership(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-start-publish");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var gateway = new HoldingGateway { FailProbes = true };
+        await using var committers = new ReplicaGroupCommitters(_ => Elected(registry, gateway), new ReplicaLeaderTable(registry, "n1"), "n1", Owners(), TimeProvider.System);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(committers.PromoteAsync("n2", 2UL, cancellationToken));
+        var led = committers.Leads("n2");
+        var queued = committers.Promotions!.TryRead(out var promotion);
+        gateway.FailProbes = false;
+        _ = await committers.PromoteAsync("n2", 2UL, cancellationToken);
+
+        _ = await Assert.That((led, queued, promotion.Committer.GroupId, promotion.Tenure.IsCancellationRequested)).IsEqualTo((true, true, "n2", false));
+        _ = await Assert.That(committers.Promotions.TryRead(out _)).IsFalse();
+        _ = await Assert.That(registry.StateFor("n2").HasAuthority).IsFalse();
+    }
+
+    /// <summary>
     /// A retirement while the readiness loop of the leadership catches a follower up neither faults the loop nor waits on it: the retirement
     /// returns, and the loop ends normally with the leadership.
     /// </summary>

@@ -134,15 +134,20 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         var committer = GetOrCreate(groupId);
-        var started = committer.Tenure != null;
-        var authorized = await committer.PromoteAsync(term, cancellationToken).ConfigureAwait(false);
-        if (!started && committer.Tenure is { } tenure && _promotions != null)
+        try
         {
-            Publish(committer, true);
-            _ = _promotions.Writer.TryWrite(new ReplicaPromotion(committer, tenure.Token));
+            return await committer.PromoteAsync(term, cancellationToken).ConfigureAwait(false);
         }
-
-        return authorized;
+        finally
+        {
+            // A started leadership joins the led groups and gets its readiness loop even when its start threw: the loop retries the start.
+            // Authority still waits for its leader-term entry.
+            if (committer.Tenure is { } tenure && _promotions != null && !Leads(groupId))
+            {
+                Publish(committer, true);
+                _ = _promotions.Writer.TryWrite(new ReplicaPromotion(committer, tenure.Token));
+            }
+        }
     }
 
     /// <inheritdoc />
