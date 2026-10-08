@@ -221,7 +221,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         _ = await Assert.That(state.ElectionResetTimestamp()).IsNotNull();
     }
 
-    /// <summary>A follower whose log adopted the fingerprint of one failover mode refuses the append, pre-vote and vote of the other mode, unchanged.</summary>
+    /// <summary>A follower whose log adopted the fingerprint of one failover mode refuses every replication call of the other mode, unchanged.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task OtherFailoverModeIsTopologyMismatch(CancellationToken cancellationToken)
@@ -237,12 +237,17 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         var append = await follower.AppendAsync(GroupId, unelected, 1UL, new FollowerBatch([], "n2", 3UL, 0UL, 0UL, 0UL), cancellationToken);
         var preVote = await follower.PreVoteAsync(GroupId, unelected, 1UL, ballot, cancellationToken);
         var vote = await follower.RequestVoteAsync(GroupId, unelected, 1UL, ballot, cancellationToken);
+        var commit = await follower.AdvanceCommitAsync(GroupId, unelected, 1UL, 0UL, 3UL, cancellationToken);
+        var snapshot = new GroupSnapshot(GroupId, unelected, 1UL, 1UL, 1UL, 1UL, [], DateTime.UnixEpoch);
+        var install = await follower.InstallSnapshotAsync(GroupId, unelected, 1UL, snapshot, 3UL, cancellationToken);
         var status = await follower.GetStatusAsync(GroupId, cancellationToken);
 
         _ = await Assert.That(unelected.AsSpan().SequenceEqual(elected)).IsFalse();
         _ = await Assert.That((append.Success, append.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.TopologyMismatch));
         _ = await Assert.That((preVote.Granted, preVote.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.TopologyMismatch));
         _ = await Assert.That((vote.Granted, vote.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.TopologyMismatch));
+        _ = await Assert.That((commit.Success, commit.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.TopologyMismatch));
+        _ = await Assert.That((install.Success, install.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.TopologyMismatch));
         _ = await Assert.That((status?.CurrentTerm, status?.VotedFor, status?.LastLogIndex)).IsEqualTo((before?.CurrentTerm, before?.VotedFor, before?.LastLogIndex));
         _ = await Assert.That(status?.CurrentTerm).IsEqualTo(0UL);
         _ = await Assert.That(registry.StateFor(GroupId).ReadRoute().HasLeader).IsFalse();
