@@ -213,7 +213,7 @@ internal sealed class ReplicaVerificationProbe
         if (term != 0 || StaticLeaderTerm.TryResolve(in status, out term))
             return true;
 
-        if (ReportBlockedTail(new BlockedTail(status.LastLogIndex, status.CurrentTerm, true)))
+        if (ReportBlockedTail(new BlockedTail(0, status.CurrentTerm, true)))
             ServerLog.ReplicaStaticLeaderTermAboveOne(_log, _groupId, status.CurrentTerm);
 
         return false;
@@ -230,7 +230,7 @@ internal sealed class ReplicaVerificationProbe
     }
 
     /// <summary>A leader tail that cannot be committed yet: it holds no entry of the current term, or a static leader's log moved past term one.</summary>
-    /// <param name="LastIndex">The last index of the tail.</param>
+    /// <param name="LastIndex">The last index of the tail; zero for a static leader's log past term one, which is reported once per term.</param>
     /// <param name="Term">The leader's current term, or the log term a static leader cannot lead.</param>
     /// <param name="AboveStaticTerm">Whether a static leader's log moved past term one.</param>
     [Immutable]
