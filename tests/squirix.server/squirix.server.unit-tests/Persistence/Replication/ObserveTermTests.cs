@@ -105,6 +105,63 @@ public sealed class ObserveTermTests : ServerUnitTestBase
         _ = await Assert.That((status.CurrentTerm, status.VotedFor)).IsEqualTo((2UL, "node-b"));
     }
 
+    /// <summary>A disposed log adopts no term and reports the durable term it closed with.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposedLogKeepsTerm(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-observe-term-disposed");
+        var log = OpenLog(dir);
+        await log.OpenAsync(cancellationToken);
+        _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
+        await log.DisposeAsync();
+
+        var observed = await log.ObserveTermAsync(5UL, cancellationToken);
+
+        _ = await Assert.That(observed).IsEqualTo(2UL);
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(cancellationToken);
+        _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).CurrentTerm).IsEqualTo(2UL);
+    }
+
+    /// <summary>
+    /// A cancellation that surfaces during the metadata write is no storage failure: the log stays ready, the term is not adopted in
+    /// memory or on disk, and a later observation adopts it.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancelDuringWriteKeepsLogReady(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-observe-term-cancel");
+        var armed = false;
+        var faults = new IFollowerLogFaultHooksCreateExpectations();
+        _ = faults.Setups.OnFrameWritten();
+        _ = faults.Setups.OnFlushed();
+        _ = faults.Setups.OnCommitAdvanced();
+        _ = faults.Setups.OnBeforeMemoryApply();
+        _ = faults.Setups.OnMetaWritten().Callback(() =>
+        {
+            if (!armed)
+                return;
+
+            armed = false;
+            throw new OperationCanceledException("simulated cancellation during the metadata write.");
+        });
+
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance());
+        await log.OpenAsync(cancellationToken);
+        _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
+        armed = true;
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(log.ObserveTermAsync(3UL, cancellationToken));
+
+        var status = await log.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((log.Readiness, status.CurrentTerm, status.VotedFor)).IsEqualTo((FollowerLogReadiness.Ready, 2UL, "node-b"));
+        var meta = await ReadMetaAsync(dir, cancellationToken);
+        _ = await Assert.That(meta.CurrentTerm).IsEqualTo(2UL);
+        _ = await Assert.That(await log.ObserveTermAsync(3UL, cancellationToken)).IsEqualTo(3UL);
+    }
+
     private static FollowerLogAppendRequest Append(ulong index, ulong term) => new(
         "node-a",
         term,
