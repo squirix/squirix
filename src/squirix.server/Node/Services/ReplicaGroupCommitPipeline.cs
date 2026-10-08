@@ -26,7 +26,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     internal const string LocalAppendRefusedPrefix = "Local group append was refused: ";
 
     /// <summary>The message of the failure of a local append the log refused because its durable term is above the term of the entry.</summary>
-    internal const string LocalAppendStaleTermMessage = LocalAppendRefusedPrefix + RefusalCodes.StaleTerm + ".";
+    internal const string LocalAppendStaleTermMessage = LocalAppendRefusedPrefix + FollowerLogRefusal.StaleTerm + ".";
 
     private readonly ReplicaGroupApplier _applier;
     private readonly ReplicaLaggingFollowers _lagging;
