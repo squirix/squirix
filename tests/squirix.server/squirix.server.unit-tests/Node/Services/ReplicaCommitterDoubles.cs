@@ -221,6 +221,16 @@ internal static class ReplicaCommitterDoubles
             return lifecycle;
         }
 
+        /// <summary>Creates a lifecycle whose startup gate fails every wait with <paramref name="error" />.</summary>
+        /// <param name="error">The failure of the startup gate.</param>
+        /// <returns>The lifecycle.</returns>
+        internal static RecoveryLifecycle Failed(Exception error)
+        {
+            var lifecycle = new RecoveryLifecycle();
+            _ = lifecycle._released.TrySetException(error);
+            return lifecycle;
+        }
+
         /// <summary>Creates a lifecycle whose startup gate stays closed until <see cref="Release" />.</summary>
         /// <returns>The lifecycle.</returns>
         internal static RecoveryLifecycle Recovering() => new();

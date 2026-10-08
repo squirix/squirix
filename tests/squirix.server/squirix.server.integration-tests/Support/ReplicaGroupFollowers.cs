@@ -39,7 +39,7 @@ internal static class ReplicaGroupFollowers
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(VerificationBound);
-        var committer = owner.GetRequiredService<ReplicaGroupCommitter>();
+        var committer = ReplicaNodeCommitters.OwnCommitter(owner);
         var verdict = ReplicaVerification.Pending;
         try
         {

@@ -83,7 +83,7 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
         await AwaitAppliedAsync(restarted, start.CommitIndex, cancellationToken);
 
         // The applier starts from the durable applied index and moves only by applying an entry; flushing it persists how far it got.
-        await restarted.GetRequiredService<ReplicaFollowerAppliers>().For(OwnerId).FlushAsync(log, restarted.GetRequiredService<IJournalCoordinator>(), cancellationToken);
+        await restarted.GetRequiredService<ReplicaGroupAppliers>().For(OwnerId).FlushAsync(log, restarted.GetRequiredService<IJournalCoordinator>(), cancellationToken);
         var flushed = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That(start.CommitIndex >= first + Writes - 2).IsTrue().Because($"The restarted follower must keep its durable commit index; commit {start.CommitIndex}.");
         _ = await Assert.That(start.LastAppliedIndex).IsEqualTo(0UL).Because("No maintenance pass ran before the restart, so the restart point is the start of the log.");
@@ -203,7 +203,7 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
     /// <exception cref="TimeoutException">The follower did not apply through the index within the bound.</exception>
     private static async Task AwaitAppliedAsync(ITestNodeHost host, ulong index, CancellationToken cancellationToken)
     {
-        var applier = host.GetRequiredService<ReplicaFollowerAppliers>().For(OwnerId);
+        var applier = host.GetRequiredService<ReplicaGroupAppliers>().For(OwnerId);
         var started = Stopwatch.GetTimestamp();
         while (applier.AppliedIndex < index)
         {

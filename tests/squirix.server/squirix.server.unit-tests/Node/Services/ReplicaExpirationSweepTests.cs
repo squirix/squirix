@@ -7,11 +7,13 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -78,6 +80,35 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         _ = await Assert.That(await RawAsync(physical, "followed", cancellationToken)).IsNotNull();
     }
 
+    /// <summary>
+    /// A node leading two groups expires the keys of each through the committer of its group, in one pass, and leaves the key of a group it
+    /// only follows in place.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SweepExpiresEachLedGroup(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-expiry-sweep-led");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<object?>(physical, physical);
+        await using var committers = LeadTwo(registry, (new ScriptedGateway(), new ScriptedGateway()), local, clock);
+        await committers.For("n1").CommitSetAsync(NewOperationId(), CacheName, "a", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await committers.For("n2").CommitSetAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await physical.SetAsync(new CacheKey(CacheName, "c"), new NodeCacheEntry<object?>("v", 1, Start.UtcDateTime), cancellationToken);
+        clock.Advance(Ttl);
+        using var sweep = new ReplicaExpirationSweepService(committers, physical, Owners(), new EventRecordingLogger());
+
+        var expired = await sweep.SweepOnceAsync(cancellationToken);
+
+        _ = await Assert.That(expired).IsEqualTo(2);
+        _ = await Assert.That((await RawAsync(physical, "a", cancellationToken), await RawAsync(physical, "b", cancellationToken))).IsEqualTo((null, null));
+        _ = await Assert.That(await RawAsync(physical, "c", cancellationToken)).IsNotNull();
+        await SequenceAssert.EqualAsync(["a", "a"], await KeysAsync(registry, "n1", cancellationToken), StringComparer.Ordinal);
+        await SequenceAssert.EqualAsync(["b", "b"], await KeysAsync(registry, "n2", cancellationToken), StringComparer.Ordinal);
+    }
+
     /// <summary>A pass whose tombstone cannot commit stops there, keeps the entries, and logs one failure.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -132,7 +163,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
     {
         var locator = new INodeLocatorCreateExpectations();
         _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Callback(static (_, key) => string.Equals(key, "followed", StringComparison.Ordinal) ? "n2" : "n1");
-        return new ReplicaExpirationSweepService(committer, physical, locator.Instance(), "n1", log) { MaxPerPass = 2 };
+        return new ReplicaExpirationSweepService(LeadOwn(committer), physical, locator.Instance(), log) { MaxPerPass = 2 };
     }
 
     private static ValueTask<NodeCacheEntry<object?>?> RawAsync(PhysicalCache<object?> physical, string key, CancellationToken cancellationToken) =>

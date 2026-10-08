@@ -15,6 +15,7 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -292,7 +293,7 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         await CommitAsync(committer, "k1", cancellationToken);
         await routing.AppendedAsync("n3", 1).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         var log = new SignalingLogger();
-        using var service = new ReplicaGroupReadinessService(committer, log, TimeProvider.System);
+        using var service = new ReplicaGroupReadinessService(LeadOwn(committer), log, TimeProvider.System);
         await service.StartAsync(cancellationToken);
         try
         {
@@ -326,7 +327,7 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway);
         var log = new SignalingLogger();
-        using var service = new ReplicaGroupReadinessService(committer, log, TimeProvider.System);
+        using var service = new ReplicaGroupReadinessService(LeadOwn(committer), log, TimeProvider.System);
 
         await service.StartAsync(cancellationToken);
         try

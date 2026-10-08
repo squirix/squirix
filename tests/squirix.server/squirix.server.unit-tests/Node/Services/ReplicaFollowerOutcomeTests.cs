@@ -18,7 +18,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>
 /// A follower group keeps the idempotency outcomes of its log: the recovered uncommitted tail is pinned when the group opens, a
-/// truncation releases the pins of the entries it drops, and the apply of a committed entry records its outcome.
+/// truncation releases the pins of the entries it drops, and the apply of a committed entry records its outcome once the outcomes are rebuilt.
 /// </summary>
 public sealed class ReplicaFollowerOutcomeTests : ServerUnitTestBase
 {
@@ -27,30 +27,76 @@ public sealed class ReplicaFollowerOutcomeTests : ServerUnitTestBase
     private static readonly string[] Groups = ["n1", "n2", "n3"];
 
     /// <summary>
-    /// A catch-up that could not record the outcomes applies nothing: before the outcomes of the log are rebuilt, no effect reaches memory
-    /// and the applied index stays; after the rebuild every entry is applied with its outcome.
+    /// A catch-up before the outcomes of the log are rebuilt applies every entry and records nothing; the rebuild then restores the
+    /// outcome of each of them from the log.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ApplyWaitsForOutcomeRebuild(CancellationToken cancellationToken)
+    public async Task ApplyBeforeRebuildRecordsNothing(CancellationToken cancellationToken)
     {
-        using var dir = new TempDirectory("squirix-follower-outcome-order");
+        using var dir = new TempDirectory("squirix-follower-outcome-before");
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
         var log = LogOf(registry);
         var records = new[] { Prepare("k1", 1UL), Prepare("k2", 2UL) };
         await AppendAsync(log, 0UL, 1UL, [Entry(in records[0]), Entry(in records[1])], 2UL, cancellationToken);
         var cache = new StubCache();
-        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, GroupId, "n1") { RecordsOutcomes = true };
+        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, GroupId, "n1");
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(applier.CatchUpAsync(log, 0UL, 2UL, cancellationToken));
-        _ = await Assert.That((applier.AppliedIndex, cache.Applied.Count)).IsEqualTo((0UL, 0));
+        await applier.CatchUpAsync(log, 0UL, 2UL, cancellationToken);
 
+        _ = await Assert.That((applier.AppliedIndex, cache.Applied.Count)).IsEqualTo((2UL, 2));
+        _ = await Assert.That(Lookup(log, in records[0])).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(Lookup(log, in records[1])).IsEqualTo(GroupIdempotencyLookup.Miss);
+
+        _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(Lookup(log, in records[0])).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(Lookup(log, in records[1])).IsEqualTo(GroupIdempotencyLookup.Found);
+    }
+
+    /// <summary>A catch-up after the outcomes of the log are rebuilt records the outcome of every entry it applies.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ApplyAfterRebuildRecordsOutcomes(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-outcome-after");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var log = LogOf(registry);
+        var records = new[] { Prepare("k1", 1UL), Prepare("k2", 2UL) };
         log.Idempotency.MarkOutcomesRebuilt();
+        await AppendAsync(log, 0UL, 1UL, [Entry(in records[0]), Entry(in records[1])], 2UL, cancellationToken);
+        var applier = new ReplicaGroupApplier(new StubCache(), NullLogger.Instance, GroupId, "n1");
+
         await applier.CatchUpAsync(log, 0UL, 2UL, cancellationToken);
 
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(2UL);
         _ = await Assert.That(Lookup(log, in records[0])).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(Lookup(log, in records[1])).IsEqualTo(GroupIdempotencyLookup.Found);
+    }
+
+    /// <summary>
+    /// The apply of an entry whose outcome a coordinator already resolved records it again without changing it: the store keeps one
+    /// record with the outcome the entry carries.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ApplyKeepsResolvedOutcome(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-outcome-resolved-twice");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var log = LogOf(registry);
+        var record = Prepare("k1", 1UL);
+        log.Idempotency.MarkOutcomesRebuilt();
+        await AppendAsync(log, 0UL, 1UL, [Entry(in record)], 1UL, cancellationToken);
+        _ = log.Idempotency.Reserve(record.OperationScope, record.OperationId, record.OperationFingerprint.Span, GroupRecordKind.UserMutation, 1UL, 1UL);
+        _ = log.Idempotency.TryResolve(record.OperationScope, record.OperationId, record.OutcomePayload.Span, 1UL, 1UL);
+        var applier = new ReplicaGroupApplier(new StubCache(), NullLogger.Instance, GroupId, "n1");
+
+        await applier.CatchUpAsync(log, 0UL, 1UL, cancellationToken);
+
+        _ = await Assert.That(Lookup(log, in record, out var outcome)).IsEqualTo(GroupIdempotencyLookup.Found);
+        await SequenceAssert.EqualAsync(record.OutcomePayload.ToArray(), outcome.OutcomePayload.ToArray());
+        _ = await Assert.That(log.Idempotency.ExportResolved(out _).Count).IsEqualTo(1);
     }
 
     /// <summary>The apply of a pinned entry that commits after the restart resolves its pin with the outcome its record carries.</summary>
@@ -64,7 +110,7 @@ public sealed class ReplicaFollowerOutcomeTests : ServerUnitTestBase
         var log = LogOf(registry);
         _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
         await AppendAsync(log, 2UL, 1UL, [], 2UL, cancellationToken);
-        var applier = new ReplicaGroupApplier(new StubCache(), NullLogger.Instance, GroupId, "n1") { RecordsOutcomes = true };
+        var applier = new ReplicaGroupApplier(new StubCache(), NullLogger.Instance, GroupId, "n1");
 
         await applier.CatchUpAsync(log, 0UL, 2UL, cancellationToken);
 

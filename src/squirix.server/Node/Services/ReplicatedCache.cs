@@ -8,7 +8,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>Replicated owner-local cache: reads stay local, mutations commit through the owned group.</summary>
+/// <summary>Replicated owner-local cache: reads stay local, mutations commit through the led group that owns their key.</summary>
 /// <remarks>
 /// Storage keeps an entry past its deadline until a committed record removes it, and only the leader decides expiry. A read that finds
 /// its entry past the deadline on the leader clock commits the tombstone of the entry before it reports the miss, so no replica reports
@@ -20,18 +20,18 @@ namespace Squirix.Server.Node.Services;
 [Immutable]
 internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
 {
-    private readonly ReplicaGroupCommitter _committer;
+    private readonly ReplicaGroupCommitters _committers;
     private readonly ILogicalNamespacedCache<object?> _inner;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicatedCache" /> class.</summary>
     /// <param name="inner">Local cache pipeline used for reads and ordered applies.</param>
-    /// <param name="committer">Serialized replicated committer for the owned group.</param>
-    internal ReplicatedCache(ILogicalNamespacedCache<object?> inner, ReplicaGroupCommitter committer)
+    /// <param name="committers">The serialized replicated committers of the led groups.</param>
+    internal ReplicatedCache(ILogicalNamespacedCache<object?> inner, ReplicaGroupCommitters committers)
     {
         ArgumentNullException.ThrowIfNull(inner);
-        ArgumentNullException.ThrowIfNull(committer);
+        ArgumentNullException.ThrowIfNull(committers);
         _inner = inner;
-        _committer = committer;
+        _committers = committers;
     }
 
     /// <inheritdoc />
@@ -52,27 +52,27 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
 
     /// <inheritdoc />
     public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-        new(_committer.CommitRemoveAsync(operationId, cacheName, key, cancellationToken));
+        new(_committers.ForKey(cacheName, key).CommitRemoveAsync(operationId, cacheName, key, cancellationToken));
 
     /// <inheritdoc />
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-        new(_committer.CommitRemoveExpirationAsync(operationId, cacheName, key, cancellationToken));
+        new(_committers.ForKey(cacheName, key).CommitRemoveExpirationAsync(operationId, cacheName, key, cancellationToken));
 
     /// <inheritdoc />
     public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
-        new(_committer.CommitSetAsync(operationId, cacheName, key, entry, cancellationToken));
+        new(_committers.ForKey(cacheName, key).CommitSetAsync(operationId, cacheName, key, entry, cancellationToken));
 
     /// <inheritdoc />
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
-        new(_committer.CommitTouchAsync(operationId, cacheName, key, expiration, cancellationToken));
+        new(_committers.ForKey(cacheName, key).CommitTouchAsync(operationId, cacheName, key, expiration, cancellationToken));
 
     /// <inheritdoc />
     public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
-        new(_committer.CommitTryAddAsync(operationId, cacheName, key, entry, cancellationToken));
+        new(_committers.ForKey(cacheName, key).CommitTryAddAsync(operationId, cacheName, key, entry, cancellationToken));
 
     /// <inheritdoc />
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) =>
-        new(_committer.CommitUpdateAsync(operationId, cacheName, key, value, cancellationToken));
+        new(_committers.ForKey(cacheName, key).CommitUpdateAsync(operationId, cacheName, key, value, cancellationToken));
 
     /// <summary>Reads the stored entry of a key without deciding its expiry: an entry past its deadline on the leader clock reads as absent.</summary>
     /// <param name="cacheName">Target cache name.</param>
@@ -92,7 +92,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// <summary>Tells whether the leader clock has passed the deadline of a stored entry.</summary>
     /// <param name="entry">The stored entry, or <see langword="null" />.</param>
     /// <returns><see langword="true" /> when the entry has a deadline at or before the leader clock.</returns>
-    private bool IsExpired(NodeCacheEntry<object?>? entry) => entry?.ExpiresUtc is { } deadline && deadline.Ticks <= _committer.Clock.GetUtcNow().UtcDateTime.Ticks;
+    private bool IsExpired(NodeCacheEntry<object?>? entry) => entry?.ExpiresUtc is { } deadline && deadline.Ticks <= _committers.Clock.GetUtcNow().UtcDateTime.Ticks;
 
     /// <summary>Expires the key on the leader and reports what the committed decision leaves.</summary>
     /// <param name="cacheName">Target cache name.</param>
@@ -102,9 +102,10 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// <exception cref="Grpc.Core.RpcException">The tombstone could not commit: Unavailable with the expiration-pending detail.</exception>
     private async Task<NodeCacheEntry<object?>?> ExpireAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
+        var committer = _committers.ForKey(cacheName, key);
         try
         {
-            return await _committer.ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+            return await committer.ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

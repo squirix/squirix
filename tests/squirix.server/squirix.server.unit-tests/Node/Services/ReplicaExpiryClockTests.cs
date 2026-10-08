@@ -21,6 +21,7 @@ using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -382,7 +383,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
             Physical = new PhysicalCache<object?>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
             var local = new ClientCache<object?>(Physical, Physical);
             Committer = CreateCommitter(registry, Gateway, local, clock);
-            Cache = new ReplicatedCache(local, Committer);
+            Cache = new ReplicatedCache(local, LeadOwn(Committer));
         }
 
         internal ReplicatedCache Cache { get; }

@@ -15,6 +15,7 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -35,7 +36,7 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
         using var meter = new Meter("test");
         var metrics = new ReplicationMetrics(meter);
-        var appliers = new ReplicaFollowerAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaFollowerAppliers>.Instance, metrics);
+        var appliers = new ReplicaGroupAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics);
         var log = await SeedAsync(registry, "n2", 3, 3UL, cancellationToken);
         _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
         await appliers.For("n2").CatchUpAsync(log, 0UL, 3UL, cancellationToken);
@@ -48,7 +49,7 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
                           return token.IsCancellationRequested ? ValueTask.FromCanceled(token) : ValueTask.CompletedTask;
                       });
         using var service = new ReplicaLogCompactionService(
-            committer,
+            LeadOwn(committer),
             durability.Instance(),
             new ReplicaLogCompactionOptions(),
             new ReplicaLogCompactionPolicy(long.MaxValue, int.MaxValue),
@@ -79,14 +80,14 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
         using var meter = new Meter("test");
         var metrics = new ReplicationMetrics(meter);
-        var appliers = new ReplicaFollowerAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaFollowerAppliers>.Instance, metrics);
+        var appliers = new ReplicaGroupAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics);
         var log = await SeedAsync(registry, "n2", 4, 3UL, cancellationToken);
         _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
         await appliers.For("n2").CatchUpAsync(log, 0UL, 3UL, cancellationToken);
         var durability = new IJournalDurabilityCoordinatorCreateExpectations();
         _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         using var service = new ReplicaLogCompactionService(
-            committer,
+            LeadOwn(committer),
             durability.Instance(),
             new ReplicaLogCompactionOptions(),
             new ReplicaLogCompactionPolicy(long.MaxValue, 2),
@@ -139,7 +140,7 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
         using var meter = new Meter("test");
         var metrics = new ReplicationMetrics(meter);
-        var appliers = new ReplicaFollowerAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaFollowerAppliers>.Instance, metrics);
+        var appliers = new ReplicaGroupAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics);
         var log = await SeedAsync(registry, "n2", 3, 3UL, cancellationToken);
         _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
         var failing = new[] { true };
@@ -148,7 +149,7 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
                       .Callback(_ => Volatile.Read(ref failing[0]) ? ValueTask.FromException(new IOException("journal unavailable")) : ValueTask.CompletedTask);
         var events = new EventRecordingLogger();
         using var service = new ReplicaLogCompactionService(
-            committer,
+            LeadOwn(committer),
             durability.Instance(),
             new ReplicaLogCompactionOptions(),
             new ReplicaLogCompactionPolicy(long.MaxValue, int.MaxValue),

@@ -9,17 +9,17 @@ internal static partial class ServerLog
     [LoggerMessage(
         EventId = 4001,
         Level = LogLevel.Warning,
-        Message = "Replica group verification cannot proceed: the leader log is not ready or its uncommitted tail has no entry of the current term")]
-    internal static partial void ReplicaVerificationBlocked(ILogger logger);
+        Message = "Replica group {GroupId} verification cannot proceed: the leader log is not ready or its uncommitted tail has no entry of the current term")]
+    internal static partial void ReplicaVerificationBlocked(ILogger logger, string groupId);
 
-    [LoggerMessage(EventId = 4002, Level = LogLevel.Information, Message = "Replica group verification is complete: every slot counts toward the write quorum")]
-    internal static partial void ReplicaVerificationComplete(ILogger logger);
+    [LoggerMessage(EventId = 4002, Level = LogLevel.Information, Message = "Replica group {GroupId} verification is complete: every slot counts toward the write quorum")]
+    internal static partial void ReplicaVerificationComplete(ILogger logger, string groupId);
 
-    [LoggerMessage(EventId = 4004, Level = LogLevel.Information, Message = "Replica group verification is pending: some followers are not yet verified against the leader log")]
-    internal static partial void ReplicaVerificationPending(ILogger logger);
+    [LoggerMessage(EventId = 4004, Level = LogLevel.Information, Message = "Replica group {GroupId} verification is pending: some followers are not yet verified against the leader log")]
+    internal static partial void ReplicaVerificationPending(ILogger logger, string groupId);
 
-    [LoggerMessage(EventId = 4003, Level = LogLevel.Debug, Message = "Replica group verification attempt failed and will be retried")]
-    internal static partial void ReplicaVerificationRetry(ILogger logger, Exception exception);
+    [LoggerMessage(EventId = 4003, Level = LogLevel.Debug, Message = "Replica group {GroupId} verification attempt failed and will be retried")]
+    internal static partial void ReplicaVerificationRetry(ILogger logger, string groupId, Exception exception);
 
     [LoggerMessage(
         EventId = 4005,

@@ -115,6 +115,7 @@ public sealed class LeaderSlotTests : ServerUnitTestBase
             NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            Applier = new ReplicaGroupApplier(new StubCache(), NullLogger.Instance, "n1", "n2"),
         };
 
         await committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken);

@@ -60,7 +60,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var log = new LeakRecordingLogger();
         await using var registry = await OpenRegistryAsync(cancellationToken);
         await using var committer = CreateCommitter(registry, local, log);
-        var cache = new DomainErrorMappingCacheDecorator<object?>(new ReplicatedCache(local, committer));
+        var cache = new DomainErrorMappingCacheDecorator<object?>(new ReplicatedCache(local, LedGroupsTestKit.LeadOwn(committer)));
 
         var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cache.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken));
         var transport = error.ToRpcException();
@@ -98,6 +98,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         await using var committer = new ReplicaGroupCommitter(registry, new TwoNodeLocator(), gateway, local, (OwnedGroup, OwnedGroup), new ReplicaTopologyStamp(Fingerprint, 1), log)
         {
             Recovery = RecoveryLifecycle.Recovered(),
+            Applier = new ReplicaGroupApplier(local, log, OwnedGroup, OwnedGroup),
             CommitBudget = ShortCommitBudget,
             BudgetTimeProvider = clock,
             ShutdownBudget = LogShutdownBudget,
@@ -415,6 +416,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         new(registry, new TwoNodeLocator(), gateway ?? new AcceptingGateway(), local, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), log ?? new LeakRecordingLogger())
         {
             Recovery = RecoveryLifecycle.Recovered(),
+            Applier = new ReplicaGroupApplier(local, log ?? NullLogger<ReplicaGroupCommitter>.Instance, "n1", "n1"),
             ShutdownBudget = TimeSpan.FromMilliseconds(200),
         };
 

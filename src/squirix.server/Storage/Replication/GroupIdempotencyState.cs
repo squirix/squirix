@@ -372,7 +372,7 @@ internal sealed class GroupIdempotencyState
         }
     }
 
-    /// <summary>Records the resolved outcome of a committed log entry applied on a follower group.</summary>
+    /// <summary>Records the resolved outcome of a committed log entry a group applier applied.</summary>
     /// <param name="record">The resolved record built from the applied entry; its resolution time is the leader time of the decision.</param>
     /// <exception cref="ArgumentException">The record is not resolved.</exception>
     /// <exception cref="InvalidOperationException">The outcomes of the committed log entries are not rebuilt yet.</exception>

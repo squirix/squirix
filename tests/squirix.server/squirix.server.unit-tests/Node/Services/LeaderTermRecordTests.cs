@@ -146,7 +146,7 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
         _ = log.Idempotency.Reserve(noop.OperationScope, noop.OperationId, noop.OperationFingerprint.Span, GroupRecordKind.LeaderTerm, 1UL, 1UL, true);
         log.Idempotency.MarkOutcomesRebuilt();
         var cache = new StubCache();
-        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, GroupId, "n1") { RecordsOutcomes = true };
+        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, GroupId, "n1");
 
         await applier.CatchUpAsync(log, 0UL, 1UL, cancellationToken);
 
