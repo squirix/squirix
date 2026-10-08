@@ -293,6 +293,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             GroupRecordKind.UserMutation => 1,
             GroupRecordKind.Expiration => 2,
             GroupRecordKind.Metadata => 3,
+            GroupRecordKind.LeaderTerm => 4,
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported record kind."),
         };
 
@@ -312,6 +313,9 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
                     return true;
                 case 3:
                     kind = GroupRecordKind.Metadata;
+                    return true;
+                case 4:
+                    kind = GroupRecordKind.LeaderTerm;
                     return true;
                 default:
                     kind = default;

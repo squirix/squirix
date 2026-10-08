@@ -27,9 +27,9 @@ namespace Squirix.Server.Storage.Replication;
 ///     than its capacity, until retention ages them out. Refusing one would fail the group log over an entry that is already committed.
 ///     </para>
 ///     <para>
-///     Expiration tombstones (<see cref="GroupRecordKind.Expiration" />) answer no client retry: their pin holds the identity only while the
-///     entry is in flight, never counts against the capacity, and the record is dropped once the entry resolves, so no expiration outcome is
-///     retained, exported, or restored.
+///     Expiration tombstones (<see cref="GroupRecordKind.Expiration" />) and leader-term no-ops (<see cref="GroupRecordKind.LeaderTerm" />)
+///     answer no client retry: their pin holds the identity only while the entry is in flight, never counts against the capacity, and the
+///     record is dropped once the entry resolves, so no such outcome is retained, exported, or restored.
 ///     </para>
 ///     <para>
 ///     A snapshot carries the time its outcomes were captured on the same clock that stamped their resolution times, so a
@@ -284,7 +284,7 @@ internal sealed class GroupIdempotencyState
                 return GroupIdempotencyReserveResult.Success;
             }
 
-            if (_records.Count >= Capacity && !alreadyLogged && kind != GroupRecordKind.Expiration)
+            if (_records.Count >= Capacity && !alreadyLogged && AnswersRetries(kind))
                 return GroupIdempotencyReserveResult.CapacityExceeded;
 
             var memory = BufferEx.CopyToOwned(operationFingerprint);
@@ -340,8 +340,8 @@ internal sealed class GroupIdempotencyState
         if (record.IsUnresolved)
             throw new ArgumentException("A restored outcome must be resolved.", nameof(record));
 
-        // An expiration answers no retry, so its outcome is never restored; the rebuild reads on past it.
-        if (record.Kind == GroupRecordKind.Expiration)
+        // An expiration or a leader-term no-op answers no retry, so its outcome is never restored; the rebuild reads on past it.
+        if (!AnswersRetries(record.Kind))
             return GroupOutcomeRestoreResult.Expired;
 
         // No sweep here: a start restores many outcomes in a row, and the next lookup or reservation sweeps anyway.
@@ -388,8 +388,8 @@ internal sealed class GroupIdempotencyState
             if (_records.TryGetValue(key, out var stored) && stored.Record.IsResolved && stored.Record.LogIndex >= record.LogIndex)
                 return;
 
-            // An expiration answers no retry: its pin, if any, is resolved by dropping it, and no outcome is kept.
-            if (record.Kind == GroupRecordKind.Expiration)
+            // An expiration or a leader-term no-op answers no retry: its pin, if any, is resolved by dropping it, and no outcome is kept.
+            if (!AnswersRetries(record.Kind))
             {
                 _ = _records.Remove(key);
                 return;
@@ -442,8 +442,8 @@ internal sealed class GroupIdempotencyState
             if (record.IsResolved)
                 return false;
 
-            // An expiration answers no retry: resolving it drops the pin instead of retaining an outcome.
-            if (record.Kind == GroupRecordKind.Expiration)
+            // An expiration or a leader-term no-op answers no retry: resolving it drops the pin instead of retaining an outcome.
+            if (!AnswersRetries(record.Kind))
                 return _records.Remove(key);
 
             var resolved = record.Resolve(BufferEx.CopyToOwned(outcomePayload), _timeProvider.GetUtcNow().UtcDateTime);
@@ -451,6 +451,11 @@ internal sealed class GroupIdempotencyState
             return true;
         }
     }
+
+    /// <summary>Tells whether a record kind answers client retries: only those keep an outcome and count against the capacity.</summary>
+    /// <param name="kind">The record kind.</param>
+    /// <returns><see langword="false" /> for an expiration tombstone or a leader-term no-op; otherwise <see langword="true" />.</returns>
+    private static bool AnswersRetries(GroupRecordKind kind) => kind is not (GroupRecordKind.Expiration or GroupRecordKind.LeaderTerm);
 
     private List<GroupOperationKey> CollectExpiredKeys()
     {

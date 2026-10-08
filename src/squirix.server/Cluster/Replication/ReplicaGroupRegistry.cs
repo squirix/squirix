@@ -237,8 +237,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
                 continue;
             }
 
-            var kind = string.Equals(record.OperationScope, ReplicaExpirationOperationId.OperationScope, StringComparison.Ordinal) ? GroupRecordKind.Expiration
-                : GroupRecordKind.UserMutation;
+            var kind = GroupRecordKinds.FromScope(record.OperationScope);
             var reserved = log.Idempotency.Reserve(
                 record.OperationScope,
                 record.OperationId,

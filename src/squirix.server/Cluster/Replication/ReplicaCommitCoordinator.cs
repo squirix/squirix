@@ -536,8 +536,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
-        var recordKind = string.Equals(mutation.OperationScope, ReplicaExpirationOperationId.OperationScope, StringComparison.Ordinal) ? GroupRecordKind.Expiration
-            : GroupRecordKind.UserMutation;
+        var recordKind = GroupRecordKinds.FromScope(mutation.OperationScope);
         var reserved = _idempotency.Reserve(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint.Span, recordKind, mutation.LogIndex, mutation.Term);
 
         if (reserved == GroupIdempotencyReserveResult.CapacityExceeded)
@@ -666,8 +665,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             // A same-identity retry must find the recovered entry pinned, never re-execute it: its outcome is unknown until a commit covers it.
             foreach (var entry in recovered.Mutations)
             {
-                var kind = string.Equals(entry.OperationScope, ReplicaExpirationOperationId.OperationScope, StringComparison.Ordinal) ? GroupRecordKind.Expiration
-                    : GroupRecordKind.UserMutation;
+                var kind = GroupRecordKinds.FromScope(entry.OperationScope);
                 var reserved = idempotency.Reserve(entry.OperationScope, entry.OperationId, entry.OperationFingerprint.Span, kind, entry.LogIndex, entry.Term, true);
                 if (reserved != GroupIdempotencyReserveResult.Success)
                     throw new InvalidOperationException($"Recovered log entry {entry.LogIndex} cannot be pinned for idempotent retries: {reserved}.");
