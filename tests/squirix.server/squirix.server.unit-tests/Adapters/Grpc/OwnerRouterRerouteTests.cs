@@ -27,6 +27,7 @@ public sealed class OwnerRouterRerouteTests
 {
     private const string First = "node-b";
     private const string Group = "node-g";
+    private const string Other = "node-d";
     private const string Second = "node-c";
     private const string Self = "node-a";
 
@@ -72,7 +73,10 @@ public sealed class OwnerRouterRerouteTests
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo($"{First},{Second}");
     }
 
-    /// <summary>A second stale answer ends the operation as unavailable with the leader-changed detail, after exactly two attempts.</summary>
+    /// <summary>
+    /// A second stale answer ends the operation as unavailable with the leader-changed detail, after exactly two attempts; the hinted route is
+    /// not refuted, so a term a peer supplied never hides a leader in the table.
+    /// </summary>
     [Test]
     public async Task SecondStaleIsUnavailable()
     {
@@ -84,7 +88,7 @@ public sealed class OwnerRouterRerouteTests
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo($"{First},{Second}");
-        _ = await Assert.That(table.Refuted.Count).IsEqualTo(2);
+        _ = await Assert.That(table.Refuted.Count).IsEqualTo(1);
     }
 
     /// <summary>Failures that do not prove a stale route reach the caller unchanged after one attempt.</summary>
@@ -209,6 +213,77 @@ public sealed class OwnerRouterRerouteTests
         _ = await Assert.That(table.Waits.Count).IsEqualTo(0);
     }
 
+    /// <summary>A hint that is not a usable leader is ignored, and the reroute goes to the leader the table learned.</summary>
+    /// <param name="hinted">The node the hint names.</param>
+    /// <param name="hintTerm">The term the hint names.</param>
+    [Test]
+    [Arguments("node-x", 3UL)]
+    [Arguments(Self, 3UL)]
+    [Arguments(First, 3UL)]
+    [Arguments(Second, 1UL)]
+    public async Task UnusableHintUsesTable(string hinted, ulong hintTerm)
+    {
+        var table = new FakeLeaderTable(Self, new LeaderRoute(First, 2)) { AfterRefute = new LeaderRoute(Other, 3) };
+        var attempts = new Attempts(StaleOwner(hinted, hintTerm));
+
+        _ = await attempts.RunAsync(CreateRouter(table, false, TimeProvider.System));
+
+        _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo($"{First},{Other}");
+    }
+
+    /// <summary>A hint naming this node is ignored: its own authority comes from its table.</summary>
+    [Test]
+    public async Task HintNamingSelfUsesTable()
+    {
+        var table = new FakeLeaderTable(Self, new LeaderRoute(First, 2)) { AfterRefute = new LeaderRoute(Second, 3) };
+        var attempts = new Attempts(StaleOwner(Self, 3));
+
+        _ = await attempts.RunAsync(CreateRouter(table, false, TimeProvider.System));
+
+        _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo($"{First},{Second}");
+    }
+
+    /// <summary>A hint naming the refused node is ignored, so the reroute never repeats the refused attempt.</summary>
+    [Test]
+    public async Task HintNamingRefusedUsesTable()
+    {
+        var table = new FakeLeaderTable(Self, new LeaderRoute(First, 2)) { AfterRefute = new LeaderRoute(Second, 3) };
+        var attempts = new Attempts(StaleOwner(First, 3));
+
+        _ = await attempts.RunAsync(CreateRouter(table, false, TimeProvider.System));
+
+        _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo($"{First},{Second}");
+    }
+
+    /// <summary>A hint naming a node outside the replica set reaches no peer client; with no other leader the operation is unavailable.</summary>
+    [Test]
+    public async Task UnknownNodeHintIsNotForwarded()
+    {
+        var table = new FakeLeaderTable(Self, new LeaderRoute(First, 2));
+        var attempts = new Attempts(StaleOwner("node-x", 3));
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)));
+
+        _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
+        _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo(First);
+    }
+
+    /// <summary>Canceling the call while it waits for a leader ends it without any attempt.</summary>
+    [Test]
+    public async Task CancelDuringWaitMakesNoAttempt()
+    {
+        var table = new FakeLeaderTable(Self, default) { BlockWaits = true };
+        var attempts = new Attempts();
+        using var cancellation = new CancellationTokenSource();
+
+        var call = attempts.RunUntilCanceledAsync(CreateRouter(table, false, TimeProvider.System), cancellation.Token);
+        _ = await Assert.That(table.Waits.Count).IsEqualTo(1);
+        await cancellation.CancelAsync();
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(call);
+        _ = await Assert.That(attempts.Targets.Count).IsEqualTo(0);
+    }
+
     /// <summary>The leader hint trailers are read as optional: a missing or unreadable term still names the leader.</summary>
     [Test]
     public async Task HintWithoutTermIsRead()
@@ -235,7 +310,7 @@ public sealed class OwnerRouterRerouteTests
         _ = ownership.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Group);
         var invocation = new IRemoteInvocationStateCreateExpectations();
         _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(internalCall);
-        return new OwnerRouter(ownership.Instance(), invocation.Instance(), RingAgreements.Create(), table, LeaderWait, clock);
+        return new OwnerRouter(ownership.Instance(), invocation.Instance(), RingAgreements.Create(), table, LeaderWait, clock, OwnerRouters.Locator(Self, First, Second, Other, Group));
     }
 
     /// <summary>Records each attempt and fails the attempts in order with the configured failures; later attempts answer with their target.</summary>
@@ -255,13 +330,15 @@ public sealed class OwnerRouterRerouteTests
 
         internal List<string> Targets { get; } = [];
 
-        internal Task<string> RunAsync(OwnerRouter router) => router.ExecuteAsync(
+        internal Task<string> RunAsync(OwnerRouter router) => RunUntilCanceledAsync(router, CancellationToken.None);
+
+        internal Task<string> RunUntilCanceledAsync(OwnerRouter router, CancellationToken cancellationToken) => router.ExecuteAsync(
             "cache",
             "key",
             this,
             static (attempts, target, _) => attempts.RecordAsync(target),
             static (attempts, _) => attempts.RecordAsync(Local),
-            CancellationToken.None);
+            cancellationToken);
 
         private Task<string> RecordAsync(string target)
         {

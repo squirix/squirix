@@ -17,8 +17,9 @@ namespace Squirix.Server.Adapters.Grpc;
 /// The group of a key is named by its ring owner. Its leader comes from the leader table: with a static table the ring owner always leads,
 /// so the call runs locally or is forwarded once to the owner, and every refusal is relayed. With an election-led table the router waits
 /// for a leader within the deadline, and when the chosen route answers as stale (nothing was appended), refutes it and reroutes once with
-/// the same request, so with the same operation id; a second stale answer ends the operation as <see cref="ServerOpContract.LeaderChanged" />.
-/// Transport failures, an unknown commit outcome, and every other failure are never rerouted.
+/// the same request, so with the same operation id: at most two logical attempts. A second stale answer ends the operation as
+/// <see cref="ServerOpContract.LeaderChanged" />. Transport failures, an unknown commit outcome, and every other failure are never rerouted;
+/// the call policy of a forward may retry it on a transport failure, with the same request.
 /// </remarks>
 [Immutable]
 internal sealed class OwnerRouter
@@ -27,6 +28,7 @@ internal sealed class OwnerRouter
     private readonly IRemoteInvocationState _invocationState;
     private readonly TimeSpan _leaderWait;
     private readonly INodeOwnershipResolver _ownershipResolver;
+    private readonly IReplicaGroupLocator _replicaGroups;
     private readonly RingAgreement _ringAgreement;
     private readonly IGroupLeaderTable _table;
 
@@ -37,13 +39,15 @@ internal sealed class OwnerRouter
     /// <param name="table">The leader of every group as this node knows it.</param>
     /// <param name="leaderWait">The longest wait for a leader of a served group that has none known; the remaining deadline caps it further.</param>
     /// <param name="clock">The clock the deadline of an operation counts down on.</param>
+    /// <param name="replicaGroups">Resolves the replica set of a group; a leader hint naming a node outside it is ignored.</param>
     internal OwnerRouter(
         INodeOwnershipResolver ownershipResolver,
         IRemoteInvocationState invocationState,
         RingAgreement ringAgreement,
         IGroupLeaderTable table,
         TimeSpan leaderWait,
-        TimeProvider clock)
+        TimeProvider clock,
+        IReplicaGroupLocator replicaGroups)
     {
         ArgumentNullException.ThrowIfNull(ownershipResolver);
         ArgumentNullException.ThrowIfNull(invocationState);
@@ -51,12 +55,14 @@ internal sealed class OwnerRouter
         ArgumentNullException.ThrowIfNull(table);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(leaderWait, TimeSpan.Zero);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(replicaGroups);
         _ownershipResolver = ownershipResolver;
         _invocationState = invocationState;
         _ringAgreement = ringAgreement;
         _table = table;
         _leaderWait = leaderWait;
         _clock = clock;
+        _replicaGroups = replicaGroups;
     }
 
     /// <summary>Runs a single-key call on this node or forwards it to the leader of the key's group.</summary>
@@ -65,7 +71,7 @@ internal sealed class OwnerRouter
     /// <param name="cacheName">The cache name from the request.</param>
     /// <param name="key">The key from the request.</param>
     /// <param name="state">The state passed to <paramref name="forward" /> and <paramref name="local" />.</param>
-    /// <param name="forward">Forwards the call to the node it names; one internode attempt.</param>
+    /// <param name="forward">Forwards the call to the node it names: one logical attempt, which the call policy may retry on a transport failure.</param>
     /// <param name="local">Runs the call on this node.</param>
     /// <param name="cancellationToken">The call cancellation token.</param>
     /// <returns>The response of the attempt that answered.</returns>
@@ -139,20 +145,19 @@ internal sealed class OwnerRouter
     private LeaderRoute ResolveNow(string groupId) =>
         _table.TryGetLeader(groupId, out var route) || _table.Read(groupId).Served ? route : new LeaderRoute(groupId, 0);
 
-    /// <summary>Resolves the route of a group, waiting for a leader within the budget and the leader wait when none is known.</summary>
+    /// <summary>Resolves the route of a group, waiting for a leader within the remaining deadline and the leader wait when none is known.</summary>
     /// <param name="groupId">The group.</param>
-    /// <param name="budget">The budget of the operation.</param>
     /// <param name="cancellationToken">The call cancellation token.</param>
     /// <returns>The route.</returns>
     /// <exception cref="RpcException"><see cref="StatusCode.Unavailable" />: no leader became known within the wait.</exception>
-    private async ValueTask<LeaderRoute> ResolveAsync(string groupId, RerouteBudget budget, CancellationToken cancellationToken)
+    private async ValueTask<LeaderRoute> ResolveAsync(string groupId, CancellationToken cancellationToken)
     {
         var route = ResolveNow(groupId);
         if (!string.IsNullOrEmpty(route.NodeId))
             return route;
 
-        var remaining = budget.GetRemaining();
-        var wait = remaining < _leaderWait ? remaining : _leaderWait;
+        var remaining = ServerRpcDeadlineContext.GetRemainingBudget();
+        var wait = remaining is { } left && left < _leaderWait ? left : _leaderWait;
         if (wait < TimeSpan.Zero)
             wait = TimeSpan.Zero;
 
@@ -161,28 +166,58 @@ internal sealed class OwnerRouter
             : throw ServerOpContract.NoLeaderAuthority();
     }
 
+    /// <summary>Tells whether the leader a refusing node named may take the reroute.</summary>
+    /// <param name="groupId">The group.</param>
+    /// <param name="refused">The route that answered as stale.</param>
+    /// <param name="hint">The named leader.</param>
+    /// <returns>
+    /// <see langword="true" /> for another node of the group's replica set, neither this node (its own authority comes from its table) nor
+    /// of a term below the refused route.
+    /// </returns>
+    private bool IsUsableHint(string groupId, in LeaderRoute refused, in LeaderRoute hint)
+    {
+        if (string.IsNullOrEmpty(hint.NodeId) || IsSelf(in hint) || string.Equals(hint.NodeId, refused.NodeId, StringComparison.Ordinal) ||
+            (hint.Term != 0 && hint.Term < refused.Term))
+            return false;
+
+        // Only a stale answer reaches here, so the replica set is resolved off the common path.
+        var members = new string[_replicaGroups.ReplicaCount];
+        _replicaGroups.GetReplicaGroup(groupId, members);
+        return Array.IndexOf(members, hint.NodeId) >= 0;
+    }
+
     /// <summary>Refutes a route that answered as stale and picks the route of the single reroute.</summary>
     /// <param name="groupId">The group.</param>
     /// <param name="refused">The route that answered as stale.</param>
+    /// <param name="refusedFromTable">Whether the table reported the refused route; a route taken from a hint is never refuted.</param>
     /// <param name="hint">The leader the refusing node named; <see langword="default" /> when none.</param>
     /// <param name="budget">The budget of the operation.</param>
     /// <param name="cancellationToken">The call cancellation token.</param>
-    /// <returns>The next route, never <paramref name="refused" />.</returns>
+    /// <returns>The next route, never <paramref name="refused" />, and whether the table reported it.</returns>
     /// <exception cref="RpcException">
     /// <see cref="StatusCode.Unavailable" />: the reroute was already spent, the deadline passed, no other route is known, or no leader became
     /// known within the wait.
     /// </exception>
-    private async ValueTask<LeaderRoute> RerouteAsync(string groupId, LeaderRoute refused, LeaderRoute hint, RerouteBudget budget, CancellationToken cancellationToken)
+    private async ValueTask<(LeaderRoute Route, bool FromTable)> RerouteAsync(
+        string groupId,
+        LeaderRoute refused,
+        bool refusedFromTable,
+        LeaderRoute hint,
+        RerouteBudget budget,
+        CancellationToken cancellationToken)
     {
-        _table.Refute(groupId, in refused);
+        // A refutation hides every known leader of its term or below, so only a route the table reported is refuted, never a peer-supplied term.
+        if (refusedFromTable)
+            _table.Refute(groupId, in refused);
+
         if (!budget.TryConsumeReroute() || budget.HasExpired())
             throw ServerOpContract.LeaderChanged();
 
-        // The hint of the refusing node comes first; this node decides its own authority from its table, never from a hint.
-        var next = !string.IsNullOrEmpty(hint.NodeId) && !IsSelf(in hint) && !string.Equals(hint.NodeId, refused.NodeId, StringComparison.Ordinal)
-            ? hint
-            : await ResolveAsync(groupId, budget, cancellationToken).ConfigureAwait(false);
-        return string.Equals(next.NodeId, refused.NodeId, StringComparison.Ordinal) ? throw ServerOpContract.LeaderChanged() : next;
+        if (IsUsableHint(groupId, in refused, in hint))
+            return (hint, false);
+
+        var next = await ResolveAsync(groupId, cancellationToken).ConfigureAwait(false);
+        return string.Equals(next.NodeId, refused.NodeId, StringComparison.Ordinal) ? throw ServerOpContract.LeaderChanged() : (next, true);
     }
 
     /// <summary>Runs the call on the leader of a group, rerouting once when the route answers as stale.</summary>
@@ -195,7 +230,10 @@ internal sealed class OwnerRouter
     /// <param name="local">Runs the call on this node.</param>
     /// <param name="cancellationToken">The call cancellation token.</param>
     /// <returns>The response of the attempt that answered.</returns>
-    /// <remarks>The budget allows one reroute, so at most two attempts run: <see cref="RerouteAsync" /> refuses a second one.</remarks>
+    /// <remarks>
+    /// The budget, created at the first stale answer, allows one reroute, so at most two logical attempts run: <see cref="RerouteAsync" />
+    /// refuses a third.
+    /// </remarks>
     private async Task<TResponse> RouteAsync<TState, TResponse>(
         string groupId,
         LeaderRoute known,
@@ -204,8 +242,9 @@ internal sealed class OwnerRouter
         Func<TState, CancellationToken, Task<TResponse>> local,
         CancellationToken cancellationToken)
     {
-        var budget = RerouteBudget.FromRemaining(ServerRpcDeadlineContext.GetRemainingBudget(), _clock);
-        var route = string.IsNullOrEmpty(known.NodeId) ? await ResolveAsync(groupId, budget, cancellationToken).ConfigureAwait(false) : known;
+        var route = string.IsNullOrEmpty(known.NodeId) ? await ResolveAsync(groupId, cancellationToken).ConfigureAwait(false) : known;
+        var fromTable = true;
+        RerouteBudget? budget = null;
         while (true)
         {
             try
@@ -214,7 +253,8 @@ internal sealed class OwnerRouter
             }
             catch (RpcException ex) when (StaleRouteSignals.TryReadStale(ex, out var hint))
             {
-                route = await RerouteAsync(groupId, route, hint, budget, cancellationToken).ConfigureAwait(false);
+                budget ??= RerouteBudget.FromRemaining(ServerRpcDeadlineContext.GetRemainingBudget(), _clock);
+                (route, fromTable) = await RerouteAsync(groupId, route, fromTable, hint, budget, cancellationToken).ConfigureAwait(false);
             }
         }
     }

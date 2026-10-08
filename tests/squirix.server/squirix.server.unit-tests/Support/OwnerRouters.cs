@@ -1,6 +1,7 @@
 using System;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Runtime.Invocation;
 
 namespace Squirix.Server.UnitTests.Support;
@@ -17,5 +18,10 @@ internal static class OwnerRouters
     /// <param name="self">This node.</param>
     /// <returns>The router.</returns>
     internal static OwnerRouter Static(INodeOwnershipResolver ownership, IRemoteInvocationState invocation, string self) =>
-        new(ownership, invocation, RingAgreements.Create(), new StaticLeaderTable(self), LeaderWait, TimeProvider.System);
+        new(ownership, invocation, RingAgreements.Create(), new StaticLeaderTable(self), LeaderWait, TimeProvider.System, Locator(self));
+
+    /// <summary>Creates a replica group locator whose every group holds every given node.</summary>
+    /// <param name="nodes">The nodes of the ring; at most five.</param>
+    /// <returns>The locator.</returns>
+    internal static IReplicaGroupLocator Locator(params string[] nodes) => new ReplicaGroupLocator(new PhysicalNodeRing(nodes), nodes.Length);
 }

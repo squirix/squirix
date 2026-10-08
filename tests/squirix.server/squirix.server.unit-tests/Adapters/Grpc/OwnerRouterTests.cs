@@ -103,7 +103,8 @@ public sealed class OwnerRouterTests
             agreement,
             new StaticLeaderTable(Self),
             OwnerRouters.LeaderWait,
-            TimeProvider.System);
+            TimeProvider.System,
+            OwnerRouters.Locator(Self));
         var calls = new RouterCalls();
 
         var failure = NodeExceptionAssert.For<RpcException>().Throws((Router: router, Calls: calls), static s => _ = s.Calls.RunAsync(s.Router, "cache", "key"));

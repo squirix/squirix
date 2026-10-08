@@ -151,7 +151,8 @@ internal static class RuntimeServiceRegistration
         sp.GetRequiredService<RingAgreement>(),
         sp.GetRequiredService<IGroupLeaderTable>(),
         (sp.GetService<ElectionTimerOptions>() ?? new ElectionTimerOptions()).LeaderWaitTimeout,
-        sp.GetService<TimeProvider>() ?? TimeProvider.System);
+        sp.GetService<TimeProvider>() ?? TimeProvider.System,
+        sp.GetRequiredService<IReplicaGroupLocator>());
 
     /// <summary>DI-backed accessor for <see cref="RemoteInvocationContext" /> async-local state.</summary>
     [Immutable]
