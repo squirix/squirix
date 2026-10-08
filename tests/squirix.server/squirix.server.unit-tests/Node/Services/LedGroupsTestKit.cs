@@ -9,6 +9,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -29,7 +30,10 @@ internal static class LedGroupsTestKit
     /// <param name="cache">Local cache pipeline.</param>
     /// <param name="clock">The clock of the decisions.</param>
     /// <param name="applier">The applier of the group; a new one applying to <paramref name="cache" /> when not set.</param>
-    /// <param name="budgetClock">The time source of the commit budget and of the follower request timeouts; the system clock when not set.</param>
+    /// <param name="seams">
+    /// The time source of the commit budget and of the follower request timeouts, the system clock when not set; and the journal lifecycle
+    /// whose startup gate the committer waits for, an open gate when not set.
+    /// </param>
     /// <returns>The committer.</returns>
     internal static ReplicaGroupCommitter CreateGroupCommitter(
         ReplicaGroupRegistry registry,
@@ -38,13 +42,13 @@ internal static class LedGroupsTestKit
         ILogicalNamespacedCache<object?> cache,
         TimeProvider clock,
         ReplicaGroupApplier? applier = null,
-        TimeProvider? budgetClock = null) =>
+        (TimeProvider? BudgetClock, IJournalCoordinatorLifecycle? Recovery) seams = default) =>
         new(registry, new RotatingLocator(), gateway, cache, (groupId, "n1"), new ReplicaTopologyStamp(ReplicaOwnerTestKit.Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
-            Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            Recovery = seams.Recovery ?? ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             Applier = applier ?? new ReplicaGroupApplier(cache, NullLogger.Instance, groupId, "n1"),
             Clock = clock,
-            BudgetTimeProvider = budgetClock ?? TimeProvider.System,
+            BudgetTimeProvider = seams.BudgetClock ?? TimeProvider.System,
         };
 
     /// <summary>Reads the keys of the entries a group log holds, in log order.</summary>

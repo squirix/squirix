@@ -303,6 +303,7 @@ internal static class ReplicaOwnerTestKit
     {
         private readonly ConcurrentDictionary<string, ulong> _held = new(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, FollowerMode> _modes = new(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, TaskCompletionSource> _sent = new(StringComparer.Ordinal);
 
         /// <summary>Gets or sets a hook that runs, before it answers, on every batch with entries a follower receives.</summary>
         internal Action? OnAppend { get; set; }
@@ -321,6 +322,7 @@ internal static class ReplicaOwnerTestKit
             {
                 Appends.Enqueue((nodeId, batch.PrevLogIndex, batch.Records.Count));
                 AppendHeaders.Enqueue((nodeId, header));
+                _ = SentTo(nodeId).TrySetResult();
                 OnAppend?.Invoke();
             }
 
@@ -341,11 +343,19 @@ internal static class ReplicaOwnerTestKit
             };
         }
 
+        /// <summary>Returns a task that completes once a batch with entries was sent to a follower, after it is recorded in <see cref="AppendHeaders" />.</summary>
+        /// <param name="nodeId">The follower node.</param>
+        /// <returns>The task.</returns>
+        internal Task SentAsync(string nodeId) => SentTo(nodeId).Task;
+
         internal void Set(string nodeId, FollowerMode mode, ulong held = 0)
         {
             _modes[nodeId] = mode;
             _held[nodeId] = held;
         }
+
+        private TaskCompletionSource SentTo(string nodeId) =>
+            _sent.GetOrAdd(nodeId, static _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
 
         private FollowerLogAppendResult AppendBehind(string nodeId, in FollowerBatch batch, ulong last)
         {

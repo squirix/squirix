@@ -95,27 +95,35 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         var cache = new StubCache();
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache, meter);
+        var fallback = new FakeTimeProvider();
         using var service = new ReplicaApplyService(
             registry,
             appliers,
             LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             NullLogger<ReplicaApplyService>.Instance,
-            new FakeTimeProvider());
-        var applied = WhenAppliedAsync(cache, 1);
+            fallback);
+        var first = WhenAppliedAsync(cache, 1);
 
         await service.StartAsync(cancellationToken);
         try
         {
-            await applied.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            await first.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+            // A loop of the led group would wake on its signal or on the fallback pass; the next entry of n3 passes after both.
+            registry.ApplySignalFor("n1").Notify();
+            fallback.Advance(TimeSpan.FromSeconds(2));
+            var second = WhenAppliedAsync(cache, 2);
+            _ = await new ReplicaFollower(registry).AppendAsync("n3", Fingerprint, 1, Batch(Prepare("m2", 2UL), 1UL, 2UL), cancellationToken);
+            await second.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         }
         finally
         {
             await service.StopAsync(cancellationToken);
         }
 
-        await SequenceAssert.EqualAsync(["m1"], cache.Applied.ToArray(), StringComparer.Ordinal);
-        _ = await Assert.That((appliers.For("n1").AppliedIndex, appliers.For("n3").AppliedIndex)).IsEqualTo((0UL, 1UL));
+        await SequenceAssert.EqualAsync(["m1", "m2"], cache.Applied.ToArray(), StringComparer.Ordinal);
+        _ = await Assert.That((appliers.For("n1").AppliedIndex, appliers.For("n3").AppliedIndex)).IsEqualTo((0UL, 2UL));
     }
 
     /// <summary>An entry the follower path appends and commits wakes the apply loop of its group, with no fallback pass.</summary>

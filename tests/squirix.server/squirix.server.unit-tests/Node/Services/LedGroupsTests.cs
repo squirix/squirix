@@ -45,23 +45,20 @@ public sealed class LedGroupsTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-led-groups-independent");
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var gateway = new ScriptedGateway();
-        await using var committers = LeadTwo(registry, (gateway, gateway), new StubCache(), TimeProvider.System);
+        var ofN1 = new ScriptedGateway();
+        var ofN2 = new ScriptedGateway();
+        await using var committers = LeadTwo(registry, (ofN1, ofN2), new StubCache(), TimeProvider.System);
 
         await committers.ForKey(CacheName, "a").CommitSetAsync(NewOperationId(), CacheName, "a", Entry("a"), cancellationToken);
         await committers.ForKey(CacheName, "b").CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken);
 
+        // A commit returns once one follower holds the entry: wait until the slower follower of each group got it as well.
+        await Task.WhenAll(ofN1.SentAsync("n2"), ofN1.SentAsync("n3"), ofN2.SentAsync("n2"), ofN2.SentAsync("n3")).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
         _ = await Assert.That(await PositionAsync(registry, "n1", cancellationToken)).IsEqualTo((1UL, 1UL));
         _ = await Assert.That(await PositionAsync(registry, "n2", cancellationToken)).IsEqualTo((1UL, 1UL));
-        var sent = (N1: 0, N2: 0);
-        foreach (var (node, header) in gateway.AppendHeaders)
-        {
-            _ = await Assert.That(node).IsNotEqualTo("n1");
-            _ = await Assert.That((header.LeaderNodeId, header.SenderNodeId)).IsEqualTo(("n1", "n1"));
-            sent = string.Equals(header.GroupId, "n1", StringComparison.Ordinal) ? (sent.N1 + 1, sent.N2) : (sent.N1, sent.N2 + 1);
-        }
-
-        _ = await Assert.That(sent).IsEqualTo((2, 2));
+        await AssertSentAsync(ofN1, "n1");
+        await AssertSentAsync(ofN2, "n2");
     }
 
     /// <summary>A group whose followers stopped answering holds its own write only: the other group commits meanwhile.</summary>
@@ -80,7 +77,7 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         var budgetClock = new FakeTimeProvider();
         var led = new ReplicaGroupCommitter[2];
         led[0] = CreateGroupCommitter(registry, "n1", new ScriptedGateway(), cache, TimeProvider.System);
-        led[1] = CreateGroupCommitter(registry, "n2", stalledGateway, cache, TimeProvider.System, budgetClock: budgetClock);
+        led[1] = CreateGroupCommitter(registry, "n2", stalledGateway, cache, TimeProvider.System, seams: (budgetClock, null));
         await using var committers = new ReplicaGroupCommitters(led, "n1", Owners(), TimeProvider.System);
 
         // The budget of the stalled write runs on a clock nobody moves until the other group has committed.
@@ -146,16 +143,45 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         await service.StartAsync(cancellationToken);
         try
         {
-            await log.WhenLoggedAsync(VerificationCompleteEventId, 2).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            await log.WhenLoggedAsync(VerificationCompleteEventId, "group n1 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            await log.WhenLoggedAsync(VerificationCompleteEventId, "group n2 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         }
         finally
         {
             await service.StopAsync(cancellationToken);
         }
 
+        _ = await Assert.That(service.ExecuteTask?.IsCompletedSuccessfully).IsTrue().Because("A host stop ends every group loop normally.");
         _ = await Assert.That(recovering).IsEqualTo((false, false));
         _ = await Assert.That(reopened.EligibilityFor("n1").AllCanCountInWriteQuorum()).IsTrue();
         _ = await Assert.That(reopened.EligibilityFor("n2").AllCanCountInWriteQuorum()).IsTrue();
+    }
+
+    /// <summary>A loop that fails outside the retried faults stops the loop of the other group, and the service ends with its fault.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LoopFaultStopsReadiness(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-led-groups-readiness-fault");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var cache = new StubCache();
+        var failed = ReplicaCommitterDoubles.RecoveryLifecycle.Failed(new NotSupportedException("unexpected recovery failure"));
+        var led = new ReplicaGroupCommitter[2];
+        led[0] = CreateGroupCommitter(registry, "n1", new ScriptedGateway(), cache, TimeProvider.System, seams: (null, failed));
+        led[1] = CreateGroupCommitter(registry, "n2", new ScriptedGateway(), cache, TimeProvider.System);
+        await using var committers = new ReplicaGroupCommitters(led, "n1", Owners(), TimeProvider.System);
+        using var service = new ReplicaGroupReadinessService(committers, new EventRecordingLogger(), TimeProvider.System);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            // The service ends only once the loop of n2, which never fails on its own, has ended too.
+            _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(service.ExecuteTask!.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
     }
 
     /// <summary>One maintenance pass compacts the log of every led group through its commit index, and leaves the followed group alone.</summary>
@@ -192,6 +218,23 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         _ = await Assert.That(await RetainedAsync(registry, "n1", cancellationToken)).IsEqualTo((2UL, 0));
         _ = await Assert.That(await RetainedAsync(registry, "n2", cancellationToken)).IsEqualTo((2UL, 0));
         _ = await Assert.That(await RetainedAsync(registry, "n3", cancellationToken)).IsEqualTo((0UL, 0));
+    }
+
+    /// <summary>Asserts that every batch with entries a group sent went to its followers n2 and n3, once each, from leader n1.</summary>
+    /// <param name="gateway">The follower transport of the group.</param>
+    /// <param name="groupId">The group.</param>
+    /// <returns>An asynchronous operation.</returns>
+    private static async Task AssertSentAsync(ScriptedGateway gateway, string groupId)
+    {
+        var sent = (N2: 0, N3: 0);
+        foreach (var (node, header) in gateway.AppendHeaders)
+        {
+            _ = await Assert.That((header.GroupId, header.LeaderNodeId, header.SenderNodeId)).IsEqualTo((groupId, "n1", "n1"));
+            _ = await Assert.That(node).IsNotEqualTo("n1");
+            sent = string.Equals(node, "n2", StringComparison.Ordinal) ? (sent.N2 + 1, sent.N3) : (sent.N2, sent.N3 + 1);
+        }
+
+        _ = await Assert.That(sent).IsEqualTo((1, 1));
     }
 
     private static IFollowerLog LogOf(ReplicaGroupRegistry registry, string groupId) =>

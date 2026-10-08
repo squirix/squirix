@@ -18,7 +18,7 @@ namespace Squirix.Server.UnitTests.Support;
 internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, ILogger<RpcMutationIdempotencyCoordinator>, ILogger<FollowerLog>, ILogger<Ledger>, ILogger<ReplicaGroupCommitter>, ILogger<ServerClientPool>, ILogger<RingAgreement>, ILogger<JournalEventLoop>,
     ILogger<ReplicaApplyService>, ILogger<ReplicaLogCompactionService>, ILogger<ReplicaExpirationSweepService>, ILogger<ReplicaGroupReadinessService>
 {
-    private readonly ConcurrentDictionary<(int EventId, int Count), TaskCompletionSource> _awaited = new();
+    private readonly ConcurrentDictionary<(int EventId, string Fragment), TaskCompletionSource> _awaited = new();
     private readonly ConcurrentQueue<(int EventId, LogLevel Level, Exception? Cause, string Message)> _events = new();
 
     public IDisposable? BeginScope<TState>(TState state)
@@ -31,7 +31,7 @@ internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, I
         _events.Enqueue((eventId.Id, logLevel, exception, formatter(state, exception)));
         foreach (var awaited in _awaited)
         {
-            if (awaited.Key.EventId == eventId.Id && Count(eventId.Id) >= awaited.Key.Count)
+            if (awaited.Key.EventId == eventId.Id && Logged(awaited.Key.EventId, awaited.Key.Fragment))
                 _ = awaited.Value.TrySetResult();
         }
     }
@@ -39,19 +39,19 @@ internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, I
     /// <summary>Returns a task that completes once an entry with <paramref name="eventId" /> is logged, or at once when one already was.</summary>
     /// <param name="eventId">Event id to wait for.</param>
     /// <returns>The task completing on the first entry with the event id.</returns>
-    internal Task WhenLoggedAsync(int eventId) => WhenLoggedAsync(eventId, 1);
+    internal Task WhenLoggedAsync(int eventId) => WhenLoggedAsync(eventId, string.Empty);
 
     /// <summary>
-    /// Returns a task that completes once <paramref name="count" /> entries with <paramref name="eventId" /> are logged, or at once when
-    /// that many already were.
+    /// Returns a task that completes once an entry with <paramref name="eventId" /> whose message contains <paramref name="fragment" /> is
+    /// logged, or at once when one already was.
     /// </summary>
     /// <param name="eventId">Event id to wait for.</param>
-    /// <param name="count">The number of entries to wait for.</param>
-    /// <returns>The task completing on the entry that reaches the count.</returns>
-    internal Task WhenLoggedAsync(int eventId, int count)
+    /// <param name="fragment">Text the formatted message must contain; empty to match every entry.</param>
+    /// <returns>The task completing on the first matching entry.</returns>
+    internal Task WhenLoggedAsync(int eventId, string fragment)
     {
-        var awaited = _awaited.GetOrAdd((eventId, count), static _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
-        if (Count(eventId) >= count)
+        var awaited = _awaited.GetOrAdd((eventId, fragment), static _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+        if (Logged(eventId, fragment))
             _ = awaited.TrySetResult();
 
         return awaited.Task;
@@ -98,5 +98,16 @@ internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, I
         }
 
         return null;
+    }
+
+    private bool Logged(int eventId, string fragment)
+    {
+        foreach (var recorded in _events)
+        {
+            if (recorded.EventId == eventId && recorded.Message.Contains(fragment, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
     }
 }
