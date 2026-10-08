@@ -1,3 +1,4 @@
+using System;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Replication;
@@ -17,9 +18,15 @@ internal readonly record struct ReplicaSlots(int LeaderReplicaIndex)
     internal bool IsFollower(int replicaIndex) => replicaIndex != LeaderReplicaIndex;
 
     /// <summary>Returns the position of a follower slot among the leader's senders.</summary>
-    /// <param name="replicaIndex">Zero-based follower slot; never the leader slot.</param>
+    /// <param name="replicaIndex">Zero-based follower slot.</param>
     /// <returns>The sender position.</returns>
-    internal int SenderOf(int replicaIndex) => replicaIndex < LeaderReplicaIndex ? replicaIndex : replicaIndex - 1;
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="replicaIndex" /> is the leader slot, which has no sender.</exception>
+    internal int SenderOf(int replicaIndex) => replicaIndex.CompareTo(LeaderReplicaIndex) switch
+    {
+        < 0 => replicaIndex,
+        > 0 => replicaIndex - 1,
+        _ => throw new ArgumentOutOfRangeException(nameof(replicaIndex), replicaIndex, "The leader slot has no sender."),
+    };
 
     /// <summary>Returns the follower slot a sender position serves.</summary>
     /// <param name="senderIndex">Zero-based sender position.</param>

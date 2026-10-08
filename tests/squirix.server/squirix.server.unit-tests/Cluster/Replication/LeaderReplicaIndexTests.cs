@@ -33,6 +33,15 @@ public sealed class LeaderReplicaIndexTests : ServerUnitTestBase
         _ = await Assert.That(new ReplicaSlots(1).IsFollower(1)).IsFalse();
     }
 
+    /// <summary>The leader slot has no sender: asking for it is refused instead of handing out a neighbour's sender.</summary>
+    [Test]
+    public async Task LeaderSlotHasNoSender()
+    {
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(new ReplicaSlots(1), static slots => _ = slots.SenderOf(1));
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(new ReplicaSlots(0), static slots => _ = slots.SenderOf(0));
+        _ = await Assert.That(new ReplicaSlots(0).SenderOf(1)).IsEqualTo(0);
+    }
+
     /// <summary>A leader at slot 2 commits with slot 0 alone, and the fan-out never sends the entry to the leader slot.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
