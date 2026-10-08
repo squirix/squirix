@@ -1,8 +1,11 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -67,6 +70,64 @@ public sealed class ReplicaFollowerSenderHeartbeatTests : ServerUnitTestBase
             _ = await Assert.That((idle, busy)).IsEqualTo((true, false));
             _ = await Assert.That((heartbeat.Count, append.FirstIndex)).IsEqualTo((0, 1UL));
             _ = await Assert.That(replies).IsEqualTo("1:True,1:True");
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
+    /// <summary>A catch-up lease, a drain, and a close each keep the heartbeat from going out.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NoHeartbeatWhileLeasedDrainedOrClosed(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var sender = CreateSender(gateway);
+        bool leased;
+        using (await sender.BeginCatchUpAsync(cancellationToken))
+            leased = sender.TryEnqueueHeartbeat(0UL);
+
+        await sender.DrainAsync(HangGuard);
+        var draining = sender.TryEnqueueHeartbeat(0UL);
+        await sender.DisposeAsync();
+        var closed = sender.TryEnqueueHeartbeat(0UL);
+
+        _ = await Assert.That((leased, draining, closed)).IsEqualTo((false, false, false));
+        _ = await Assert.That(gateway.CallCount).IsEqualTo(0);
+    }
+
+    /// <summary>A send that fails in transport reports no reply, and an observer that throws never fails an entry the follower accepted.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ObserverSeesOnlyAnswers(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var observed = 0;
+        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard)
+        {
+            ReplyObserver = (_, _) =>
+            {
+                _ = Interlocked.Increment(ref observed);
+                throw new InvalidOperationException("observer fault");
+            },
+        };
+        try
+        {
+            _ = sender.TryEnqueueHeartbeat(0UL);
+            (await BoundedAsync(gateway.CallAsync(0), cancellationToken)).Fail(new IOException("heartbeat lost"));
+            var failed = EnqueueAsync(sender, 1);
+            (await BoundedAsync(gateway.CallAsync(1), cancellationToken)).Fail(new IOException("append lost"));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(BoundedAsync(failed, cancellationToken));
+            var silent = Volatile.Read(ref observed);
+            var accepted = EnqueueAsync(sender, 2);
+            (await BoundedAsync(gateway.CallAsync(2), cancellationToken)).Accept();
+
+            var acknowledgement = await BoundedAsync(accepted, cancellationToken);
+
+            _ = await Assert.That(silent).IsEqualTo(0);
+            _ = await Assert.That(acknowledgement.LogIndex).IsEqualTo(2UL);
         }
         finally
         {

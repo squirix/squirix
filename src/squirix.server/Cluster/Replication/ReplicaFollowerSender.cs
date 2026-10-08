@@ -493,8 +493,10 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token);
         var result = await _rpc.AppendEntriesAsync(NodeId, _header, request, linked.Token).ConfigureAwait(false);
-        ReplyObserver?.Invoke(ReplicaIndex, result);
         Complete(batch, in result, NodeId);
+
+        // After the entries are answered: an observer that throws faults only this request task, never an acknowledged entry.
+        ReplyObserver?.Invoke(ReplicaIndex, result);
     }
 
     private async Task SendHeartbeatAsync(FollowerBatch heartbeat)
