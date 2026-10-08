@@ -123,9 +123,10 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<ReplicaGroupRegistry>().GroupIds));
 
         AddReplicaGroupAppliers(services);
-        _ = services.AddSingleton<IGroupLeaderTable>(static sp => new ReplicaLeaderTable(
-            sp.GetRequiredService<ReplicaGroupRegistry>(),
-            sp.GetRequiredService<TopologyOptions>().NodeId));
+        if (LeadsByElection(cluster))
+            _ = services.AddSingleton<IGroupLeaderTable>(sp => new ReplicaLeaderTable(sp.GetRequiredService<ReplicaGroupRegistry>(), cluster.NodeId));
+        else
+            _ = services.AddSingleton<IGroupLeaderTable>(new StaticLeaderTable(cluster.NodeId));
 
         // Factory registrations let the container own disposal: the registry closes follower-log durability workers
         // and the committers drain their coordinators on host shutdown.
