@@ -83,7 +83,9 @@ public sealed class HighResolutionDeadlineWaitTests
         wait.Wait(30);
         var elapsed = Stopwatch.GetElapsedTime(started);
 
-        _ = await Assert.That(elapsed).IsGreaterThanOrEqualTo(TimeSpan.FromMilliseconds(28));
+        // Without the timer the OS wait follows the system clock tick (about 15.6 ms) and may return up to one tick early.
+        var lowerBound = useHighResolutionTimer ? TimeSpan.FromMilliseconds(28) : TimeSpan.FromMilliseconds(14);
+        _ = await Assert.That(elapsed).IsGreaterThanOrEqualTo(lowerBound);
     }
 
     /// <summary>A timer that fired during an earlier wait stays out of a later infinite wait, which only the work signal ends.</summary>
@@ -147,16 +149,15 @@ public sealed class HighResolutionDeadlineWaitTests
         using var signal = new AutoResetEvent(false);
         using var wait = new HighResolutionDeadlineWait(signal, false);
 
-        var started = Stopwatch.GetTimestamp();
         wait.Wait(30);
-        var elapsed = Stopwatch.GetElapsedTime(started);
 
-        _ = await Assert.That(elapsed).IsGreaterThanOrEqualTo(TimeSpan.FromMilliseconds(28));
         _ = await Assert.That(wait.IsHighResolutionActive).IsFalse();
         _ = await Assert.That(wait.IsHighResolutionUnavailable).IsTrue();
+        _ = await Assert.That(signal.WaitOne(0)).IsFalse();
 
         _ = signal.Set();
         wait.Wait(60_000);
+        _ = await Assert.That(signal.WaitOne(0)).IsFalse();
     }
 
     /// <summary>Disposal is idempotent, leaves the caller-owned work signal usable, and later waits fall back to the signal.</summary>
