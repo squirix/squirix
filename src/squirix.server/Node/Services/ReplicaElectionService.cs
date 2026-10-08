@@ -69,6 +69,8 @@ internal sealed class ReplicaElectionService : BackgroundService
         {
             if (_registry.TryGetLog(groupIds[i], out var log))
                 loops.Add(DriveAsync(CreateElection(groupIds[i], log), stopping.Token));
+            else
+                ServerLog.ReplicaElectionNoLog(_log, groupIds[i]);
         }
 
         await ReplicaGroupLoops.AwaitAllAsync(loops, stopping).ConfigureAwait(false);

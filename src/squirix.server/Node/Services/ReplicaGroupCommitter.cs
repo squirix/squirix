@@ -530,8 +530,15 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         catch (Exception exception) when (exception is IOException or InvalidDataException or InvalidOperationException or SquirixException)
         {
             // The start is retried on the next call: a storage fault, an inconsistent record, a log that moved past the term, or committed
-            // entries of a replaced coordinator still to apply.
-            ServerLog.ReplicaPromotionRetry(Log, GroupId, term, exception);
+            // entries of a replaced coordinator still to apply. The same fault repeats every tick, so it is logged when it changes.
+            if (tenure.ReportFault(exception.GetType()))
+            {
+                if (exception is IOException)
+                    ServerLog.ReplicaPromotionStorageRetry(Log, GroupId, term, exception);
+                else
+                    ServerLog.ReplicaPromotionRetry(Log, GroupId, term, exception);
+            }
+
             return false;
         }
     }

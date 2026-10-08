@@ -15,6 +15,7 @@ internal sealed class ReplicaLeaderTenure : IDisposable
 {
     private readonly CancellationTokenSource _ending = new();
     private readonly ReplicaDriverLease _lease;
+    private Type? _reportedFault;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaLeaderTenure" /> class.</summary>
     /// <param name="term">The won term.</param>
@@ -104,6 +105,17 @@ internal sealed class ReplicaLeaderTenure : IDisposable
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         Authorized = status.CurrentTerm == Term && await log.GetTermAtAsync(NoopIndex, cancellationToken).ConfigureAwait(false) == Term;
         return Authorized;
+    }
+
+    /// <summary>Records the kind of fault the last start of the leadership failed with.</summary>
+    /// <param name="fault">The type of the fault.</param>
+    /// <returns><see langword="true" /> when it differs from the fault recorded last, so it is to be logged.</returns>
+    /// <remarks>Called under the commit gate.</remarks>
+    internal bool ReportFault(Type fault)
+    {
+        var changed = _reportedFault != fault;
+        _reportedFault = fault;
+        return changed;
     }
 
     /// <summary>Gets the term a start of the leadership leads in.</summary>

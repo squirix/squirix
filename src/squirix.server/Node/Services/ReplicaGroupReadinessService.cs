@@ -124,7 +124,6 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
     {
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         var loops = new List<Task>();
-        var linked = new List<CancellationTokenSource>();
         try
         {
             var arrival = NextAsync(promotions, stopping.Token);
@@ -141,10 +140,7 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
                     continue;
                 }
 
-                var promotion = await arrival.ConfigureAwait(false);
-                var tenure = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token, promotion.Tenure);
-                linked.Add(tenure);
-                loops.Add(VerifyLoopAsync(promotion.Committer, tenure.Token));
+                loops.Add(VerifyTenureAsync(await arrival.ConfigureAwait(false), stopping.Token));
                 arrival = NextAsync(promotions, stopping.Token);
             }
         }
@@ -156,9 +152,17 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         {
             await stopping.CancelAsync().ConfigureAwait(false);
             _ = await Task.WhenAll(loops).CaptureFailureAsync().ConfigureAwait(false);
-            for (var i = 0; i < linked.Count; i++)
-                linked[i].Dispose();
         }
+    }
+
+    /// <summary>Verifies and repairs the slots of a group led by election until its leadership or the host ends.</summary>
+    /// <param name="promotion">The leadership.</param>
+    /// <param name="stoppingToken">The host stopping token, also canceled when another loop failed.</param>
+    /// <returns>A task that completes when the leadership or the host ended.</returns>
+    private async Task VerifyTenureAsync(ReplicaPromotion promotion, CancellationToken stoppingToken)
+    {
+        using var tenure = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, promotion.Tenure);
+        await VerifyLoopAsync(promotion.Committer, tenure.Token).ConfigureAwait(false);
     }
 
     private async Task<bool> CatchUpOnceAsync(ReplicaGroupCommitter committer, ReplicaCatchUpReporter catchUp, CancellationToken stoppingToken)
