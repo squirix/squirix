@@ -576,9 +576,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         return consistencyError ?? await FollowerLogAppend.AppendVerifiedBatchAsync(_journal, this, request, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Builds the status of the durable log state.</summary>
-    /// <returns>The durable log status.</returns>
-    /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
     /// <summary>Persists new metadata durably and only then makes it the metadata of the log.</summary>
     /// <param name="candidate">The new metadata.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -590,6 +587,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         _meta = candidate;
     }
 
+    /// <summary>Builds the status of the durable log state.</summary>
+    /// <returns>The durable log status.</returns>
+    /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
     private FollowerLogStatus CaptureStatus()
     {
         var lastLogTerm = 0UL;
