@@ -368,7 +368,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <param name="write">Whether a write is to be prepared next; <see langword="false" /> for verification.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The running coordinator and mutation factory.</returns>
-    /// <exception cref="Grpc.Core.RpcException">The write has no verified majority or no authorized leadership: Unavailable, nothing was written.</exception>
+    /// <exception cref="Grpc.Core.RpcException">
+    /// The write has no verified majority (Unavailable) or no authorized leadership in the led term (stale-term, stale-owner or Unavailable):
+    /// nothing was written.
+    /// </exception>
     /// <exception cref="SquirixException">An appended entry is not yet applied (too many requests).</exception>
     /// <exception cref="InvalidOperationException">The committer is not started.</exception>
     /// <remarks>Runs under the commit gate.</remarks>
@@ -376,9 +379,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
 
-        // A write that passed the write gate may reach a later leadership whose leader-term entry is not committed yet: refused the same way.
-        if (write && Election != null && _tenure is not { Authorized: true })
-            throw ServerOpContract.NoLeaderAuthority();
+        // A write that passed the write gate may reach a leadership that lost its authority, or a later one whose leader-term entry is not
+        // committed yet: refused the same way.
+        if (write)
+            this.ThrowIfNoWriteAuthority();
         if (!IsStarted)
             await StartAsync(cancellationToken).ConfigureAwait(false);
 
@@ -390,6 +394,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var applied = !write || (majority && await TryApplyPendingAsync().ConfigureAwait(false));
         if (!majority)
             DropStartedState();
+
+        // The start and the apply may wait: the authority is checked again last, right before the prepare and the local append.
+        if (write && majority && applied)
+            this.ThrowIfNoWriteAuthority();
 
         return (majority, applied, _coordinator, _factory) switch
         {

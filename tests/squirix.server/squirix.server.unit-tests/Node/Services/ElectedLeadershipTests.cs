@@ -183,6 +183,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1");
         await using var committer = Elected(registry, "n2", new ScriptedGateway(), applier, cache);
         _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
+        GrantAuthority(registry, "n2", 2UL);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
         _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
 
@@ -218,7 +219,8 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
 
     /// <summary>
     /// The set of led groups grows with a promotion and shrinks with a retirement, and a write reaches a led group only while the election
-    /// state reports local authority: before the leader-term entry authorizes it, and after a higher term, it is refused as a stale owner.
+    /// state reports local authority: before the leader-term entry authorizes it, it is refused retryably, after a higher term as stale-term,
+    /// and once another leader is known as a stale owner.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -239,7 +241,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         var granted = committers.ForKey(CacheName, "b").GroupId;
         state.ObserveHigherTerm(3UL);
         var deposed = committers.FindAuthorized("n2");
-        var noLeaderKnown = NodeExceptionAssert.For<RpcException>().Throws(committers, static set => set.ForKey(CacheName, "b"));
+        var staleTerm = NodeExceptionAssert.For<RpcException>().Throws(committers, static set => set.ForKey(CacheName, "b"));
         state.BecomeFollower(3UL, false);
         state.ObserveLeaderContact("n3", 3UL);
         var otherLeader = NodeExceptionAssert.For<RpcException>().Throws(committers, static set => set.ForKey(CacheName, "b"));
@@ -248,7 +250,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         _ = await Assert.That((authorized, led, granted, retired, committers.Leads("n2"))).IsEqualTo((true, true, "n2", true, false));
         _ = await Assert.That(deposed).IsNull();
         _ = await Assert.That((beforeGrant.StatusCode, beforeGrant.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
-        _ = await Assert.That(noLeaderKnown.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That((staleTerm.StatusCode, staleTerm.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
         _ = await Assert.That(otherLeader.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         _ = await Assert.That(otherLeader.Status.Detail).Contains("'n3'");
         _ = await Assert.That(committers.Promotions!.TryRead(out var promotion)).IsTrue();
@@ -299,6 +301,18 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
     {
         var local = cache ?? new StubCache();
         return CreateElectedCommitter(registry, groupId, gateway, local, applier ?? new ReplicaGroupApplier(local, NullLogger.Instance, groupId, "n1"));
+    }
+
+    /// <summary>Hands the election state of a group the authority the driver grants once the leader-term entry is committed.</summary>
+    /// <param name="registry">The registry serving the group.</param>
+    /// <param name="groupId">The group.</param>
+    /// <param name="term">The led term.</param>
+    private static void GrantAuthority(ReplicaGroupRegistry registry, string groupId, ulong term)
+    {
+        var state = registry.StateFor(groupId);
+        state.SetElectionDriven(true);
+        _ = state.BecomeLeader(term);
+        _ = state.GrantAuthority(term);
     }
 
     private static ReplicaGroupCommitters ElectedSet(ReplicaGroupRegistry registry, ScriptedGateway gateway) =>

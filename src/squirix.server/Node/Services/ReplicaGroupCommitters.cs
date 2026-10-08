@@ -180,8 +180,8 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     /// <param name="key">User key of the operation.</param>
     /// <returns>The committer of the owning group.</returns>
     /// <exception cref="Grpc.Core.RpcException">
-    /// This node may not write to the owning group: the stale-owner refusal when another leader is known (or the led set is fixed), the
-    /// retryable Unavailable refusal otherwise; nothing was appended.
+    /// This node may not write to the owning group: stale-term when a higher term deposed it, the stale-owner refusal when another leader
+    /// is known (or the led set is fixed), the retryable Unavailable refusal otherwise; nothing was appended.
     /// </exception>
     internal ReplicaGroupCommitter ForKey(string cacheName, string key)
     {
@@ -225,20 +225,18 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     /// <summary>Builds the refusal of a write to a group this node may not write to.</summary>
     /// <param name="groupId">Replica group identifier, the original owner of the key.</param>
     /// <returns>
-    /// The stale-owner refusal naming the owner when the led set is fixed, or naming the known leader when it is another node; otherwise,
-    /// while this node leads the group without authority yet or knows no leader, the retryable Unavailable refusal.
+    /// The stale-owner refusal naming the owner when the led set is fixed. Otherwise the refusal of the leader view: stale-term when a higher
+    /// term deposed this node, stale-owner naming the known leader in the hint trailers, or the retryable Unavailable refusal while this
+    /// node leads the group without authority yet or knows no leader.
     /// </returns>
-    /// <remarks>
-    /// The leader table hides refuted routes on purpose, so this refusal never names a leader that already answered as stale; it answers
-    /// Unavailable instead. A refusal derived from the full leader view is meant to replace this one.
-    /// </remarks>
+    /// <remarks>The leader table hides refuted routes on purpose, so this refusal never names a leader that already answered as stale.</remarks>
     private Grpc.Core.RpcException Refusal(string groupId)
     {
         if (_authority is not { } table)
             return StaleOwnerFailure.Create(groupId, _selfId);
 
-        var known = table.TryGetLeader(groupId, out var route) && !string.Equals(route.NodeId, _selfId, StringComparison.Ordinal);
-        return known ? StaleOwnerFailure.Create(route.NodeId, _selfId) : ServerOpContract.NoLeaderAuthority();
+        var view = table.Read(groupId);
+        return LeaderRefusal.Create(LeaderRefusal.Classify(in view, _selfId), in view, _selfId, true);
     }
 
     /// <summary>Adds a committer to the led groups or removes it, as a new snapshot.</summary>
