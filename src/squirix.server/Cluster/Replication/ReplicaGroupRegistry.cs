@@ -76,6 +76,9 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     /// <summary>Gets or initializes the time source of the election state of every group; the system clock unless set.</summary>
     internal TimeProvider ElectionClock { get; init; } = TimeProvider.System;
 
+    /// <summary>Gets or initializes a value indicating whether a leader elected in a served group fences its reads with a read index; off unless set.</summary>
+    internal bool QuorumReads { get; init; }
+
     /// <summary>Gets the replica group identifiers served by this node.</summary>
     /// <returns>The group identifiers fixed at construction.</returns>
     internal IReadOnlyList<string> GroupIds => _groupIds;

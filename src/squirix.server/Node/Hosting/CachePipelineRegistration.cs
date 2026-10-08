@@ -150,8 +150,8 @@ internal static class CachePipelineRegistration
         if (!sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled)
             return inner;
 
-        // Reads fence on the elected leader only under quorum reads; a group led statically has no read index to confirm.
-        var topology = sp.GetRequiredService<TopologyOptions>();
-        return new ReplicatedCache(inner, sp.GetRequiredService<ReplicaGroupCommitters>(), topology.QuorumReadsEnabled && ServerHostingComposition.LeadsByElection(topology));
+        // Reads fence on the elected leader only under quorum reads, as the registry tells its elected leaders; a group led statically
+        // has no read index to confirm.
+        return new ReplicatedCache(inner, sp.GetRequiredService<ReplicaGroupCommitters>(), sp.GetRequiredService<ReplicaGroupRegistry>().QuorumReads);
     }
 }

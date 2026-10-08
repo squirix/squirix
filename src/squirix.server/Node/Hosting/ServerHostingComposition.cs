@@ -99,11 +99,6 @@ internal static class ServerHostingComposition
         return MapEndpoints(app, options.AuthEnabled);
     }
 
-    /// <summary>Tells whether the groups of this node are led by election: automatic failover on and at least three replicas per group.</summary>
-    /// <param name="cluster">Cluster topology configuration.</param>
-    /// <returns><see langword="true" /> when an election driver leads every group; otherwise the owner leads its group statically.</returns>
-    internal static bool LeadsByElection(TopologyOptions cluster) => cluster.AutomaticFailoverEnabled && cluster.ReplicaCount >= 3;
-
     /// <summary>Registers the replica group registry and replication services for an activated node.</summary>
     /// <param name="services">DI service collection.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
@@ -194,6 +189,7 @@ internal static class ServerHostingComposition
     {
         Election = sp.GetService<ElectionTimerOptions>() ?? new ElectionTimerOptions(),
         ElectionClock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
+        QuorumReads = cluster.QuorumReadsEnabled && LeadsByElection(cluster),
     };
 
     /// <summary>Registers the appliers of every served group, which the committers of the led groups and the apply loops of the others drive.</summary>
@@ -301,6 +297,11 @@ internal static class ServerHostingComposition
             CompactionWaitBudget = sp.GetRequiredService<ReplicaLogCompactionOptions>().Interval,
         };
     }
+
+    /// <summary>Tells whether the groups of this node are led by election: automatic failover on and at least three replicas per group.</summary>
+    /// <param name="cluster">Cluster topology configuration.</param>
+    /// <returns><see langword="true" /> when an election driver leads every group; otherwise the owner leads its group statically.</returns>
+    private static bool LeadsByElection(TopologyOptions cluster) => cluster.AutomaticFailoverEnabled && cluster.ReplicaCount >= 3;
 
     /// <summary>
     /// Registers cluster locator, internode transport, and replication planning services.

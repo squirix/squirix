@@ -63,8 +63,9 @@ internal static class ReplicaGroupCommitterStarts
             // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
             var lagging = new ReplicaLaggingFollowers(committer.GroupId, eligibility, committer.Probe.Repairs, committer.Log);
 
-            // An elected leader confirms the read index of a leader read with the replies its senders get in the led term.
-            var rounds = committer.Election == null ? null : new ReplicaReadIndexRound(term, members.Length, leaderIndex);
+            // An elected leader under quorum reads confirms the read index of a leader read with the replies its senders get in the led term;
+            // otherwise the senders use the follower transport as it is.
+            var rounds = committer.Election != null && committer.Registry.QuorumReads ? new ReplicaReadIndexRound(term, members.Length, leaderIndex) : null;
             var senders = committer.CreateSenders(members, leaderIndex, in status, in header, rounds);
             var pipeline = new ReplicaGroupCommitPipeline(committer.Applier, log, senders, (header.LeaderNodeId, leaderIndex), lagging, in status, term) { ReadIndex = rounds };
             return (pipeline, factory, read, term, eligibility, results);
