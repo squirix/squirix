@@ -109,7 +109,7 @@ internal static class RuntimeServiceRegistration
             // RF=1 and foundation-only hosts keep the local clock. AddSingleton<T>(T) is constrained to class, so the descriptor boxes the enum.
             services.Add(new ServiceDescriptor(
                 typeof(CacheExpiryAuthority),
-                static sp => sp.GetService<FeatureState>().NetworkReplicationEnabled ? CacheExpiryAuthority.CommittedRecords : CacheExpiryAuthority.LocalClock,
+                static sp => sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled ? CacheExpiryAuthority.CommittedRecords : CacheExpiryAuthority.LocalClock,
                 ServiceLifetime.Singleton));
             _ = services.AddSingleton(static sp => new PhysicalCache<object?>(
                 sp.GetService<TimeProvider>(),
