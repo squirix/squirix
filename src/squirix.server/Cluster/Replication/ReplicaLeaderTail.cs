@@ -18,11 +18,6 @@ internal sealed record ReplicaLeaderTail(ulong CommitIndex, ulong CommitTerm, IR
     /// <summary>Gets the last uncommitted index, or the commit index when the tail is empty.</summary>
     internal ulong LastIndex => IsEmpty ? CommitIndex : Entries[^1].LogIndex;
 
-    /// <summary>Determines whether counting replicas may commit the whole tail under the current-term rule.</summary>
-    /// <param name="currentTerm">The leader's current term.</param>
-    /// <returns><see langword="true" /> when the tail is empty or a current-term entry reaches its last index.</returns>
-    internal bool IsCommittableIn(ulong currentTerm) => IsEmpty || ElectionCommitRule.HasCurrentTermEntryThrough(Entries, currentTerm, LastIndex);
-
     /// <summary>Creates the tail from a leader log read that paired its status with its uncommitted entries.</summary>
     /// <param name="read">The leader's own group log tail, read in one step.</param>
     /// <returns>The tail at the commit index of <paramref name="read" />; callers holding no commit gate re-check the status before acting on it.</returns>
@@ -31,4 +26,9 @@ internal sealed record ReplicaLeaderTail(ulong CommitIndex, ulong CommitTerm, IR
         ArgumentNullException.ThrowIfNull(read);
         return new ReplicaLeaderTail(read.Status.CommitIndex, read.CommitTerm, read.Entries);
     }
+
+    /// <summary>Determines whether counting replicas may commit the whole tail under the current-term rule.</summary>
+    /// <param name="currentTerm">The leader's current term.</param>
+    /// <returns><see langword="true" /> when the tail is empty or a current-term entry reaches its last index.</returns>
+    internal bool IsCommittableIn(ulong currentTerm) => IsEmpty || ElectionCommitRule.HasCurrentTermEntryThrough(Entries, currentTerm, LastIndex);
 }
