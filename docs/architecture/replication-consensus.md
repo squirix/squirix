@@ -57,8 +57,10 @@ heartbeats, and RF=2 never elects a replacement.
   no leader with authority on this node; nothing was written.", or the stale-owner refusal naming the leader this node
   knows.
 - **Heartbeats and step-down.** A leader sends an empty append to every idle follower each heartbeat interval. It steps
-  down once fewer than a majority, itself included, answered within one election timeout (a new leader gets one timeout
-  of grace after its first promotion attempt), and at once on a higher term in any reply. Authority is revoked before
+  down once fewer than a majority, itself included, answered within one election timeout, and at once on a higher term
+  in any reply. A new leader gets one timeout of grace. A follower that answered the probes of the start counts as
+  answered, and a leader without authority whose promotion held its driver for a heartbeat interval or more, such as a
+  start that waited for a dead follower, gets the grace again once the promotion returns. Authority is revoked before
   the leader retires its pipeline.
 - **Repair.** A follower out of the write quorum that answers a heartbeat or an append from its log is queued for repair
   at once, at most once per election timeout, instead of waiting for the readiness retry.
