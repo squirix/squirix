@@ -126,11 +126,7 @@ internal static class ServerHostingComposition
         // Factory registrations let the container own disposal: the registry closes follower-log durability workers
         // and the committers drain their coordinators on host shutdown.
         _ = services.AddSingleton(static sp => CreateReplicaGroupCommitters(sp, sp.GetRequiredService<ReplicaGroupActivation>().Fingerprint));
-        _ = services.AddHostedService(static sp => new ReplicaGroupReadinessService(
-            sp.GetRequiredService<ReplicaGroupCommitters>(),
-            sp.GetRequiredService<ILogger<ReplicaGroupReadinessService>>(),
-            sp.GetService<TimeProvider>() ?? TimeProvider.System,
-            sp.GetRequiredService<ReplicaCatchUpMetrics>()));
+        AddReplicaGroupReadiness(services);
         _ = services.AddHostedService(static sp => new ReplicaApplyService(
             sp.GetRequiredService<ReplicaGroupRegistry>(),
             sp.GetRequiredService<ReplicaGroupAppliers>(),
@@ -196,6 +192,21 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<TopologyOptions>().NodeId,
             sp.GetRequiredService<ILogger<ReplicaGroupAppliers>>(),
             sp.GetRequiredService<ReplicationMetrics>()));
+
+    /// <summary>Registers the verification of the followers of the led groups, with its retry schedule.</summary>
+    /// <param name="services">DI service collection.</param>
+    private static void AddReplicaGroupReadiness(IServiceCollection services)
+    {
+        _ = services.AddSingleton(new ReplicaReadinessOptions());
+        _ = services.AddHostedService(static sp => new ReplicaGroupReadinessService(
+            sp.GetRequiredService<ReplicaGroupCommitters>(),
+            sp.GetRequiredService<ILogger<ReplicaGroupReadinessService>>(),
+            sp.GetService<TimeProvider>() ?? TimeProvider.System,
+            sp.GetRequiredService<ReplicaCatchUpMetrics>())
+        {
+            Options = sp.GetRequiredService<ReplicaReadinessOptions>(),
+        });
+    }
 
     /// <summary>Registers the election drivers of the served groups, which hand won terms to the committers.</summary>
     /// <param name="services">DI service collection.</param>
