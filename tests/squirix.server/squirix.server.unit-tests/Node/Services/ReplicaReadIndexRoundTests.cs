@@ -90,7 +90,7 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>A reply in a higher term fails the round in flight and every later one as the loss of leader authority.</summary>
+    /// <summary>A reply in a higher term fails the round in flight and every later one as stale-term.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task HigherTermFaultsRound(CancellationToken cancellationToken)
@@ -103,8 +103,8 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
         var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(confirming.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
         var later = await NodeAsyncAssert.ThrowsAsync<RpcException>(leader.ConfirmAsync(cancellationToken));
 
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
-        _ = await Assert.That(later.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
+        _ = await Assert.That((later.StatusCode, later.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
     }
 
     /// <summary>A reader that arrives while a round is in flight does not share it: it starts the next round, at the commit index of its arrival.</summary>

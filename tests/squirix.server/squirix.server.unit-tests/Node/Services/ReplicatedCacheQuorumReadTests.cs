@@ -80,7 +80,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         _ = await Assert.That(read?.Value).IsEqualTo("b");
     }
 
-    /// <summary>A leader that sees a higher term while its read waits for the read index to be applied refuses the read once memory applied it.</summary>
+    /// <summary>A leader that sees a higher term while its read waits for the read index to be applied refuses it as stale-term once memory applied it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task HigherTermDuringApplyRefusesRead(CancellationToken cancellationToken)
@@ -97,13 +97,13 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
 
         var reading = new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken).AsTask();
         var waited = !reading.IsCompleted;
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken);
         registry.StateFor("n2").ObserveHigherTerm(3UL);
-        var applied = await committer.TryApplyPendingAsync();
         await PollAsync(time, reading);
         var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
 
-        _ = await Assert.That((waited, applied)).IsEqualTo((true, true));
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That(waited).IsTrue();
+        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
     }
 
     /// <summary>A read waiting for its round fails at once, as unconfirmed, when the leadership retires and closes the pipeline of the round.</summary>

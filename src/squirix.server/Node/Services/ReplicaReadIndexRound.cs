@@ -62,7 +62,8 @@ internal sealed class ReplicaReadIndexRound
     /// <param name="cancellationToken">Cancellation token; it ends this wait only.</param>
     /// <returns>The read index: the commit index taken after this call started, confirmed by a majority in the leader term.</returns>
     /// <exception cref="Grpc.Core.RpcException">
-    /// A follower answered in a higher term (no leader authority), or the pipeline closed (the read quorum is unconfirmed): Unavailable.
+    /// A follower answered in a higher term (stale-term, FailedPrecondition), or the pipeline closed (the read quorum is unconfirmed,
+    /// Unavailable).
     /// </exception>
     internal async ValueTask<ulong> ConfirmAsync<TState>(TState state, Func<TState, ulong> commitIndex, Action<TState> heartbeat, CancellationToken cancellationToken)
     {
@@ -113,7 +114,7 @@ internal sealed class ReplicaReadIndexRound
     {
         if (reply.CurrentTerm > _term)
         {
-            Fail(ServerOpContract.NoLeaderAuthority);
+            Fail(static () => StaleTermFailure.Create(null, 0));
             return;
         }
 
