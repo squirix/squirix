@@ -43,12 +43,19 @@ internal static class CachePipelineRegistration
     /// <param name="services">Service collection receiving the decorator chain registrations.</param>
     private static void AddCacheDecoratorChain(IServiceCollection services)
     {
-        _ = services.AddSingleton(static sp => new MemoryAdmissionCacheDecorator<object?>(
-            ResolveLocalCache(sp),
-            sp.GetRequiredService<IMemoryPressureGate>(),
-            sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
-            sp.GetRequiredService<IMemoryUsageAccounting>(),
-            HasRecordedOutcome(sp)));
+        _ = services.AddSingleton(static sp =>
+        {
+            var local = ResolveLocalCache(sp);
+
+            // Admission reads around a replicated write must never start an expiry commit: the write decides the expiry itself.
+            return new MemoryAdmissionCacheDecorator<object?>(
+                local,
+                sp.GetRequiredService<IMemoryPressureGate>(),
+                sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
+                sp.GetRequiredService<IMemoryUsageAccounting>(),
+                HasRecordedOutcome(sp),
+                local is ReplicatedCache replicated ? replicated.PeekEntryAsync : null);
+        });
         _ = services.AddSingleton(static sp => new MetricsCacheDecorator<object?>(
             sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>(),
             sp.GetRequiredService<CacheMetrics>()));

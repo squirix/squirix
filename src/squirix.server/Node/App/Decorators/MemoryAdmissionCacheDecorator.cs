@@ -26,6 +26,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly AsyncLock[] _keyGates = CreateKeyGates();
     private readonly Func<string, string, bool>? _hasRecordedOutcome;
+    private readonly Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>> _readStored;
 
     /// <summary>Initializes a new instance of the <see cref="MemoryAdmissionCacheDecorator{T}" /> class.</summary>
     /// <param name="inner">The cache pipeline below admission.</param>
@@ -39,12 +40,18 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     /// Any other such write is refused here, without a log record: its first attempt changed nothing, so nothing needs replaying.
     /// Until the replicated committer has rebuilt its outcomes after a restart, every such write counts as recorded and is decided there.
     /// </param>
+    /// <param name="readStored">
+    /// Reads the entry <paramref name="inner" /> holds for admission and accounting, an entry past its deadline counting as absent, without
+    /// any side effect; <see langword="null" /> reads through <paramref name="inner" />. A replicated pipeline passes a read that never
+    /// starts an expiry commit: its committer folds the expiry of the key into the write's own decision.
+    /// </param>
     internal MemoryAdmissionCacheDecorator(
         ILogicalNamespacedCache<T> inner,
         IMemoryPressureGate gate,
         ICacheEntrySizeEstimator<T> estimator,
         IMemoryUsageAccounting accounting,
-        Func<string, string, bool>? hasRecordedOutcome = null)
+        Func<string, string, bool>? hasRecordedOutcome = null,
+        Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>>? readStored = null)
     {
         ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(gate);
@@ -55,6 +62,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         _estimator = estimator;
         _accounting = accounting;
         _hasRecordedOutcome = hasRecordedOutcome;
+        _readStored = readStored ?? inner.GetEntryAsync;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
@@ -84,7 +92,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     {
         var keyValue = new CacheKey(cacheName, key);
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
-        var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing?.ExpiresUtc == null)
             return await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
 
@@ -103,7 +111,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     {
         var keyValue = new CacheKey(cacheName, key);
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
-        var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (AdmitReplaceOrInsert(keyValue, existing, entry, AdmissionOperations.Set, operationId))
         {
             await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
@@ -133,7 +141,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     {
         var keyValue = new CacheKey(cacheName, key);
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
-        var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing == null)
             return await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
 
@@ -152,7 +160,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     {
         var keyValue = new CacheKey(cacheName, key);
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
-        var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing != null)
             return IsRecorded(cacheName, operationId) && await AccountAnsweredAsync(keyValue, _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken)).ConfigureAwait(false);
 
@@ -170,7 +178,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     {
         var keyValue = new CacheKey(cacheName, key);
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
-        var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing == null)
             return IsRecorded(cacheName, operationId) && await AccountAnsweredAsync(keyValue, _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken)).ConfigureAwait(false);
 
@@ -276,7 +284,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     /// </remarks>
     private async ValueTask AccountStoredAsync(CacheKey key)
     {
-        var stored = await _inner.GetEntryAsync(key.Namespace, key.Key, CancellationToken.None).ConfigureAwait(false);
+        var stored = await _readStored(key.Namespace, key.Key, CancellationToken.None).ConfigureAwait(false);
         if (stored == null)
             AccountRemove(key);
         else

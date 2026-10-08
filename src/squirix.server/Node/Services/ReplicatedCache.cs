@@ -39,8 +39,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     public async ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        var expired = entry?.ExpiresUtc is { } deadline && deadline.Ticks <= _committer.Clock.GetUtcNow().UtcDateTime.Ticks;
-        return expired ? await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false) : entry;
+        return IsExpired(entry) ? await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false) : entry;
     }
 
     /// <inheritdoc />
@@ -74,6 +73,26 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// <inheritdoc />
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) =>
         new(_committer.CommitUpdateAsync(operationId, cacheName, key, value, cancellationToken));
+
+    /// <summary>Reads the stored entry of a key without deciding its expiry: an entry past its deadline on the leader clock reads as absent.</summary>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The live entry, or <see langword="null" /> when the key is absent or expired.</returns>
+    /// <remarks>
+    /// Never commits a tombstone, so a caller around a write (memory admission and its accounting) cannot turn a committed write into a
+    /// refused read; the write itself folds the expiry of the key into its decision.
+    /// </remarks>
+    internal async ValueTask<NodeCacheEntry<object?>?> PeekEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return IsExpired(entry) ? null : entry;
+    }
+
+    /// <summary>Tells whether the leader clock has passed the deadline of a stored entry.</summary>
+    /// <param name="entry">The stored entry, or <see langword="null" />.</param>
+    /// <returns><see langword="true" /> when the entry has a deadline at or before the leader clock.</returns>
+    private bool IsExpired(NodeCacheEntry<object?>? entry) => entry?.ExpiresUtc is { } deadline && deadline.Ticks <= _committer.Clock.GetUtcNow().UtcDateTime.Ticks;
 
     /// <summary>Expires the key on the leader and reports what the committed decision leaves.</summary>
     /// <param name="cacheName">Target cache name.</param>

@@ -1,13 +1,17 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App.Decorators;
+using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -59,6 +63,46 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
 
         _ = await Assert.That(await b.RawAsync(cancellationToken)).IsNull();
         _ = await Assert.That(await b.Cache.GetEntryAsync(CacheName, Key, cancellationToken)).IsNull();
+    }
+
+    /// <summary>A write through memory admission onto an expired key commits one record that folds the expiry, and is never reported failed.</summary>
+    /// <param name="kind">The write kind.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when the test has run.</returns>
+    [Test]
+    [Arguments(ReplicaMutationKinds.Set)]
+    [Arguments(ReplicaMutationKinds.TryAdd)]
+    [Arguments(ReplicaMutationKinds.Touch)]
+    public async Task AdmissionFoldsExpiryIntoWrite(string kind, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-expiry-clock-admission");
+        using var meter = new Meter("squirix-expiry-clock-admission");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var leader = new Leader(registry, clock);
+        var accounting = new MemoryUsageAccounting();
+        var gate = new PressureGate(new StateEvaluator(Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000 })), accounting, "n1", meter);
+        var admission = new MemoryAdmissionCacheDecorator<object?>(
+            leader.Cache,
+            gate,
+            new CacheEntrySizeEstimator<object?>(),
+            accounting,
+            (cacheName, operationId) => registry.HasRecordedOutcome("n1", cacheName, operationId),
+            leader.Cache.PeekEntryAsync);
+        await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        clock.Advance(Ttl);
+        var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
+
+        var applied = kind switch
+        {
+            ReplicaMutationKinds.Set => await SetAsync(admission, cancellationToken),
+            ReplicaMutationKinds.TryAdd => await admission.TryAddEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("w", 1), cancellationToken),
+            _ => await admission.TouchAsync(NewOperationId(), CacheName, Key, Ttl, cancellationToken),
+        };
+
+        _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(before + 1);
+        _ = await Assert.That(await LastKindAsync(registry, cancellationToken)).IsEqualTo(kind);
+        _ = await Assert.That(applied).IsEqualTo(!string.Equals(kind, ReplicaMutationKinds.Touch, StringComparison.Ordinal));
     }
 
     /// <summary>A leader whose clock is ahead takes over a key the earlier leader still read live and expires it through a tombstone.</summary>
@@ -263,6 +307,12 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         await restarted.Committer.CommitSetAsync(operationId, CacheName, Key, entry, cancellationToken);
 
         _ = await Assert.That((await StatusAsync(restartedRegistry, cancellationToken)).LastLogIndex).IsEqualTo(written);
+    }
+
+    private static async Task<bool> SetAsync(MemoryAdmissionCacheDecorator<object?> admission, CancellationToken cancellationToken)
+    {
+        await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("w", 1), cancellationToken);
+        return true;
     }
 
     private static async Task<List<ReplicaLogRecord>> RecordsAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)
