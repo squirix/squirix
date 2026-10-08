@@ -51,6 +51,26 @@ internal static class LedGroupsTestKit
             BudgetTimeProvider = seams.BudgetClock ?? TimeProvider.System,
         };
 
+    /// <summary>Creates the committer of a group on node n1 whose compaction steps wait at most <paramref name="compactionWait" />.</summary>
+    /// <param name="registry">Replica group registry of node n1, serving the group.</param>
+    /// <param name="groupId">The led group.</param>
+    /// <param name="gateway">Follower transport double.</param>
+    /// <param name="cache">Local cache pipeline.</param>
+    /// <param name="compactionWait">The longest wait of a compaction step for the followers and the commit gate.</param>
+    /// <returns>The committer, leading the group statically.</returns>
+    internal static ReplicaGroupCommitter CreateWaitBoundCommitter(
+        ReplicaGroupRegistry registry,
+        string groupId,
+        IReplicaRpcGateway gateway,
+        ILogicalNamespacedCache<object?> cache,
+        TimeSpan compactionWait) =>
+        new(registry, new RotatingLocator(), gateway, cache, (groupId, "n1"), new ReplicaTopologyStamp(ReplicaOwnerTestKit.Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+        {
+            Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            Applier = new ReplicaGroupApplier(cache, NullLogger.Instance, groupId, "n1"),
+            CompactionWaitBudget = compactionWait,
+        };
+
     /// <summary>Creates the committer of a group on node n1 that leads it only in the terms its election state hands it.</summary>
     /// <param name="registry">Replica group registry of node n1, serving the group.</param>
     /// <param name="groupId">The group.</param>

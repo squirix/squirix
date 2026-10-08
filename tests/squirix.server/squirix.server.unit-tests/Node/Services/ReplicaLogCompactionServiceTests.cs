@@ -105,6 +105,48 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         _ = await Assert.That((retention.SnapshotIndex, retention.RetainedEntries)).IsEqualTo((3UL, 1));
     }
 
+    /// <summary>
+    /// A led group whose commit gate stays held past its wait budget is skipped by the pass, without the budget ever cutting into a
+    /// compaction: the log stays ready and uncompacted, and the next pass compacts it.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HeldGateSkipsLedGroupUntilNextPass(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-maintenance-led-gate");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var cache = new ReplicaCommitterDoubles.ScriptedApplyCache(ReplicaCommitterDoubles.ApplyMode.Stall);
+        await using var committer = CreateWaitBoundCommitter(registry, "n1", new ScriptedGateway(), cache, TimeSpan.FromMilliseconds(200));
+        using var meter = new Meter("test");
+        var metrics = new ReplicationMetrics(meter);
+        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
+        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        using var service = new ReplicaLogCompactionService(
+            LeadOwn(committer),
+            durability.Instance(),
+            new ReplicaLogCompactionOptions(),
+            new ReplicaLogCompactionPolicy(long.MaxValue, 1),
+            metrics,
+            new ReplicaGroupAppliers(registry, cache, "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics),
+            registry,
+            NullLogger<ReplicaLogCompactionService>.Instance,
+            TimeProvider.System);
+        var log = OwnedLogOf(registry);
+
+        // The apply of the write runs under the commit gate and stalls there until released.
+        var held = committer.CommitSetAsync(NewOperationId(), "cache", "a", Entry("a"), cancellationToken);
+        await cache.ApplyEntered.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        await service.RunOnceAsync(cancellationToken);
+        var readiness = (await log.GetStatusAsync(cancellationToken)).Readiness;
+        var skipped = (await log.GetRetentionAsync(cancellationToken)).SnapshotIndex;
+        cache.ReleaseApply();
+        await held.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        await service.RunOnceAsync(cancellationToken);
+
+        _ = await Assert.That((readiness, skipped)).IsEqualTo((FollowerLogReadiness.Ready, 0UL));
+        _ = await Assert.That((await log.GetRetentionAsync(cancellationToken)).SnapshotIndex).IsEqualTo(1UL);
+    }
+
     /// <summary>A group whose applier lease is held by a committer leading it is skipped by the follower pass: its log is neither flushed nor compacted.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -209,6 +251,9 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
 
         _ = await Assert.That((repeated, events.Count(retryEventId))).IsEqualTo((1, 2));
     }
+
+    private static IFollowerLog OwnedLogOf(ReplicaGroupRegistry registry) =>
+        registry.TryGetLog("n1", out var log) ? log : throw new InvalidOperationException("The group log n1 is not open.");
 
     private static async Task<IFollowerLog> SeedAsync(ReplicaGroupRegistry registry, string groupId, int count, ulong commit, CancellationToken cancellationToken)
     {

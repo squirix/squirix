@@ -129,6 +129,20 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
     }
 
+    /// <summary>Gets or initializes the longest wait of a compaction step for the followers and the commit gate; 10 seconds unless set.</summary>
+    /// <remarks>A step that runs out of it is skipped until the next pass; the compaction itself, once it holds the gate, is never bounded by it.</remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
+    internal TimeSpan CompactionWaitBudget
+    {
+        get;
+        init
+        {
+            value.ThrowIfNegativeOrZero(nameof(value), "The compaction wait budget must be greater than zero.");
+
+            field = value;
+        }
+    } = TimeSpan.FromSeconds(10);
+
     /// <summary>Gets or initializes the time source of the commit budget and of the follower request timeouts; the system clock unless set.</summary>
     /// <remarks>Test seam: production committers keep the system clock.</remarks>
     internal TimeProvider BudgetTimeProvider { get; init; } = TimeProvider.System;
@@ -363,16 +377,29 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             return ReplicaLogCompactionOutcome.BelowThreshold;
 
         // An advisory check first, without the gate: a follower that is down or lagging then refuses the step without holding the
-        // gate for the whole follower wait on every pass. The decisive check runs again under the gate.
+        // gate for the whole follower wait on every pass. The decisive check runs again under the gate. The wait budget bounds only these
+        // waits: once the gate is held, the compaction runs to its end, so a budget never cancels a durable rewrite of the log.
         var eligibility = _registry.EligibilityFor(GroupId);
-        if (Volatile.Read(ref _coordinator) is { } running)
+        using var budget = new CancellationTokenSource(CompactionWaitBudget, BudgetTimeProvider);
+        using var waiting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
+        AsyncLockHolder guard;
+        try
         {
-            var observed = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-            if (await ReplicaLogCompactionStep.AwaitFollowersAsync(running, eligibility, observed.CommitIndex, Clock, cancellationToken).ConfigureAwait(false) is { } refused)
-                return refused;
+            if (Volatile.Read(ref _coordinator) is { } running)
+            {
+                var observed = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+                if (await ReplicaLogCompactionStep.AwaitFollowersAsync(running, eligibility, observed.CommitIndex, Clock, waiting.Token).ConfigureAwait(false) is { } refused)
+                    return refused;
+            }
+
+            guard = await _gate.LockAsync(waiting.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (budget.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            return ReplicaLogCompactionOutcome.NotReady;
         }
 
-        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        using var held = guard;
         ThrowIfDisposed();
 
         // An elected leader compacts only once its leader-term entry is committed: the authority check reads the term of that entry.
