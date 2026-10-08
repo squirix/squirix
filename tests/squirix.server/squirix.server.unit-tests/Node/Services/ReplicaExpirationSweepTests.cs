@@ -1,0 +1,140 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
+using Rocks;
+using Squirix.Server.Cluster;
+using Squirix.Server.Core;
+using Squirix.Server.LocalCache;
+using Squirix.Server.Node.Services;
+using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Support;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
+using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
+
+namespace Squirix.Server.UnitTests.Node.Services;
+
+/// <summary>The leader sweep expires the owned keys no read touches, through committed tombstones, and nothing else.</summary>
+public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
+{
+    private const string CacheName = "cache";
+
+    /// <summary>The event id of a failed sweep pass.</summary>
+    private const int SweepFailedEventId = 4033;
+
+    /// <summary>The event id of a sweep stopped by the host.</summary>
+    private const int SweepStoppedEventId = 4034;
+
+    private static readonly DateTimeOffset Start = new(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
+    private static readonly TimeSpan Ttl = TimeSpan.FromSeconds(60);
+
+    /// <summary>A pass stops after the most keys it may expire; the next pass expires the rest.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PassStopsAtMaxPerPass(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-expiry-sweep-max");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), new ClientCache<object?>(physical, physical), clock);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "a", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "c", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        clock.Advance(Ttl);
+        using var sweep = CreateSweep(committer, physical, new EventRecordingLogger());
+
+        var first = await sweep.SweepOnceAsync(cancellationToken);
+        var second = await sweep.SweepOnceAsync(cancellationToken);
+
+        _ = await Assert.That((first, second)).IsEqualTo((2, 1));
+        ILocalCacheStats stats = physical;
+        _ = await Assert.That(stats.EntryCount).IsEqualTo(0);
+    }
+
+    /// <summary>A pass expires the owned keys past their deadline and leaves live keys and keys of followed groups in place.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SweepExpiresOwnedExpiredKeysOnly(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-expiry-sweep-owned");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), new ClientCache<object?>(physical, physical), clock);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "expired", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<object?>("v"), cancellationToken);
+        await physical.SetAsync(new CacheKey(CacheName, "followed"), new NodeCacheEntry<object?>("v", 1, Start.UtcDateTime), cancellationToken);
+        clock.Advance(Ttl);
+
+        using var sweep = CreateSweep(committer, physical, new EventRecordingLogger());
+        var expired = await sweep.SweepOnceAsync(cancellationToken);
+
+        _ = await Assert.That(expired).IsEqualTo(1);
+        _ = await Assert.That(await RawAsync(physical, "expired", cancellationToken)).IsNull();
+        _ = await Assert.That(await RawAsync(physical, "live", cancellationToken)).IsNotNull();
+        _ = await Assert.That(await RawAsync(physical, "followed", cancellationToken)).IsNotNull();
+    }
+
+    /// <summary>A pass whose tombstone cannot commit stops there, keeps the entries, and logs one failure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SweepStopsOnRefusal(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-expiry-sweep-refused");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
+        var gateway = new ScriptedGateway();
+        await using var committer = CreateCommitter(registry, gateway, new ClientCache<object?>(physical, physical), clock);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "a", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        gateway.Set("n2", FollowerMode.Down);
+        gateway.Set("n3", FollowerMode.Down);
+        clock.Advance(Ttl);
+        var log = new EventRecordingLogger();
+
+        using var sweep = CreateSweep(committer, physical, log);
+        var expired = await sweep.SweepOnceAsync(cancellationToken);
+
+        _ = await Assert.That(expired).IsEqualTo(0);
+        _ = await Assert.That(log.Count(SweepFailedEventId)).IsEqualTo(1);
+        _ = await Assert.That(await RawAsync(physical, "a", cancellationToken)).IsNotNull();
+        _ = await Assert.That(await RawAsync(physical, "b", cancellationToken)).IsNotNull();
+    }
+
+    /// <summary>A sweep stopped by the host ends without a failure and logs one shutdown line.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SweepStopsCleanly(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-expiry-sweep-stop");
+        var clock = new DueTimerClock(ReplicaExpirationSweepService.Interval);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), new ClientCache<object?>(physical, physical), clock);
+        var log = new EventRecordingLogger();
+        using var sweep = CreateSweep(committer, physical, log);
+
+        await sweep.StartAsync(cancellationToken);
+
+        // The host starts the loop in the background: stop it only once it waits for its first pass.
+        _ = await Assert.That(await clock.TimerCreated.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken)).IsTrue();
+        await sweep.StopAsync(cancellationToken);
+
+        _ = await Assert.That(log.Count(SweepStoppedEventId)).IsEqualTo(1);
+        _ = await Assert.That(log.Count(SweepFailedEventId)).IsEqualTo(0);
+    }
+
+    private static ReplicaExpirationSweepService CreateSweep(ReplicaGroupCommitter committer, PhysicalCache<object?> physical, EventRecordingLogger log)
+    {
+        var locator = new INodeLocatorCreateExpectations();
+        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Callback(static (_, key) => string.Equals(key, "followed", StringComparison.Ordinal) ? "n2" : "n1");
+        return new ReplicaExpirationSweepService(committer, physical, locator.Instance(), "n1", log) { MaxPerPass = 2 };
+    }
+
+    private static ValueTask<NodeCacheEntry<object?>?> RawAsync(PhysicalCache<object?> physical, string key, CancellationToken cancellationToken) =>
+        physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, key), cancellationToken);
+}
