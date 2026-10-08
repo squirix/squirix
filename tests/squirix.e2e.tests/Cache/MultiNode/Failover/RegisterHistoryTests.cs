@@ -48,7 +48,7 @@ public sealed class RegisterHistoryTests : EndToEndTestBase
         var violations = RegisterHistory.Check(writes, reads);
 
         _ = await Assert.That(violations).HasSingleItem();
-        _ = await Assert.That(violations[0]).Contains("above 1, the last write started before the read returned", StringComparison.Ordinal);
+        _ = await Assert.That(violations[0]).Contains("a value whose write started after the read returned", StringComparison.Ordinal);
     }
 
     /// <summary>A read that sees a value no write wrote is a violation.</summary>
@@ -65,7 +65,7 @@ public sealed class RegisterHistoryTests : EndToEndTestBase
         _ = await Assert.That(violations[0]).Contains("a value no write wrote", StringComparison.Ordinal);
     }
 
-    /// <summary>A failed write may be seen or not, but once a read saw it, no later read may see the value before it.</summary>
+    /// <summary>A failed write may be seen or not, but once a read saw it, no later read may go back to the acknowledged value before it.</summary>
     /// <returns>A task that represents the asynchronous test.</returns>
     [Test]
     public async Task AmbiguousWriteMayBeSeenOnce()
@@ -79,6 +79,68 @@ public sealed class RegisterHistoryTests : EndToEndTestBase
         _ = await Assert.That(RegisterHistory.Check(writes, clean)).IsEmpty();
         _ = await Assert.That(violations).HasSingleItem();
         _ = await Assert.That(violations[0]).Contains("below 2, seen by the read [45, 50]", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A failed write never completed, so it may take effect after the next acknowledged write: a read may see it after a read saw the
+    /// newer value.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test.</returns>
+    [Test]
+    public async Task AmbiguousWriteMayTakeEffectLate()
+    {
+        RegisterWrite[] writes = [Write(1, 10, 20), Write(2, 30, 40, false), Write(3, 50, 60)];
+        RegisterRead[] reads = [Read(65, 70, 3), Read(75, 80, 2), Read(85, 90, 2)];
+
+        _ = await Assert.That(RegisterHistory.Check(writes, reads)).IsEmpty();
+    }
+
+    /// <summary>An acknowledged value read after a newer write was acknowledged is a lost write, even with an ambiguous write in between.</summary>
+    /// <returns>A task that represents the asynchronous test.</returns>
+    [Test]
+    public async Task LostAckedWriteIsViolation()
+    {
+        RegisterWrite[] writes = [Write(1, 10, 20), Write(2, 30, 40, false), Write(3, 50, 60)];
+        RegisterRead[] reads = [Read(65, 70, 1), Read(75, 80, 0)];
+
+        var violations = RegisterHistory.Check(writes, reads);
+
+        _ = await Assert.That(violations.Count).IsEqualTo(3);
+        _ = await Assert.That(violations[0]).Contains("saw 1, a value below 3, acknowledged before the read started", StringComparison.Ordinal);
+        _ = await Assert.That(violations[1]).Contains("saw 0, a value below 3, acknowledged before the read started", StringComparison.Ordinal);
+        _ = await Assert.That(violations[2]).Contains("saw 0, a value below 1, seen by the read [65, 70]", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Equal timestamps overlap: a write that ended when a read started, a write that started when a read ended, and a read that ended
+    /// when the next one started order nothing; one tick later they do.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test.</returns>
+    [Test]
+    public async Task EqualTimestampsDoNotOrderCalls()
+    {
+        RegisterWrite[] first = [Write(1, 10, 20)];
+        RegisterWrite[] writes = [Write(1, 10, 20), Write(2, 30, 60)];
+        RegisterRead[] adjacent = [Read(35, 50, 2), Read(50, 55, 1)];
+        RegisterRead[] apart = [Read(35, 50, 2), Read(51, 55, 1)];
+
+        _ = await Assert.That(RegisterHistory.Check(first, [Read(20, 25, 0)])).IsEmpty();
+        _ = await Assert.That(RegisterHistory.Check(first, [Read(5, 10, 1)])).IsEmpty();
+        _ = await Assert.That(RegisterHistory.Check(first, [Read(21, 25, 0)])).HasSingleItem();
+        _ = await Assert.That(RegisterHistory.Check(first, [Read(5, 9, 1)])).HasSingleItem();
+        _ = await Assert.That(RegisterHistory.Check(writes, adjacent)).IsEmpty();
+        _ = await Assert.That(RegisterHistory.Check(writes, apart)).HasSingleItem();
+    }
+
+    /// <summary>Overlapping reads may see decreasing values: the later-starting read may linearize first.</summary>
+    /// <returns>A task that represents the asynchronous test.</returns>
+    [Test]
+    public async Task OverlappingReadsMayDecrease()
+    {
+        RegisterWrite[] writes = [Write(1, 10, 20), Write(2, 30, 40)];
+        RegisterRead[] reads = [Read(32, 45, 2), Read(35, 38, 1)];
+
+        _ = await Assert.That(RegisterHistory.Check(writes, reads)).IsEmpty();
     }
 
     /// <summary>Writes of one key that do not increase, or that overlap, break the single-writer contract and stop the check of that key.</summary>

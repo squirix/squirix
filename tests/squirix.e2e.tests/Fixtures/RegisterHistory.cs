@@ -7,27 +7,33 @@ using System.Threading;
 namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>
-/// Records the calls on a set of single-writer registers and checks that every read is linearizable: one cache key per register, written
-/// by one writer with increasing positive integers.
+/// Records the calls on a set of single-writer registers and checks necessary conditions of linearizability on every read: one cache key
+/// per register, written by one writer with increasing positive integers.
 /// </summary>
 /// <remarks>
 /// <para>
-/// With one writer and unique increasing values, a history is linearizable exactly when every successful read of a key satisfies four
-/// rules:
+/// The model is textbook linearizability. An acknowledged write takes effect between its start and its end. A failed write is
+/// ambiguous: it never completed, so it may take effect at any point after its start, after later acknowledged writes of the same writer
+/// included (a forwarded request held by a partition can be appended late), or never. Zero stands for not found, the register before
+/// its first write. Real time orders two calls only when one ended strictly before the other started; equal timestamps overlap.
 /// </para>
+/// <para>Every successful read of a key must satisfy three rules, each a necessary condition in that model:</para>
 /// <list type="bullet">
-///   <item>it sees a value some write of the key wrote, or zero (not found) for the register before its first write;</item>
+///   <item>it sees zero or a value some write of the key wrote, and that write started no later than the read returned;</item>
 ///   <item>
-///     it sees no value below the highest acknowledged write that returned before the read started, so no acknowledged write is lost
-///     and no read is stale;
+///     when it sees zero or an acknowledged value, the value is not below an acknowledged write that ended before the read started,
+///     so no acknowledged write is lost; a lower ambiguous value is allowed, since its write may have taken effect late;
 ///   </item>
-///   <item>it sees no value above the highest write that started before the read returned, so no read sees the future;</item>
-///   <item>it sees no value below one a read that returned before it started saw, so reads never go back in time.</item>
+///   <item>
+///     when it sees zero or an acknowledged value, the value is not below one a read that ended before it started saw, so reads never
+///     go back to an acknowledged past; again a lower ambiguous value is allowed.
+///   </item>
 /// </list>
 /// <para>
-/// A failed write is ambiguous: it may or may not have taken effect, so a read may see its value but no read has to. Failed reads impose
-/// nothing and are only counted. Recording is thread safe; <see cref="Check(IReadOnlyList{RegisterWrite}, IReadOnlyList{RegisterRead})" />
-/// is a pure function of the records.
+/// The check is sound: it never fails a linearizable history. It is not complete, since it tests each rule pair by pair and does not
+/// search for one total order. It misses, for example, a read that sees a newer acknowledged value again after an earlier read saw the
+/// late effect of an older ambiguous write, which it allows on its own. Failed reads impose nothing and are only counted. Recording is thread
+/// safe; <see cref="Check(IReadOnlyList{RegisterWrite}, IReadOnlyList{RegisterRead})" /> is a pure function of the records.
 /// </para>
 /// </remarks>
 internal sealed class RegisterHistory
@@ -58,7 +64,7 @@ internal sealed class RegisterHistory
         }
     }
 
-    /// <summary>Checks a history and returns every violation found, in key order; an empty list means the history is linearizable.</summary>
+    /// <summary>Checks a history and returns every violation found, in key order; an empty list means no rule of the check failed.</summary>
     /// <param name="writes">The writes, in any order.</param>
     /// <param name="reads">The successful reads, in any order.</param>
     /// <returns>One line per violation.</returns>
@@ -79,7 +85,7 @@ internal sealed class RegisterHistory
             if (CheckWriter(key, keyWrites, violations))
             {
                 CheckBounds(key, keyWrites, keyReads, violations);
-                CheckMonotonic(key, keyReads, violations);
+                CheckMonotonic(key, keyWrites, keyReads, violations);
             }
         }
 
@@ -87,7 +93,7 @@ internal sealed class RegisterHistory
     }
 
     /// <summary>Checks the recorded history.</summary>
-    /// <returns>One line per violation; empty when the history is linearizable.</returns>
+    /// <returns>One line per violation; empty when no rule of the check failed.</returns>
     internal List<string> Check()
     {
         RegisterWrite[] writes;
@@ -140,7 +146,10 @@ internal sealed class RegisterHistory
         }
     }
 
-    /// <summary>Checks each read of a key against the writes: a written value, not below the acknowledged past, not above the started writes.</summary>
+    /// <summary>
+    /// Checks each read of a key against the writes: a value some write wrote, a write that started before the read returned, and no
+    /// acknowledged value, or not found, once a later write was acknowledged before the read started.
+    /// </summary>
     /// <param name="key">The register key.</param>
     /// <param name="writes">The writes of the key.</param>
     /// <param name="reads">The reads of the key.</param>
@@ -150,34 +159,37 @@ internal sealed class RegisterHistory
         var keyWrites = CollectionsMarshal.AsSpan(writes);
         foreach (ref readonly var read in CollectionsMarshal.AsSpan(reads))
         {
-            var written = read.Observed == 0;
-            var ackedBefore = 0L;
-            var startedBefore = 0L;
-            foreach (ref readonly var write in keyWrites)
-            {
-                written |= write.Value == read.Observed;
-                if (write.Acked && write.End < read.Start)
-                    ackedBefore = Math.Max(ackedBefore, write.Value);
+            var (seen, ackedBefore) = Scan(keyWrites, in read);
 
-                if (write.Start <= read.End)
-                    startedBefore = Math.Max(startedBefore, write.Value);
-            }
-
-            if (!written)
+            // Only not found, or an acknowledged value, is pinned before a later acknowledged write: an ambiguous write may take effect
+            // at any time after it started, after later writes included.
+            var pinned = read.Observed == 0 || seen.Acked;
+            if (!seen.Found)
                 violations.Add(Describe(key, in read, "a value no write wrote"));
-            else if (read.Observed < ackedBefore)
-                violations.Add(Describe(key, in read, $"a value below {ackedBefore}, acknowledged before the read started"));
-            else if (read.Observed > startedBefore)
-                violations.Add(Describe(key, in read, $"a value above {startedBefore}, the last write started before the read returned"));
+            else if (seen.Start > read.End)
+                violations.Add(Describe(key, in read, "a value whose write started after the read returned"));
+            else if (pinned && read.Observed < ackedBefore)
+                violations.Add(Describe(key, in read, $"a value below {ackedBefore}, acknowledged before the read started, so an acknowledged write is lost"));
         }
     }
 
-    /// <summary>Checks that no read of a key sees a value below one a read that returned before it started saw.</summary>
+    /// <summary>
+    /// Checks that no read of a key sees not found, or an acknowledged value, below a value a read that returned before it started saw;
+    /// a lower ambiguous value may still take effect late.
+    /// </summary>
     /// <param name="key">The register key.</param>
+    /// <param name="writes">The writes of the key.</param>
     /// <param name="reads">The reads of the key.</param>
     /// <param name="violations">Receives one line per violation.</param>
-    private static void CheckMonotonic(string key, List<RegisterRead> reads, List<string> violations)
+    private static void CheckMonotonic(string key, List<RegisterWrite> writes, List<RegisterRead> reads, List<string> violations)
     {
+        var acked = new HashSet<long>();
+        foreach (ref readonly var write in CollectionsMarshal.AsSpan(writes))
+        {
+            if (write.Acked)
+                _ = acked.Add(write.Value);
+        }
+
         RegisterRead[] byStart = [.. reads];
         RegisterRead[] byEnd = [.. reads];
         Array.Sort(byStart, static (a, b) => a.Start.CompareTo(b.Start));
@@ -196,7 +208,8 @@ internal sealed class RegisterHistory
                 returned++;
             }
 
-            if (read.Observed < highest.Value)
+            var pinned = read.Observed == 0 || acked.Contains(read.Observed);
+            if (pinned && read.Observed < highest.Value)
                 violations.Add(Describe(key, in read, $"a value below {highest.Value}, seen by the read [{highest.Read.Start}, {highest.Read.End}] that returned before it started"));
         }
     }
@@ -264,5 +277,28 @@ internal sealed class RegisterHistory
         }
 
         return byKey;
+    }
+
+    /// <summary>Finds the write a read saw, and the highest write acknowledged before the read started.</summary>
+    /// <param name="writes">The writes of the key.</param>
+    /// <param name="read">The read.</param>
+    /// <returns>
+    /// Whether the seen value was written (zero always is), when its write started and whether it was acknowledged, and the highest value
+    /// acknowledged before the read started, zero when none was.
+    /// </returns>
+    private static ((bool Found, long Start, bool Acked) Seen, long AckedBefore) Scan(ReadOnlySpan<RegisterWrite> writes, in RegisterRead read)
+    {
+        var seen = (Found: read.Observed == 0, Start: long.MinValue, Acked: false);
+        var ackedBefore = 0L;
+        foreach (ref readonly var write in writes)
+        {
+            if (write.Value == read.Observed)
+                seen = (true, write.Start, write.Acked);
+
+            if (write.Acked && write.End < read.Start)
+                ackedBefore = Math.Max(ackedBefore, write.Value);
+        }
+
+        return (seen, ackedBefore);
     }
 }
