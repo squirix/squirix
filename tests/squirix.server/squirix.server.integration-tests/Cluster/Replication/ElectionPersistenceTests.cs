@@ -57,16 +57,16 @@ public sealed class ElectionPersistenceTests : NodeIntegrationTestBase
         await using (var log = OpenLog(dir))
         {
             await log.OpenAsync(cancellationToken);
-            var first = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 1UL, 0UL, 0UL), cancellationToken);
+            var first = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 0UL, 0UL), cancellationToken);
             _ = await Assert.That(first.Granted).IsTrue();
-            var stepped = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
+            var stepped = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 3UL, 0UL, 0UL), cancellationToken);
             _ = await Assert.That(stepped.Granted).IsTrue();
         }
 
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(cancellationToken);
         var status = await reopened.GetStatusAsync(cancellationToken);
-        _ = await Assert.That(status.CurrentTerm).IsEqualTo(2UL);
+        _ = await Assert.That(status.CurrentTerm).IsEqualTo(3UL);
         _ = await Assert.That(status.VotedFor).IsEqualTo("node-b");
     }
 

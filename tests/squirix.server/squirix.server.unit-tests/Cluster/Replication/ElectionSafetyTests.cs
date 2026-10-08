@@ -124,6 +124,36 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         _ = await Assert.That(ElectionCommitRule.HasCurrentTermEntryThrough(entries, 3UL, 3UL)).IsFalse();
     }
 
+    /// <summary>A request for the static provisional leader term is refused on both paths and changes no durable state.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ProvisionalTermRequestGrantsNoVote(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-election-safety-provisional-term");
+        await using var log = OpenLog(dir);
+        await log.OpenAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+
+        var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
+        var before = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+
+        var vote = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 1UL, 1UL, 1UL), cancellationToken);
+        _ = await Assert.That(vote.Granted).IsFalse();
+        _ = await Assert.That(vote.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleTerm);
+        _ = await Assert.That(vote.CurrentTerm).IsEqualTo(1UL);
+
+        var probe = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-a", 1UL, 1UL, 1UL), cancellationToken);
+        _ = await Assert.That(probe.Granted).IsFalse();
+        _ = await Assert.That(probe.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleTerm);
+        _ = await Assert.That(probe.CurrentTerm).IsEqualTo(1UL);
+
+        var status = await log.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(status.CurrentTerm).IsEqualTo(1UL);
+        _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
+        var metaBytes = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        await SequenceAssert.EqualAsync(before, metaBytes);
+    }
+
     /// <summary>A zero-term request is refused on both paths and persists no vote.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

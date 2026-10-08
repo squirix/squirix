@@ -407,17 +407,33 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <param name="baseline">The restored snapshot baseline.</param>
     void IFollowerLogContext.RestoreBaseline(SnapshotBaseline baseline) => _journal.RestoreBaseline(baseline);
 
-    internal async Task<FollowerLogVoteResult> CheckPreVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public async Task<FollowerLogVoteResult> CheckPreVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(request.CandidateId);
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        // Terms start at one: a zero-term probe authorizes nothing.
-        return (IsDisposed || Readiness != FollowerLogReadiness.Ready, request.Term == 0UL) switch
+        // Term one belongs to the static provisional leader, so no election may run for it or below.
+        return (IsDisposed || Readiness != FollowerLogReadiness.Ready, request.Term <= 1UL) switch
         {
             (true, _) => new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm),
             (false, true) => new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm),
             (false, false) => FollowerLogElection.CheckPreVote(_journal, this, in request),
+        };
+    }
+
+    /// <inheritdoc />
+    public async Task<FollowerLogVoteResult> RequestVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.CandidateId);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        // Term one belongs to the static provisional leader: a request for it or below can never win and must not persist a vote.
+        return (IsDisposed || Readiness != FollowerLogReadiness.Ready, request.Term <= 1UL) switch
+        {
+            (true, _) => new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm),
+            (false, true) => new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm),
+            (false, false) => await FollowerLogElection.RequestVoteAsync(_journal, this, request, cancellationToken).ConfigureAwait(false),
         };
     }
 
@@ -477,20 +493,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             Readiness = FollowerLogReadiness.Failed;
             throw;
         }
-    }
-
-    internal async Task<FollowerLogVoteResult> RequestVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.CandidateId);
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-
-        // Terms start at one: a zero-term request can never win and must not persist a vote.
-        return (IsDisposed || Readiness != FollowerLogReadiness.Ready, request.Term == 0UL) switch
-        {
-            (true, _) => new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm),
-            (false, true) => new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm),
-            (false, false) => await FollowerLogElection.RequestVoteAsync(_journal, this, request, cancellationToken).ConfigureAwait(false),
-        };
     }
 
     /// <summary>Opens the group log, running startup validation and recovering only the committed prefix.</summary>
