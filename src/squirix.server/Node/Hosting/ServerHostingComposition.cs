@@ -119,6 +119,9 @@ internal static class ServerHostingComposition
         _ = services.AddSingleton(sp => CreateReplicaGroupRegistry(sp, cluster, persistence.DataDir, peerIds, activation));
 
         AddReplicaGroupAppliers(services);
+        _ = services.AddSingleton<IGroupLeaderTable>(static sp => new ReplicaLeaderTable(
+            sp.GetRequiredService<ReplicaGroupRegistry>(),
+            sp.GetRequiredService<TopologyOptions>().NodeId));
 
         // Factory registrations let the container own disposal: the registry closes follower-log durability workers
         // and the committers drain their coordinators on host shutdown.
