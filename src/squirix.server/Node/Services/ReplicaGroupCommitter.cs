@@ -728,19 +728,30 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <param name="status">Durable log status of the leader.</param>
     /// <param name="header">Replication envelope identity for follower calls.</param>
     /// <returns>The senders of the follower slots, in slot order.</returns>
-    /// <remarks>The commit budget bounds one request, and the shutdown budget bounds waiting for one that ignores its cancellation on dispose.</remarks>
+    /// <remarks>
+    /// The commit budget bounds one request, and the shutdown budget bounds waiting for one that ignores its cancellation on dispose. An
+    /// elected leader posts every reply to the election state, and queues a follower out of the write quorum for repair once it answers.
+    /// </remarks>
     private ReplicaFollowerSender[] CreateSenders(string[] members, int leaderIndex, in FollowerLogStatus status, in ReplicaRpcHeader header)
     {
+        Action<int, FollowerLogAppendResult>? replies = null;
+        if (Election is { } election)
+        {
+            var answering = new ReplicaAnsweringFollowers(_registry.EligibilityFor(GroupId), Probe.Repairs, election.Clock, election.Options.ElectionTimeout);
+            replies = (slot, reply) =>
+            {
+                election.RecordFollowerReply(slot, in reply);
+                answering.Observe(slot, in reply);
+            };
+        }
+
         return ReplicaFollowerSenders.Create(
             _gateway,
             members,
             leaderIndex,
             in status,
             in header,
-            new ReplicaFollowerSenders.SenderTiming(CommitBudget, ShutdownBudget, BudgetTimeProvider)
-            {
-                Replies = Election is { } election ? (slot, reply) => election.RecordFollowerReply(slot, in reply) : null,
-            },
+            new ReplicaFollowerSenders.SenderTiming(CommitBudget, ShutdownBudget, BudgetTimeProvider) { Replies = replies },
             budget => ServerLog.ReplicaFollowerSenderLeakedOnShutdown(Log, budget));
     }
 
