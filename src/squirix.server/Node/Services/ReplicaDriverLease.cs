@@ -19,16 +19,6 @@ internal sealed class ReplicaDriverLease
     private bool _leading;
     private int _passes;
 
-    /// <summary>Gets a value indicating whether a committer leads the group or waits for the running passes to let it lead.</summary>
-    internal bool IsLeading
-    {
-        get
-        {
-            lock (_sync)
-                return _leading;
-        }
-    }
-
     /// <summary>Ends the leadership: passes may enter again.</summary>
     internal void EndLeading()
     {

@@ -396,7 +396,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
         catch (OperationCanceledException) when (budget.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            return ReplicaLogCompactionOutcome.NotReady;
+            return ReplicaLogCompactionOutcome.Busy;
         }
 
         using var held = guard;
@@ -524,6 +524,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             if (!_started)
                 await StartAsync(cancellationToken).ConfigureAwait(false);
 
+            // A start that succeeded ends the fault: the same fault coming back later is logged again.
+            _ = tenure.ReportFault(null);
             _ = await TryApplyPendingAsync().ConfigureAwait(false);
             return _registry.TryGetLog(GroupId, out var log) && await tenure.IsAuthorizedAsync(_coordinator, log, cancellationToken).ConfigureAwait(false);
         }
@@ -533,7 +535,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             // entries of a replaced coordinator still to apply. The same fault repeats every tick, so it is logged when it changes.
             if (tenure.ReportFault(exception.GetType()))
             {
-                if (exception is IOException)
+                if (exception is IOException or InvalidDataException)
                     ServerLog.ReplicaPromotionStorageRetry(Log, GroupId, term, exception);
                 else
                     ServerLog.ReplicaPromotionRetry(Log, GroupId, term, exception);

@@ -107,11 +107,11 @@ internal sealed class ReplicaLeaderTenure : IDisposable
         return Authorized;
     }
 
-    /// <summary>Records the kind of fault the last start of the leadership failed with.</summary>
-    /// <param name="fault">The type of the fault.</param>
+    /// <summary>Records the kind of fault the last start of the leadership failed with, or that it succeeded.</summary>
+    /// <param name="fault">The type of the fault; <see langword="null" /> after a start that succeeded.</param>
     /// <returns><see langword="true" /> when it differs from the fault recorded last, so it is to be logged.</returns>
     /// <remarks>Called under the commit gate.</remarks>
-    internal bool ReportFault(Type fault)
+    internal bool ReportFault(Type? fault)
     {
         var changed = _reportedFault != fault;
         _reportedFault = fault;

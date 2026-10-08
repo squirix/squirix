@@ -187,7 +187,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
 
         var refused = await committer.RetireAsync(cancellationToken);
-        var leaseKept = applier.DriverLease.IsLeading;
+        var leaseKept = !applier.DriverLease.TryEnterPass();
         cache.OnApplied = null;
         var retired = await committer.RetireAsync(cancellationToken);
 

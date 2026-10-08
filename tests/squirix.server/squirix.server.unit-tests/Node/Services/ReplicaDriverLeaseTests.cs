@@ -53,6 +53,10 @@ public sealed class ReplicaDriverLeaseTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(leading);
         lease.ExitPass();
 
-        _ = await Assert.That((lease.IsLeading, lease.TryEnterPass())).IsEqualTo((false, true));
+        var admitted = lease.TryEnterPass();
+        lease.ExitPass();
+        var again = lease.LeadAsync(cancellationToken);
+
+        _ = await Assert.That((admitted, again.IsCompletedSuccessfully)).IsEqualTo((true, true));
     }
 }

@@ -70,7 +70,7 @@ internal sealed class ReplicaGroupApplier
     /// <summary>Gets the lease of the one driver of this applier.</summary>
     /// <remarks>
     /// A committer that leads the group by election holds it for its whole tenure, until its coordinator is disposed; the apply loop and
-    /// the follower log maintenance enter one pass at a time without waiting, share it with each other, and skip the pass during a tenure.
+    /// the follower log maintenance enter their passes without waiting and run them together, and skip a pass during a tenure.
     /// A committer that leads its own group statically never takes it: no apply loop runs for that group.
     /// </remarks>
     internal ReplicaDriverLease DriverLease { get; } = new();
