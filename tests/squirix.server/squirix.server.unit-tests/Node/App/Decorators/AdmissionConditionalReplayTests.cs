@@ -29,12 +29,44 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
 {
     private const string CacheName = "orders";
     private const string Key = "k";
+    private const string OtherKey = "other";
     private const string Self = "node-a";
 
     private static readonly NodeCacheEntry<string> Large = new() { Value = new string('x', 4096), Version = 1 };
     private static readonly NodeCacheEntry<string> Small = new() { Value = "s", Version = 2 };
 
     private readonly Meter _testMeter = new("test");
+
+    /// <summary>
+    /// The recorded-outcome lookup is asked with the written key, so it reaches the replica group that owns the key: under critical memory
+    /// pressure the operation replays for the key whose group recorded it and is refused for a key whose group did not.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OutcomeLookupUsesKeyGroup(CancellationToken cancellationToken)
+    {
+        var entry = new NodeCacheEntry<string> { Value = "v", Version = 1 };
+        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
+        var reads = 0;
+        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>())
+                 .Callback((_, _, _) => ValueTask.FromResult(Interlocked.Increment(ref reads) == 1 ? null : entry));
+        _ = inner.Setups.GetEntryAsync(CacheName, OtherKey, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        _ = inner.Setups.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var accounting = new MemoryUsageAccounting();
+        var cache = Create(
+            inner.Instance(),
+            accounting,
+            static (cacheName, key, operationId) => string.Equals(cacheName, CacheName, StringComparison.Ordinal)
+                                                    && string.Equals(key, Key, StringComparison.Ordinal)
+                                                    && string.Equals(operationId, "op-1", StringComparison.Ordinal),
+            1);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, OtherKey, entry, cancellationToken).AsTask());
+        await cache.SetEntryAsync("op-1", CacheName, Key, entry, cancellationToken);
+
+        _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(1L);
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
+    }
 
     /// <summary>
     /// Under critical memory pressure a retried set whose outcome is recorded replays it instead of being refused, counts no rejection and
@@ -53,7 +85,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
                  .Callback((_, _, _) => ValueTask.FromResult(Interlocked.Increment(ref reads) == 1 ? null : entry));
         _ = inner.Setups.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         var accounting = new MemoryUsageAccounting();
-        var cache = Create(inner.Instance(), accounting, static (_, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1);
+        var cache = Create(inner.Instance(), accounting, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1);
 
         await cache.SetEntryAsync("op-1", CacheName, Key, entry, cancellationToken);
 
@@ -79,9 +111,9 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         _ = absent.Setups.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
         var updateAccounting = new MemoryUsageAccounting();
         var addAccounting = new MemoryUsageAccounting();
-        var updated = await Create(present.Instance(), updateAccounting, static (_, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1)
+        var updated = await Create(present.Instance(), updateAccounting, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1)
            .UpdateAsync("op-1", CacheName, Key, "v2", cancellationToken);
-        var added = await Create(absent.Instance(), addAccounting, static (_, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1)
+        var added = await Create(absent.Instance(), addAccounting, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1)
            .TryAddEntryAsync("op-1", CacheName, Key, stored, cancellationToken);
 
         _ = await Assert.That(updated).IsTrue();
@@ -99,7 +131,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     {
         var store = new ReplayingStore();
         var accounting = new MemoryUsageAccounting();
-        var cache = Create(store.CreateInner(), accounting, static (_, _) => false);
+        var cache = Create(store.CreateInner(), accounting, static (_, _, _) => false);
 
         var added = await cache.TryAddEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
         _ = await cache.RemoveAsync("op-2", CacheName, Key, cancellationToken);
@@ -116,7 +148,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     {
         var store = new ReplayingStore();
         var accounting = new MemoryUsageAccounting();
-        var cache = Create(store.CreateInner(), accounting, static (_, _) => false);
+        var cache = Create(store.CreateInner(), accounting, static (_, _, _) => false);
         await cache.SetEntryAsync("op-0", CacheName, Key, Large, cancellationToken);
 
         var removed = await cache.RemoveAsync("op-1", CacheName, Key, cancellationToken);
@@ -134,7 +166,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     {
         var store = new ReplayingStore();
         var accounting = new MemoryUsageAccounting();
-        var cache = Create(store.CreateInner(), accounting, static (_, _) => false);
+        var cache = Create(store.CreateInner(), accounting, static (_, _, _) => false);
 
         await cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
         await cache.SetEntryAsync("op-2", CacheName, Key, Small, cancellationToken);
@@ -151,7 +183,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     {
         var store = new ReplayingStore();
         var accounting = new MemoryUsageAccounting();
-        var cache = Create(store.CreateInner(), accounting, static (_, _) => false);
+        var cache = Create(store.CreateInner(), accounting, static (_, _, _) => false);
 
         await cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
         _ = await cache.RemoveAsync("op-2", CacheName, Key, cancellationToken);
@@ -168,7 +200,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     {
         var store = new ReplayingStore();
         var accounting = new MemoryUsageAccounting();
-        var cache = Create(store.CreateInner(), accounting, static (_, _) => false);
+        var cache = Create(store.CreateInner(), accounting, static (_, _, _) => false);
         await cache.SetEntryAsync("op-0", CacheName, Key, Small, cancellationToken);
 
         _ = await cache.UpdateAsync("op-1", CacheName, Key, Large.Value, cancellationToken);
@@ -189,7 +221,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
         _ = inner.Setups.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
         var accounting = new MemoryUsageAccounting();
-        var cache = Create(inner.Instance(), accounting, static (_, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal));
+        var cache = Create(inner.Instance(), accounting, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal));
 
         var added = await cache.TryAddEntryAsync("op-1", CacheName, Key, entry, cancellationToken);
 
@@ -206,7 +238,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
         _ = inner.Setups.UpdateAsync("op-1", CacheName, Key, "v2", Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
         var accounting = new MemoryUsageAccounting();
-        var cache = Create(inner.Instance(), accounting, static (_, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal));
+        var cache = Create(inner.Instance(), accounting, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal));
 
         var updated = await cache.UpdateAsync("op-1", CacheName, Key, "v2", cancellationToken);
 
@@ -257,7 +289,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
         _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
         var accounting = new MemoryUsageAccounting();
-        var cache = Create(inner.Instance(), accounting, static (_, _) => false);
+        var cache = Create(inner.Instance(), accounting, static (_, _, _) => false);
 
         // The inner double has no add set up: a call would throw.
         var added = await cache.TryAddEntryAsync("op-2", CacheName, Key, entry, cancellationToken);
@@ -275,7 +307,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
         _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
         var accounting = new MemoryUsageAccounting();
-        var cache = Create(inner.Instance(), accounting, static (_, _) => false, 1);
+        var cache = Create(inner.Instance(), accounting, static (_, _, _) => false, 1);
 
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask());
 
@@ -290,7 +322,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     private MemoryAdmissionCacheDecorator<string> Create(
         ILogicalNamespacedCache<string> inner,
         MemoryUsageAccounting accounting,
-        Func<string, string, bool>? hasRecordedOutcome,
+        Func<string, string, string, bool>? hasRecordedOutcome,
         long maxEstimatedCacheBytes = 10_000_000_000)
     {
         var options = Options.Create(

@@ -88,7 +88,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
             gate,
             new CacheEntrySizeEstimator<object?>(),
             accounting,
-            (cacheName, operationId) => registry.HasRecordedOutcome("n1", cacheName, operationId),
+            (cacheName, _, operationId) => registry.HasRecordedOutcome("n1", cacheName, operationId),
             leader.Cache.PeekEntryAsync);
         await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
         clock.Advance(Ttl);

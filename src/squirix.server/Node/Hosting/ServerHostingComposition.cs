@@ -118,6 +118,10 @@ internal static class ServerHostingComposition
 
         _ = services.AddSingleton(sp => CreateReplicaGroupRegistry(sp, cluster, persistence.DataDir, peerIds, activation));
 
+        _ = services.AddSingleton<IReplicaMembership>(static sp => new ReplicaMembership(
+            sp.GetRequiredService<IReplicaGroupLocator>(),
+            sp.GetRequiredService<ReplicaGroupRegistry>().GroupIds));
+
         AddReplicaGroupAppliers(services);
         _ = services.AddSingleton<IGroupLeaderTable>(static sp => new ReplicaLeaderTable(
             sp.GetRequiredService<ReplicaGroupRegistry>(),
@@ -320,7 +324,8 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<TopologyOptions>(),
             sp.GetRequiredService<MtlsOptions>(),
             sp.GetRequiredService<MtlsCertificate>(),
-            sp.GetService<ReplicaGroupRegistry>()));
+            sp.GetService<ReplicaGroupRegistry>(),
+            sp.GetService<IReplicaMembership>()));
         _ = services.AddSingleton(static sp => new ReplicaRpcGateway(sp.GetRequiredService<IServerClientPool>()));
         _ = services.AddSingleton<IReplicaRpcGateway>(static sp => sp.GetRequiredService<ReplicaRpcGateway>());
         _ = services.AddSingleton<IReplicaVoteGateway>(static sp => sp.GetRequiredService<ReplicaRpcGateway>());

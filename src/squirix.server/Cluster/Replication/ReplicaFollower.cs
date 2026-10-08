@@ -16,7 +16,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// term validation stays inside the log, which persists higher terms durably before responding. An accepted append, commit advance, or
 /// snapshot install wakes the group's apply loop, so committed entries reach memory without waiting for its fallback interval; votes
 /// and pre-votes apply nothing and wake nothing. Every leader call the log accepted, and every term a vote made durable, is posted to
-/// the election state of the group; a pre-vote is refused while that state knows a live leader.
+/// the election state of the group; a pre-vote is refused while that state knows a live leader. A vote or pre-vote from a candidate
+/// outside the replica set of the group is refused before the log is reached.
 /// </remarks>
 [Immutable]
 internal sealed class ReplicaFollower
@@ -26,13 +27,17 @@ internal sealed class ReplicaFollower
     private const string LeaderRole = "leader";
 
     private readonly ReplicaGroupRegistry _groups;
+    private readonly IReplicaMembership _members;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaFollower" /> class.</summary>
     /// <param name="groups">Replica group registry of this node.</param>
-    internal ReplicaFollower(ReplicaGroupRegistry groups)
+    /// <param name="members">The replica sets of the served groups, which bound who may ask for a vote.</param>
+    internal ReplicaFollower(ReplicaGroupRegistry groups, IReplicaMembership members)
     {
         ArgumentNullException.ThrowIfNull(groups);
+        ArgumentNullException.ThrowIfNull(members);
         _groups = groups;
+        _members = members;
     }
 
     /// <summary>Advances a group commit index after agreement checks.</summary>
@@ -182,7 +187,7 @@ internal sealed class ReplicaFollower
     /// <param name="generation">Candidate configuration generation.</param>
     /// <param name="ballot">The probe; its term is the term the candidate proposes to start.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The probe outcome; a refusal before the log is reached reports term zero.</returns>
+    /// <returns>The probe outcome; a refusal before the log is reached, a candidate outside the replica set included, reports term zero.</returns>
     internal async Task<FollowerLogVoteResult> PreVoteAsync(
         string groupId,
         ReadOnlyMemory<byte> fingerprint,
@@ -192,6 +197,9 @@ internal sealed class ReplicaFollower
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
         if (!TryGetLog(groupId, out var log))
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.NotMember, 0UL);
+
+        if (!_members.IsMember(groupId, ballot.CandidateId))
             return new FollowerLogVoteResult(false, FollowerLogRefusal.NotMember, 0UL);
 
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
@@ -212,7 +220,10 @@ internal sealed class ReplicaFollower
     /// <param name="generation">Candidate configuration generation.</param>
     /// <param name="ballot">The vote request; its term is the candidate durable term.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The vote outcome; a refusal before the log is reached reports term zero and changes nothing.</returns>
+    /// <returns>
+    /// The vote outcome; a refusal before the log is reached, a candidate outside the replica set included, reports term zero and changes
+    /// nothing.
+    /// </returns>
     /// <remarks>The log persists a higher term and a granted vote before this call reports them.</remarks>
     internal async Task<FollowerLogVoteResult> RequestVoteAsync(
         string groupId,
@@ -223,6 +234,10 @@ internal sealed class ReplicaFollower
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
         if (!TryGetLog(groupId, out var log))
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.NotMember, 0UL);
+
+        // A candidate outside the replica set gets nothing: no term reaches the log, so a stray peer cannot depose the leader.
+        if (!_members.IsMember(groupId, ballot.CandidateId))
             return new FollowerLogVoteResult(false, FollowerLogRefusal.NotMember, 0UL);
 
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);

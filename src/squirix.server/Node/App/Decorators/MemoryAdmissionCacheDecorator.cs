@@ -25,7 +25,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     private readonly IMemoryPressureGate _gate;
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly AsyncLock[] _keyGates = CreateKeyGates();
-    private readonly Func<string, string, bool>? _hasRecordedOutcome;
+    private readonly Func<string, string, string, bool>? _hasRecordedOutcome;
     private readonly Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>> _readStored;
 
     /// <summary>Initializes a new instance of the <see cref="MemoryAdmissionCacheDecorator{T}" /> class.</summary>
@@ -34,8 +34,8 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     /// <param name="estimator">The entry size estimator.</param>
     /// <param name="accounting">The memory usage accounting.</param>
     /// <param name="hasRecordedOutcome">
-    /// Tells, by cache name and operation id, whether <paramref name="inner" /> holds a recorded outcome for the operation, as the
-    /// replicated committer does; <see langword="null" /> when it records none. A conditional write that admission would refuse from the
+    /// Tells, by cache name, key and operation id, whether <paramref name="inner" /> holds a recorded outcome for the operation in the
+    /// replica group that owns the key, as the replicated committer does; <see langword="null" /> when it records none. A conditional write that admission would refuse from the
     /// current state is handed to <paramref name="inner" /> when its outcome is recorded, so a retry of a committed write replays it.
     /// Any other such write is refused here, without a log record: its first attempt changed nothing, so nothing needs replaying.
     /// Until the replicated committer has rebuilt its outcomes after a restart, every such write counts as recorded and is decided there.
@@ -50,7 +50,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         IMemoryPressureGate gate,
         ICacheEntrySizeEstimator<T> estimator,
         IMemoryUsageAccounting accounting,
-        Func<string, string, bool>? hasRecordedOutcome = null,
+        Func<string, string, string, bool>? hasRecordedOutcome = null,
         Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>>? readStored = null)
     {
         ArgumentNullException.ThrowIfNull(inner);
@@ -162,7 +162,10 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
         var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing != null)
-            return IsRecorded(cacheName, operationId) && await AccountAnsweredAsync(keyValue, _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken)).ConfigureAwait(false);
+        {
+            var recorded = IsRecorded(cacheName, key, operationId);
+            return recorded && await AccountAnsweredAsync(keyValue, _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken)).ConfigureAwait(false);
+        }
 
         if (AdmitReplaceOrInsert(keyValue, null, entry, AdmissionOperations.TryAdd, operationId))
             return await AccountAnsweredAsync(keyValue, _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken)).ConfigureAwait(false);
@@ -180,7 +183,10 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
         var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing == null)
-            return IsRecorded(cacheName, operationId) && await AccountAnsweredAsync(keyValue, _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken)).ConfigureAwait(false);
+        {
+            var recorded = IsRecorded(cacheName, key, operationId);
+            return recorded && await AccountAnsweredAsync(keyValue, _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken)).ConfigureAwait(false);
+        }
 
         var replacement = new NodeCacheEntry<T>
         {
@@ -324,7 +330,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         if (!_gate.RejectsMemoryGrowingWrite(growth, magnitudeUnknown))
             return false;
 
-        if (IsRecorded(key.Namespace, operationId))
+        if (IsRecorded(key.Namespace, key.Key, operationId))
             return true;
 
         _gate.ThrowIfMemoryGrowingWriteRejected(growth, magnitudeUnknown, operation);
@@ -342,5 +348,5 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     private ValueTask<AsyncLockHolder> LockKeyAsync(CacheKey key, CancellationToken cancellationToken) =>
         _keyGates[(key.GetHashCode() & int.MaxValue) % _keyGates.Length].LockAsync(cancellationToken);
 
-    private bool IsRecorded(string cacheName, string operationId) => _hasRecordedOutcome?.Invoke(cacheName, operationId) == true;
+    private bool IsRecorded(string cacheName, string key, string operationId) => _hasRecordedOutcome?.Invoke(cacheName, key, operationId) == true;
 }

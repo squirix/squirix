@@ -29,7 +29,22 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     private readonly TopologyFingerprint _topologyFingerprint;
     private readonly bool _votesEnabled;
 
-    internal SquirixReplicationServiceAdapter(TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificate mtls, ReplicaGroupRegistry? groups = null)
+    /// <summary>Initializes a new instance of the <see cref="SquirixReplicationServiceAdapter" /> class.</summary>
+    /// <param name="cluster">Cluster topology configuration.</param>
+    /// <param name="mtlsOptions">Cluster mTLS options of this node.</param>
+    /// <param name="mtls">The mTLS material that verifies replication callers.</param>
+    /// <param name="groups">Replica group registry of this node; <see langword="null" /> keeps the adapter a refusing stub.</param>
+    /// <param name="members">The replica sets of the served groups, which bound who may ask for a vote; required whenever <paramref name="groups" /> is given.</param>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="cluster" />, <paramref name="mtlsOptions" /> or <paramref name="mtls" /> is <see langword="null" />, or
+    /// <paramref name="groups" /> is given without <paramref name="members" />.
+    /// </exception>
+    internal SquirixReplicationServiceAdapter(
+        TopologyOptions cluster,
+        MtlsOptions mtlsOptions,
+        MtlsCertificate mtls,
+        ReplicaGroupRegistry? groups = null,
+        IReplicaMembership? members = null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(mtlsOptions);
@@ -37,7 +52,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         _mtlsOptions = mtlsOptions;
         _mtls = mtls;
         _remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
-        _follower = groups == null ? null : new ReplicaFollower(groups);
+        _follower = groups == null ? null : new ReplicaFollower(groups, members ?? throw new ArgumentNullException(nameof(members)));
 
         // The static leader resumes at the durable term of its log, so a network vote must not raise that term: it would let the
         // static leader lead a new term no election granted. Votes stay disabled while automatic failover is off, and for the group

@@ -35,6 +35,7 @@ using TUnit.Core;
 [assembly: Rock(typeof(IFollowerLogFaultHooks), BuildType.Create)]
 [assembly: Rock(typeof(IReplicaRpcGateway), BuildType.Create)]
 [assembly: Rock(typeof(IReplicaVoteGateway), BuildType.Create)]
+[assembly: Rock(typeof(IReplicaMembership), BuildType.Create)]
 [assembly: Rock(typeof(IServerClientPool), BuildType.Create)]
 [assembly: Rock(typeof(IServerCallPolicy), BuildType.Create)]
 [assembly: Rock(typeof(ILocalCacheStats), BuildType.Create)]

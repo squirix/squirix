@@ -7,6 +7,7 @@ using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -119,6 +120,28 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         _ = await Assert.That(await restarted.For("n2").CommitTryAddAsync(operationId, CacheName, "b", Entry("b"), cancellationToken)).IsTrue();
         _ = await Assert.That(await PositionAsync(reopened, "n1", cancellationToken)).IsEqualTo((1UL, 1UL));
         _ = await Assert.That(await PositionAsync(reopened, "n2", cancellationToken)).IsEqualTo((1UL, 1UL));
+    }
+
+    /// <summary>
+    /// The outcome lookup of memory admission asks the led group that owns the key: an operation recorded in group n2 is found for a key of
+    /// n2 and not for a key of n1, and the other way round.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AdmissionLookupAsksKeyGroup(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-led-groups-admission-lookup");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await using var committers = LeadTwo(registry, (new ScriptedGateway(), new ScriptedGateway()), new StubCache(), TimeProvider.System);
+        var inN1 = NewOperationId();
+        var inN2 = NewOperationId();
+        _ = await Assert.That(await committers.For("n1").CommitTryAddAsync(inN1, CacheName, "a", Entry("a"), cancellationToken)).IsTrue();
+        _ = await Assert.That(await committers.For("n2").CommitTryAddAsync(inN2, CacheName, "b", Entry("b"), cancellationToken)).IsTrue();
+
+        var lookup = CachePipelineRegistration.RecordedOutcomeLookup(registry, Owners());
+
+        _ = await Assert.That((lookup(CacheName, "a", inN1), lookup(CacheName, "b", inN2))).IsEqualTo((true, true));
+        _ = await Assert.That((lookup(CacheName, "a", inN2), lookup(CacheName, "b", inN1))).IsEqualTo((false, false));
     }
 
     /// <summary>After a restart the readiness service verifies the replica slots of every led group, so each regains its write quorum.</summary>

@@ -1,3 +1,5 @@
+using Rocks;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.MemoryPressure;
 
 namespace Squirix.Server.UnitTests.Support;
@@ -11,6 +13,15 @@ internal static class RocksDoubles
     {
         var expectations = new IMemoryBudgetProviderCreateExpectations();
         _ = expectations.Setups.GetTotalAvailableBytes().ReturnValue(availableBytes);
+        return expectations.Instance();
+    }
+
+    /// <summary>Creates an <see cref="IReplicaMembership" /> mock that counts every node a member of every group.</summary>
+    /// <returns>The membership.</returns>
+    internal static IReplicaMembership CreateReplicaMembers()
+    {
+        var expectations = new IReplicaMembershipCreateExpectations();
+        _ = expectations.Setups.IsMember(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(true);
         return expectations.Instance();
     }
 }
