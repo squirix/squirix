@@ -170,6 +170,9 @@ internal static class ElectionTestDoubles
             }
         }
 
+        /// <summary>Gets or sets what the next promotion does before it answers, such as advancing the fake clock; it runs once.</summary>
+        internal Action? DuringNextPromotion { get; set; }
+
         /// <inheritdoc />
         public Task HeartbeatAsync(string groupId, CancellationToken cancellationToken)
         {
@@ -183,6 +186,9 @@ internal static class ElectionTestDoubles
             lock (_sync)
             {
                 _calls.Add($"promote:{term}");
+                var during = DuringNextPromotion;
+                DuringNextPromotion = null;
+                during?.Invoke();
                 return Task.FromResult(!_promotions.TryDequeue(out var promoted) || promoted);
             }
         }

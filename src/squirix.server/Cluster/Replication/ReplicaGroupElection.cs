@@ -193,13 +193,15 @@ internal sealed class ReplicaGroupElection
     private async Task<ElectionOutcome> LeadAsync(ulong term, CancellationToken cancellationToken)
     {
         // A driver stopped meanwhile leaves the group a follower: nothing is promoted.
-        return true switch
-        {
-            _ when !_state.BecomeLeader(term) => new ElectionOutcome(ElectionEvent.None, term),
-            _ when await _leadership.PromoteAsync(GroupId, term, cancellationToken).ConfigureAwait(false) && _state.GrantAuthority(term) =>
-                new ElectionOutcome(ElectionEvent.Authorized, term),
-            _ => new ElectionOutcome(ElectionEvent.Elected, term),
-        };
+        if (!_state.BecomeLeader(term))
+            return new ElectionOutcome(ElectionEvent.None, term);
+
+        if (await _leadership.PromoteAsync(GroupId, term, cancellationToken).ConfigureAwait(false) && _state.GrantAuthority(term))
+            return new ElectionOutcome(ElectionEvent.Authorized, term);
+
+        // The quorum check runs from the first heartbeat on, not from the start of a promotion that may have waited for a dead follower.
+        _state.RestartQuorumGrace(term);
+        return new ElectionOutcome(ElectionEvent.Elected, term);
     }
 
     /// <summary>One leader tick: step down on a higher term or a silent majority, otherwise heartbeat and finish the promotion.</summary>

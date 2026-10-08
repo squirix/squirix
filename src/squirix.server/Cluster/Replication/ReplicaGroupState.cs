@@ -343,6 +343,22 @@ internal sealed class ReplicaGroupState
         }
     }
 
+    /// <summary>Restarts the quorum grace of a leader still without authority, once its first promotion attempt returned.</summary>
+    /// <param name="term">The led term.</param>
+    /// <remarks>
+    /// The first promotion probes every follower before the leader sends its first heartbeat, and a dead follower holds that probe for its
+    /// whole timeout; the grace then starts when the heartbeats can, so a new leader is not deposed for followers it could not ask yet. A
+    /// leader without authority serves nothing, so the longer tenure admits nothing; a leader already authorized keeps its grace.
+    /// </remarks>
+    internal void RestartQuorumGrace(ulong term)
+    {
+        lock (_sync)
+        {
+            if (_role == ReplicaGroupRole.Leader && _term == term && !_hasAuthority)
+                _leaderSince = Clock.GetTimestamp();
+        }
+    }
+
     /// <summary>Marks whether an election driver runs for the group.</summary>
     /// <param name="driven">Whether the driver runs.</param>
     /// <remarks>A driver that stops leaves the group a follower without authority.</remarks>
