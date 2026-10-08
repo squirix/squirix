@@ -1,10 +1,10 @@
 using System;
 using System.Runtime.CompilerServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
+using Rocks;
 using Squirix.ProtocolModel;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
@@ -40,7 +40,10 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         await ConformanceTestKit.AssertModelAcceptedAsync(pipeline.Trace);
     }
 
-    /// <summary>Production election vote and commit trace follow the model safety path.</summary>
+    /// <summary>
+    /// A real election round of a group driver wins the next term through the vote path of its own log, and the leader-term entry its
+    /// promotion commits in that term follows a path the protocol model accepts.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task ProductionElectionTraceMatchesModel(CancellationToken cancellationToken)
@@ -48,22 +51,43 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         using var dir = new TempDirectory("squirix-election-trace");
         await using var log = new FollowerLog(dir, "election-trace", GroupComposition.Create("election-trace"), NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
-        _ = await log.AppendAsync(
-            new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a")))),
-            cancellationToken);
+        var votes = new IReplicaVoteGatewayCreateExpectations();
+        _ = votes.Setups.PreVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
+                 .ReturnValue(Task.FromResult(new FollowerLogVoteResult(true, string.Empty, 0UL)));
+        _ = votes.Setups.RequestVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
+                 .Callback(static (_, header, _, _, _) => Task.FromResult(new FollowerLogVoteResult(true, string.Empty, header.Term)));
 
-        var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);
-        _ = await Assert.That(granted.Granted).IsTrue();
-
-        var preVote = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-c", 3UL, 1UL, 1UL), cancellationToken);
-        _ = await Assert.That(preVote.Granted).IsTrue();
-
-        var eligible = FailoverActivationGate.CheckElection(3, true, true, true, granted.CurrentTerm, granted.CurrentTerm);
-        _ = await Assert.That(eligible.Eligible).IsTrue();
-
+        // The promotion commits the leader-term entry of the won term at the first index, through the production commit coordinator.
         var pipeline = new ConformanceTestKit.Pipeline();
         await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
-        _ = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), cancellationToken);
+        var leadership = new IReplicaLeadershipCreateExpectations();
+        _ = leadership.Setups.PromoteAsync(Arg.Any<string>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
+                      .Callback((_, term, token) => CommitLeaderTermAsync(coordinator, term, token));
+
+        var time = new FakeTimeProvider();
+        var timing = new ElectionTimerOptions { ElectionTimeout = TimeSpan.FromMilliseconds(500), MaxJitter = TimeSpan.Zero, JitterSeed = 3UL };
+        var state = new ReplicaGroupState(3, timing, time);
+        var election = new ReplicaGroupElection(
+            state,
+            log,
+            votes.Instance(),
+            leadership.Instance(),
+            ["node-b", "node-a", "node-c"],
+            new ReplicaRpcHeader("election-trace", ReadOnlyMemory<byte>.Of(9), 1UL, 0UL, string.Empty, "node-a"));
+        _ = await election.StepAsync(cancellationToken);
+        time.Advance(timing.ElectionTimeout);
+        var outcome = await election.StepAsync(cancellationToken);
+
+        var status = await log.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.Authorized, 2UL));
+        _ = await Assert.That((status.CurrentTerm, status.VotedFor, state.HasAuthority)).IsEqualTo((2UL, "node-a", true));
+        await SequenceAssert.EqualAsync(
+            [
+                new ConformanceTestKit.TracePoint(2, 1, 0, 0),
+                new ConformanceTestKit.TracePoint(2, 1, 1, 0),
+                new ConformanceTestKit.TracePoint(2, 1, 1, 1),
+            ],
+            pipeline.Trace);
         await ConformanceTestKit.AssertModelAcceptedAsync(pipeline.Trace);
     }
 
@@ -98,4 +122,15 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
     /// </remarks>
     [Test]
     public async Task ProtocolVersionMatchesModelManifest() => _ = await Assert.That(ExploreRunner.ModelVersionHash).IsEqualTo("f0e518fc4db3ce67");
+
+    /// <summary>Commits the leader-term entry of a won term at the first index, as a promotion does.</summary>
+    /// <param name="coordinator">The commit coordinator.</param>
+    /// <param name="term">The won term.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><see langword="true" /> once the entry is committed.</returns>
+    private static async Task<bool> CommitLeaderTermAsync(ReplicaCommitCoordinator coordinator, ulong term, CancellationToken cancellationToken)
+    {
+        _ = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1UL, term), TimeSpan.FromSeconds(2), cancellationToken);
+        return true;
+    }
 }
