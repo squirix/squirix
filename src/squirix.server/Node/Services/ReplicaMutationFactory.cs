@@ -64,6 +64,48 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         return new PreparedReplicaMutation(identity, entry.Term, entry.LogIndex, payload);
     }
 
+    /// <summary>Prepares the expiration tombstone of a key whose stored entry the leader finds expired at prepare time.</summary>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <param name="index">Reserved group log index.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The tombstone, or none and the stored entry when the key is absent or still live.</returns>
+    /// <remarks>
+    /// The tombstone takes its identity from the expired entry, its version and its passed deadline, under the scope reserved for expiration,
+    /// so a repeated expiry of the same entry keeps one identity and no client operation can share it.
+    /// </remarks>
+    internal async Task<(PreparedReplicaMutation? Tombstone, NodeCacheEntry<object?>? Current)> PrepareExpireAsync(
+        string cacheName,
+        string key,
+        ulong index,
+        CancellationToken cancellationToken)
+    {
+        var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var now = _clock.GetUtcNow().UtcDateTime;
+        if (current == null || ReplicaMutationDecisions.DecideExpire(current, now) is not { } decision)
+            return (null, current);
+
+        var deadlineTicks = decision.ExpiresUtcTicks;
+        var operationId = ReplicaExpirationOperationId.Create(_groupId, cacheName, key, current.Version, new DateTime(deadlineTicks, DateTimeKind.Utc));
+        var record = new ReplicaLogRecord(
+            index,
+            _term,
+            operationId,
+            ReplicaExpirationOperationId.OperationScope,
+            ReplicaOperationFingerprints.Expire(cacheName, key, current.Version, deadlineTicks),
+            nameof(GroupRecordKind.Expiration),
+            cacheName,
+            Encoding.UTF8.GetBytes(key),
+            ReplicaMutationKinds.Expire,
+            decision.Payload,
+            decision.Outcome,
+            decision.ExpiresUtcTicks,
+            now.Ticks,
+            0,
+            0);
+        return (Build(ReplicaExpirationOperationId.OperationScope, in record, index), null);
+    }
+
     /// <summary>Prepares a replicated remove with the observed previous entry as the outcome.</summary>
     /// <param name="operationId">Client operation identifier.</param>
     /// <param name="cacheName">Target cache name.</param>
@@ -76,7 +118,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var now = _clock.GetUtcNow().UtcDateTime;
-        var decision = ReplicaMutationDecisions.DecideRemove(current);
+        var decision = ReplicaMutationDecisions.DecideRemove(current, now);
         var record = new ReplicaLogRecord(
             index,
             _term,
@@ -107,7 +149,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var now = _clock.GetUtcNow().UtcDateTime;
-        var decision = ReplicaMutationDecisions.DecideRemoveExpiration(current);
+        var decision = ReplicaMutationDecisions.DecideRemoveExpiration(current, now);
         var record = new ReplicaLogRecord(
             index,
             _term,
@@ -259,7 +301,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var now = _clock.GetUtcNow().UtcDateTime;
-        var decision = ReplicaMutationDecisions.DecideUpdate(current, value);
+        var decision = ReplicaMutationDecisions.DecideUpdate(current, value, now);
         var record = new ReplicaLogRecord(
             index,
             _term,

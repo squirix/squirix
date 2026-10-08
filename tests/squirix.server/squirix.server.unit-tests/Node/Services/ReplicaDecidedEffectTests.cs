@@ -122,6 +122,116 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         _ = await Assert.That((await harness.RawAsync(cancellationToken))?.Value).IsEqualTo("a");
     }
 
+    /// <summary>The leader decides expiry once: the tombstone it commits deletes the key on replicas whose clocks are apart, and before it the key stays.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpireRecordDeletesOnSkewedClocks(CancellationToken cancellationToken)
+    {
+        var leaderClock = new FakeTimeProvider();
+        var leader = new Harness(leaderClock, CacheExpiryAuthority.CommittedRecords);
+        var set = leader.Factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?>("v1", 1, null, Ttl), 1UL);
+        await leader.ApplyAsync(set, cancellationToken);
+        var early = new Harness(new FakeTimeProvider(leaderClock.GetUtcNow().AddSeconds(-30)), CacheExpiryAuthority.CommittedRecords);
+        var late = new Harness(new FakeTimeProvider(leaderClock.GetUtcNow().AddSeconds(90)), CacheExpiryAuthority.CommittedRecords);
+        await early.ApplyAsync(set, cancellationToken);
+        await late.ApplyAsync(set, cancellationToken);
+        _ = await Assert.That((await late.Cache.GetEntryAsync(CacheName, Key, cancellationToken))?.Value).IsEqualTo("v1");
+
+        leaderClock.Advance(Ttl);
+        var (tombstone, _) = await leader.Factory.PrepareExpireAsync(CacheName, Key, 2UL, cancellationToken);
+        await early.ApplyAsync(tombstone!, cancellationToken);
+        await late.ApplyAsync(tombstone!, cancellationToken);
+
+        _ = await Assert.That(await early.RawAsync(cancellationToken)).IsNull();
+        _ = await Assert.That(await late.RawAsync(cancellationToken)).IsNull();
+    }
+
+    /// <summary>A tombstone takes the identity of the expired entry under the scope reserved for expiration, and reports nothing applied.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpireRecordCarriesExpiredIdentity(CancellationToken cancellationToken)
+    {
+        var harness = new Harness(new FakeTimeProvider(), CacheExpiryAuthority.CommittedRecords);
+        var deadline = harness.Now.Add(Ttl);
+        await harness.SeedAsync(new NodeCacheEntry<object?>("v1", 4, deadline), cancellationToken);
+        harness.Clock.Advance(Ttl);
+
+        var (tombstone, current) = await harness.Factory.PrepareExpireAsync(CacheName, Key, 2UL, cancellationToken);
+
+        var record = ReplicaLogCodec.Decode(tombstone!.CanonicalPayload);
+        _ = await Assert.That(current).IsNull();
+        _ = await Assert.That(tombstone.OperationScope).IsEqualTo(ReplicaExpirationOperationId.OperationScope);
+        _ = await Assert.That(tombstone.OperationId).IsEqualTo(ReplicaExpirationOperationId.Create("g1", CacheName, Key, 4, deadline));
+        _ = await Assert.That(record?.MutationKind).IsEqualTo(ReplicaMutationKinds.Expire);
+        _ = await Assert.That(record?.ExpiresUtcTicks).IsEqualTo(deadline.Ticks);
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(tombstone.OutcomePayload)).IsFalse();
+    }
+
+    /// <summary>A key that is live, or absent, needs no tombstone; the live entry is handed back.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpireOfLiveKeyPreparesNothing(CancellationToken cancellationToken)
+    {
+        var harness = new Harness(new FakeTimeProvider(), CacheExpiryAuthority.CommittedRecords);
+        var (absentTombstone, absentCurrent) = await harness.Factory.PrepareExpireAsync(CacheName, Key, 1UL, cancellationToken);
+        await harness.SeedAsync(new NodeCacheEntry<object?>("v1", 1, harness.Now.Add(Ttl)), cancellationToken);
+
+        var (tombstone, current) = await harness.Factory.PrepareExpireAsync(CacheName, Key, 2UL, cancellationToken);
+
+        _ = await Assert.That(absentTombstone).IsNull();
+        _ = await Assert.That(absentCurrent).IsNull();
+        _ = await Assert.That(tombstone).IsNull();
+        _ = await Assert.That(current?.Value).IsEqualTo("v1");
+    }
+
+    /// <summary>An update, a touch and an expiration removal that find the key expired delete it and report nothing applied.</summary>
+    /// <param name="kind">The conditional mutation kind.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when the test has run.</returns>
+    [Test]
+    [Arguments(ReplicaMutationKinds.Update)]
+    [Arguments(ReplicaMutationKinds.Touch)]
+    [Arguments(ReplicaMutationKinds.RemoveExpiration)]
+    public async Task ExpiredKeyFoldsIntoConditionalWrite(string kind, CancellationToken cancellationToken)
+    {
+        var harness = new Harness(new FakeTimeProvider(), CacheExpiryAuthority.CommittedRecords);
+        await harness.SeedAsync(new NodeCacheEntry<object?>("v1", 1, harness.Now.Add(Ttl)), cancellationToken);
+        harness.Clock.Advance(Ttl);
+
+        var prepared = kind switch
+        {
+            ReplicaMutationKinds.Update => await harness.Factory.PrepareUpdateAsync("op-2", CacheName, Key, "v2", 2UL, cancellationToken),
+            ReplicaMutationKinds.Touch => await harness.Factory.PrepareTouchAsync("op-2", CacheName, Key, Ttl, 2UL, cancellationToken),
+            _ => await harness.Factory.PrepareRemoveExpirationAsync("op-2", CacheName, Key, 2UL, cancellationToken),
+        };
+        await harness.ApplyAsync(prepared, cancellationToken);
+
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(prepared.OutcomePayload)).IsFalse();
+        _ = await Assert.That(await harness.RawAsync(cancellationToken)).IsNull();
+    }
+
+    /// <summary>A try-add writes over an expired key, and a remove of it deletes it but reports nothing removed.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredKeyCountsAsAbsentForAddAndRemove(CancellationToken cancellationToken)
+    {
+        var harness = new Harness(new FakeTimeProvider(), CacheExpiryAuthority.CommittedRecords);
+        await harness.SeedAsync(new NodeCacheEntry<object?>("v1", 1, harness.Now.Add(Ttl)), cancellationToken);
+        harness.Clock.Advance(Ttl);
+
+        var add = await harness.Factory.PrepareTryAddAsync("op-2", CacheName, Key, new NodeCacheEntry<object?>("v2", 1, harness.Now.Add(Ttl)), 2UL, cancellationToken);
+        await harness.ApplyAsync(add, cancellationToken);
+        var added = await harness.RawAsync(cancellationToken);
+        harness.Clock.Advance(Ttl);
+        var remove = await harness.Factory.PrepareRemoveAsync("op-3", CacheName, Key, 3UL, cancellationToken);
+        await harness.ApplyAsync(remove, cancellationToken);
+
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(add.OutcomePayload)).IsTrue();
+        _ = await Assert.That(added?.Value).IsEqualTo("v2");
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(remove.OutcomePayload)).IsFalse();
+        _ = await Assert.That(await harness.RawAsync(cancellationToken)).IsNull();
+    }
+
     /// <summary>A sub-millisecond TTL is rounded up to the next whole millisecond, so the entry is still live when it is decided.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -231,10 +341,10 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
     {
         private readonly PhysicalCache<object?> _physical;
 
-        internal Harness(FakeTimeProvider clock)
+        internal Harness(FakeTimeProvider clock, CacheExpiryAuthority expiry = CacheExpiryAuthority.LocalClock)
         {
             Clock = clock;
-            _physical = new PhysicalCache<object?>(clock);
+            _physical = new PhysicalCache<object?>(clock, expiry: expiry);
             Cache = new ClientCache<object?>(_physical, _physical);
             Factory = new ReplicaMutationFactory(Cache, "g1", 1UL, clock, NullLogger.Instance);
         }

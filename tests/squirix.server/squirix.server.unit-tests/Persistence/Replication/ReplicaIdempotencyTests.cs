@@ -75,6 +75,43 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         _ = await Assert.That(state.Lookup("client", "first", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
     }
 
+    /// <summary>An expiration tombstone is pinned past the capacity while in flight and leaves no outcome once it resolves.</summary>
+    [Test]
+    public async Task ExpirationBypassesCapacity()
+    {
+        var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), new FakeTimeProvider(DateTimeOffset.UtcNow));
+        _ = state.Reserve("client", "first", [1], GroupRecordKind.UserMutation, 1UL, 1UL);
+        _ = state.TryResolve("client", "first", [2], 1UL, 1UL);
+
+        var reserved = state.Reserve("expire", "tombstone", [3], GroupRecordKind.Expiration, 2UL, 1UL);
+        var pinned = state.HasUnresolvedThrough(2UL);
+        var resolved = state.TryResolve("expire", "tombstone", [4], 2UL, 1UL);
+
+        _ = await Assert.That(reserved).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(pinned).IsTrue();
+        _ = await Assert.That(resolved).IsTrue();
+        _ = await Assert.That(state.Lookup("expire", "tombstone", [3], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(state.HasUnresolvedThrough(2UL)).IsFalse();
+        _ = await Assert.That(state.ExportResolved(out _).Count).IsEqualTo(1);
+    }
+
+    /// <summary>An expiration outcome is neither restored by a rebuild nor kept by a follower apply, which drops its pin.</summary>
+    [Test]
+    public async Task ExpirationOutcomeIsNeverRetained()
+    {
+        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), new FakeTimeProvider(DateTimeOffset.UtcNow));
+        var expiration = new GroupIdempotencyRecord("expire", "tombstone", new byte[] { 1 }, new byte[] { 2 }, GroupRecordKind.Expiration, DateTime.UnixEpoch, DateTime.UnixEpoch, 3UL, 1UL);
+        _ = state.Reserve("expire", "tombstone", [1], GroupRecordKind.Expiration, 3UL, 1UL, true);
+
+        var restored = state.RestoreOutcome(in expiration, TimeSpan.Zero);
+        state.MarkOutcomesRebuilt();
+        state.RecordCommittedOutcome(in expiration);
+
+        _ = await Assert.That(restored).IsEqualTo(GroupOutcomeRestoreResult.Expired);
+        _ = await Assert.That(state.Lookup("expire", "tombstone", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(state.HasUnresolvedThrough(3UL)).IsFalse();
+    }
+
     /// <summary>Re-reserving the same fingerprint at new coordinates refreshes them so the record can resolve and later expire.</summary>
     [Test]
     public async Task ReReserveAtNewIndexThenResolves()
