@@ -93,7 +93,7 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     internal TimeProvider Clock { get; }
 
     /// <summary>Gets the committers of the led groups: a snapshot, which a promotion or a retirement replaces.</summary>
-    internal IReadOnlyList<ReplicaGroupCommitter> Led => Volatile.Read(ref _led).Committers;
+    internal IReadOnlyList<ReplicaGroupCommitter> Led => Snapshot().Committers;
 
     /// <summary>Gets the leaderships the election starts, in order, for the readiness service; <see langword="null" /> when the led set is fixed.</summary>
     internal ChannelReader<ReplicaPromotion>? Promotions => _promotions?.Reader;
@@ -112,7 +112,7 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
         _ = _promotions?.Writer.TryComplete();
         ReplicaGroupCommitter[] committers;
         lock (_sync)
-            committers = _create == null ? Volatile.Read(ref _led).Committers : [.. _created.Values];
+            committers = _create == null ? Snapshot().Committers : [.. _created.Values];
 
         var disposals = new Task[committers.Length];
         for (var i = 0; i < committers.Length; i++)
@@ -167,13 +167,13 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     /// <param name="groupId">Replica group identifier.</param>
     /// <returns>The committer, or <see langword="null" /> when this node does not lead the group or has no authority in it.</returns>
     internal ReplicaGroupCommitter? FindAuthorized(string groupId) =>
-        Volatile.Read(ref _led).ByGroup.GetValueOrDefault(groupId) is { } committer && _authority?.HasLocalAuthority(groupId, out _) != false ? committer : null;
+        Snapshot().ByGroup.GetValueOrDefault(groupId) is { } committer && _authority?.HasLocalAuthority(groupId, out _) != false ? committer : null;
 
     /// <summary>Gets the committer of a led group.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <returns>The committer.</returns>
     /// <exception cref="KeyNotFoundException">This node does not lead the group.</exception>
-    internal ReplicaGroupCommitter For(string groupId) => Volatile.Read(ref _led).ByGroup[groupId];
+    internal ReplicaGroupCommitter For(string groupId) => Snapshot().ByGroup[groupId];
 
     /// <summary>Gets the committer of the group that owns a key.</summary>
     /// <param name="cacheName">Canonical cache name of the operation.</param>
@@ -195,13 +195,17 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     /// <summary>Tells whether this node leads a group.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <returns><see langword="true" /> when this node leads the group.</returns>
-    internal bool Leads(string groupId) => Volatile.Read(ref _led).ByGroup.ContainsKey(groupId);
+    internal bool Leads(string groupId) => Snapshot().ByGroup.ContainsKey(groupId);
 
     private ReplicaGroupCommitter? Created(string groupId)
     {
         lock (_sync)
             return _created.GetValueOrDefault(groupId);
     }
+
+    /// <summary>Reads the current snapshot of the led groups.</summary>
+    /// <returns>The snapshot; a promotion or a retirement publishes a new one.</returns>
+    private LedGroups Snapshot() => Volatile.Read(ref _led);
 
     private ReplicaGroupCommitter GetOrCreate(string groupId)
     {
@@ -240,7 +244,7 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     {
         lock (_sync)
         {
-            var current = Volatile.Read(ref _led);
+            var current = Snapshot();
             var byGroup = new Dictionary<string, ReplicaGroupCommitter>(current.ByGroup, StringComparer.Ordinal);
             if (led)
                 byGroup[committer.GroupId] = committer;
