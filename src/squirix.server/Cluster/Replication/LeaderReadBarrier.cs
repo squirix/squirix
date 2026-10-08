@@ -1,12 +1,10 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Read-index wait for leader reads: a read is served only after the applied index reaches the read index.</summary>
-[SuppressMessage("Usage", "MA0182:Internal type is apparently never used", Justification = "Test-only activation seam until failover activation wires the read barrier in a follow-up milestone.")]
 internal static class LeaderReadBarrier
 {
     /// <summary>Waits until the observed applied index reaches the read index.</summary>
