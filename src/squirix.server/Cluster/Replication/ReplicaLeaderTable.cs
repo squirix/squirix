@@ -101,7 +101,15 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
             if (TryGetLeader(groupId, out _))
                 return true;
 
-            var remaining = timeout == Timeout.InfiniteTimeSpan ? timeout : timeout - clock.GetElapsedTime(started);
+            // A spent finite timeout becomes zero: a remainder of exactly -1 ms would otherwise read as an infinite wait.
+            var remaining = timeout;
+            if (timeout != Timeout.InfiniteTimeSpan)
+            {
+                remaining = timeout - clock.GetElapsedTime(started);
+                if (remaining < TimeSpan.Zero)
+                    remaining = TimeSpan.Zero;
+            }
+
             if (!await state.RouteChanged.WaitAsync(version, remaining, clock, cancellationToken).ConfigureAwait(false))
                 return TryGetLeader(groupId, out _);
         }
