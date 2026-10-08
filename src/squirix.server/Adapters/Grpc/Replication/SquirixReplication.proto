@@ -91,6 +91,23 @@ message GetReplicaStatusResponse {
   bytes topology_fingerprint = 6;
   uint64 configuration_generation = 7;
   string refusal_code = 8;
+  uint64 last_log_term = 9;
+  uint64 applied_index = 10;
+}
+
+// Election ballot for one replica group. The candidate is header.sender_node_id; header.leader_node_id is ignored.
+// header.term is the proposed term for PreVote (never persisted) and the candidate persisted term for RequestVote.
+message ReplicaVoteRequest {
+  ReplicationEnvelopeHeader header = 1;
+  uint64 last_log_index = 2;
+  uint64 last_log_term = 3;
+}
+
+// term is the voter durable term after handling the request; zero when it was refused before reaching the log.
+message ReplicaVoteResponse {
+  uint64 term = 1;
+  bool granted = 2;
+  string refusal_code = 3;
 }
 
 service SquirixReplicationService {
@@ -98,4 +115,6 @@ service SquirixReplicationService {
   rpc AdvanceReplicaCommit (AdvanceReplicaCommitRequest) returns (AdvanceReplicaCommitResponse);
   rpc InstallReplicaSnapshot (stream InstallReplicaSnapshotRequest) returns (InstallReplicaSnapshotResponse);
   rpc GetReplicaStatus (GetReplicaStatusRequest) returns (GetReplicaStatusResponse);
+  rpc PreVote (ReplicaVoteRequest) returns (ReplicaVoteResponse);
+  rpc RequestVote (ReplicaVoteRequest) returns (ReplicaVoteResponse);
 }

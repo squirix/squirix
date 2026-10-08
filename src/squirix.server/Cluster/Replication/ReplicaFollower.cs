@@ -14,7 +14,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// and checks topology agreement (fingerprint and generation mirror the snapshot-install rules: an empty
 /// durable fingerprint adopts nothing here but never conflicts, and an older generation is refused);
 /// term validation stays inside the log, which persists higher terms durably before responding. An accepted append, commit advance, or
-/// snapshot install wakes the group's apply loop, so committed entries reach memory without waiting for its fallback interval.
+/// snapshot install wakes the group's apply loop, so committed entries reach memory without waiting for its fallback interval; votes
+/// and pre-votes apply nothing and wake nothing.
 /// </remarks>
 [Immutable]
 internal sealed class ReplicaFollower
@@ -160,6 +161,53 @@ internal sealed class ReplicaFollower
         var storedChecksum = BinaryPrimitives.ReadUInt32LittleEndian(upload.FileBytes.Span[^4..]);
         return storedChecksum != upload.DeclaredChecksum ? GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady)
             : await InstallAsync(groupId, log, snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Evaluates a pre-vote probe against a group log after agreement checks, without changing the log.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="fingerprint">Candidate topology fingerprint.</param>
+    /// <param name="generation">Candidate configuration generation.</param>
+    /// <param name="ballot">The probe; its term is the term the candidate proposes to start.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The probe outcome; a refusal before the log is reached reports term zero.</returns>
+    internal async Task<FollowerLogVoteResult> PreVoteAsync(
+        string groupId,
+        ReadOnlyMemory<byte> fingerprint,
+        ulong generation,
+        ElectionVoteRequest ballot,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
+        if (!TryGetLog(groupId, out var log))
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.NotMember, 0UL);
+
+        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        return status.IsTopologyMismatch(fingerprint, generation) ? new FollowerLogVoteResult(false, FollowerLogRefusal.TopologyMismatch, 0UL)
+            : await log.CheckPreVoteAsync(ballot, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Evaluates a vote request against a group log after agreement checks.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="fingerprint">Candidate topology fingerprint.</param>
+    /// <param name="generation">Candidate configuration generation.</param>
+    /// <param name="ballot">The vote request; its term is the candidate durable term.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The vote outcome; a refusal before the log is reached reports term zero and changes nothing.</returns>
+    /// <remarks>The log persists a higher term and a granted vote before this call reports them.</remarks>
+    internal async Task<FollowerLogVoteResult> RequestVoteAsync(
+        string groupId,
+        ReadOnlyMemory<byte> fingerprint,
+        ulong generation,
+        ElectionVoteRequest ballot,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
+        if (!TryGetLog(groupId, out var log))
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.NotMember, 0UL);
+
+        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        return status.IsTopologyMismatch(fingerprint, generation) ? new FollowerLogVoteResult(false, FollowerLogRefusal.TopologyMismatch, 0UL)
+            : await log.RequestVoteAsync(ballot, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Installs a validated snapshot into a group log and wakes the group's apply loop when it was installed.</summary>

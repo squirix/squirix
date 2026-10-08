@@ -157,4 +157,21 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The installation outcome.</returns>
     Task<GroupSnapshotInstallResult> InstallSnapshotAsync(GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken);
+
+    /// <summary>Evaluates a pre-vote probe against the durable log without changing it.</summary>
+    /// <param name="request">The probe; its term is the term the candidate proposes to start.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Whether a vote would be granted, with the durable term, which the probe never changes.</returns>
+    /// <remarks>A term at or below one, the static provisional leader term, is refused as stale.</remarks>
+    Task<FollowerLogVoteResult> CheckPreVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken);
+
+    /// <summary>Evaluates a vote request, persisting a higher term and a granted vote before reporting them.</summary>
+    /// <param name="request">The vote request; its term is the candidate durable term.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Whether the vote was granted, with the durable term after the request.</returns>
+    /// <remarks>
+    /// At most one candidate is granted per term, across restarts; a replay for the recorded candidate is granted again. A term at or
+    /// below one, the static provisional leader term, is refused as stale and changes nothing.
+    /// </remarks>
+    Task<FollowerLogVoteResult> RequestVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken);
 }

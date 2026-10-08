@@ -24,7 +24,7 @@ internal static class PolicyOptions
     internal const int MaxReplicaCount = TopologyConstraints.MaxReplicaCount;
 
     /// <summary>Minimum cluster package version required for RF>1 topology agreement.</summary>
-    internal const string MinClusterPackageVersion = "0.1.0-preview.8";
+    internal const string MinClusterPackageVersion = "0.1.0-preview.9";
 
     /// <summary>Physical replica placement algorithm version.</summary>
     internal const int PlacementAlgorithmVersion = 1;

@@ -9,9 +9,9 @@ using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Adapters.Grpc.Replication;
 
-/// <summary>Owner-side replication RPCs over pooled internode channels.</summary>
+/// <summary>Owner-side replication RPCs and candidate-side election RPCs over pooled internode channels.</summary>
 [Immutable]
-internal sealed class ReplicaRpcGateway : IReplicaRpcGateway
+internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGateway
 {
     private readonly IServerClientPool _pool;
 
@@ -31,6 +31,26 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway
         var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
         var response = await client.AppendReplicaEntriesAsync(MapRequest(in header, in batch), cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
         return new FollowerLogAppendResult(response.Success, response.RefusalCode, response.Term, response.LastLogIndex);
+    }
+
+    /// <inheritdoc />
+    public async Task<FollowerLogVoteResult> PreVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
+        var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
+        var response = await client.PreVoteAsync(MapVoteRequest(in header, lastLogIndex, lastLogTerm), cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
+        return new FollowerLogVoteResult(response.Granted, response.RefusalCode, response.Term);
+    }
+
+    /// <inheritdoc />
+    public async Task<FollowerLogVoteResult> RequestVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
+        var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
+        var response = await client.RequestVoteAsync(MapVoteRequest(in header, lastLogIndex, lastLogTerm), cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
+        return new FollowerLogVoteResult(response.Granted, response.RefusalCode, response.Term);
     }
 
     private static ReplicaLogEntry MapEntry(in ReplicaLogRecord record) => new()
@@ -77,5 +97,26 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway
             request.Entries.Add(MapEntry(records[i]));
 
         return request;
+    }
+
+    private static ReplicaVoteRequest MapVoteRequest(in ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm)
+    {
+        // A candidate claims no leadership: the voter ignores the leader identity, so none is sent and the caller's value,
+        // which may be null, never reaches the protobuf setter.
+        return new ReplicaVoteRequest
+        {
+            Header = new ReplicationEnvelopeHeader
+            {
+                SchemaVersion = EnvelopeSchema.Version,
+                GroupId = header.GroupId,
+                TopologyFingerprint = ByteString.CopyFrom(header.TopologyFingerprint.Span),
+                ConfigurationGeneration = header.ConfigurationGeneration,
+                Term = header.Term,
+                LeaderNodeId = string.Empty,
+                SenderNodeId = header.SenderNodeId,
+            },
+            LastLogIndex = lastLogIndex,
+            LastLogTerm = lastLogTerm,
+        };
     }
 }

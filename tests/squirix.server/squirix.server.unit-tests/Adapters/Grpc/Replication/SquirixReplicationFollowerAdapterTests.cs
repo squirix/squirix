@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
@@ -124,13 +125,143 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
 
-    /// <summary>Creates an adapter backed by an opened single-group registry.</summary>
+    /// <summary>Verifies that votes for the group this node statically leads are refused with failover on and leave its metadata unchanged.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OwnGroupVoteIsRefusedAsync(CancellationToken cancellationToken)
+    {
+        await using var follower = await CreateFollowerScopeAsync(CreateTopology().NodeId, true, cancellationToken);
+        follower.Header.Term = 2;
+        var request = new ReplicaVoteRequest { Header = follower.Header };
+        var before = await File.ReadAllBytesAsync(MetaPath(follower), cancellationToken);
+
+        var vote = await follower.Adapter.RequestVote(request, new TestServerCallContext(null, follower.HttpContext));
+        var preVote = await follower.Adapter.PreVote(request, new TestServerCallContext(null, follower.HttpContext));
+
+        _ = await Assert.That(vote.Granted).IsFalse();
+        _ = await Assert.That(vote.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
+        _ = await Assert.That(vote.Term).IsEqualTo(0UL);
+        _ = await Assert.That(preVote.Granted).IsFalse();
+        _ = await Assert.That(preVote.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
+        _ = await Assert.That(preVote.Term).IsEqualTo(0UL);
+        var after = await File.ReadAllBytesAsync(MetaPath(follower), cancellationToken);
+        await SequenceAssert.EqualAsync(before, after);
+    }
+
+    /// <summary>Verifies that a pre-vote on a served group answers from the log and leaves the term unchanged.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PreVoteOnServedGroupKeepsTermAsync(CancellationToken cancellationToken)
+    {
+        await using var follower = await CreateFollowerScopeAsync("node-a", true, cancellationToken);
+        var request = new ReplicaVoteRequest { Header = follower.Header };
+
+        var response = await follower.Adapter.PreVote(request, new TestServerCallContext(null, follower.HttpContext));
+
+        _ = await Assert.That(response.Granted).IsTrue();
+        _ = await Assert.That(response.Term).IsEqualTo(0UL);
+        var status = await GroupStatusAsync(follower, cancellationToken);
+        _ = await Assert.That(status.CurrentTerm).IsEqualTo(0UL);
+        _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
+    }
+
+    /// <summary>Verifies that a vote for the static provisional leader term is refused without changing the log.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ProvisionalTermVoteIsRefusedAsync(CancellationToken cancellationToken)
+    {
+        await using var follower = await CreateFollowerScopeAsync("node-a", true, cancellationToken);
+        follower.Header.Term = 1;
+        var request = new ReplicaVoteRequest { Header = follower.Header };
+
+        var response = await follower.Adapter.RequestVote(request, new TestServerCallContext(null, follower.HttpContext));
+
+        _ = await Assert.That(response.Granted).IsFalse();
+        _ = await Assert.That(response.RefusalCode).IsEqualTo(RefusalCodes.StaleTerm);
+        _ = await Assert.That(response.Term).IsEqualTo(0UL);
+        var status = await GroupStatusAsync(follower, cancellationToken);
+        _ = await Assert.That(status.CurrentTerm).IsEqualTo(0UL);
+        _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
+    }
+
+    /// <summary>Verifies that GetReplicaStatus reports the term of the last log entry and the applied index.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StatusReportsLogTermAndAppliedAsync(CancellationToken cancellationToken)
+    {
+        await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
+        var log = GroupLog(follower);
+        FollowerLogEntry[] entries = [new(1UL, 7UL, new byte[] { 1 }), new(2UL, 7UL, new byte[] { 2 })];
+        _ = await log.AppendAsync(new FollowerLogAppendRequest("node-a", 7UL, 0UL, 0UL, 2UL, entries), cancellationToken);
+        _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
+        var request = new GetReplicaStatusRequest { Header = follower.Header };
+
+        var response = await follower.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, follower.HttpContext));
+
+        _ = await Assert.That(response.LastLogIndex).IsEqualTo(2UL);
+        _ = await Assert.That(response.LastLogTerm).IsEqualTo(7UL);
+        _ = await Assert.That(response.CommitIndex).IsEqualTo(2UL);
+        _ = await Assert.That(response.AppliedIndex).IsEqualTo(1UL);
+    }
+
+    /// <summary>Verifies that a vote on a served group is granted to the verified sender and persisted before the answer.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VoteOnServedGroupIsGrantedAsync(CancellationToken cancellationToken)
+    {
+        await using var follower = await CreateFollowerScopeAsync("node-a", true, cancellationToken);
+        follower.Header.Term = 2;
+        var request = new ReplicaVoteRequest { Header = follower.Header };
+
+        var response = await follower.Adapter.RequestVote(request, new TestServerCallContext(null, follower.HttpContext));
+
+        _ = await Assert.That(response.Granted).IsTrue();
+        _ = await Assert.That(response.Term).IsEqualTo(2UL);
+        _ = await Assert.That(response.RefusalCode).IsEqualTo(string.Empty);
+        var status = await GroupStatusAsync(follower, cancellationToken);
+        _ = await Assert.That(status.CurrentTerm).IsEqualTo(2UL);
+        _ = await Assert.That(status.VotedFor).IsEqualTo("node-a");
+    }
+
+    /// <summary>Verifies that while automatic failover is off a vote on a served group is refused and changes no durable term.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VoteWithFailoverOffChangesNoTermAsync(CancellationToken cancellationToken)
+    {
+        await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
+        var request = new ReplicaVoteRequest { Header = follower.Header };
+        var before = await File.ReadAllBytesAsync(MetaPath(follower), cancellationToken);
+
+        var vote = await follower.Adapter.RequestVote(request, new TestServerCallContext(null, follower.HttpContext));
+        var preVote = await follower.Adapter.PreVote(request, new TestServerCallContext(null, follower.HttpContext));
+
+        _ = await Assert.That(vote.Granted).IsFalse();
+        _ = await Assert.That(vote.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
+        _ = await Assert.That(vote.Term).IsEqualTo(0UL);
+        _ = await Assert.That(preVote.Granted).IsFalse();
+        _ = await Assert.That(preVote.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
+        var status = await GroupStatusAsync(follower, cancellationToken);
+        _ = await Assert.That(status.CurrentTerm).IsEqualTo(0UL);
+        _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
+        var after = await File.ReadAllBytesAsync(MetaPath(follower), cancellationToken);
+        await SequenceAssert.EqualAsync(before, after);
+    }
+
+    /// <summary>Creates an adapter backed by an opened single-group registry, with automatic failover off.</summary>
     /// <param name="groupId">The replica group identifier served by the registry.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The follower scope owning the adapter and its storage.</returns>
-    private static async Task<FollowerScope> CreateFollowerScopeAsync(string groupId, CancellationToken cancellationToken)
+    private static Task<FollowerScope> CreateFollowerScopeAsync(string groupId, CancellationToken cancellationToken) =>
+        CreateFollowerScopeAsync(groupId, false, cancellationToken);
+
+    /// <summary>Creates an adapter backed by an opened single-group registry.</summary>
+    /// <param name="groupId">The replica group identifier served by the registry.</param>
+    /// <param name="votesEnabled">Whether automatic failover is on, so the adapter answers votes from the log.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The follower scope owning the adapter and its storage.</returns>
+    private static async Task<FollowerScope> CreateFollowerScopeAsync(string groupId, bool votesEnabled, CancellationToken cancellationToken)
     {
-        var topology = CreateTopology();
+        var topology = CreateTopology(votesEnabled);
         var mtls = new MtlsOptions { InternalListenPort = 6001 };
         var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
@@ -169,6 +300,25 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
             Registry = registry,
         };
     }
+
+    /// <summary>Gets the log of the group served by the scope.</summary>
+    /// <param name="follower">The follower scope.</param>
+    /// <returns>The group log.</returns>
+    /// <exception cref="InvalidOperationException">The registry serves no log for the scope group.</exception>
+    private static IFollowerLog GroupLog(FollowerScope follower) =>
+        follower.Registry.TryGetLog(follower.Header.GroupId, out var log) ? log : throw new InvalidOperationException("The scope serves no group log.");
+
+    /// <summary>Gets the metadata file path of the group served by the scope.</summary>
+    /// <param name="follower">The follower scope.</param>
+    /// <returns>The group metadata file path.</returns>
+    private static string MetaPath(FollowerScope follower) => GroupStoragePaths.GetMetadataPath(follower.Dir, follower.Header.GroupId);
+
+    /// <summary>Reads the durable status of the group served by the scope.</summary>
+    /// <param name="follower">The follower scope.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The group log status.</returns>
+    private static ValueTask<FollowerLogStatus> GroupStatusAsync(FollowerScope follower, CancellationToken cancellationToken) =>
+        GroupLog(follower).GetStatusAsync(cancellationToken);
 
     [Immutable]
     private sealed class FollowerScope : IAsyncDisposable

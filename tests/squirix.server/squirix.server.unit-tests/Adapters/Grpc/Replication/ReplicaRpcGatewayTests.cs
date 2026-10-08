@@ -71,6 +71,65 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
         _ = await Assert.That(parking.Arrived.IsCompleted).IsFalse();
     }
 
+    /// <summary>Disposing the pool fails a vote in flight instead of reporting an answer, and disposes the handler only after that.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PoolDisposeCancelsInFlightVote(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var parking = new ParkingHandler();
+        var pool = CreatePool(parking, meter);
+        var gateway = new ReplicaRpcGateway(pool);
+        var call = gateway.RequestVoteAsync(PeerNodeId, Header(), 0, 0, cancellationToken);
+        await parking.Arrived.WaitAsync(cancellationToken);
+
+        await pool.DisposeAsync();
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(call);
+        await parking.Cancelled.WaitAsync(cancellationToken);
+        _ = await Assert.That(parking.DisposedAfterCancel).IsTrue().Because("The handler must outlive the call it was cancelled under.");
+    }
+
+    /// <summary>Vote and pre-vote calls issued after the pool started to dispose are refused without reaching the transport.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VoteCallAfterPoolDisposeIsRefused(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var parking = new ParkingHandler();
+        var pool = CreatePool(parking, meter);
+        var gateway = new ReplicaRpcGateway(pool);
+        await pool.DisposeAsync();
+
+        var preVote = gateway.PreVoteAsync(PeerNodeId, Header(), 0, 0, cancellationToken);
+        var vote = gateway.RequestVoteAsync(PeerNodeId, Header(), 0, 0, cancellationToken);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(preVote);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(vote);
+        _ = await Assert.That(parking.Arrived.IsCompleted).IsFalse();
+    }
+
+    /// <summary>A vote whose header carries no leader identity still reaches the transport, because none is sent.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VoteWithoutLeaderIdReachesTransport(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var parking = new ParkingHandler();
+        var pool = CreatePool(parking, meter);
+        var gateway = new ReplicaRpcGateway(pool);
+
+        // A default header leaves the leader identity null, as an unset field of a caller would.
+        var header = default(ReplicaRpcHeader) with { GroupId = PeerNodeId, ConfigurationGeneration = 1, Term = 2, SenderNodeId = PeerNodeId };
+
+        var call = gateway.RequestVoteAsync(PeerNodeId, header, 0, 0, cancellationToken);
+        var first = await Task.WhenAny(call, parking.Arrived).WaitAsync(cancellationToken);
+
+        _ = await Assert.That(first).IsSameReferenceAs(parking.Arrived).Because("The vote must reach the transport instead of failing while it is built.");
+        await pool.DisposeAsync();
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(call);
+    }
+
     private static FollowerBatch Batch() => new([], PeerNodeId, 1, 0, 0, 0);
 
     private static ServerClientPool CreatePool(HttpMessageHandler handler, Meter meter)
