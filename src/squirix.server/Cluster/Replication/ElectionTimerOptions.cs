@@ -17,8 +17,6 @@ internal sealed class ElectionTimerOptions
     /// <summary>The longest configurable wait for a leader; a request deadline is far shorter.</summary>
     internal static readonly TimeSpan MaxLeaderWaitTimeout = TimeSpan.FromMinutes(1);
 
-    private readonly TimeSpan? _leaderWaitTimeout;
-
     /// <summary>Gets the time without leader contact after which a follower starts an election; also the window of the leader quorum check.</summary>
     internal TimeSpan ElectionTimeout { get; init; } = TimeSpan.FromSeconds(1);
 
@@ -31,25 +29,33 @@ internal sealed class ElectionTimerOptions
 
     /// <summary>Gets the longest wait of an entry node for a leader of a served group that has none known.</summary>
     /// <remarks>
-    /// Defaults to <see cref="ElectionTimeout" /> plus <see cref="MaxJitter" />, the longest a follower waits before it campaigns; the remaining
-    /// deadline of the request caps it further. An explicit value must be positive and at most <see cref="MaxLeaderWaitTimeout" />:
-    /// <see cref="System.Threading.Timeout.InfiniteTimeSpan" /> is refused, because a wait for a leader is always bounded.
+    /// <see cref="LeaderWaitTimeoutOverride" /> when set; otherwise <see cref="ElectionTimeout" /> plus <see cref="MaxJitter" />, the longest a
+    /// follower waits before it campaigns. The remaining deadline of the request caps it further.
     /// </remarks>
-    /// <exception cref="ArgumentOutOfRangeException">The value is zero, negative, or above <see cref="MaxLeaderWaitTimeout" />.</exception>
-    internal TimeSpan LeaderWaitTimeout
-    {
-        get => _leaderWaitTimeout ?? (ElectionTimeout + MaxJitter);
-        init
-        {
-            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(value, TimeSpan.Zero);
-            ArgumentOutOfRangeException.ThrowIfGreaterThan(value, MaxLeaderWaitTimeout);
-            _leaderWaitTimeout = value;
-        }
-    }
+    internal TimeSpan LeaderWaitTimeout => LeaderWaitTimeoutOverride ?? (ElectionTimeout + MaxJitter);
+
+    /// <summary>Gets the explicit longest wait for a leader, or <see langword="null" /> for the default of <see cref="LeaderWaitTimeout" />.</summary>
+    /// <remarks>
+    /// It must be positive and at most <see cref="MaxLeaderWaitTimeout" />; <see cref="System.Threading.Timeout.InfiniteTimeSpan" /> is
+    /// refused, because a wait for a leader is always bounded. <see cref="EnsureValidLeaderWait" /> checks it once, when the leader table
+    /// is built.
+    /// </remarks>
+    internal TimeSpan? LeaderWaitTimeoutOverride { get; init; }
 
     /// <summary>Gets the largest random delay added to <see cref="ElectionTimeout" /> each time a follower arms its election.</summary>
     internal TimeSpan MaxJitter { get; init; } = TimeSpan.FromSeconds(1);
 
     /// <summary>Gets the longest wait for one pre-vote or vote reply; an unanswered voter counts as a refusal.</summary>
     internal TimeSpan VoteRpcTimeout { get; init; } = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>Checks that the wait for a leader of the options is bounded: positive and at most <see cref="MaxLeaderWaitTimeout" />.</summary>
+    /// <param name="options">The options to check.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The wait is zero, negative, infinite, or above <see cref="MaxLeaderWaitTimeout" />.</exception>
+    internal static void EnsureValidLeaderWait(ElectionTimerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var wait = options.LeaderWaitTimeout;
+        if (wait <= TimeSpan.Zero || wait > MaxLeaderWaitTimeout)
+            throw new ArgumentOutOfRangeException(nameof(options), wait, "The wait for a leader must be positive and bounded.");
+    }
 }

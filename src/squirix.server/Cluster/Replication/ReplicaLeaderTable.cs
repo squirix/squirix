@@ -24,10 +24,12 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
     /// <summary>Initializes a new instance of the <see cref="ReplicaLeaderTable" /> class.</summary>
     /// <param name="registry">The registry holding the election state of every served group.</param>
     /// <param name="selfId">The identifier of this node, the leader of the groups it has authority in.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The election options of the registry hold an unbounded wait for a leader.</exception>
     internal ReplicaLeaderTable(ReplicaGroupRegistry registry, string selfId)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentException.ThrowIfNullOrWhiteSpace(selfId);
+        ElectionTimerOptions.EnsureValidLeaderWait(registry.Election);
         _registry = registry;
         _selfId = selfId;
     }

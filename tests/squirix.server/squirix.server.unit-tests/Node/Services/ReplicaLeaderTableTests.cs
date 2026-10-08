@@ -211,22 +211,36 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     public async Task WaitDefaultsToElectionBound()
     {
         var options = new ElectionTimerOptions { ElectionTimeout = TimeSpan.FromMilliseconds(300), MaxJitter = TimeSpan.FromMilliseconds(200) };
-        var pinned = new ElectionTimerOptions { LeaderWaitTimeout = TimeSpan.FromMilliseconds(50) };
+        var pinned = new ElectionTimerOptions { LeaderWaitTimeoutOverride = TimeSpan.FromMilliseconds(50) };
 
         _ = await Assert.That(new ElectionTimerOptions().LeaderWaitTimeout).IsEqualTo(TimeSpan.FromSeconds(2));
         _ = await Assert.That(options.LeaderWaitTimeout).IsEqualTo(TimeSpan.FromMilliseconds(500));
         _ = await Assert.That(pinned.LeaderWaitTimeout).IsEqualTo(TimeSpan.FromMilliseconds(50));
     }
 
-    /// <summary>An explicit wait for a leader must be positive and bounded; an infinite wait is refused.</summary>
+    /// <summary>
+    /// An explicit wait for a leader must be positive and bounded, an infinite one included, and the leader table refuses options that break
+    /// this when it is built, so a bad value fails at startup.
+    /// </summary>
     [Test]
     public async Task UnboundedWaitIsRefused()
     {
+        using var dir = new TempDirectory("squirix-leader-wait-invalid");
         foreach (var value in InvalidWaits)
-            _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(value, static v => _ = new ElectionTimerOptions { LeaderWaitTimeout = v });
+        {
+            _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>()
+                .Throws(new ElectionTimerOptions { LeaderWaitTimeoutOverride = value }, ElectionTimerOptions.EnsureValidLeaderWait);
+        }
 
-        _ = await Assert.That(new ElectionTimerOptions { LeaderWaitTimeout = ElectionTimerOptions.MaxLeaderWaitTimeout }.LeaderWaitTimeout)
-            .IsEqualTo(ElectionTimerOptions.MaxLeaderWaitTimeout);
+        await using var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1UL, NullLoggerFactory.Instance)
+        {
+            Election = new ElectionTimerOptions { LeaderWaitTimeoutOverride = Timeout.InfiniteTimeSpan },
+        };
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(registry, static r => _ = new ReplicaLeaderTable(r, "n1"));
+        var bounded = new ElectionTimerOptions { LeaderWaitTimeoutOverride = ElectionTimerOptions.MaxLeaderWaitTimeout };
+        ElectionTimerOptions.EnsureValidLeaderWait(bounded);
+
+        _ = await Assert.That(bounded.LeaderWaitTimeout).IsEqualTo(ElectionTimerOptions.MaxLeaderWaitTimeout);
     }
 
     /// <summary>
