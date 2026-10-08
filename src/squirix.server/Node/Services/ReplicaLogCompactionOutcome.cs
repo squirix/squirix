@@ -29,4 +29,7 @@ internal enum ReplicaLogCompactionOutcome
 
     /// <summary>The snapshot would exceed the maximum snapshot size; compaction stalls until idempotency outcomes age out.</summary>
     SnapshotTooLarge = 8,
+
+    /// <summary>The followers or the commit gate of a led group stayed busy past the wait budget of the step; it is retried on the next pass.</summary>
+    Busy = 9,
 }

@@ -13,6 +13,15 @@ internal static class ReplicaGroupCommitterCommits
 {
     extension(ReplicaGroupCommitter committer)
     {
+        /// <summary>Closes the senders of a pipeline and logs a failure instead of throwing it, so the teardown that follows always runs.</summary>
+        /// <param name="pipeline">The pipeline to close.</param>
+        /// <returns>An asynchronous operation.</returns>
+        internal async ValueTask CloseSendersAsync(ReplicaGroupCommitPipeline pipeline)
+        {
+            if (await pipeline.CloseAsync().ConfigureAwait(false) is { } failure)
+                ServerLog.ReplicaFollowerSenderCloseFailed(committer.Log, failure);
+        }
+
         /// <summary>Commits a prepared mutation on the coordinator and maps every failure to the stable client contract.</summary>
         /// <param name="coordinator">The running coordinator.</param>
         /// <param name="mutation">The prepared mutation.</param>
@@ -101,6 +110,29 @@ internal static class ReplicaGroupCommitterCommits
                 AbandonedWorkFaultReporter = error => ServerLog.ReplicaCoordinatorAbandonedWorkFaulted(logger, error),
             };
         }
+    }
+
+    /// <summary>Looks up the entry retained in the owned group log for the identity of a write.</summary>
+    /// <typeparam name="TState">The type of the write arguments.</typeparam>
+    /// <param name="log">The owned group log, or <see langword="null" /> when it is not open.</param>
+    /// <param name="write">The cache scope and the client operation identifier of the write.</param>
+    /// <param name="state">The arguments of the write.</param>
+    /// <param name="fingerprint">Computes the operation fingerprint of the write.</param>
+    /// <param name="record">The retained record when the lookup finds the outcome; otherwise <see langword="default" />.</param>
+    /// <returns>The lookup; a miss when the owned group log is not open.</returns>
+    /// <remarks>The fingerprint, which encodes and hashes the request, is computed only once an entry with the identity is found.</remarks>
+    internal static GroupIdempotencyLookup LookupRetained<TState>(
+        IFollowerLog? log,
+        (string Scope, string OperationId) write,
+        TState state,
+        Func<TState, byte[]> fingerprint,
+        out GroupIdempotencyRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(fingerprint);
+        record = default;
+        return log == null || log.Idempotency.Lookup(write.Scope, write.OperationId, [], out _) == GroupIdempotencyLookup.Miss
+            ? GroupIdempotencyLookup.Miss
+            : log.Idempotency.Lookup(write.Scope, write.OperationId, fingerprint(state), out record);
     }
 
     private static bool IsPostAppendOutcome(Exception error) =>

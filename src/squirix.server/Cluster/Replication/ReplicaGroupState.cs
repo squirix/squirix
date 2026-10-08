@@ -244,6 +244,18 @@ internal sealed class ReplicaGroupState
         }
     }
 
+    /// <summary>Reads whether this node leads the group with authority, and the term it leads.</summary>
+    /// <param name="term">The led term when this node has authority; otherwise zero.</param>
+    /// <returns><see langword="true" /> when this node is the leader of the group and its leader-term entry is committed.</returns>
+    internal bool TryGetAuthority(out ulong term)
+    {
+        lock (_sync)
+        {
+            term = _hasAuthority ? _term : 0;
+            return _hasAuthority;
+        }
+    }
+
     /// <summary>Waits until a higher term wakes the driver or <paramref name="delay" /> elapses.</summary>
     /// <param name="delay">The longest wait.</param>
     /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait by throwing.</param>

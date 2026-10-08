@@ -172,9 +172,54 @@ internal static partial class ServerLog
     [LoggerMessage(
         EventId = 4033,
         Level = LogLevel.Error,
-        Message = "Replica expiration sweep stopped its pass after expiring {Expired} keys: a tombstone could not commit, and the rest waits for the next pass")]
-    internal static partial void ReplicaExpirationSweepFailed(ILogger logger, int expired, Exception exception);
+        Message = "Replica group {GroupId} expiration sweep could not commit a tombstone after {Expired} keys of the pass; the group waits for the next pass")]
+    internal static partial void ReplicaExpirationSweepFailed(ILogger logger, string groupId, int expired, Exception exception);
 
     [LoggerMessage(EventId = 4034, Level = LogLevel.Debug, Message = "Replica expiration sweep stopped because the host is shutting down")]
     internal static partial void ReplicaExpirationSweepStopped(ILogger logger);
+
+    [LoggerMessage(EventId = 4035, Level = LogLevel.Debug, Message = "Replica group {GroupId} could not start leading term {Term} and retries on the next election tick")]
+    internal static partial void ReplicaPromotionRetry(ILogger logger, string groupId, ulong term, Exception exception);
+
+    [LoggerMessage(EventId = 4036, Level = LogLevel.Debug, Message = "Replica group {GroupId} may not campaign after term {Term}: {Denial}")]
+    internal static partial void ReplicaElectionDenied(ILogger logger, string groupId, ulong term, string denial);
+
+    [LoggerMessage(EventId = 4037, Level = LogLevel.Debug, Message = "Replica group {GroupId} pre-vote found no majority; the term stays {Term}")]
+    internal static partial void ReplicaElectionPreVoteLost(ILogger logger, string groupId, ulong term);
+
+    [LoggerMessage(EventId = 4038, Level = LogLevel.Information, Message = "Replica group {GroupId} vote round found no majority in term {Term}")]
+    internal static partial void ReplicaElectionVoteLost(ILogger logger, string groupId, ulong term);
+
+    [LoggerMessage(EventId = 4039, Level = LogLevel.Information, Message = "Replica group {GroupId} is led by this node in term {Term}; writes wait for its leader-term entry")]
+    internal static partial void ReplicaElectionElected(ILogger logger, string groupId, ulong term);
+
+    [LoggerMessage(EventId = 4040, Level = LogLevel.Information, Message = "Replica group {GroupId} leader-term entry of term {Term} is committed: this node serves its writes")]
+    internal static partial void ReplicaElectionAuthorized(ILogger logger, string groupId, ulong term);
+
+    [LoggerMessage(EventId = 4041, Level = LogLevel.Debug, Message = "Replica group {GroupId} leader-term entry of term {Term} is not committed yet and is retried")]
+    internal static partial void ReplicaElectionPromotionPending(ILogger logger, string groupId, ulong term);
+
+    [LoggerMessage(EventId = 4042, Level = LogLevel.Information, Message = "Replica group {GroupId} leader stepped down and follows term {Term}")]
+    internal static partial void ReplicaElectionSteppedDown(ILogger logger, string groupId, ulong term);
+
+    [LoggerMessage(EventId = 4043, Level = LogLevel.Warning, Message = "Replica group {GroupId} stepped down in term {Term} but cannot retire while committed entries stay unapplied; retried")]
+    internal static partial void ReplicaElectionRetirePending(ILogger logger, string groupId, ulong term);
+
+    [LoggerMessage(EventId = 4044, Level = LogLevel.Information, Message = "Replica group {GroupId} follows the higher term {Term}")]
+    internal static partial void ReplicaElectionTermObserved(ILogger logger, string groupId, ulong term);
+
+    [LoggerMessage(EventId = 4045, Level = LogLevel.Warning, Message = "Replica group {GroupId} could not make term {Term} durable; the step is retried")]
+    internal static partial void ReplicaElectionTermNotDurable(ILogger logger, string groupId, ulong term);
+
+    [LoggerMessage(EventId = 4046, Level = LogLevel.Information, Message = "Replica group elections stopped because the host is shutting down; every group is left a follower without authority")]
+    internal static partial void ReplicaElectionStopped(ILogger logger);
+
+    [LoggerMessage(EventId = 4047, Level = LogLevel.Debug, Message = "Replica group {GroupId} {Pass} passes are skipped while this node leads the group")]
+    internal static partial void ReplicaPassSkippedWhileLeading(ILogger logger, string groupId, string pass);
+
+    [LoggerMessage(EventId = 4048, Level = LogLevel.Warning, Message = "Replica group {GroupId} could not start leading term {Term} because its storage failed; retried on the next election tick")]
+    internal static partial void ReplicaPromotionStorageRetry(ILogger logger, string groupId, ulong term, Exception exception);
+
+    [LoggerMessage(EventId = 4049, Level = LogLevel.Warning, Message = "Replica group {GroupId} has no open log on this node, so no election runs for it")]
+    internal static partial void ReplicaElectionNoLog(ILogger logger, string groupId);
 }

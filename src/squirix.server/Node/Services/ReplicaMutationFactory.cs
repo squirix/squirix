@@ -108,17 +108,14 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
 
     /// <summary>Prepares the no-op that commits the term of this factory: it touches no cache and answers no client retry.</summary>
     /// <param name="index">Reserved group log index.</param>
-    /// <returns>The prepared no-op, whose identity is derived from the group and the term alone.</returns>
-    /// <remarks>
-    /// A leader commits it before it serves: an entry of its own term covers every older entry its log holds. A retry in the same term
-    /// keeps the identity and replays the retained entry instead of appending a second one.
-    /// </remarks>
+    /// <returns>The prepared no-op, whose identity is derived from the term and the index.</returns>
+    /// <remarks>A leader commits it before it serves: an entry of its own term covers every older entry its log holds.</remarks>
     internal PreparedReplicaMutation PrepareLeaderTerm(ulong index)
     {
         var record = new ReplicaLogRecord(
             index,
             _term,
-            ReplicaLeaderOperationId.Create(_term),
+            ReplicaLeaderOperationId.Create(_term, index),
             ReplicaLeaderOperationId.OperationScope,
             ReplicaLeaderOperationId.Fingerprint(_groupId, _term),
             nameof(GroupRecordKind.LeaderTerm),

@@ -140,7 +140,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// <summary>Gets the identifier of the follower this sender appends to.</summary>
     internal string NodeId { get; }
 
-    /// <summary>Initializes the owner callback that receives, with <see cref="ReplicaIndex" />, every follower reply to a live append or a heartbeat; it must not throw or wait.</summary>
+    /// <summary>Initializes the owner callback that receives, with <see cref="ReplicaIndex" />, every follower reply to a live append, a heartbeat, or a catch-up request; it must not throw or wait.</summary>
     internal Action<int, FollowerLogAppendResult>? ReplyObserver { private get; init; }
 
     /// <summary>Initializes the slot of the follower in its group, handed to <see cref="ReplyObserver" />; zero unless set.</summary>
@@ -513,7 +513,11 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         {
             using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token, cancellationToken);
-            return await _rpc.AppendEntriesAsync(NodeId, _header, batch, linked.Token).ConfigureAwait(false);
+            var result = await _rpc.AppendEntriesAsync(NodeId, _header, batch, linked.Token).ConfigureAwait(false);
+
+            // A follower under catch-up gets no heartbeat: its catch-up replies are its contact with the leader.
+            ReplyObserver?.Invoke(ReplicaIndex, result);
+            return result;
         }
         finally
         {

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -13,9 +14,10 @@ namespace Squirix.Server.Node.Services;
 /// <remarks>
 /// Storage keeps an entry past its deadline until a committed record removes it, so an expired key nobody reads would stay in memory for
 /// good. Every pass walks the stored entries once, picks the keys of the led groups whose deadline passed on the leader clock, and expires
-/// each through the committer of its group, at most <see cref="MaxPerPass" /> per pass in all. The committer decides each expiry again
-/// under its commit gate, so a key written or touched since the walk is left alone. A pass stops at its first failure and logs it once;
-/// the next pass retries.
+/// each through the committer of its group, at most <see cref="MaxPerPass" /> per pass in all. Only a group this node may write to is
+/// swept: one it leads statically, or one it leads by election with local authority. The committer decides each expiry again under its
+/// commit gate, so a key written or touched since the walk is left alone. A group whose tombstone fails is logged once and skipped for the
+/// rest of the pass, so it holds back no other group; the next pass retries it.
 /// Activated hosts only: on other hosts the local clock decides expiry and nothing needs sweeping.
 /// </remarks>
 internal sealed class ReplicaExpirationSweepService : BackgroundService
@@ -62,7 +64,7 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
         }
     }
 
-    /// <summary>Runs one pass: expires the keys of the led groups whose deadline passed, at most <see cref="MaxPerPass" />, stopping at the first failure.</summary>
+    /// <summary>Runs one pass: expires the keys of the led groups whose deadline passed, at most <see cref="MaxPerPass" />, skipping a group once it failed.</summary>
     /// <param name="cancellationToken">Cancellation token of the host.</param>
     /// <returns>The number of keys expired, or found live again, before the pass ended.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
@@ -70,27 +72,31 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
     {
         var expired = 0;
         var now = _committers.Clock.GetUtcNow().UtcDateTime;
-        try
+        HashSet<string>? failed = null;
+        await foreach (var (key, entry) in _reader.EnumerateLiveAsync(cancellationToken).ConfigureAwait(false))
         {
-            await foreach (var (key, entry) in _reader.EnumerateLiveAsync(cancellationToken).ConfigureAwait(false))
+            if (expired == MaxPerPass)
+                break;
+
+            if (entry.ExpiresUtc is not { } deadline || deadline.Ticks > now.Ticks)
+                continue;
+
+            // A key of a group this node only follows, or leads without authority, is expired by the leader of its group, never here.
+            var owner = _locator.GetOwner(key.Namespace, key.Key);
+            if (failed?.Contains(owner) == true || _committers.FindAuthorized(owner) is not { } committer)
+                continue;
+
+            try
             {
-                if (expired == MaxPerPass)
-                    break;
-
-                if (entry.ExpiresUtc is not { } deadline || deadline.Ticks > now.Ticks)
-                    continue;
-
-                // A key of a group this node only follows is expired by its own leader, never here.
-                if (_committers.Find(_locator.GetOwner(key.Namespace, key.Key)) is not { } committer)
-                    continue;
-
                 _ = await committer.ExpireAsync(key.Namespace, key.Key, cancellationToken).ConfigureAwait(false);
                 expired++;
             }
-        }
-        catch (Exception error) when (!cancellationToken.IsCancellationRequested)
-        {
-            ServerLog.ReplicaExpirationSweepFailed(_log, expired, error);
+            catch (Exception error) when (!cancellationToken.IsCancellationRequested)
+            {
+                ServerLog.ReplicaExpirationSweepFailed(_log, owner, expired, error);
+                failed ??= [with(StringComparer.Ordinal)];
+                _ = failed.Add(owner);
+            }
         }
 
         return expired;

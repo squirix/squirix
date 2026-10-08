@@ -27,7 +27,6 @@ internal sealed class ReplicaVerificationProbe
     private readonly ILogger _log;
     private readonly ReplicaGroupRegistry _registry;
     private readonly Lock _reportSync = new();
-    private readonly string _selfId;
     private readonly ReadOnlyMemory<byte> _topologyFingerprint;
 
     /// <summary>The followers the last admitted verification found answering, and the pipeline lookup of their catch-up target.</summary>
@@ -58,20 +57,23 @@ internal sealed class ReplicaVerificationProbe
         _locator = locator;
         _gateway = gateway;
         _groupId = identity.GroupId;
-        _selfId = identity.SelfId;
+        SelfId = identity.SelfId;
         _topologyFingerprint = topologyFingerprint;
         _generation = generation;
         _log = log;
         Repairs = new ReplicaRepairQueue(locator.ReplicaCount);
         var members = new string[locator.ReplicaCount];
         locator.GetReplicaGroup(_groupId, members);
-        LeaderReplicaIndex = Array.IndexOf(members, _selfId);
+        LeaderReplicaIndex = Array.IndexOf(members, SelfId);
         if (LeaderReplicaIndex < 0)
-            throw new InvalidOperationException($"Node '{_selfId}' is not a member of replica group '{_groupId}'.");
+            throw new InvalidOperationException($"Node '{SelfId}' is not a member of replica group '{_groupId}'.");
     }
 
     /// <summary>Gets the slot of this node in the group, the slot it leads from; every other slot is a follower.</summary>
     internal int LeaderReplicaIndex { get; }
+
+    /// <summary>Gets the identifier of this node, which leads the group from <see cref="LeaderReplicaIndex" />.</summary>
+    internal string SelfId { get; }
 
     /// <summary>Gets the follower slots the commit path demoted, waiting for the readiness service to verify and catch them up.</summary>
     internal ReplicaRepairQueue Repairs { get; }
@@ -83,22 +85,27 @@ internal sealed class ReplicaVerificationProbe
     {
         var members = new string[_locator.ReplicaCount];
         _locator.GetReplicaGroup(_groupId, members);
-        return (members, new ReplicaRpcHeader(_groupId, _topologyFingerprint, _generation, term, _selfId, _selfId));
+        return (members, new ReplicaRpcHeader(_groupId, _topologyFingerprint, _generation, term, SelfId, SelfId));
     }
 
     /// <summary>Probes the non-ready followers against the leader log.</summary>
     /// <param name="log">The group log.</param>
+    /// <param name="leaderTerm">
+    /// The term this node leads the group in when it won it by election; zero when it leads its own group statically, in the term of its
+    /// log.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The final verification state, or the probing the admission under the commit gate continues from.</returns>
-    internal async Task<ReplicaVerificationSnapshot> ProbeAsync(IFollowerLog log, CancellationToken cancellationToken)
+    /// <remarks>A log whose term moved past the elected leader term is blocked: a newer leader exists, and this one verifies nothing for it.</remarks>
+    internal async Task<ReplicaVerificationSnapshot> ProbeAsync(IFollowerLog log, ulong leaderTerm, CancellationToken cancellationToken)
     {
         var eligibility = _registry.EligibilityFor(_groupId);
         var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
         var status = read.Status;
-        if (status.Readiness != FollowerLogReadiness.Ready)
+        if (status.Readiness != FollowerLogReadiness.Ready || (leaderTerm != 0 && status.CurrentTerm > leaderTerm))
             return new ReplicaVerificationSnapshot(ReplicaVerification.Blocked);
 
-        var term = Math.Max(1UL, status.CurrentTerm);
+        var term = leaderTerm != 0 ? leaderTerm : Math.Max(1UL, status.CurrentTerm);
         var tail = ReplicaLeaderTail.From(read);
         if (!tail.IsCommittableIn(term))
         {

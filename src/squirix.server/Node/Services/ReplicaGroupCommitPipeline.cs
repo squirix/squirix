@@ -80,7 +80,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         if (!result.Success)
             throw new InvalidOperationException($"Local group commit advance was refused: {result.RefusalCode}.");
 
-        _commitIndex = result.CommitIndex;
+        Volatile.Write(ref _commitIndex, result.CommitIndex);
     }
 
     /// <inheritdoc />
@@ -132,6 +132,15 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <inheritdoc />
     /// <remarks>Called under the commit gate and from background follower observation; it never waits and never throws.</remarks>
     public void RecordLaggingReplica(int replicaIndex, ulong logIndex) => _lagging.Record(replicaIndex, logIndex, _senders[_slots.SenderOf(replicaIndex)].NodeId);
+
+    /// <summary>Sends one heartbeat, carrying the commit index, to every follower whose sender is idle.</summary>
+    /// <remarks>Called outside the commit gate; it never waits and never throws, and a closed sender sends nothing.</remarks>
+    internal void Heartbeat()
+    {
+        var commitIndex = Volatile.Read(ref _commitIndex);
+        for (var i = 0; i < _senders.Length; i++)
+            _ = _senders[i].TryEnqueueHeartbeat(commitIndex);
+    }
 
     /// <summary>Gets what a catch-up of a follower slot runs against: this pipeline, the slot's sender, the leader log and term.</summary>
     /// <param name="replicaIndex">Zero-based follower slot, never the leader slot.</param>

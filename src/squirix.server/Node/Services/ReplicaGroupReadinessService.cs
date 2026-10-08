@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
@@ -17,8 +19,9 @@ namespace Squirix.Server.Node.Services;
 /// yet up at node start join later. A follower that answered but lacks entries is caught up from the leader log, one follower at a time,
 /// and verified again at once when it was admitted. A loop keeps polling at the maximum delay once everything is ready; a follower the
 /// commit path demotes is queued in the group's <see cref="ReplicaRepairQueue" />, which wakes that loop to verify and catch it up at
-/// once. The groups do not wait for each other. A loop that faults stops the others, and the service ends with its fault once they have
-/// ended. It runs on the host lifetime and stops with it.
+/// once. The groups do not wait for each other. A group the election hands this node gets its loop when its leadership starts, and the
+/// loop ends with the leadership. A loop that faults stops the others, and the service ends with its fault once they have ended. It runs on
+/// the host lifetime and stops with it.
 /// </remarks>
 internal sealed class ReplicaGroupReadinessService : BackgroundService
 {
@@ -59,9 +62,19 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         for (var i = 0; i < led.Count; i++)
             loops.Add(VerifyLoopAsync(led[i], stopping.Token));
 
+        if (_committers.Promotions is { } promotions)
+            loops.Add(WatchPromotionsAsync(promotions, stopping.Token));
+
         // Without a failed loop, every loop ended with the host: the verification is retried on the next start.
         await ReplicaGroupLoops.AwaitAllAsync(loops, stopping).ConfigureAwait(false);
     }
+
+    /// <summary>Waits for the next leadership the election starts.</summary>
+    /// <param name="promotions">The leaderships in the order they started.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The leadership.</returns>
+    private static Task<ReplicaPromotion> NextAsync(ChannelReader<ReplicaPromotion> promotions, CancellationToken cancellationToken) =>
+        promotions.ReadAsync(cancellationToken).AsTask();
 
     /// <summary>Verifies and repairs the slots of one led group until the host stops.</summary>
     /// <param name="committer">The committer of the group.</param>
@@ -101,6 +114,55 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         {
             // Host shutdown, or the loop of another group failed: the verification is retried on the next start.
         }
+    }
+
+    /// <summary>Runs one verification loop per leadership the election starts, each until its leadership or the host ends.</summary>
+    /// <param name="promotions">The leaderships in the order they started.</param>
+    /// <param name="stoppingToken">The host stopping token, also canceled when another loop failed.</param>
+    /// <returns>A task that completes once the host stopped and every leadership loop ended; it faults with the first loop that faulted.</returns>
+    private async Task WatchPromotionsAsync(ChannelReader<ReplicaPromotion> promotions, CancellationToken stoppingToken)
+    {
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        var loops = new List<Task>();
+        try
+        {
+            var arrival = NextAsync(promotions, stopping.Token);
+            while (true)
+            {
+                loops.Add(arrival);
+                var ended = await Task.WhenAny(loops).ConfigureAwait(false);
+                _ = loops.Remove(arrival);
+                if (ended != arrival)
+                {
+                    // A loop that ended with its leadership completes normally; one that faulted ends the watch with its fault.
+                    _ = loops.Remove(ended);
+                    await ended.ConfigureAwait(false);
+                    continue;
+                }
+
+                loops.Add(VerifyTenureAsync(await arrival.ConfigureAwait(false), stopping.Token));
+                arrival = NextAsync(promotions, stopping.Token);
+            }
+        }
+        catch (Exception exception) when (exception is OperationCanceledException or ChannelClosedException && stoppingToken.IsCancellationRequested)
+        {
+            // Host shutdown: every leadership loop ends below.
+        }
+        finally
+        {
+            await stopping.CancelAsync().ConfigureAwait(false);
+            _ = await Task.WhenAll(loops).CaptureFailureAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Verifies and repairs the slots of a group led by election until its leadership or the host ends.</summary>
+    /// <param name="promotion">The leadership.</param>
+    /// <param name="stoppingToken">The host stopping token, also canceled when another loop failed.</param>
+    /// <returns>A task that completes when the leadership or the host ended.</returns>
+    private async Task VerifyTenureAsync(ReplicaPromotion promotion, CancellationToken stoppingToken)
+    {
+        using var tenure = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, promotion.Tenure);
+        await VerifyLoopAsync(promotion.Committer, tenure.Token).ConfigureAwait(false);
     }
 
     private async Task<bool> CatchUpOnceAsync(ReplicaGroupCommitter committer, ReplicaCatchUpReporter catchUp, CancellationToken stoppingToken)

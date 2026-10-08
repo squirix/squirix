@@ -467,6 +467,8 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
                 ReplicaCount = options?.ReplicaCount ?? 1,
                 ReplicationEnabled = options?.EnableReplication ?? true,
                 ConfigurationGeneration = options?.ConfigurationGeneration ?? 1,
+                AutomaticFailoverEnabled = options?.AutomaticFailoverEnabled ?? false,
+                QuorumReadsEnabled = options?.QuorumReadsEnabled ?? false,
             };
 
             var mtlsProfile = options?.MtlsProfile ?? TestNodeProfile.Normal;

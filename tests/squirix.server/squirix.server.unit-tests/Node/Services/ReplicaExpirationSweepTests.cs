@@ -136,6 +136,36 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         _ = await Assert.That(await RawAsync(physical, "b", cancellationToken)).IsNotNull();
     }
 
+    /// <summary>
+    /// A led group whose tombstone cannot commit is logged once and skipped for the rest of the pass, so the expired key of the other led
+    /// group is still removed.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedGroupDoesNotStopOtherGroup(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-expiry-sweep-isolated");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
+        var ofN1 = new ScriptedGateway();
+        await using var committers = LeadTwo(registry, (ofN1, new ScriptedGateway()), new ClientCache<object?>(physical, physical), clock);
+        await committers.For("n1").CommitSetAsync(NewOperationId(), CacheName, "a", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await committers.For("n2").CommitSetAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        ofN1.Set("n2", FollowerMode.Down);
+        ofN1.Set("n3", FollowerMode.Down);
+        clock.Advance(Ttl);
+        var log = new EventRecordingLogger();
+        using var sweep = new ReplicaExpirationSweepService(committers, physical, Owners(), log);
+
+        var expired = await sweep.SweepOnceAsync(cancellationToken);
+
+        _ = await Assert.That(expired).IsEqualTo(1);
+        _ = await Assert.That(log.Count(SweepFailedEventId)).IsEqualTo(1);
+        _ = await Assert.That(await RawAsync(physical, "a", cancellationToken)).IsNotNull();
+        _ = await Assert.That(await RawAsync(physical, "b", cancellationToken)).IsNull();
+    }
+
     /// <summary>A sweep stopped by the host ends without a failure and logs one shutdown line.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

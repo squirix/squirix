@@ -16,7 +16,9 @@ namespace Squirix.Server.Node.Services;
 /// <remarks>
 /// Each pass first maintains every group this node leads: it persists the committer's in-memory applied index once the cache journal
 /// holds the applied entries durably, which releases their payloads from memory; that runs outside the commit gate, so writes never wait
-/// on it. It then compacts the led log once it reaches a threshold, as one step under the commit gate. Afterwards it persists the applied
+/// on it. It then compacts the led log once it reaches a threshold, as one step under the commit gate; each led group gets at most one
+/// compaction wait budget for its followers and its commit gate, so a group stalled on its gate holds back no other; the compaction itself is
+/// never cut short. Afterwards it persists the applied
 /// index of every follower group the same way and compacts that group's log through it once the log reaches a threshold. A change of a
 /// group's compaction outcome is logged once, not on every pass. A failed step of one group is retried on the next pass without holding back the other groups; a follower
 /// group's failure is logged when it starts or changes, not on every pass. The service runs on the host lifetime and stops with it.
@@ -35,6 +37,9 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
     private readonly ReplicationMetrics _metrics;
     private readonly ReplicaLogCompactionPolicy _policy;
     private readonly ReplicaGroupRegistry _registry;
+
+    /// <summary>The follower groups whose pass a leadership skips, logged once until a pass runs again; written by the service loop only.</summary>
+    private readonly HashSet<string> _skipped = [with(StringComparer.Ordinal)];
 
     /// <summary>The compaction outcome last reported per group; the passes run one at a time, on the service loop only.</summary>
     private readonly Dictionary<string, ReplicaLogCompactionOutcome> _reported = [with(StringComparer.Ordinal)];
@@ -144,12 +149,24 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
     /// <returns>A task that completes when the group was maintained or its failure was logged.</returns>
     private async Task MaintainFollowerLogAsync(string groupId, CancellationToken stoppingToken)
     {
+        var applier = _appliers.For(groupId);
         if (!_registry.TryGetLog(groupId, out var log))
             return;
 
+        // A committer leading the group by election maintains the log under its commit gate: the group is skipped meanwhile.
+        if (!applier.DriverLease.TryEnterPass())
+        {
+            if (_skipped.Add(groupId))
+                ServerLog.ReplicaPassSkippedWhileLeading(_log, groupId, "maintenance");
+
+            return;
+        }
+
+        _ = _skipped.Remove(groupId);
+
         try
         {
-            await _appliers.For(groupId).FlushAsync(log, _durability, stoppingToken).ConfigureAwait(false);
+            await applier.FlushAsync(log, _durability, stoppingToken).ConfigureAwait(false);
             Report(groupId, await ReplicaLogCompactionStep.RunFollowerAsync(log, _policy, stoppingToken).ConfigureAwait(false));
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException && !stoppingToken.IsCancellationRequested)
@@ -161,6 +178,10 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
 
             _failed[groupId] = exception.GetType();
             return;
+        }
+        finally
+        {
+            applier.DriverLease.ExitPass();
         }
 
         _ = _failed.Remove(groupId);

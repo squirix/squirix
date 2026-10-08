@@ -102,10 +102,9 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// <exception cref="Grpc.Core.RpcException">The tombstone could not commit: Unavailable with the expiration-pending detail.</exception>
     private async Task<NodeCacheEntry<object?>?> ExpireAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
-        var committer = _committers.ForKey(cacheName, key);
         try
         {
-            return await committer.ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+            return await _committers.ForKey(cacheName, key).ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

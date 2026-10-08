@@ -10,6 +10,12 @@ namespace Squirix.Server.TestKit.Hosting;
 [Immutable]
 public class ClusterStartOptions
 {
+    /// <summary>
+    /// Gets a value indicating whether the node runs automatic failover: groups of three or more replicas elect their leader instead of
+    /// being led by their owner. Every node of a cluster must use the same value. Defaults to <see langword="false" />.
+    /// </summary>
+    public bool AutomaticFailoverEnabled { get; init; }
+
     /// <summary>Gets the stopped-topology configuration generation.</summary>
     public ulong ConfigurationGeneration { get; init; } = 1;
 
@@ -33,6 +39,12 @@ public class ClusterStartOptions
     /// not by the node, so a stopped node's proxied links stay open until the identity is disposed.
     /// </remarks>
     public PartitionFabric? PartitionFabric { get; init; }
+
+    /// <summary>
+    /// Gets a value indicating whether reads require majority confirmation once quorum reads are wired. Every node of a cluster must use the
+    /// same value. Defaults to <see langword="false" />.
+    /// </summary>
+    public bool QuorumReadsEnabled { get; init; }
 
     /// <summary>Gets the replica factor including the original owner.</summary>
     public int ReplicaCount { get; init; } = 1;
