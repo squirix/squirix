@@ -61,10 +61,7 @@ internal static class RuntimeServiceRegistration
 
             _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
             _ = services.AddSingleton<IGrpcCacheOperations<object?>, CacheOperations<object?>>();
-            _ = services.AddSingleton(static sp => new OwnerRouter(
-                sp.GetRequiredService<INodeOwnershipResolver>(),
-                sp.GetRequiredService<IRemoteInvocationState>(),
-                sp.GetRequiredService<RingAgreement>()));
+            _ = services.AddSingleton(static sp => CreateOwnerRouter(sp));
             _ = services.AddSingleton(static sp => new OwnerRpcForwarder(
                 sp.GetRequiredService<IServerClientPool>(),
                 sp.GetRequiredService<IBackpressureGate>(),
@@ -144,6 +141,18 @@ internal static class RuntimeServiceRegistration
             return services;
         }
     }
+
+    /// <summary>Creates the router of single-key RPCs over the leader table of the node.</summary>
+    /// <param name="sp">The service provider.</param>
+    /// <returns>The router; it waits for a leader at most as long as the election options allow.</returns>
+    private static OwnerRouter CreateOwnerRouter(IServiceProvider sp) => new(
+        sp.GetRequiredService<INodeOwnershipResolver>(),
+        sp.GetRequiredService<IRemoteInvocationState>(),
+        sp.GetRequiredService<RingAgreement>(),
+        sp.GetRequiredService<IGroupLeaderTable>(),
+        (sp.GetService<ElectionTimerOptions>() ?? new ElectionTimerOptions()).LeaderWaitTimeout,
+        sp.GetService<TimeProvider>() ?? TimeProvider.System,
+        sp.GetRequiredService<IReplicaGroupLocator>());
 
     /// <summary>DI-backed accessor for <see cref="RemoteInvocationContext" /> async-local state.</summary>
     [Immutable]

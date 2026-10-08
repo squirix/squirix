@@ -7,6 +7,9 @@ internal static class ServerOpContract
 {
     internal const string CommitOutcomeUnknownDetail = "COMMIT_OUTCOME_UNKNOWN";
 
+    /// <summary>The stable detail of the refusal of an operation whose route went stale again after its single reroute; nothing was written.</summary>
+    internal const string LeaderChangedDetail = "replica_leader_changed";
+
     /// <summary>The stable detail of the refusal of a read whose expired entry the leader could not remove yet.</summary>
     internal const string ExpirationPendingDetail = "replica_expiration_pending";
 
@@ -37,6 +40,10 @@ internal static class ServerOpContract
     /// <summary>Creates the refusal of a write to a group this node may not write to while no other leader of it is known.</summary>
     /// <returns><see cref="StatusCode.Unavailable" /> without the unknown-outcome code: nothing was written, so a retry may run elsewhere or later.</returns>
     internal static RpcException NoLeaderAuthority() => new(new Status(StatusCode.Unavailable, NoLeaderAuthorityDetail));
+
+    /// <summary>Creates the refusal of an operation whose route went stale after its single reroute, or that found no other route.</summary>
+    /// <returns><see cref="StatusCode.Unavailable" /> with <see cref="LeaderChangedDetail" />: nothing was written, so a retry with the same operation id is safe.</returns>
+    internal static RpcException LeaderChanged() => new(new Status(StatusCode.Unavailable, LeaderChangedDetail));
 
     /// <summary>Creates the refusal of a read that found its entry expired while the tombstone of the entry could not commit.</summary>
     /// <param name="cause">The failure of the tombstone commit.</param>

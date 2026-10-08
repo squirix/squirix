@@ -85,7 +85,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
         // Nothing is forwarded: the pool and the backpressure gate have no setups.
         return new SquirixServiceAdapter<object?>(
             operations.Instance(),
-            new OwnerRouter(ownership.Instance(), invocation.Instance(), RingAgreements.Create()),
+            OwnerRouters.Static(ownership.Instance(), invocation.Instance(), Self),
             new OwnerRpcForwarder(
                 new IServerClientPoolCreateExpectations().Instance(),
                 new IBackpressureGateCreateExpectations().Instance(),

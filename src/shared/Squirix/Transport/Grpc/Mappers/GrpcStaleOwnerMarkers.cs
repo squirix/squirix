@@ -20,7 +20,8 @@ internal static class GrpcStaleOwnerMarkers
     /// <summary>The error code and the status detail of a refusal by a node whose term is stale: nothing was appended.</summary>
     internal const string StaleTermErrorCodeValue = "stale-term";
 
-    private const string StaleOwnerErrorCodeValue = "stale-owner";
+    /// <summary>The error code of a refusal by a node that neither owns nor leads the key's group: nothing was appended.</summary>
+    internal const string StaleOwnerErrorCodeValue = "stale-owner";
 
     internal static Metadata CreateStaleOwnerTrailers() => new() { { ErrorCodeMetadataKey, StaleOwnerErrorCodeValue } };
 
