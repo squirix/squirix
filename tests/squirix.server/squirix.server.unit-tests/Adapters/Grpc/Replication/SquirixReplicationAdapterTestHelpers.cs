@@ -22,7 +22,8 @@ internal static class SquirixReplicationAdapterTestHelpers
         return new SquirixReplicationServiceAdapterTests.AdapterFixture(new SquirixReplicationServiceAdapter(topology, mtls, material), mtls, bundle, peerCertificate, material);
     }
 
-    internal static TopologyOptions CreateTopology() => new(new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") });
+    internal static TopologyOptions CreateTopology(bool automaticFailoverEnabled = false) =>
+        new(new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") }) { AutomaticFailoverEnabled = automaticFailoverEnabled };
 
     internal static ReplicationEnvelopeHeader CreateValidHeader(string? senderNodeId = "node-a") => new()
     {

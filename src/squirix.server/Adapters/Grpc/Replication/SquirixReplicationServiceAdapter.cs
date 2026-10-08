@@ -25,6 +25,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     private readonly MtlsOptions _mtlsOptions;
     private readonly string[] _remotePeerNodeIds;
     private readonly TopologyFingerprint _topologyFingerprint;
+    private readonly bool _votesEnabled;
 
     internal SquirixReplicationServiceAdapter(TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificate mtls, ReplicaGroupRegistry? groups = null)
     {
@@ -35,6 +36,10 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         _mtls = mtls;
         _remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
         _follower = groups == null ? null : new ReplicaFollower(groups);
+
+        // The static leader resumes at the durable term of its log, so while automatic failover is off a network vote must not
+        // raise that term: it would let the static leader lead a new term no election granted.
+        _votesEnabled = cluster.AutomaticFailoverEnabled;
 
         _topologyFingerprint = TopologyFingerprint.CreateFromTopology(cluster, _mtlsOptions);
         _configurationGeneration = cluster.ConfigurationGeneration;
@@ -108,6 +113,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             TopologyFingerprint = ByteString.CopyFrom(current.TopologyFingerprint.ToArray()),
             ConfigurationGeneration = current.ConfigurationGeneration,
             RefusalCode = string.Empty,
+            LastLogTerm = current.LastLogTerm,
+            AppliedIndex = current.LastAppliedIndex,
         };
     }
 
@@ -130,6 +137,28 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             Success = result.Success,
             RefusalCode = result.Refusal,
         };
+    }
+
+    public override async Task<ReplicaVoteResponse> PreVote(ReplicaVoteRequest request, ServerCallContext context)
+    {
+        var header = EnsureHeader(request.Header, context, false);
+        if (_follower == null || !_votesEnabled)
+            return StubVoteRefusal();
+
+        var result = await _follower.PreVoteAsync(header.GroupId, header.TopologyFingerprint.ToByteArray(), header.ConfigurationGeneration, Ballot(header, request), context.CancellationToken)
+                                    .ConfigureAwait(false);
+        return MapVote(in result);
+    }
+
+    public override async Task<ReplicaVoteResponse> RequestVote(ReplicaVoteRequest request, ServerCallContext context)
+    {
+        var header = EnsureHeader(request.Header, context, false);
+        if (_follower == null || !_votesEnabled)
+            return StubVoteRefusal();
+
+        var result = await _follower.RequestVoteAsync(header.GroupId, header.TopologyFingerprint.ToByteArray(), header.ConfigurationGeneration, Ballot(header, request), context.CancellationToken)
+                                    .ConfigureAwait(false);
+        return MapVote(in result);
     }
 
     /// <summary>Accumulates the snapshot chunks and drives the follower install.</summary>
@@ -190,6 +219,13 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 
         file.Write(chunk.Chunk.Span);
     }
+
+    /// <summary>Builds the ballot of a vote request; the candidate is the verified sender, never the claimed leader.</summary>
+    /// <param name="header">Validated replication envelope identity.</param>
+    /// <param name="request">The vote request.</param>
+    /// <returns>The ballot for the follower.</returns>
+    private static ElectionVoteRequest Ballot(ReplicationEnvelopeHeader header, ReplicaVoteRequest request) =>
+        new(header.SenderNodeId, header.Term, request.LastLogIndex, request.LastLogTerm);
 
     /// <summary>Builds the follower append batch from a wire request.</summary>
     /// <param name="request">The append request.</param>
@@ -276,6 +312,13 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         entry.ResolvedUtcTicks,
         entry.PayloadChecksum);
 
+    private static ReplicaVoteResponse MapVote(in FollowerLogVoteResult result) => new()
+    {
+        Term = result.CurrentTerm,
+        Granted = result.Granted,
+        RefusalCode = result.RefusalCode,
+    };
+
     private static AppendReplicaEntriesResponse StubAppendRefusal(ReplicationEnvelopeHeader header) => new()
     {
         Term = header.Term,
@@ -295,6 +338,15 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         // rather than echoing the leader's CommitIndex which would mislead the leader.
         CommitIndex = 0,
         Success = false,
+        RefusalCode = RefusalCodes.NotReady,
+    };
+
+    /// <summary>Refuses a vote without reaching storage: this node serves no groups, or automatic failover is off.</summary>
+    /// <returns>A refusal reporting term zero, which observes no term.</returns>
+    private static ReplicaVoteResponse StubVoteRefusal() => new()
+    {
+        Term = 0,
+        Granted = false,
         RefusalCode = RefusalCodes.NotReady,
     };
 
