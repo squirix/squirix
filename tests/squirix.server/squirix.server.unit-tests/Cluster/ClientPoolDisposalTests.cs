@@ -142,6 +142,30 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         _ = await Assert.That(connections.Pending).IsEqualTo(0);
     }
 
+    /// <summary>
+    /// A connection aborted before the handler started its TLS handshake still reaches the handler as a readable, writable stream, so the
+    /// handshake fails on I/O and the handler disposes the stream instead of dropping it unclosed.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AbortBeforeHandshakeLeavesGate(CancellationToken cancellationToken)
+    {
+        var connections = new TrackedConnections();
+        using var handler = new SocketsHttpHandler();
+        handler.ConnectCallback = (_, _) =>
+        {
+            connections.AbortAll();
+            return ValueTask.FromResult<Stream>(new MemoryStream());
+        };
+        ServerClientPool.TrackFactoryConnections(handler, connections);
+        using var client = new HttpClient(handler, false);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.GetAsync(new Uri("https://localhost:1/"), cancellationToken));
+        await connections.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(connections.Pending).IsEqualTo(0);
+    }
+
     /// <summary>The connect callback is replaced on the sockets handler at the end of a delegating chain.</summary>
     [Test]
     public async Task DelegatingHandlerChainIsUnwrapped()

@@ -17,22 +17,33 @@ internal sealed class TrackedWrappedStream : Stream
 
     private readonly Stream _inner;
 
+    private readonly bool _canRead;
+
+    private readonly bool _canWrite;
+
     private int _released;
 
-    private TrackedWrappedStream(Stream inner, TrackedConnections connections)
+    private TrackedWrappedStream(Stream inner, TrackedConnections connections, bool canRead, bool canWrite)
     {
         _inner = inner;
         _connections = connections;
+        _canRead = canRead;
+        _canWrite = canWrite;
     }
 
     /// <inheritdoc />
-    public override bool CanRead => _inner.CanRead;
+    /// <remarks>
+    /// Taken from the wrapped stream as it was connected, not as it is now: an abort may close the wrapped stream before the handler wraps this
+    /// one in TLS, and a stream that reports itself unreadable makes the TLS constructor throw, after which the handler never disposes it.
+    /// </remarks>
+    public override bool CanRead => _canRead && Volatile.Read(ref _released) == 0;
 
     /// <inheritdoc />
     public override bool CanSeek => false;
 
     /// <inheritdoc />
-    public override bool CanWrite => _inner.CanWrite;
+    /// <remarks>Taken from the wrapped stream as it was connected, for the reason given on <see cref="CanRead" />.</remarks>
+    public override bool CanWrite => _canWrite && Volatile.Read(ref _released) == 0;
 
     /// <inheritdoc />
     public override long Length => throw new NotSupportedException();
@@ -127,9 +138,12 @@ internal sealed class TrackedWrappedStream : Stream
 
         try
         {
-            // The wrapped stream is what an abort closes: the gate is left only when the owner disposes the wrapper.
+            // The wrapped stream is what an abort closes: the gate is left only when the owner disposes the wrapper. Its capabilities are read first,
+            // because registering after an abort closes it at once.
+            var canRead = connected.CanRead;
+            var canWrite = connected.CanWrite;
             connections.Register(connected);
-            return new TrackedWrappedStream(connected, connections);
+            return new TrackedWrappedStream(connected, connections, canRead, canWrite);
         }
         catch
         {
