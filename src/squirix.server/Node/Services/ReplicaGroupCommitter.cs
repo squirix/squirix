@@ -384,7 +384,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (write)
             this.ThrowIfNoWriteAuthority();
         if (!IsStarted)
-            await StartAsync(cancellationToken).ConfigureAwait(false);
+            await (write ? this.StartForWriteAsync(cancellationToken) : StartAsync(cancellationToken)).ConfigureAwait(false);
 
         // Refused before anything is appended: a write that cannot reach a majority would leave an uncommitted local tail.
         // Dropping the started state re-probes the followers on the next write. Decisions are prepared from live memory, so an

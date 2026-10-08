@@ -66,6 +66,25 @@ internal static class ReplicaGroupCommitterLeadership
             }
         }
 
+        /// <summary>Starts the coordinator for a write, refusing it with stale-term when the log moved past the led term.</summary>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>A task that completes once the coordinator is started.</returns>
+        /// <exception cref="Grpc.Core.RpcException">
+        /// The log holds a term above the led one, as after a local append the log refused for a stale term: stale-term, nothing was written.
+        /// </exception>
+        /// <remarks>Runs under the commit gate, and only while the committer is not started.</remarks>
+        internal async Task StartForWriteAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                await committer.StartAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (ReplicaTermSupersededException)
+            {
+                throw StaleTermFailure.Create(null, 0);
+            }
+        }
+
         /// <summary>Refuses a write unless the election state grants this node authority in the very term of its leadership.</summary>
         /// <exception cref="Grpc.Core.RpcException">
         /// The write is refused before anything is appended: stale-term when a higher term deposed this node, stale-owner naming a known
