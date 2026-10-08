@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
@@ -122,6 +123,29 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(follower.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, follower.HttpContext)));
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+    }
+
+    /// <summary>Verifies that votes for the group this node statically leads are refused with failover on and leave its metadata unchanged.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OwnGroupVoteIsRefusedAsync(CancellationToken cancellationToken)
+    {
+        await using var follower = await CreateFollowerScopeAsync(CreateTopology().NodeId, true, cancellationToken);
+        follower.Header.Term = 2;
+        var request = new ReplicaVoteRequest { Header = follower.Header };
+        var before = await File.ReadAllBytesAsync(MetaPath(follower), cancellationToken);
+
+        var vote = await follower.Adapter.RequestVote(request, new TestServerCallContext(null, follower.HttpContext));
+        var preVote = await follower.Adapter.PreVote(request, new TestServerCallContext(null, follower.HttpContext));
+
+        _ = await Assert.That(vote.Granted).IsFalse();
+        _ = await Assert.That(vote.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
+        _ = await Assert.That(vote.Term).IsEqualTo(0UL);
+        _ = await Assert.That(preVote.Granted).IsFalse();
+        _ = await Assert.That(preVote.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
+        _ = await Assert.That(preVote.Term).IsEqualTo(0UL);
+        var after = await File.ReadAllBytesAsync(MetaPath(follower), cancellationToken);
+        await SequenceAssert.EqualAsync(before, after);
     }
 
     /// <summary>Verifies that a pre-vote on a served group answers from the log and leaves the term unchanged.</summary>
@@ -280,6 +304,11 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     /// <exception cref="InvalidOperationException">The registry serves no log for the scope group.</exception>
     private static IFollowerLog GroupLog(FollowerScope follower) =>
         follower.Registry.TryGetLog(follower.Header.GroupId, out var log) ? log : throw new InvalidOperationException("The scope serves no group log.");
+
+    /// <summary>Gets the metadata file path of the group served by the scope.</summary>
+    /// <param name="follower">The follower scope.</param>
+    /// <returns>The group metadata file path.</returns>
+    private static string MetaPath(FollowerScope follower) => GroupStoragePaths.GetMetadataPath(follower.Dir, follower.Header.GroupId);
 
     /// <summary>Reads the durable status of the group served by the scope.</summary>
     /// <param name="follower">The follower scope.</param>

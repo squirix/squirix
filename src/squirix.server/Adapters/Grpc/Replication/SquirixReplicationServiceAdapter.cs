@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,6 +24,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     private readonly ReplicaFollower? _follower;
     private readonly MtlsCertificate _mtls;
     private readonly MtlsOptions _mtlsOptions;
+    private readonly string _nodeId;
     private readonly string[] _remotePeerNodeIds;
     private readonly TopologyFingerprint _topologyFingerprint;
     private readonly bool _votesEnabled;
@@ -37,9 +39,11 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         _remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
         _follower = groups == null ? null : new ReplicaFollower(groups);
 
-        // The static leader resumes at the durable term of its log, so while automatic failover is off a network vote must not
-        // raise that term: it would let the static leader lead a new term no election granted.
+        // The static leader resumes at the durable term of its log, so a network vote must not raise that term: it would let the
+        // static leader lead a new term no election granted. Votes stay disabled while automatic failover is off, and for a group
+        // this node leads until the leader derives its term from an election.
         _votesEnabled = cluster.AutomaticFailoverEnabled;
+        _nodeId = cluster.NodeId;
 
         _topologyFingerprint = TopologyFingerprint.CreateFromTopology(cluster, _mtlsOptions);
         _configurationGeneration = cluster.ConfigurationGeneration;
@@ -142,7 +146,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     public override async Task<ReplicaVoteResponse> PreVote(ReplicaVoteRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, false);
-        if (_follower == null || !_votesEnabled)
+        if (RefusesVotes(header.GroupId))
             return StubVoteRefusal();
 
         var result = await _follower.PreVoteAsync(header.GroupId, header.TopologyFingerprint.ToByteArray(), header.ConfigurationGeneration, Ballot(header, request), context.CancellationToken)
@@ -153,7 +157,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     public override async Task<ReplicaVoteResponse> RequestVote(ReplicaVoteRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, false);
-        if (_follower == null || !_votesEnabled)
+        if (RefusesVotes(header.GroupId))
             return StubVoteRefusal();
 
         var result = await _follower.RequestVoteAsync(header.GroupId, header.TopologyFingerprint.ToByteArray(), header.ConfigurationGeneration, Ballot(header, request), context.CancellationToken)
@@ -341,7 +345,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         RefusalCode = RefusalCodes.NotReady,
     };
 
-    /// <summary>Refuses a vote without reaching storage: this node serves no groups, or automatic failover is off.</summary>
+    /// <summary>Refuses a vote without reaching storage: this node serves no groups, automatic failover is off, or this node leads the group.</summary>
     /// <returns>A refusal reporting term zero, which observes no term.</returns>
     private static ReplicaVoteResponse StubVoteRefusal() => new()
     {
@@ -349,6 +353,16 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         Granted = false,
         RefusalCode = RefusalCodes.NotReady,
     };
+
+    /// <summary>Checks whether votes for a group are refused before storage is reached.</summary>
+    /// <param name="groupId">Replica group identifier of the vote.</param>
+    /// <returns>
+    /// <see langword="true" /> when this node serves no groups, automatic failover is off, or the group is the one this node
+    /// statically leads, whose identifier is this node's identifier.
+    /// </returns>
+    [MemberNotNullWhen(false, nameof(_follower))]
+    private bool RefusesVotes(string groupId) =>
+        _follower == null || !_votesEnabled || string.Equals(groupId, _nodeId, StringComparison.Ordinal);
 
     private ReplicationEnvelopeHeader EnsureHeader(ReplicationEnvelopeHeader? header, ServerCallContext context, bool requireLeader)
     {
