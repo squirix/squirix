@@ -72,21 +72,26 @@ three-node starts with nodes about 0.4 s apart, a 500 ms timeout deposed a provi
 term in half of the runs, and 1 s in none; a failover then took about 4 s from the stop of the leader to a new leader
 with authority.
 
-Not part of this release: routing a client write to the new leader of a group (a write that reaches a node without
-authority is refused as above and may be retried elsewhere), fencing reads on a node that stepped down, and quorum
-reads.
+An entry node routes each single-key call to the leader of the key's group and reroutes at most once when the target
+answers `stale-owner` or `stale-term`; a refusal of either kind is only given before anything was appended.
 
 ### Quorum reads (ReadIndex equivalent)
 
-For each linearizable/current read under RF>1:
+Quorum reads are an internal switch next to automatic failover and apply only to elected leaders. For each read of an
+elected group with the switch on:
 
-1. Confirm leadership with majority replies in the current term.
-2. Take `read_index >= commit_index`.
-3. Wait until local `applied_index >= read_index`.
-4. Only then return the value.
+1. Check that this node holds authority in the term of its running pipeline.
+2. Take `read_index = commit_index`.
+3. Confirm leadership with majority replies in that term to requests sent after the index was taken; a reply to an
+   earlier request never counts, and a reply in a higher term fails the read with `stale-term`.
+4. Wait until local `applied_index >= read_index`.
+5. Only then return the value.
 
-Minority partitions and former leaders without majority must return `Unavailable` / `stale-term`, never a stale value
-as current.
+A refused read returns no value: the leader refusals above (`stale-term`, `stale-owner`, or no leader with authority),
+`read_quorum_unconfirmed` when no majority confirmed the index within one election timeout, or `read_index_unapplied`
+when the index was confirmed but memory did not apply it in time. Minority partitions and former leaders never return a
+stale value as current. With the switch off, or for a statically led group, reads are local as before; there are no
+lease reads.
 
 ### Executable model (isolation)
 
