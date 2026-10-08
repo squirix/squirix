@@ -240,7 +240,7 @@ internal sealed class ReplicaGroupApplier
         // with or without an RPC scope, and it also makes the apply skip the wait for its own flush: the entry is already durable in the
         // group log, and the flush of the applied index waits for the node journal before it advances the durable index. A leader-term
         // no-op names no cache: nothing runs for it, and only the applied index moves past it.
-        if (effect != ReplicaEffectKind.None)
+        if (effect != ReplicaEffectKind.NoCacheEffect)
         {
             using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
             {

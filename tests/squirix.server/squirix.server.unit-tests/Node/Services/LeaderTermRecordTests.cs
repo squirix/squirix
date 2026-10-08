@@ -43,7 +43,7 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
         _ = await Assert.That(record.MutationKind).IsEqualTo(ReplicaMutationKinds.LeaderNoop);
         await SequenceAssert.EqualAsync(ReplicaLeaderOperationId.Fingerprint(GroupId, 7UL), record.OperationFingerprint.ToArray());
         _ = await Assert.That(GroupRecordKinds.FromScope(record.OperationScope)).IsEqualTo(GroupRecordKind.LeaderTerm);
-        _ = await Assert.That(ReplicaCacheApplier.ResolveEffect(in record)).IsEqualTo(ReplicaEffectKind.None);
+        _ = await Assert.That(ReplicaCacheApplier.ResolveEffect(in record)).IsEqualTo(ReplicaEffectKind.NoCacheEffect);
     }
 
     /// <summary>The fingerprint separates groups and terms, so no two no-ops share an identity by accident.</summary>
@@ -64,7 +64,7 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
         var keyed = PrepareNoop(2UL, 1UL) with { KeyPayload = Key };
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(keyed, static record => ReplicaCacheApplier.ResolveShape(in record));
-        _ = await Assert.That(ReplicaCacheApplier.ResolveShape(PrepareNoop(2UL, 1UL))).IsEqualTo(ReplicaEffectKind.None);
+        _ = await Assert.That(ReplicaCacheApplier.ResolveShape(PrepareNoop(2UL, 1UL))).IsEqualTo(ReplicaEffectKind.NoCacheEffect);
     }
 
     /// <summary>A snapshot keeps the leader-term kind of a record through its wire value.</summary>

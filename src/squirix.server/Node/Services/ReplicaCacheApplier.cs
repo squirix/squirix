@@ -64,7 +64,7 @@ internal static class ReplicaCacheApplier
                 // The result reflects the local liveness of the key, not the committed outcome.
                 _ = await cache.RemoveAsync(record.OperationId, record.CacheName, key, cancellationToken).ConfigureAwait(false);
                 break;
-            case ReplicaEffectKind.Unchanged or ReplicaEffectKind.None:
+            case ReplicaEffectKind.Unchanged or ReplicaEffectKind.NoCacheEffect:
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(record), effect, "Unsupported replica effect.");
@@ -146,7 +146,7 @@ internal static class ReplicaCacheApplier
     {
         var wellFormed = !applied && previous.IsEmpty && record.MutationPayload.IsEmpty && record.ExpiresUtcTicks == 0 && record.KeyPayload.IsEmpty &&
             record.CacheName.Length == 0 && string.Equals(record.OperationScope, ReplicaLeaderOperationId.OperationScope, StringComparison.Ordinal);
-        return wellFormed ? ReplicaEffectKind.None
+        return wellFormed ? ReplicaEffectKind.NoCacheEffect
             : throw Inconsistent(in record, "a leader-term no-op is applied, names a cache, a key or a deadline, carries a payload, or has another scope", applied);
     }
 
