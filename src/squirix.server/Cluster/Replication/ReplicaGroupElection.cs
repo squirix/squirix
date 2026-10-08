@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,10 +25,6 @@ namespace Squirix.Server.Cluster.Replication;
 /// throws faults the step.
 /// </para>
 /// </remarks>
-[SuppressMessage(
-    "Usage",
-    "MA0182:Internal type is apparently never used",
-    Justification = "The election service that runs the driver lands in the next change of the failover activation.")]
 internal sealed class ReplicaGroupElection
 {
     private readonly ReplicaRpcHeader _header;

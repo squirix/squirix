@@ -325,15 +325,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         var selfNodeId = Helpers.FindSelfNodeId(peers, canonicalUri) ??
                          ThrowHelper.Throw<string>(new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers)));
 
-        var config = new TopologyOptions(peers)
-        {
-            NodeId = selfNodeId,
-            Uri = canonicalUri,
-            VirtualNodes = 128,
-            ReplicaCount = options.ReplicaCount,
-            ReplicationEnabled = options.EnableReplication,
-            ConfigurationGeneration = options.ConfigurationGeneration,
-        };
+        var config = Helpers.Topology(peers, selfNodeId, canonicalUri, options);
 
         try
         {
@@ -491,6 +483,24 @@ public abstract class NodeIntegrationTestBase : IDisposable
 
             return peers;
         }
+
+        /// <summary>Builds the topology of the node being started from its start options.</summary>
+        /// <param name="peers">Every configured node.</param>
+        /// <param name="selfNodeId">The identifier of the node being started.</param>
+        /// <param name="canonicalUri">The canonical listen URI of the node.</param>
+        /// <param name="options">The start options.</param>
+        /// <returns>The topology.</returns>
+        internal static TopologyOptions Topology(IReadOnlyList<ServerPeer> peers, string selfNodeId, Uri canonicalUri, IntegrationStartOptions options) => new(peers)
+        {
+            NodeId = selfNodeId,
+            Uri = canonicalUri,
+            VirtualNodes = 128,
+            ReplicaCount = options.ReplicaCount,
+            ReplicationEnabled = options.EnableReplication,
+            ConfigurationGeneration = options.ConfigurationGeneration,
+            AutomaticFailoverEnabled = options.AutomaticFailoverEnabled,
+            QuorumReadsEnabled = options.QuorumReadsEnabled,
+        };
 
         internal static string? FindSelfNodeId(IReadOnlyList<ServerPeer> peers, Uri uri)
         {

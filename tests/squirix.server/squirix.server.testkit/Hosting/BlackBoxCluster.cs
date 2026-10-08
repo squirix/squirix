@@ -138,10 +138,10 @@ internal static class BlackBoxCluster
     private static void ThrowIfUnsupportedClusterStartOptions(BlackBoxStartOptions options)
     {
         if (options.DataDir != null || options.MtlsProfile != TestNodeProfile.Normal || options.TimeProvider != null || options.ReplicaCount != 1 || !options.EnableReplication ||
-            options.ConfigurationGeneration != 1)
+            options.ConfigurationGeneration != 1 || options.AutomaticFailoverEnabled || options.QuorumReadsEnabled)
         {
             throw new NotSupportedException(
-                "BlackBoxStartOptions does not wire DataDir, MtlsProfile, TimeProvider, ReplicaCount, EnableReplication, or ConfigurationGeneration into node startup.");
+                "BlackBoxStartOptions does not wire DataDir, MtlsProfile, TimeProvider, ReplicaCount, EnableReplication, ConfigurationGeneration, AutomaticFailoverEnabled, or QuorumReadsEnabled into node startup.");
         }
     }
 }
