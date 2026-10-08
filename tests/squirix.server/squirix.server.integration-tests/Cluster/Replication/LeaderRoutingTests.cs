@@ -4,11 +4,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
-using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
-using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -33,14 +31,10 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     private static readonly string[] Nodes = [OwnerId, "node-b", "node-c"];
 
     /// <summary>
-    /// Once the leader of the owner group stops and another node leads it, a write sent to the third node goes to the new leader: it never
-    /// fails as unreachable on the stopped leader, and it either succeeds or is refused before anything was written.
+    /// Once the leader of the owner group stops and another node leads it, a write sent to the third node goes to the new leader and
+    /// succeeds there, whether or not that leader owns the key on the ring.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <remarks>
-    /// The new leader serves the write once its guard checks authority instead of ring ownership; until then a leader that does not own the
-    /// key refuses it as stale, and the entry node ends the operation as unavailable after its single reroute.
-    /// </remarks>
     [Test]
     public async Task EntryRoutesWriteToElectedLeader(CancellationToken cancellationToken)
     {
@@ -68,17 +62,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
 
         var refusal = await SetAsync(client, request, cancellationToken);
 
-        _ = await Assert.That(refusal?.Status.Detail).IsNotEqualTo($"Key owner '{first}' is unreachable.");
-        if (refusal != null)
-        {
-            _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
-            var detail = refusal.Status.Detail;
-            _ = await Assert.That(
-                string.Equals(detail, ServerOpContract.NoLeaderAuthorityDetail, StringComparison.Ordinal) ||
-                string.Equals(detail, StaleRouteSignals.LeaderChangedDetail, StringComparison.Ordinal)).IsTrue();
-            return;
-        }
-
+        _ = await Assert.That(refusal).IsNull().Because($"the write must reach the elected leader {second}, not fail with '{refusal?.Status.Detail}'");
         var read = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, deadline: DateTime.UtcNow.Add(Bound), cancellationToken: cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
     }
