@@ -24,13 +24,13 @@ public sealed class TopologyFingerprintTests
             VirtualNodes = 128,
             Peers = [new FingerprintPeer("node-a", new Uri("https://localhost:6001/"), new Uri("https://localhost:6001/"))],
             Policy = FingerprintPolicy.Default,
-            MinClusterPackageVersion = "0.1.0-preview.8",
+            MinClusterPackageVersion = "0.1.0-preview.9",
             QuorumAckMode = "majority-no-lease",
         };
 
         // Golden SHA-256 over the documented canonical layout, derived outside the
         // production code, so a systematic hashing bug cannot stay green on both sides.
-        _ = await Assert.That(TopologyFingerprint.Compute(inputs).ToString()).IsEqualTo("1DE62DAF83BD5D2129BFF07DFDCEF1DAA7C3361B48F565688FF2D5800EC133A5", StringComparer.Ordinal);
+        _ = await Assert.That(TopologyFingerprint.Compute(inputs).ToString()).IsEqualTo("0864B236DB7D8AFF6DEE0D288195DA23AF65EB44726AE44DF58C42A8573ED0BE", StringComparer.Ordinal);
     }
 
     /// <summary>Equals and ToString are stable for identical digests.</summary>
