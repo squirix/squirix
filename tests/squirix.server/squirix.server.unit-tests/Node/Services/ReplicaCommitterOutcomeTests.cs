@@ -97,7 +97,7 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
         hooks.StallNextMetaWrite();
         var write = committer.CommitSetAsync(Guid.NewGuid().ToString("N"), "cache", "k2", Entry(), cancellationToken);
         await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        hooks.ReleaseWithFailure(new InvalidOperationException(ReplicaGroupCommitPipeline.LocalAppendStaleTermMessage));
+        hooks.ReleaseWithFailure(new ReplicaTermSupersededException("Injected stale-term refusal after the frames were written."));
 
         var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
 

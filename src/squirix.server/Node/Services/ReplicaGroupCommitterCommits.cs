@@ -185,7 +185,7 @@ internal static class ReplicaGroupCommitterCommits
                     throw ServerOpContract.TooManyRequests(ReplicaGroupCommitter.CommitBudgetRefusalReason);
 
                 // The log refused the entry because a higher term reached it durably: nothing was appended, and this leadership is stale.
-                if (IsLocalAppendStaleTerm(error))
+                if (error is ReplicaTermSupersededException)
                     throw StaleTermFailure.Create(null, 0);
                 throw;
             }
@@ -219,9 +219,6 @@ internal static class ReplicaGroupCommitterCommits
             ? GroupIdempotencyLookup.Miss
             : log.Idempotency.Lookup(write.Scope, write.OperationId, fingerprint(state), out record);
     }
-
-    private static bool IsLocalAppendStaleTerm(Exception error) =>
-        error is InvalidOperationException && string.Equals(error.Message, ReplicaGroupCommitPipeline.LocalAppendStaleTermMessage, StringComparison.Ordinal);
 
     private static bool IsPostAppendOutcome(Exception error) =>
         error is InvalidOperationException && error.Message.StartsWith(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);

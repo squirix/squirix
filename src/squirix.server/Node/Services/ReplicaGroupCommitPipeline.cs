@@ -22,12 +22,6 @@ namespace Squirix.Server.Node.Services;
 /// </remarks>
 internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
 {
-    /// <summary>The message prefix of the failure of a local append the log refused; the refusal code follows it.</summary>
-    internal const string LocalAppendRefusedPrefix = "Local group append was refused: ";
-
-    /// <summary>The message of the failure of a local append the log refused because its durable term is above the term of the entry.</summary>
-    internal const string LocalAppendStaleTermMessage = LocalAppendRefusedPrefix + FollowerLogRefusal.StaleTerm + ".";
-
     private readonly ReplicaGroupApplier _applier;
     private readonly ReplicaLaggingFollowers _lagging;
     private readonly IFollowerLog _log;
@@ -116,8 +110,10 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         entries[0] = new FollowerLogEntry(mutation.LogIndex, mutation.Term, mutation.CanonicalPayload);
         var request = new FollowerLogAppendRequest(_selfId, mutation.Term, _prevLogIndex, _prevLogTerm, _commitIndex, new ReadOnlyMemory<FollowerLogEntry>(entries));
         var result = await _log.AppendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!result.Success && string.Equals(result.RefusalCode, FollowerLogRefusal.StaleTerm, StringComparison.Ordinal))
+            throw new ReplicaTermSupersededException($"Local group append was refused: the log holds a term above the entry term {mutation.Term}.");
         if (!result.Success)
-            throw new InvalidOperationException($"{LocalAppendRefusedPrefix}{result.RefusalCode}.");
+            throw new InvalidOperationException($"Local group append was refused: {result.RefusalCode}.");
 
         // The fan-out carries this very entry, so it names the predecessor, not the entry itself.
         var enqueued = new Task<ReplicaDurableAcknowledgement>[_senders.Length];
