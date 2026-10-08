@@ -81,7 +81,6 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
     {
         ArgumentException.ThrowIfNullOrEmpty(cacheName);
         ArgumentException.ThrowIfNullOrEmpty(key);
-        Task<Task<TEntry?>>? starter = null;
         Task<TEntry?> shared;
         lock (_lifetimeSync)
         {
@@ -89,14 +88,13 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
             if (!_inFlight.TryGetValue((cacheName, key), out shared!))
             {
                 _drain.Enter();
-                starter = new Task<Task<TEntry?>>(() => RunAsync(cacheName, key));
-                shared = starter.Unwrap();
+
+                // The run starts on the pool; its completion takes the lock to leave the in-flight set, so it waits until the run is in it.
+                shared = StartRunAsync(cacheName, key);
                 _inFlight[(cacheName, key)] = shared;
             }
         }
 
-        // The run starts after the lock is left, so its completion, which takes the lock to leave the in-flight set, never runs under it.
-        starter?.RunSynchronously(TaskScheduler.Default);
         return shared.WaitAsync(cancellationToken);
     }
 
@@ -112,6 +110,36 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
             ShutdownLeakReporter?.Invoke(ShutdownBudget);
         }
     }
+
+    /// <summary>Starts the run of an expiry on the pool, without the execution context of the caller that happens to start it.</summary>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <returns>The run.</returns>
+    /// <remarks>
+    /// The run serves every caller of the key, so it must not carry the ambient state of the first one, such as its operation scope. The flow
+    /// suppression covers only the start, and is undone on this thread before the caller goes on.
+    /// </remarks>
+    private Task<TEntry?> StartRunAsync(string cacheName, string key)
+    {
+        Task<TEntry?> run;
+        if (ExecutionContext.IsFlowSuppressed())
+        {
+            run = StartOnPoolAsync(cacheName, key);
+        }
+        else
+        {
+            using (ExecutionContext.SuppressFlow())
+                run = StartOnPoolAsync(cacheName, key);
+        }
+
+        return run;
+    }
+
+    private Task<TEntry?> StartOnPoolAsync(string cacheName, string key) => Task.Factory.StartNew(
+        () => RunAsync(cacheName, key),
+        CancellationToken.None,
+        TaskCreationOptions.DenyChildAttach,
+        TaskScheduler.Default).Unwrap();
 
     private async Task<TEntry?> RunAsync(string cacheName, string key)
     {

@@ -19,6 +19,8 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class ReplicatedExpirationTests : ServerUnitTestBase
 {
+    private static readonly AsyncLocal<string?> CallerScope = new();
+
     /// <summary>A caller that stops waiting leaves the shared expiry running; a later caller of the key joins it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -41,6 +43,19 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
 
         _ = await Assert.That(await second).IsEqualTo("live");
         _ = await Assert.That(Volatile.Read(ref runs)).IsEqualTo(1);
+    }
+
+    /// <summary>The shared run does not carry the ambient state of the caller that started it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SharedRunDropsCallerContext(CancellationToken cancellationToken)
+    {
+        await using var expiration = new ReplicaExpirationCoordinator<string>(static (_, _) => Task.FromResult(CallerScope.Value));
+        CallerScope.Value = "caller";
+
+        var seen = await expiration.ExpireAsync("default", "key-a", cancellationToken);
+
+        _ = await Assert.That(seen).IsNull();
     }
 
     /// <summary>Concurrent expiries of one key share a single run; another key runs on its own.</summary>
