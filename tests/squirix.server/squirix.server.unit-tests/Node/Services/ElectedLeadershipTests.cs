@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -146,6 +148,27 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         _ = await Assert.That((promoted, retired)).IsEqualTo((false, true));
         _ = await Assert.That(committer.Tenure).IsNull();
         _ = await Assert.That((status.LastLogIndex, status.CommitIndex)).IsEqualTo((1UL, 0UL));
+
+        // A write that reaches the retired committer is refused like the write gate refuses it, never as an internal fault.
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+    }
+
+    /// <summary>A read that finds its entry expired in a group this node leads without authority is refused as an expiration still pending.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredReadWithoutAuthorityIsPending(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-expired-read");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await using var committers = ElectedSet(registry, new ScriptedGateway());
+        var inner = new StubCache();
+        await inner.SetEntryAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("v", 1, DateTime.UtcNow.AddMinutes(-1)), cancellationToken);
+        var cache = new ReplicatedCache(inner, committers);
+
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(cache.GetEntryAsync(CacheName, "b", cancellationToken));
+
+        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ExpirationPendingDetail));
     }
 
     /// <summary>A committed entry that could not be applied keeps the coordinator and the lease: the retirement is refused until it applies.</summary>
@@ -216,11 +239,18 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         var granted = committers.ForKey(CacheName, "b").GroupId;
         state.ObserveHigherTerm(3UL);
         var deposed = committers.FindAuthorized("n2");
+        var noLeaderKnown = NodeExceptionAssert.For<RpcException>().Throws(committers, static set => set.ForKey(CacheName, "b"));
+        state.BecomeFollower(3UL, false);
+        state.ObserveLeaderContact("n3", 3UL);
+        var otherLeader = NodeExceptionAssert.For<RpcException>().Throws(committers, static set => set.ForKey(CacheName, "b"));
         var retired = await committers.RetireAsync("n2", cancellationToken);
 
         _ = await Assert.That((authorized, led, granted, retired, committers.Leads("n2"))).IsEqualTo((true, true, "n2", true, false));
         _ = await Assert.That(deposed).IsNull();
-        _ = await Assert.That(beforeGrant.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
+        _ = await Assert.That((beforeGrant.StatusCode, beforeGrant.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That(noLeaderKnown.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(otherLeader.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
+        _ = await Assert.That(otherLeader.Status.Detail).Contains("'n3'");
         _ = await Assert.That(committers.Promotions!.TryRead(out var promotion)).IsTrue();
         _ = await Assert.That((promotion.Committer.GroupId, promotion.Tenure.IsCancellationRequested)).IsEqualTo(("n2", true));
     }

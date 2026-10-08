@@ -175,8 +175,8 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     /// <param name="key">User key of the operation.</param>
     /// <returns>The committer of the owning group.</returns>
     /// <exception cref="Grpc.Core.RpcException">
-    /// This node does not lead the owning group, or has no authority in it: the stale-owner refusal, naming the known leader of the group
-    /// when there is one; nothing was appended.
+    /// This node may not write to the owning group: the stale-owner refusal when another leader is known (or the led set is fixed), the
+    /// retryable Unavailable refusal otherwise; nothing was appended.
     /// </exception>
     internal ReplicaGroupCommitter ForKey(string cacheName, string key)
     {
@@ -184,7 +184,7 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
             return own;
 
         var owner = _owners.GetOwner(cacheName, key);
-        return FindAuthorized(owner) ?? ThrowHelper.Throw<ReplicaGroupCommitter>(StaleOwnerFailure.Create(LeaderOf(owner), _selfId));
+        return FindAuthorized(owner) ?? ThrowHelper.Throw<ReplicaGroupCommitter>(Refusal(owner));
     }
 
     /// <summary>Tells whether this node leads a group.</summary>
@@ -213,11 +213,20 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
         }
     }
 
-    /// <summary>Names the node a refused write is pointed to: the known leader of the group when it is another node, otherwise its owner.</summary>
+    /// <summary>Builds the refusal of a write to a group this node may not write to.</summary>
     /// <param name="groupId">Replica group identifier, the original owner of the key.</param>
-    /// <returns>The node identifier.</returns>
-    private string LeaderOf(string groupId) =>
-        _authority is { } table && table.TryGetLeader(groupId, out var route) && !string.Equals(route.NodeId, _selfId, StringComparison.Ordinal) ? route.NodeId : groupId;
+    /// <returns>
+    /// The stale-owner refusal naming the owner when the led set is fixed, or naming the known leader when it is another node; otherwise,
+    /// while this node leads the group without authority yet or knows no leader, the retryable Unavailable refusal.
+    /// </returns>
+    private Grpc.Core.RpcException Refusal(string groupId)
+    {
+        if (_authority is not { } table)
+            return StaleOwnerFailure.Create(groupId, _selfId);
+
+        var known = table.TryGetLeader(groupId, out var route) && !string.Equals(route.NodeId, _selfId, StringComparison.Ordinal);
+        return known ? StaleOwnerFailure.Create(route.NodeId, _selfId) : ServerOpContract.NoLeaderAuthority();
+    }
 
     /// <summary>Adds a committer to the led groups or removes it, as a new snapshot.</summary>
     /// <param name="committer">The committer.</param>

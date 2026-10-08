@@ -10,6 +10,9 @@ internal static class ServerOpContract
     /// <summary>The stable detail of the refusal of a read whose expired entry the leader could not remove yet.</summary>
     internal const string ExpirationPendingDetail = "replica_expiration_pending";
 
+    /// <summary>The stable detail of the refusal of a write while no node is known to lead its group with authority.</summary>
+    internal const string NoLeaderAuthorityDetail = "Replica group has no leader with authority on this node; nothing was written.";
+
     internal const string NoWriteMajorityDetail = "Replica group has no verified write majority; nothing was written.";
 
     internal const string RingFencedDetail =
@@ -30,6 +33,10 @@ internal static class ServerOpContract
     /// <summary>Creates the refusal of a replicated write before its local append, while the group has no verified write majority.</summary>
     /// <returns><see cref="StatusCode.Unavailable" /> without the unknown-outcome code: nothing was written, so a retry may run elsewhere or later.</returns>
     internal static RpcException NoWriteMajority() => new(new Status(StatusCode.Unavailable, NoWriteMajorityDetail));
+
+    /// <summary>Creates the refusal of a write to a group this node may not write to while no other leader of it is known.</summary>
+    /// <returns><see cref="StatusCode.Unavailable" /> without the unknown-outcome code: nothing was written, so a retry may run elsewhere or later.</returns>
+    internal static RpcException NoLeaderAuthority() => new(new Status(StatusCode.Unavailable, NoLeaderAuthorityDetail));
 
     /// <summary>Creates the refusal of a read that found its entry expired while the tombstone of the entry could not commit.</summary>
     /// <param name="cause">The failure of the tombstone commit.</param>

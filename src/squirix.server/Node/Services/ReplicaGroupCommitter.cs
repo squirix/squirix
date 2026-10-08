@@ -439,7 +439,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         ThrowIfDisposed();
-        return await AdmitVerifiedAsync(log, snapshot, cancellationToken).ConfigureAwait(false);
+
+        // A retirement may have run while the probe was out: the snapshot then belongs to a leadership that is over.
+        return Election != null && !ReferenceEquals(_tenure, tenure) ? ReplicaVerification.Blocked
+            : await AdmitVerifiedAsync(log, snapshot, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Admits a follower slot a catch-up session verified, under the commit gate, and commits what the slot now covers.</summary>
@@ -648,8 +651,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (!_registry.TryGetLog(GroupId, out var log))
             throw new InvalidOperationException($"This node does not serve the replica group '{GroupId}' it leads.");
 
-        var tenure = Election == null || _tenure != null ? _tenure : throw new InvalidOperationException($"This node does not lead the replica group '{GroupId}'.");
-
+        // A start after retirement refuses like the write gate: no leader with authority here, nothing written.
+        var tenure = Election == null || _tenure != null ? _tenure : throw ServerOpContract.NoLeaderAuthority();
         var replacing = _coordinator != null;
         await RetireCoordinatorAsync().ConfigureAwait(false);
 
