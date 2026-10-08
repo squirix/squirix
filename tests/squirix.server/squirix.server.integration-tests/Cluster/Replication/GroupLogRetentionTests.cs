@@ -116,7 +116,7 @@ public sealed class GroupLogRetentionTests : NodeIntegrationTestBase
     private static async Task SettleVerificationAsync(ITestNodeHost owner, CancellationToken cancellationToken)
     {
         var started = Stopwatch.GetTimestamp();
-        var committer = owner.GetRequiredService<ReplicaGroupCommitter>();
+        var committer = ReplicaNodeCommitters.OwnCommitter(owner);
         while (await committer.VerifyReplicasAsync(cancellationToken) != ReplicaVerification.AllReady && Stopwatch.GetElapsedTime(started) < ApplyBound)
             await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, cancellationToken);
     }
@@ -148,7 +148,7 @@ public sealed class GroupLogRetentionTests : NodeIntegrationTestBase
         while (true)
         {
             if (flushBy != null)
-                await flushBy.GetRequiredService<ReplicaGroupCommitter>().FlushAppliedAsync(flushBy.GetRequiredService<IJournalCoordinator>(), cancellationToken);
+                await ReplicaNodeCommitters.OwnCommitter(flushBy).FlushAppliedAsync(flushBy.GetRequiredService<IJournalCoordinator>(), cancellationToken);
 
             var status = await log.GetStatusAsync(cancellationToken);
             if (status.LastAppliedIndex == status.CommitIndex)

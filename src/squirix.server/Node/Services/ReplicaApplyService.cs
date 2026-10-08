@@ -82,23 +82,9 @@ internal sealed class ReplicaApplyService : BackgroundService
         for (var i = 0; i < groupIds.Count; i++)
             loops.Add(ApplyLoopAsync(groupIds[i], stopping.Token));
 
-        Task? failed = null;
-        while (loops.Count > 0)
-        {
-            var ended = await Task.WhenAny(loops).ConfigureAwait(false);
-            _ = loops.Remove(ended);
-
-            // A canceled loop is a normal shutdown only when the host or a failed loop asked for it.
-            if (failed != null || (!ended.IsFaulted && (!ended.IsCanceled || stopping.IsCancellationRequested)))
-                continue;
-            failed = ended;
-            await stopping.CancelAsync().ConfigureAwait(false);
-        }
-
         // Without a failed loop, every loop ended with the host: memory keeps what was applied, and a restart applies the committed entries
         // above the durable applied index again.
-        if (failed != null)
-            await failed.ConfigureAwait(false);
+        await ReplicaGroupLoops.AwaitAllAsync(loops, stopping).ConfigureAwait(false);
     }
 
     /// <summary>Tells whether a fault of a pass leaves the group pending for the next pass instead of faulting the service.</summary>

@@ -86,7 +86,7 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
         await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, "node-a", [("node-b", cluster["node-b"]), ("node-c", cluster["node-c"])], cancellationToken);
 
         // As the maintenance pass does: the durable applied index reaches the commit, so the log releases the payload of the add.
-        await owner.GetRequiredService<ReplicaGroupCommitter>().FlushAppliedAsync(owner.GetRequiredService<IJournalCoordinator>(), cancellationToken);
+        await ReplicaNodeCommitters.OwnCommitter(owner).FlushAppliedAsync(owner.GetRequiredService<IJournalCoordinator>(), cancellationToken);
         var flushed = await OwnerStatusAsync(owner, cancellationToken);
         _ = await Assert.That(flushed.LastAppliedIndex).IsEqualTo(flushed.CommitIndex);
 
@@ -119,7 +119,7 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
         await VerifyAsync(owner, cancellationToken);
         var added = await owner.GetCache<object?>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
         await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, "node-a", [("node-b", cluster["node-b"]), ("node-c", cluster["node-c"])], cancellationToken);
-        await owner.GetRequiredService<ReplicaGroupCommitter>().FlushAppliedAsync(owner.GetRequiredService<IJournalCoordinator>(), cancellationToken);
+        await ReplicaNodeCommitters.OwnCommitter(owner).FlushAppliedAsync(owner.GetRequiredService<IJournalCoordinator>(), cancellationToken);
 
         await cluster.StopNodeAsync("node-a");
         var restarted = await cluster.StartNodeAsync("node-a", Options(scope, false), cancellationToken);
@@ -151,7 +151,7 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(VerificationBound);
-        var committer = owner.GetRequiredService<ReplicaGroupCommitter>();
+        var committer = ReplicaNodeCommitters.OwnCommitter(owner);
         while (await committer.VerifyReplicasAsync(deadline.Token) != ReplicaVerification.AllReady)
             await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, deadline.Token);
     }

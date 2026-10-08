@@ -170,7 +170,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         await cluster.StopNodeAsync("node-c");
         _ = await OverwriteAsync(owner, [], Threshold * 3, cancellationToken);
 
-        var outcome = await owner.GetRequiredService<ReplicaGroupCommitter>().CompactOwnedLogAsync(
+        var outcome = await ReplicaNodeCommitters.OwnCommitter(owner).CompactOwnedLogAsync(
             new ReplicaLogCompactionPolicy(long.MaxValue, Threshold),
             owner.GetRequiredService<IJournalCoordinator>(),
             cancellationToken);
@@ -342,7 +342,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     /// <returns>The outcome of the compaction step.</returns>
     private static async Task<ReplicaLogCompactionOutcome> CompactOnceAsync(ITestNodeHost owner, CancellationToken cancellationToken)
     {
-        var committer = owner.GetRequiredService<ReplicaGroupCommitter>();
+        var committer = ReplicaNodeCommitters.OwnCommitter(owner);
         var journal = owner.GetRequiredService<IJournalCoordinator>();
         var policy = ReplicaLogCompactionPolicy.From(owner.GetRequiredService<PersistenceOptions>());
         await committer.FlushAppliedAsync(journal, cancellationToken);
@@ -379,7 +379,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     private static async Task VerifyAsync(TestCluster<IntegrationStartOptions> cluster, ITestNodeHost owner, CancellationToken cancellationToken)
     {
         var started = Stopwatch.GetTimestamp();
-        var committer = owner.GetRequiredService<ReplicaGroupCommitter>();
+        var committer = ReplicaNodeCommitters.OwnCommitter(owner);
         while (await committer.VerifyReplicasAsync(cancellationToken) != ReplicaVerification.AllReady)
         {
             if (Stopwatch.GetElapsedTime(started) >= Bound)

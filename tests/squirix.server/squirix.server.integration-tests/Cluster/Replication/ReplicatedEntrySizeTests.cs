@@ -52,7 +52,7 @@ public sealed class ReplicatedEntrySizeTests : NodeIntegrationTestBase
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(VerificationBound);
-        var committer = owner.GetRequiredService<ReplicaGroupCommitter>();
+        var committer = ReplicaNodeCommitters.OwnCommitter(owner);
         while (await committer.VerifyReplicasAsync(deadline.Token) != ReplicaVerification.AllReady)
             await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, deadline.Token);
     }

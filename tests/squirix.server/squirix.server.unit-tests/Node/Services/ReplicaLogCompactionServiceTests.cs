@@ -15,6 +15,7 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -48,7 +49,7 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
                           return token.IsCancellationRequested ? ValueTask.FromCanceled(token) : ValueTask.CompletedTask;
                       });
         using var service = new ReplicaLogCompactionService(
-            committer,
+            LeadOwn(committer),
             durability.Instance(),
             new ReplicaLogCompactionOptions(),
             new ReplicaLogCompactionPolicy(long.MaxValue, int.MaxValue),
@@ -86,7 +87,7 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         var durability = new IJournalDurabilityCoordinatorCreateExpectations();
         _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         using var service = new ReplicaLogCompactionService(
-            committer,
+            LeadOwn(committer),
             durability.Instance(),
             new ReplicaLogCompactionOptions(),
             new ReplicaLogCompactionPolicy(long.MaxValue, 2),
@@ -148,7 +149,7 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
                       .Callback(_ => Volatile.Read(ref failing[0]) ? ValueTask.FromException(new IOException("journal unavailable")) : ValueTask.CompletedTask);
         var events = new EventRecordingLogger();
         using var service = new ReplicaLogCompactionService(
-            committer,
+            LeadOwn(committer),
             durability.Instance(),
             new ReplicaLogCompactionOptions(),
             new ReplicaLogCompactionPolicy(long.MaxValue, int.MaxValue),

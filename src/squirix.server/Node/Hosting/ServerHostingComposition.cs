@@ -126,10 +126,10 @@ internal static class ServerHostingComposition
             ReplicaGroupLogOptions(sp)));
 
         // Factory registrations let the container own disposal: the registry closes follower-log durability workers
-        // and the committer drains its coordinator on host shutdown.
-        _ = services.AddSingleton(static sp => CreateReplicaGroupCommitter(sp, sp.GetRequiredService<ReplicaGroupActivation>().Fingerprint));
+        // and the committers drain their coordinators on host shutdown.
+        _ = services.AddSingleton(static sp => CreateReplicaGroupCommitters(sp, sp.GetRequiredService<ReplicaGroupActivation>().Fingerprint));
         _ = services.AddHostedService(static sp => new ReplicaGroupReadinessService(
-            sp.GetRequiredService<ReplicaGroupCommitter>(),
+            sp.GetRequiredService<ReplicaGroupCommitters>(),
             sp.GetRequiredService<ILogger<ReplicaGroupReadinessService>>(),
             sp.GetService<TimeProvider>() ?? TimeProvider.System,
             sp.GetRequiredService<ReplicaCatchUpMetrics>()));
@@ -147,7 +147,7 @@ internal static class ServerHostingComposition
             sp.GetService<TimeProvider>() ?? TimeProvider.System));
         _ = services.AddSingleton(new ReplicaLogCompactionOptions());
         _ = services.AddHostedService(static sp => new ReplicaLogCompactionService(
-            sp.GetRequiredService<ReplicaGroupCommitter>(),
+            sp.GetRequiredService<ReplicaGroupCommitters>(),
             sp.GetRequiredService<IJournalCoordinator>(),
             sp.GetRequiredService<ReplicaLogCompactionOptions>(),
             ReplicaLogCompactionPolicy.From(sp.GetRequiredService<PersistenceOptions>()),
@@ -170,14 +170,13 @@ internal static class ServerHostingComposition
                 ["ready"]));
     }
 
-    /// <summary>Registers the sweep that expires the owned keys no read touches, through committed tombstones.</summary>
+    /// <summary>Registers the sweep that expires the keys of the led groups no read touches, through committed tombstones.</summary>
     /// <param name="services">DI service collection.</param>
     private static void AddReplicaExpirationSweep(IServiceCollection services) =>
         _ = services.AddHostedService(static sp => new ReplicaExpirationSweepService(
-            sp.GetRequiredService<ReplicaGroupCommitter>(),
+            sp.GetRequiredService<ReplicaGroupCommitters>(),
             sp.GetRequiredService<ILocalCacheSnapshotReader<object?>>(),
             sp.GetRequiredService<INodeLocator>(),
-            sp.GetRequiredService<TopologyOptions>().NodeId,
             sp.GetRequiredService<ILogger<ReplicaExpirationSweepService>>()));
 
     /// <summary>Returns the settings of the replica group logs: the idempotency window of the replication policy and the host clock.</summary>
@@ -191,16 +190,25 @@ internal static class ServerHostingComposition
         TimeProvider = sp.GetService<TimeProvider>(),
     };
 
-    /// <summary>Creates the committer of the group this node owns.</summary>
+    /// <summary>Creates the committers of the groups this node leads: the group it owns, statically.</summary>
     /// <param name="sp">The service provider.</param>
     /// <param name="fingerprint">The static topology fingerprint.</param>
-    /// <returns>The committer.</returns>
-    private static ReplicaGroupCommitter CreateReplicaGroupCommitter(IServiceProvider sp, ImmutableArray<byte> fingerprint)
+    /// <returns>The committers, which own the disposal of each committer.</returns>
+    private static ReplicaGroupCommitters CreateReplicaGroupCommitters(IServiceProvider sp, ImmutableArray<byte> fingerprint) => new(
+        CreateLedCommitters(sp, fingerprint),
+        sp.GetRequiredService<TopologyOptions>().NodeId,
+        sp.GetRequiredService<INodeLocator>(),
+        sp.GetService<TimeProvider>() ?? TimeProvider.System);
+
+    /// <summary>Creates the committer of the group this node owns, the only group it leads.</summary>
+    /// <param name="sp">The service provider.</param>
+    /// <param name="fingerprint">The static topology fingerprint.</param>
+    /// <returns>The committers of the led groups.</returns>
+    private static ReplicaGroupCommitter[] CreateLedCommitters(IServiceProvider sp, ImmutableArray<byte> fingerprint)
     {
         var topology = sp.GetRequiredService<TopologyOptions>();
-
-        // The node leads the group it owns, statically.
-        return new ReplicaGroupCommitter(
+        var led = new ReplicaGroupCommitter[1];
+        led[0] = new ReplicaGroupCommitter(
             sp.GetRequiredService<ReplicaGroupRegistry>(),
             sp.GetRequiredService<IReplicaGroupLocator>(),
             sp.GetRequiredService<IReplicaRpcGateway>(),
@@ -213,6 +221,7 @@ internal static class ServerHostingComposition
             Metrics = sp.GetRequiredService<ReplicationMetrics>(),
             Clock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
         };
+        return led;
     }
 
     /// <summary>

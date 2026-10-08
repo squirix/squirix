@@ -60,7 +60,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var log = new LeakRecordingLogger();
         await using var registry = await OpenRegistryAsync(cancellationToken);
         await using var committer = CreateCommitter(registry, local, log);
-        var cache = new DomainErrorMappingCacheDecorator<object?>(new ReplicatedCache(local, committer));
+        var cache = new DomainErrorMappingCacheDecorator<object?>(new ReplicatedCache(local, LedGroupsTestKit.LeadOwn(committer)));
 
         var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cache.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken));
         var transport = error.ToRpcException();

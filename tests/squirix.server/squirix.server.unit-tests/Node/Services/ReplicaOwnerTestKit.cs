@@ -17,7 +17,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// <summary>RF=3 group owner harness: node n1 owns the group, n2 and n3 are scripted followers.</summary>
 internal static class ReplicaOwnerTestKit
 {
-    private static readonly byte[] Fingerprint = [9, 8, 7];
+    internal static readonly byte[] Fingerprint = [9, 8, 7];
 
     /// <summary>How a scripted follower answers leader appends.</summary>
     internal enum FollowerMode

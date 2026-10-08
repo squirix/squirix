@@ -9,12 +9,13 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>Removes the expired entries of the owned replica group that no read touches, through committed tombstones.</summary>
+/// <summary>Removes the expired entries of the replica groups this node leads that no read touches, through committed tombstones.</summary>
 /// <remarks>
 /// Storage keeps an entry past its deadline until a committed record removes it, so an expired key nobody reads would stay in memory for
-/// good. Every pass walks the stored entries, picks the keys this node owns whose deadline passed on the leader clock, and expires them
-/// through the committer, at most <see cref="MaxPerPass" /> per pass. The committer decides each expiry again under its commit gate, so a
-/// key written or touched since the walk is left alone. A pass stops at its first failure and logs it once; the next pass retries.
+/// good. Every pass walks the stored entries once, picks the keys of the led groups whose deadline passed on the leader clock, and expires
+/// each through the committer of its group, at most <see cref="MaxPerPass" /> per pass in all. The committer decides each expiry again
+/// under its commit gate, so a key written or touched since the walk is left alone. A pass stops at its first failure and logs it once;
+/// the next pass retries.
 /// Activated hosts only: on other hosts the local clock decides expiry and nothing needs sweeping.
 /// </remarks>
 internal sealed class ReplicaExpirationSweepService : BackgroundService
@@ -22,34 +23,29 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
     /// <summary>The time between two passes.</summary>
     internal static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);
 
-    private readonly ReplicaGroupCommitter _committer;
+    private readonly ReplicaGroupCommitters _committers;
     private readonly INodeLocator _locator;
     private readonly ILogger<ReplicaExpirationSweepService> _log;
-    private readonly string _nodeId;
     private readonly ILocalCacheSnapshotReader<object?> _reader;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaExpirationSweepService" /> class.</summary>
-    /// <param name="committer">The committer of the owned group; its clock decides expiry and times the passes.</param>
+    /// <param name="committers">The committers of the led groups; their clock decides expiry and times the passes.</param>
     /// <param name="reader">The stored entries.</param>
-    /// <param name="locator">The key owner lookup.</param>
-    /// <param name="nodeId">This node identifier, the owner of the owned group's keys.</param>
+    /// <param name="locator">The key owner lookup, which names the group of a key.</param>
     /// <param name="log">Logger of the failed passes.</param>
     internal ReplicaExpirationSweepService(
-        ReplicaGroupCommitter committer,
+        ReplicaGroupCommitters committers,
         ILocalCacheSnapshotReader<object?> reader,
         INodeLocator locator,
-        string nodeId,
         ILogger<ReplicaExpirationSweepService> log)
     {
-        ArgumentNullException.ThrowIfNull(committer);
+        ArgumentNullException.ThrowIfNull(committers);
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(locator);
-        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         ArgumentNullException.ThrowIfNull(log);
-        _committer = committer;
+        _committers = committers;
         _reader = reader;
         _locator = locator;
-        _nodeId = nodeId;
         _log = log;
         MaxPerPass = 1024;
     }
@@ -66,14 +62,14 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
         }
     }
 
-    /// <summary>Runs one pass: expires the owned keys whose deadline passed, at most <see cref="MaxPerPass" />, stopping at the first failure.</summary>
+    /// <summary>Runs one pass: expires the keys of the led groups whose deadline passed, at most <see cref="MaxPerPass" />, stopping at the first failure.</summary>
     /// <param name="cancellationToken">Cancellation token of the host.</param>
     /// <returns>The number of keys expired, or found live again, before the pass ended.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
     internal async Task<int> SweepOnceAsync(CancellationToken cancellationToken)
     {
         var expired = 0;
-        var now = _committer.Clock.GetUtcNow().UtcDateTime;
+        var now = _committers.Clock.GetUtcNow().UtcDateTime;
         try
         {
             await foreach (var (key, entry) in _reader.EnumerateLiveAsync(cancellationToken).ConfigureAwait(false))
@@ -85,10 +81,11 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
                     continue;
 
                 // A key of a group this node only follows is expired by its own leader, never here.
-                if (!string.Equals(_locator.GetOwner(key.Namespace, key.Key), _nodeId, StringComparison.Ordinal))
+                var owner = _locator.GetOwner(key.Namespace, key.Key);
+                if (!_committers.Leads(owner))
                     continue;
 
-                _ = await _committer.ExpireAsync(key.Namespace, key.Key, cancellationToken).ConfigureAwait(false);
+                _ = await _committers.For(owner).ExpireAsync(key.Namespace, key.Key, cancellationToken).ConfigureAwait(false);
                 expired++;
             }
         }
@@ -103,7 +100,7 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(Interval, _committer.Clock);
+        using var timer = new PeriodicTimer(Interval, _committers.Clock);
         try
         {
             while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
