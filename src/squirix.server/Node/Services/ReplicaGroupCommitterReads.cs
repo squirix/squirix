@@ -20,8 +20,8 @@ internal static class ReplicaGroupCommitterReads
         /// <returns>A task that completes once the local read may be served.</returns>
         /// <exception cref="Grpc.Core.RpcException">
         /// The read may not be served now, and nothing was read: this node has no leader authority in the group, or a higher term was seen
-        /// (Unavailable, no leader authority); or no majority confirmed the read index, or memory did not apply it, within one election
-        /// timeout (Unavailable, read quorum unconfirmed).
+        /// (Unavailable, no leader authority); or, within one election timeout, no majority confirmed the read index (Unavailable, read
+        /// quorum unconfirmed) or memory did not apply it (Unavailable, read index unapplied).
         /// </exception>
         /// <exception cref="InvalidOperationException">The committer leads statically; only an elected leader fences reads.</exception>
         /// <remarks>
@@ -39,15 +39,18 @@ internal static class ReplicaGroupCommitterReads
 
             using var bound = new CancellationTokenSource(election.Options.ElectionTimeout, election.Clock);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, bound.Token);
-            ulong readIndex;
+            var readIndex = 0UL;
+            var confirmed = false;
             try
             {
                 readIndex = await pipeline.ConfirmReadIndexAsync(linked.Token).ConfigureAwait(false);
-                await LeaderReadBarrier.WaitUntilAppliedAsync(() => committer.Applier.AppliedIndex, readIndex, election.Clock, AppliedPollInterval, linked.Token).ConfigureAwait(false);
+                confirmed = true;
+                if (committer.Applier.AppliedIndex < readIndex)
+                    await LeaderReadBarrier.WaitUntilAppliedAsync(committer.Applier, static applier => applier.AppliedIndex, readIndex, (election.Clock, AppliedPollInterval), linked.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                throw ServerOpContract.ReadQuorumUnconfirmed();
+                throw confirmed ? ServerOpContract.ReadIndexUnapplied() : ServerOpContract.ReadQuorumUnconfirmed();
             }
 
             Verify(election, pipeline.Term, new LeaderReadState(true, committer.Applier.AppliedIndex, readIndex));

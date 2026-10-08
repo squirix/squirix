@@ -2,10 +2,12 @@ using System;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
@@ -20,7 +22,8 @@ namespace Squirix.Server.Node.Services;
 /// <para>
 /// One round is in flight at a time. A reader that arrives while one is in flight waits for it to end and joins the next round, which
 /// takes its read index after the reader arrived. A reply in a higher term fails every round for good: the pipeline term is over. No lease
-/// and no local timer ever completes a round. Cancellation ends the wait of its reader only; the round goes on for the others.
+/// and no local timer ever completes a round. Cancellation ends the wait of its reader only; the round goes on for the others. Every reader
+/// of a failed round gets a refusal of its own.
 /// </para>
 /// </remarks>
 [ThreadSafe]
@@ -31,7 +34,7 @@ internal sealed class ReplicaReadIndexRound
     private readonly Lock _sync = new();
     private readonly ulong _term;
     private Round? _current;
-    private Exception? _failure;
+    private Func<RpcException>? _failure;
     private TaskCompletionSource? _idle;
     private long _started;
 
@@ -55,7 +58,7 @@ internal sealed class ReplicaReadIndexRound
     /// <typeparam name="TState">The type of the state handed to the callbacks.</typeparam>
     /// <param name="state">The state handed to the callbacks.</param>
     /// <param name="commitIndex">Reads the leader commit index; called under the round lock, so it must not block.</param>
-    /// <param name="heartbeat">Sends a heartbeat to every idle follower; called outside the round lock.</param>
+    /// <param name="heartbeat">Sends a heartbeat to every idle follower, and to a busy one once its sender ran out of entries; called unlocked.</param>
     /// <param name="cancellationToken">Cancellation token; it ends this wait only.</param>
     /// <returns>The read index: the commit index taken after this call started, confirmed by a majority in the leader term.</returns>
     /// <exception cref="Grpc.Core.RpcException">
@@ -68,12 +71,16 @@ internal sealed class ReplicaReadIndexRound
         var arrival = -1L;
         while (true)
         {
-            var (round, idle, started) = Join(ref arrival, state, commitIndex);
+            var (round, readIndex, idle, started) = Join(ref arrival, state, commitIndex);
             if (started)
                 heartbeat(state);
 
             if (round != null)
-                return await round.WaitAsync(cancellationToken).ConfigureAwait(false);
+            {
+                // A round its own heartbeat already confirmed costs no wait.
+                var confirmed = round.IsCompleted ? await round.ConfigureAwait(false) : await round.WaitAsync(cancellationToken).ConfigureAwait(false);
+                return confirmed ? readIndex : throw Refusal();
+            }
 
             await idle!.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -106,7 +113,7 @@ internal sealed class ReplicaReadIndexRound
     {
         if (reply.CurrentTerm > _term)
         {
-            Fail(ServerOpContract.NoLeaderAuthority());
+            Fail(ServerOpContract.NoLeaderAuthority);
             return;
         }
 
@@ -130,29 +137,40 @@ internal sealed class ReplicaReadIndexRound
             _idle = null;
         }
 
-        _ = confirmed.Done.TrySetResult(confirmed.ReadIndex);
+        _ = confirmed.Done.TrySetResult(true);
         _ = idle?.TrySetResult();
     }
 
     /// <summary>Fails the round in flight and every later one: the pipeline closed, so its reads are unconfirmed.</summary>
-    internal void Close() => Fail(ServerOpContract.ReadQuorumUnconfirmed());
+    internal void Close() => Fail(ServerOpContract.ReadQuorumUnconfirmed);
 
     private static bool IsContact(in FollowerLogAppendResult reply) =>
         reply.Success || string.Equals(reply.RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal) ||
         string.Equals(reply.RefusalCode, FollowerLogRefusal.NotReady, StringComparison.Ordinal);
+
+    /// <summary>Creates the refusal of one reader of a failed round.</summary>
+    /// <returns>The refusal.</returns>
+    private RpcException Refusal()
+    {
+        lock (_sync)
+            return ThrowHelper.Required(_failure, "Only a failed round refuses its readers.")();
+    }
 
     /// <summary>Joins a round that started after the reader arrived, starts one when none is in flight, or waits for the one in flight.</summary>
     /// <typeparam name="TState">The type of the state handed to <paramref name="commitIndex" />.</typeparam>
     /// <param name="arrival">The sequence number of the last round started when the reader arrived; set on the first call.</param>
     /// <param name="state">The state handed to <paramref name="commitIndex" />.</param>
     /// <param name="commitIndex">Reads the leader commit index.</param>
-    /// <returns>The round to wait for, or the end of the round in flight to wait for; and whether this call started the round.</returns>
-    private (Task<ulong>? Round, Task? Idle, bool Started) Join<TState>(ref long arrival, TState state, Func<TState, ulong> commitIndex)
+    /// <returns>
+    /// The completion of the round to wait for, <see langword="false" /> once it failed, with its read index; or the end of the round in
+    /// flight to wait for; and whether this call started the round.
+    /// </returns>
+    private (Task<bool>? Round, ulong ReadIndex, Task? Idle, bool Started) Join<TState>(ref long arrival, TState state, Func<TState, ulong> commitIndex)
     {
         lock (_sync)
         {
             if (_failure != null)
-                return (Task.FromException<ulong>(_failure), null, false);
+                return (Task.FromResult(false), 0UL, null, false);
 
             if (arrival < 0)
                 arrival = _started;
@@ -160,10 +178,10 @@ internal sealed class ReplicaReadIndexRound
             if (_current is { } current)
             {
                 if (current.Sequence > arrival)
-                    return (current.Done.Task, null, false);
+                    return (current.Done.Task, current.ReadIndex, null, false);
 
                 _idle ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                return (null, _idle.Task, false);
+                return (null, 0UL, _idle.Task, false);
             }
 
             // The read index is taken before the sequence number is published, so a request that carries the new ticket is sent after it.
@@ -171,14 +189,16 @@ internal sealed class ReplicaReadIndexRound
             var sequence = _started + 1;
             Volatile.Write(ref _started, sequence);
             if (_majority <= 1)
-                return (Task.FromResult(readIndex), null, false);
+                return (Task.FromResult(true), readIndex, null, false);
 
             _current = new Round(sequence, readIndex);
-            return (_current.Done.Task, null, true);
+            return (_current.Done.Task, readIndex, null, true);
         }
     }
 
-    private void Fail(Exception failure)
+    /// <summary>Fails the round in flight and every later one.</summary>
+    /// <param name="failure">Creates the refusal of each reader, so no two readers share one exception.</param>
+    private void Fail(Func<RpcException> failure)
     {
         Round? current;
         TaskCompletionSource? idle;
@@ -194,13 +214,7 @@ internal sealed class ReplicaReadIndexRound
             _idle = null;
         }
 
-        if (current != null)
-        {
-            _ = current.Done.TrySetException(failure);
-
-            // A round whose readers all gave up is never awaited; its failure is observed here.
-            _ = current.Done.Task.Exception;
-        }
+        _ = current?.Done.TrySetResult(false);
 
         // The readers waiting for the round in flight retry and find the failure.
         _ = idle?.TrySetResult();
@@ -219,7 +233,8 @@ internal sealed class ReplicaReadIndexRound
         /// <remarks>Read and written under the lock of the owning rounds.</remarks>
         internal ulong Acknowledged { get; set; }
 
-        internal TaskCompletionSource<ulong> Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>Gets the completion of the round: <see langword="true" /> once confirmed, <see langword="false" /> once failed.</summary>
+        internal TaskCompletionSource<bool> Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal ulong ReadIndex { get; }
 

@@ -54,7 +54,7 @@ heartbeats, and RF=2 never elects a replacement.
 - **Authority.** A winner appends a `leader-noop` record in its term, under the operation scope `squirix:leader-term`,
   before it probes any follower. It gains authority only once a majority committed that entry for this promotion; until
   then, and after any step-down, a write is refused before anything is appended: `Unavailable` with "Replica group has
-  no leader with authority on this node; nothing was written.", or the stale-owner refusal naming the leader this node
+  no leader with authority on this node; nothing was read or written.", or the stale-owner refusal naming the leader this node
   knows.
 - **Heartbeats and step-down.** A leader sends an empty append to every idle follower each heartbeat interval. It steps
   down once fewer than a majority, itself included, answered within one election timeout, and at once on a higher term
