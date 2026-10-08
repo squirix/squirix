@@ -29,6 +29,35 @@ internal static class ReplicaGroupCommitterRepair
             return admitted;
         }
 
+        /// <summary>Admits a follower slot a catch-up session verified, under the commit gate, and commits what the slot now covers.</summary>
+        /// <param name="replicaIndex">Zero-based follower slot.</param>
+        /// <param name="result">The session result.</param>
+        /// <param name="pipeline">The pipeline whose sender the session ran on; a slot is never admitted into a newer one.</param>
+        /// <param name="cancellationToken">Cancellation token for queueing on the gate.</param>
+        /// <returns><see langword="true" /> when the slot became ready.</returns>
+        /// <remarks>
+        /// Called while the session's lease still holds the sender, so no live entry past the held index reaches the follower, and no
+        /// acknowledgement of one is lost to a slot that does not count yet, before the slot's match index is raised.
+        /// </remarks>
+        internal async Task<bool> AdmitCaughtUpFollowerAsync(int replicaIndex, ReplicaCatchUpResult result, IReplicaCommitPipeline pipeline, CancellationToken cancellationToken)
+        {
+            committer.ThrowIfDisposed();
+            using var guard = await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false);
+            committer.ThrowIfDisposed();
+            if (!ReferenceEquals(committer.RunningPipeline, pipeline) || committer.Coordinator is not { } coordinator || !committer.Registry.TryGetLog(committer.GroupId, out var log))
+                return false;
+
+            var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+            var eligibility = committer.Registry.EligibilityFor(committer.GroupId);
+            var wasReady = eligibility.CanCountInWriteQuorum(replicaIndex);
+            ReplicaReadinessProbe.AdmitCaughtUp(eligibility, replicaIndex, in result, status.CommitIndex, committer.Topology.Fingerprint, committer.Topology.Generation, coordinator);
+            if (wasReady || !eligibility.CanCountInWriteQuorum(replicaIndex))
+                return false;
+
+            _ = await committer.TryApplyPendingAsync().ConfigureAwait(false);
+            return true;
+        }
+
         private async Task<bool> CatchUpFollowerAsync(ReplicaCatchUpTarget target, ReplicaCatchUpReporter reporter, CancellationToken cancellationToken)
         {
             ReplicaFollowerCatchUp lease;

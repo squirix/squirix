@@ -24,10 +24,10 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     private const string BacklogFullMessage = "follower append backlog full";
 
     private readonly TimeSpan _appendTimeout;
+    private readonly Backlog _backlog = new();
     private readonly CancellationTokenSource _closing = new();
     private readonly CancellationTokenSource _drainStarted = new();
     private readonly ReplicaRpcHeader _header;
-    private readonly Queue<PendingAppend> _pending = new();
     private readonly IReplicaRpcGateway _rpc;
     private readonly Lock _sync = new();
     private TaskCompletionSource? _catchUpRequest;
@@ -36,7 +36,6 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     private ulong _lastEnqueuedTerm;
     private TaskCompletionSource? _leaseDone;
     private TaskCompletionSource? _loopDone;
-    private long _pendingBytes;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaFollowerSender" /> class.</summary>
     /// <param name="rpc">Follower replication RPCs.</param>
@@ -182,9 +181,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                 return;
 
             _closed = true;
-            abandoned = [.. _pending];
-            _pending.Clear();
-            _pendingBytes = 0;
+            abandoned = _backlog.Clear();
             loop = _loopDone?.Task ?? _catchUpRequest?.Task;
         }
 
@@ -297,25 +294,15 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                 return;
 
             _leaseDone = null;
-            while (!_closed && _pending.Count > 0 && _pending.Peek().Record.LogIndex <= heldThrough)
-            {
-                var item = _pending.Dequeue();
-                _pendingBytes -= item.Bytes;
-                (held ??= []).Add(item);
-            }
+            if (!_closed)
+                held = _backlog.TakeThrough(heldThrough);
 
-            if (!_closed && _pending.Count > 0 && _loopDone == null)
-            {
-                started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                _loopDone = started;
-            }
+            if (!_closed && _backlog.Count > 0 && _loopDone == null)
+                started = ClaimLoop();
         }
 
         if (held != null)
-        {
-            for (var i = 0; i < held.Count; i++)
-                _ = held[i].Completion.TrySetResult(AcknowledgementOf(held[i].Mutation));
-        }
+            Backlog.Acknowledge(held);
 
         if (started != null)
             StartLoop(started);
@@ -356,18 +343,14 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                     new InvalidOperationException($"Follower '{NodeId}' append out of order: index {record.LogIndex} after {_lastEnqueuedIndex}."));
             }
 
-            if (_pending.Count >= MaxPendingEntries || (_pending.Count > 0 && _pendingBytes + item.Bytes > MaxPendingBytes))
+            if (_backlog.IsFullFor(item, MaxPendingEntries, MaxPendingBytes))
                 return Task.FromException<ReplicaDurableAcknowledgement>(new InvalidOperationException(BacklogFullMessage));
 
-            _pending.Enqueue(item);
-            _pendingBytes += item.Bytes;
+            _backlog.Enqueue(item);
             _lastEnqueuedIndex = record.LogIndex;
             _lastEnqueuedTerm = record.Term;
             if (_loopDone == null && _leaseDone == null)
-            {
-                started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                _loopDone = started;
-            }
+                started = ClaimLoop();
         }
 
         if (started != null)
@@ -389,12 +372,11 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         FollowerBatch heartbeat;
         lock (_sync)
         {
-            if (_closed || Draining || _pending.Count > 0 || _loopDone != null || _leaseDone != null)
+            if (_closed || Draining || _backlog.Count > 0 || _loopDone != null || _leaseDone != null)
                 return false;
 
             heartbeat = new FollowerBatch([], _header.LeaderNodeId, _header.Term, _lastEnqueuedIndex, _lastEnqueuedTerm, leaderCommitIndex);
-            started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            _loopDone = started;
+            started = ClaimLoop();
         }
 
         StartLoop(started, heartbeat);
@@ -425,30 +407,6 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         return SendCatchUpCoreAsync(batch, done, cancellationToken);
     }
 
-    private static ReplicaDurableAcknowledgement AcknowledgementOf(PreparedReplicaMutation mutation) => new(
-        mutation.GroupId,
-        mutation.Term,
-        mutation.LogIndex,
-        mutation.OperationFingerprint,
-        mutation.PayloadChecksum,
-        true,
-        true);
-
-    private static void Complete(List<PendingAppend> batch, in FollowerLogAppendResult result, string nodeId)
-    {
-        for (var i = 0; i < batch.Count; i++)
-        {
-            _ = result.Success ? batch[i].Completion.TrySetResult(AcknowledgementOf(batch[i].Mutation))
-                : batch[i].Completion.TrySetException(new InvalidOperationException($"Follower '{nodeId}' refused append: {result.RefusalCode}."));
-        }
-    }
-
-    private static void Fail(List<PendingAppend> batch, Exception error)
-    {
-        for (var i = 0; i < batch.Count; i++)
-            _ = batch[i].Completion.TrySetException(error);
-    }
-
     private static async ValueTask<bool> WaitWithinAsync(Task task, TimeSpan budget)
     {
         try
@@ -473,7 +431,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         while (TakeBatch() is { } batch)
         {
             if (await SendBatchAsync(batch).CaptureFailureAsync().ConfigureAwait(false) is { } error)
-                Fail(batch, error);
+                Backlog.Fail(batch, error);
         }
 
         _ = done.TrySetResult();
@@ -484,16 +442,11 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// <returns>A task that faults when the request fails or times out; the caller fails the entries then.</returns>
     private async Task SendBatchAsync(List<PendingAppend> batch)
     {
-        var records = new ReplicaLogRecord[batch.Count];
-        for (var i = 0; i < records.Length; i++)
-            records[i] = batch[i].Record;
-
-        var first = batch[0];
-        var request = new FollowerBatch(records, _header.LeaderNodeId, first.Record.Term, first.PrevLogIndex, first.PrevLogTerm, batch[^1].LeaderCommitIndex);
+        var request = Backlog.ToRequest(batch, _header.LeaderNodeId);
         using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token);
         var result = await _rpc.AppendEntriesAsync(NodeId, _header, request, linked.Token).ConfigureAwait(false);
-        Complete(batch, in result, NodeId);
+        Backlog.Complete(batch, in result, NodeId);
 
         // After the entries are answered: an observer that throws faults only this request task, never an acknowledged entry.
         ReplyObserver?.Invoke(ReplicaIndex, result);
@@ -528,6 +481,15 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
+    /// <summary>Records a new send loop as running; the caller holds the lock and starts the loop once it released it.</summary>
+    /// <returns>The completion source the loop completes when it ends.</returns>
+    private TaskCompletionSource ClaimLoop()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _loopDone = started;
+        return started;
+    }
+
     /// <summary>Starts the send loop on the calling thread, up to its first wait, without the caller's execution context.</summary>
     /// <param name="done">The completion source the loop completes when it ends.</param>
     /// <param name="heartbeat">An empty append the loop sends before any waiting entry, or <see langword="null" />.</param>
@@ -554,31 +516,147 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     {
         lock (_sync)
         {
-            if (_pending.Count == 0 || _leaseDone != null)
+            if (_backlog.Count == 0 || _leaseDone != null)
             {
                 _loopDone = null;
                 return null;
             }
 
-            var first = _pending.Dequeue();
-            _pendingBytes -= first.Bytes;
-            var batch = new List<PendingAppend>(Math.Min(_pending.Count + 1, MaxBatchEntries)) { first };
+            return _backlog.TakeBatch(MaxBatchEntries, MaxBatchBytes);
+        }
+    }
+
+    /// <summary>The entries of one follower slot waiting for their request, in log order, with the canonical payload bytes they hold.</summary>
+    /// <remarks>Not thread-safe: the sender reads and changes it under its own lock only.</remarks>
+    private sealed class Backlog
+    {
+        private readonly Queue<PendingAppend> _pending = new();
+        private long _pendingBytes;
+
+        /// <summary>Gets the number of waiting entries.</summary>
+        internal int Count => _pending.Count;
+
+        /// <summary>Acknowledges entries the follower already holds, without a request.</summary>
+        /// <param name="entries">The entries.</param>
+        internal static void Acknowledge(List<PendingAppend> entries)
+        {
+            for (var i = 0; i < entries.Count; i++)
+                _ = entries[i].Completion.TrySetResult(AcknowledgementOf(entries[i].Mutation));
+        }
+
+        /// <summary>Completes the entries of a request with the follower's answer.</summary>
+        /// <param name="batch">The entries of the request.</param>
+        /// <param name="result">The follower's answer.</param>
+        /// <param name="nodeId">The follower, named in the refusal.</param>
+        internal static void Complete(List<PendingAppend> batch, in FollowerLogAppendResult result, string nodeId)
+        {
+            for (var i = 0; i < batch.Count; i++)
+            {
+                _ = result.Success ? batch[i].Completion.TrySetResult(AcknowledgementOf(batch[i].Mutation))
+                    : batch[i].Completion.TrySetException(new InvalidOperationException($"Follower '{nodeId}' refused append: {result.RefusalCode}."));
+            }
+        }
+
+        /// <summary>Fails the entries of a request that failed or timed out.</summary>
+        /// <param name="batch">The entries of the request.</param>
+        /// <param name="error">The failure.</param>
+        internal static void Fail(List<PendingAppend> batch, Exception error)
+        {
+            for (var i = 0; i < batch.Count; i++)
+                _ = batch[i].Completion.TrySetException(error);
+        }
+
+        /// <summary>Builds the request that carries the entries of a batch.</summary>
+        /// <param name="batch">The entries, in log order; the first one names the term and the predecessor of the request.</param>
+        /// <param name="leaderNodeId">The leader that sends the request.</param>
+        /// <returns>The request, carrying the leader commit index of the last entry.</returns>
+        internal static FollowerBatch ToRequest(List<PendingAppend> batch, string leaderNodeId)
+        {
+            var records = new ReplicaLogRecord[batch.Count];
+            for (var i = 0; i < records.Length; i++)
+                records[i] = batch[i].Record;
+
+            var first = batch[0];
+            return new FollowerBatch(records, leaderNodeId, first.Record.Term, first.PrevLogIndex, first.PrevLogTerm, batch[^1].LeaderCommitIndex);
+        }
+
+        /// <summary>Takes every waiting entry out, as when the sender closes.</summary>
+        /// <returns>The entries that were waiting, in log order.</returns>
+        internal PendingAppend[] Clear()
+        {
+            PendingAppend[] abandoned = [.. _pending];
+            _pending.Clear();
+            _pendingBytes = 0;
+            return abandoned;
+        }
+
+        /// <summary>Queues one entry after the waiting ones.</summary>
+        /// <param name="item">The entry.</param>
+        internal void Enqueue(PendingAppend item)
+        {
+            _pending.Enqueue(item);
+            _pendingBytes += item.Bytes;
+        }
+
+        /// <summary>Tells whether the backlog refuses one more entry: it is at its entry limit, or the entry would pass its byte limit while others wait.</summary>
+        /// <param name="item">The entry to queue.</param>
+        /// <param name="maxEntries">The most entries waiting.</param>
+        /// <param name="maxBytes">The most canonical payload bytes waiting; a single larger entry is still accepted while nothing else waits.</param>
+        /// <returns><see langword="true" /> when the entry does not fit.</returns>
+        internal bool IsFullFor(PendingAppend item, int maxEntries, long maxBytes) => _pending.Count >= maxEntries || (_pending.Count > 0 && _pendingBytes + item.Bytes > maxBytes);
+
+        /// <summary>Takes the next request: the first waiting entry and those after it that directly continue it, within the batch limits.</summary>
+        /// <param name="maxEntries">The most entries one request carries.</param>
+        /// <param name="maxBytes">The most canonical payload bytes one request carries; a single larger entry still goes out alone.</param>
+        /// <returns>The entries of the request, in log order.</returns>
+        /// <remarks>Called only while some entry waits.</remarks>
+        internal List<PendingAppend> TakeBatch(int maxEntries, long maxBytes)
+        {
+            var first = Take();
+            var batch = new List<PendingAppend>(Math.Min(_pending.Count + 1, maxEntries)) { first };
             var bytes = first.Bytes;
             var last = first;
-            while (batch.Count < MaxBatchEntries && _pending.Count > 0)
+            while (batch.Count < maxEntries && _pending.Count > 0)
             {
                 var next = _pending.Peek();
-                if (!next.Follows(last) || bytes + next.Bytes > MaxBatchBytes)
+                if (!next.Follows(last) || bytes + next.Bytes > maxBytes)
                     break;
 
-                _ = _pending.Dequeue();
-                _pendingBytes -= next.Bytes;
+                _ = Take();
                 bytes += next.Bytes;
                 batch.Add(next);
                 last = next;
             }
 
             return batch;
+        }
+
+        /// <summary>Takes the waiting entries through a log index out, in log order.</summary>
+        /// <param name="heldThrough">The highest log index to take.</param>
+        /// <returns>The entries taken, or <see langword="null" /> when none waits at or below <paramref name="heldThrough" />.</returns>
+        internal List<PendingAppend>? TakeThrough(ulong heldThrough)
+        {
+            List<PendingAppend>? held = null;
+            while (_pending.Count > 0 && _pending.Peek().Record.LogIndex <= heldThrough)
+                (held ??= []).Add(Take());
+
+            return held;
+        }
+
+        private static ReplicaDurableAcknowledgement AcknowledgementOf(PreparedReplicaMutation mutation) => new(
+            mutation.GroupId,
+            mutation.Term,
+            mutation.LogIndex,
+            mutation.OperationFingerprint,
+            mutation.PayloadChecksum,
+            true,
+            true);
+
+        private PendingAppend Take()
+        {
+            var item = _pending.Dequeue();
+            _pendingBytes -= item.Bytes;
+            return item;
         }
     }
 
