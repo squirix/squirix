@@ -21,6 +21,12 @@ namespace Squirix.Server.Node.App.Decorators;
 /// Unavailable refusal while no leader is known. A group this node does not serve is refused as a stale owner naming the ring owner, which
 /// serves it. Reads and writes are guarded alike.
 /// </para>
+/// <para>
+/// The guard refuses before the group log is consulted, so a retry of an operation whose entry a deposed node appended but never resolved
+/// gets a stale marker here rather than the unknown outcome. That is safe: a reroute keeps the operation id, and the current leader answers
+/// it from the group log: it replays a committed entry, reports an unresolved one as unknown, and runs the operation once when the entry
+/// was truncated.
+/// </para>
 /// </remarks>
 /// <typeparam name="T">The cache value type.</typeparam>
 [Immutable]
