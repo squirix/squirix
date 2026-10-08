@@ -80,7 +80,7 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
                 var outcome = await VerifyOnceAsync(committer, stoppingToken).ConfigureAwait(false);
                 if (outcome != reported)
                 {
-                    Report(outcome);
+                    Report(committer.GroupId, outcome);
                     reported = outcome;
                 }
 
@@ -112,23 +112,23 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         catch (Exception exception) when (exception is IOException or InvalidOperationException && !stoppingToken.IsCancellationRequested)
         {
             // The same policy as the verification: storage or gate faults are retried on the next pass, anything else faults the service.
-            ServerLog.ReplicaVerificationRetry(_log, exception);
+            ServerLog.ReplicaVerificationRetry(_log, committer.GroupId, exception);
             return false;
         }
     }
 
-    private void Report(ReplicaVerification outcome)
+    private void Report(string groupId, ReplicaVerification outcome)
     {
         switch (outcome)
         {
             case ReplicaVerification.AllReady:
-                ServerLog.ReplicaVerificationComplete(_log);
+                ServerLog.ReplicaVerificationComplete(_log, groupId);
                 break;
             case ReplicaVerification.Pending:
-                ServerLog.ReplicaVerificationPending(_log);
+                ServerLog.ReplicaVerificationPending(_log, groupId);
                 break;
             case ReplicaVerification.Blocked:
-                ServerLog.ReplicaVerificationBlocked(_log);
+                ServerLog.ReplicaVerificationBlocked(_log, groupId);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Unsupported verification state.");
@@ -145,7 +145,7 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         {
             // Storage or commit-gate faults are retried like unreachable peers; unexpected exceptions still fault
             // the service so the host fails fast instead of silently running without a verified quorum.
-            ServerLog.ReplicaVerificationRetry(_log, exception);
+            ServerLog.ReplicaVerificationRetry(_log, committer.GroupId, exception);
             return ReplicaVerification.Pending;
         }
     }
