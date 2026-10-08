@@ -69,9 +69,10 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
     [Test]
     public async Task StoppedOwnerGroupElectsNewLeader(CancellationToken cancellationToken)
     {
-        const string scope = "election-owner-failover";
         for (var attempt = 1; attempt <= OwnerSetupAttempts; attempt++)
         {
+            // Each setup reserves new addresses, so it gets a data directory of its own: the topology stamp of an earlier setup differs.
+            var scope = $"election-owner-failover-{attempt}";
             await using var cluster = await StartClusterAsync(Nodes[0], Nodes[1], Nodes[2], Options(scope, true), cancellationToken);
             var first = await LeaderAsync(cluster, Nodes, "the group of the owner gets a leader", cancellationToken, OwnerBound);
             if (!string.Equals(first.NodeId, OwnerId, StringComparison.Ordinal) || first.Term != 1UL)
