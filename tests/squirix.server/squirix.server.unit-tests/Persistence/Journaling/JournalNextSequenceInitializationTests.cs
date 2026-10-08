@@ -108,7 +108,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
             await journal.AwaitDurabilityCommitAsync(cancellationToken);
         }
 
-        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(), DateTime.UtcNow, cancellationToken);
+        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(), DateTime.UtcNow, DateTime.UtcNow, cancellationToken);
 
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         var maxSeq = 0UL;

@@ -1,5 +1,6 @@
 using System;
 using Squirix.Server.Attributes;
+using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
@@ -37,6 +38,9 @@ internal sealed class RecoveryDependencies<T>
     }
 
     internal AsyncManualResetEvent AsyncManualResetEvent { get; }
+
+    /// <summary>Gets who decides expiry; under <see cref="CacheExpiryAuthority.CommittedRecords" /> replay keeps entries past their deadline.</summary>
+    internal CacheExpiryAuthority Expiry { get; init; } = CacheExpiryAuthority.LocalClock;
 
     internal RpcMutationIdempotencyStore Idempotency { get; }
 

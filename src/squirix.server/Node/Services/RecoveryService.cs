@@ -21,7 +21,7 @@ namespace Squirix.Server.Node.Services;
 /// <summary>
 /// Replays the journal into the local in-memory cache on startup.
 /// Every cache-entry frame is a put of the whole resulting entry or a remove, so the state of a key is the state of its last frame; an entry
-/// whose final deadline has passed is dropped, and never resurrected after restart.
+/// whose final deadline has passed is dropped, and never resurrected after restart, unless expiry is left to committed records.
 /// Restores exact CLR value types using the binary cache-entry codec.
 /// </summary>
 /// <typeparam name="T">The value type stored in the cache (e.g., <c language="csharp">object?</c> for untyped payloads or a concrete DTO type).</typeparam>
@@ -29,6 +29,7 @@ internal sealed class RecoveryService<T> : IHostedService
 {
     private readonly IHostApplicationLifetime? _applicationLifetime;
     private readonly AsyncManualResetEvent _asyncManualResetEvent;
+    private readonly CacheExpiryAuthority _expiry;
     private readonly RpcMutationIdempotencyStore _idempotency;
     private readonly ILocalCacheRecovery<T> _localCache;
     private readonly ILogger<RecoveryService<T>> _log;
@@ -53,6 +54,7 @@ internal sealed class RecoveryService<T> : IHostedService
         _idempotency = deps.Idempotency;
         _snapshotReader = deps.SnapshotReader;
         _timeProvider = deps.TimeProvider;
+        _expiry = deps.Expiry;
         _applicationLifetime = applicationLifetime;
     }
 
@@ -128,14 +130,18 @@ internal sealed class RecoveryService<T> : IHostedService
                 if (!JournalEntryPayload.TryDecode<T>(putEntryBytes.Span, out var entry))
                     throw CreateJournalDecodeFailure();
 
-                if (JournalEntryExpirationMaterializer.IsExpiredForRecovery(entry!.ExpiresUtc, entry.Expiration, record.UnixMs, _timeProvider.GetUtcNow().UtcDateTime))
+                if (_expiry == CacheExpiryAuthority.LocalClock && JournalEntryExpirationMaterializer.IsExpiredForRecovery(
+                        entry!.ExpiresUtc,
+                        entry.Expiration,
+                        record.UnixMs,
+                        _timeProvider.GetUtcNow().UtcDateTime))
                 {
                     // The expired put supersedes the earlier value of the key, as journal compaction folds it.
                     _ = await _localCache.RemoveRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
                     break;
                 }
 
-                entry = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry, record.UnixMs);
+                entry = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry!, record.UnixMs);
                 await _localCache.InsertRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
                 break;
             }
@@ -297,7 +303,9 @@ internal sealed class RecoveryService<T> : IHostedService
             LoadResult<T>? snapshot = null;
             try
             {
-                snapshot = await _snapshotReader.LoadStrictAsync<T>(snapshotReference.Path, _timeProvider.GetUtcNow().UtcDateTime, cancellationToken).ConfigureAwait(false);
+                // Under committed records nothing expired is skipped: only a committed record removes an entry.
+                DateTime? expiredAsOf = _expiry == CacheExpiryAuthority.LocalClock ? _timeProvider.GetUtcNow().UtcDateTime : null;
+                snapshot = await _snapshotReader.LoadStrictAsync<T>(snapshotReference.Path, expiredAsOf, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException)
             {

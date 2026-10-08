@@ -48,6 +48,25 @@ public sealed class SnapshotCaptureBridgeTests : ServerUnitTestBase
         await AssertTagsEqualAsync(Tags, capturedEntry.Tags);
     }
 
+    /// <summary>Under committed records an entry past its deadline is captured: only a committed record removes it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CommittedCaptureKeepsExpired(CancellationToken cancellationToken)
+    {
+        var time = new FakeTimeProvider();
+        var cache = new PhysicalCache<string>(time, expiry: CacheExpiryAuthority.CommittedRecords);
+        var deadline = time.GetUtcNow().UtcDateTime.AddSeconds(1);
+        await cache.SetAsync(new CacheKey("ns", "expiring"), new NodeCacheEntry<string>("e", 1, deadline), cancellationToken);
+
+        time.Advance(TimeSpan.FromSeconds(2));
+
+        var target = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>();
+        await new LocalCacheSnapshotCapture<string>(cache, CacheExpiryAuthority.CommittedRecords).CaptureEntriesAsync(target, time.GetUtcNow().UtcDateTime, cancellationToken);
+
+        var (_, capturedEntry) = await Assert.That(target).HasSingleItem();
+        _ = await Assert.That(capturedEntry.ExpiresUtc).IsEqualTo(deadline);
+    }
+
     private static async Task AssertTagsEqualAsync(FrozenDictionary<string, string> expected, FrozenDictionary<string, string>? actual)
     {
         _ = await Assert.That(actual).IsNotNull();

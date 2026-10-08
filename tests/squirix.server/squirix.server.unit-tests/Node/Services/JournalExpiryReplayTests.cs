@@ -53,6 +53,53 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
         await AssertReplayedDeadlineAsync(written, cancellationToken);
     }
 
+    /// <summary>Under committed records an expired put record is replayed and compacted like a live one: only a committed record removes the key.</summary>
+    /// <param name="compact">Whether the journal is compacted, on the restart clock, before the restart.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when the test has run.</returns>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task CommittedRecordsKeepExpiredPut(bool compact, CancellationToken cancellationToken)
+    {
+        var persistence = Kit.Persistence;
+        var deadline = Restart.UtcDateTime.AddMinutes(-1);
+        using (var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance))
+        {
+            await using var journal = JournalCoordinatorFactory.Create(
+                persistence,
+                await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+                manifestStore,
+                new AsyncManualResetEvent(true),
+                NullLoggerFactory.Instance,
+                TimeProvider.System,
+                out _);
+            await journal.AppendPutUnderGateAsync(new CacheKey(CacheName, Key), JournalEntryPayloadKit.Encode(new NodeCacheEntry<object?>("earlier")), cancellationToken);
+            await journal.AppendPutUnderGateAsync(new CacheKey(CacheName, Key), JournalEntryPayloadKit.Encode(new NodeCacheEntry<object?>("later", expiresUtc: deadline)), cancellationToken);
+            await journal.AwaitDurabilityCommitAsync(cancellationToken);
+        }
+
+        var recovered = await Kit.RecoverAsync(new FakeTimeProvider(Restart), compact, CacheExpiryAuthority.CommittedRecords, cancellationToken);
+
+        var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        _ = await Assert.That(entry?.Value).IsEqualTo("later");
+        _ = await Assert.That(entry?.ExpiresUtc).IsEqualTo(deadline);
+    }
+
+    /// <summary>Under committed records a snapshot load keeps an entry whose deadline passed before the restart.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CommittedRecordsKeepExpiredSnapshotEntry(CancellationToken cancellationToken)
+    {
+        var writeStart = await Kit.WriteSnapshotThenTailAsync(TimeSpan.Zero, Ttl, static (_, _) => ValueTask.CompletedTask, cancellationToken);
+
+        var restart = new FakeTimeProvider(new DateTimeOffset(writeStart.Add(PastTtl), TimeSpan.Zero));
+        var recovered = await Kit.RecoverAsync(restart, false, CacheExpiryAuthority.CommittedRecords, cancellationToken);
+
+        var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        _ = await Assert.That(entry?.ExpiresUtc).IsEqualTo(writeStart.Add(Ttl));
+    }
+
     /// <summary>An expired put record removes the earlier value of the key instead of leaving it live, with or without compaction.</summary>
     /// <param name="compact">Whether the journal is compacted, on the restart clock, before the restart.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>

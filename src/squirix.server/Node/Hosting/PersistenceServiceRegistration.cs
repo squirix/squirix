@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
@@ -78,7 +79,10 @@ internal static class PersistenceServiceRegistration
                 sp.GetRequiredService<AsyncManualResetEvent>(),
                 sp.GetRequiredService<RpcMutationIdempotencyStore>(),
                 sp.GetRequiredService<ISnapshotReader>(),
-                ResolveClock(sp)),
+                ResolveClock(sp))
+            {
+                Expiry = sp.GetRequiredService<CacheExpiryAuthority>(),
+            },
             sp.GetService<IHostApplicationLifetime>()));
 
         _ = services.AddSingleton<SnapshotTriggerService<object?>>();
@@ -95,7 +99,10 @@ internal static class PersistenceServiceRegistration
                 sp.GetRequiredService<ISnapshotReader>(),
                 sp.GetRequiredService<PersistenceOptions>(),
                 sp.GetRequiredService<TopologyOptions>(),
-                ResolveClock(sp)),
+                ResolveClock(sp))
+            {
+                Expiry = sp.GetRequiredService<CacheExpiryAuthority>(),
+            },
             sp.GetRequiredService<CompactionMetrics>()));
 
         _ = services.AddSingleton<IJournalCompactionStatus>(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());

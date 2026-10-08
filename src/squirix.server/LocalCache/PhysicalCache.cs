@@ -26,15 +26,24 @@ namespace Squirix.Server.LocalCache;
 internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotReader<T>
 {
     private readonly EvictionOptions _eviction;
+    private readonly CacheExpiryAuthority _expiry;
     private readonly Lock _lock = new();
     private readonly LinkedList<CacheKey> _order = new();
     private readonly Dictionary<CacheKey, Node> _store = [];
     private readonly TimeProvider _timeProvider;
 
-    internal PhysicalCache(TimeProvider? timeProvider = null, EvictionOptions? eviction = null)
+    /// <summary>Initializes a new instance of the <see cref="PhysicalCache{T}" /> class.</summary>
+    /// <param name="timeProvider">The node clock; the system clock when <see langword="null" />.</param>
+    /// <param name="eviction">The eviction options; unbounded LRU when <see langword="null" />.</param>
+    /// <param name="expiry">
+    /// Who decides expiry. <see cref="CacheExpiryAuthority.LocalClock" /> treats an entry past its deadline as absent;
+    /// <see cref="CacheExpiryAuthority.CommittedRecords" /> keeps it present until a committed record removes it.
+    /// </param>
+    internal PhysicalCache(TimeProvider? timeProvider = null, EvictionOptions? eviction = null, CacheExpiryAuthority expiry = CacheExpiryAuthority.LocalClock)
     {
         _timeProvider = timeProvider ?? TimeProvider.System;
         _eviction = eviction ?? new EvictionOptions { Policy = EvictionPolicyType.Lru };
+        _expiry = expiry;
         RawReader = new PhysicalCacheRawReader(this);
     }
 
@@ -74,7 +83,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             NodeCacheEntry<T>? entry = null;
             lock (_lock)
             {
-                if (_store.TryGetValue(key, out var node) && (node.ExpiresUtc == null || node.ExpiresUtc > UtcNow))
+                if (_store.TryGetValue(key, out var node) && !IsExpiredLocked(node))
                     entry = new NodeCacheEntry<T>(node.Value, node.Version, node.ExpiresUtc, tags: node.Tags);
             }
 
@@ -217,14 +226,18 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         return chosen;
     }
 
+    /// <summary>Tells whether this node treats an entry as gone because its deadline passed on the node clock.</summary>
+    /// <param name="node">The stored entry.</param>
+    /// <returns><see langword="false" /> under <see cref="CacheExpiryAuthority.CommittedRecords" />, where only a committed record removes an entry.</returns>
+    private bool IsExpiredLocked(Node node) => _expiry == CacheExpiryAuthority.LocalClock && node.ExpiresUtc is { } expires && expires <= UtcNow;
+
     private (bool Removed, T? Value) RemoveLocked(CacheKey key)
     {
         if (!_store.Remove(key, out var node))
             return (false, default);
 
         UntrackLocked(node);
-        var expired = node.ExpiresUtc is { } expires && expires <= UtcNow;
-        return expired ? (false, default) : (true, node.Value);
+        return IsExpiredLocked(node) ? (false, default) : (true, node.Value);
     }
 
     private void TouchOrderLocked(CacheKey key, Node node)
@@ -249,7 +262,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         if (!_store.TryGetValue(key, out node))
             return false;
 
-        if (node.ExpiresUtc is { } expires && expires <= UtcNow)
+        if (IsExpiredLocked(node))
         {
             _ = _store.Remove(key);
             UntrackLocked(node);
@@ -274,7 +287,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     {
         var normalized = NormalizeExpiration(entry);
         _ = _store.TryGetValue(key, out var node);
-        if (node != null && insertOnly && node.ExpiresUtc is { } existingExpires && existingExpires <= UtcNow)
+        if (node != null && insertOnly && IsExpiredLocked(node))
         {
             UntrackLocked(node);
             node = null;

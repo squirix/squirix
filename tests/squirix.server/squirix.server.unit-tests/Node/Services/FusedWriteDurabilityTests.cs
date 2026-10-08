@@ -69,7 +69,7 @@ public sealed class FusedWriteDurabilityTests : IsolatedStorageTestBase
         var write = harness.SetThroughScopeAsync(operationId, "a", cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         var compaction = journal.Journal.ExecuteMaintenanceExclusiveAsync(
-            ct => new ValueTask(JournalCompactor.CompactAsync(persistence, journal.Ledger, StoreFactory.CreateReader(), harness.Clock.GetUtcNow().UtcDateTime, ct)),
+            ct => new ValueTask(JournalCompactor.CompactAsync(persistence, journal.Ledger, StoreFactory.CreateReader(), harness.Clock.GetUtcNow().UtcDateTime, harness.Clock.GetUtcNow().UtcDateTime, ct)),
             cancellationToken).AsTask();
         journal.Writer.Flush.Release();
         _ = await write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);

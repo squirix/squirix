@@ -8,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -29,7 +30,10 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private readonly JournalCompactionOptions _opt;
     private readonly PersistenceOptions _persistence;
     private readonly Coordinator _snap;
-    private readonly ISnapshotReader _snapshotReader;
+
+    /// <summary>The snapshot the compaction starts from, and who decides expiry: under committed records nothing expired is dropped.</summary>
+    private readonly (ISnapshotReader Reader, CacheExpiryAuthority Expiry) _snapshotSource;
+
     private readonly TimeProvider _timeProvider;
     private readonly VolatileField<TaskCompletionSource> _wake = new();
     private int _consecutiveFailures;
@@ -52,7 +56,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         _snap = deps.Snapshot;
         _journalMaintenance = deps.JournalMaintenance;
         _manifest = deps.Manifest;
-        _snapshotReader = deps.SnapshotReader;
+        _snapshotSource = (deps.SnapshotReader, deps.Expiry);
         _nodeId = deps.Cluster.NodeId;
         _persistence = deps.Persistence;
         _timeProvider = deps.TimeProvider;
@@ -185,7 +189,12 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         try
         {
             await _journalMaintenance.ExecuteMaintenanceExclusiveAsync(
-                ct => new ValueTask(JournalCompactor.CompactAsync(_persistence, _manifest, _snapshotReader, _timeProvider.GetUtcNow().UtcDateTime, ct)),
+                ct =>
+                {
+                    var utcNow = _timeProvider.GetUtcNow().UtcDateTime;
+                    DateTime? expiredAsOf = _snapshotSource.Expiry == CacheExpiryAuthority.LocalClock ? utcNow : null;
+                    return new ValueTask(JournalCompactor.CompactAsync(_persistence, _manifest, _snapshotSource.Reader, utcNow, expiredAsOf, ct));
+                },
                 cancellationToken).ConfigureAwait(false);
             resultLabel = "success";
         }
