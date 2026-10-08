@@ -14,6 +14,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Grpc.Mappers;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -300,8 +301,8 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     private static bool IsDefinitePreAppendRefusal(RpcException refused) => (refused.StatusCode, refused.Status.Detail) switch
     {
         (StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail) => true,
-        (StatusCode.FailedPrecondition, "stale-term") => true,
-        (StatusCode.FailedPrecondition, _) => string.Equals(refused.Trailers.GetValue("squirix-error-code"), "stale-owner", StringComparison.Ordinal),
+        (StatusCode.FailedPrecondition, GrpcStaleOwnerMarkers.StaleTermErrorCodeValue) => true,
+        (StatusCode.FailedPrecondition, _) => string.Equals(refused.Trailers.GetValue(GrpcStaleOwnerMarkers.ErrorCodeMetadataKey), "stale-owner", StringComparison.Ordinal),
         _ => false,
     };
 

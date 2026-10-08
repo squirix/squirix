@@ -84,11 +84,27 @@ internal static class LedGroupsTestKit
         IReplicaRpcGateway gateway,
         ILogicalNamespacedCache<object?> cache,
         ReplicaGroupApplier applier) =>
-        new(registry, new RotatingLocator(), gateway, cache, (groupId, "n1"), new ReplicaTopologyStamp(ReplicaOwnerTestKit.Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+        CreateElectedBudgetCommitter(registry, groupId, gateway, (cache, applier), TimeProvider.System);
+
+    /// <summary>Creates the committer of a group on node n1 that leads by election, with the commit budget on a clock of its own.</summary>
+    /// <param name="registry">Replica group registry of node n1, serving the group.</param>
+    /// <param name="groupId">The group.</param>
+    /// <param name="gateway">Follower transport double.</param>
+    /// <param name="local">The local cache pipeline and the applier of the group.</param>
+    /// <param name="budgetClock">The time source of the commit budget and of the follower request timeouts.</param>
+    /// <returns>The committer, leading by the election state of the group in <paramref name="registry" />.</returns>
+    internal static ReplicaGroupCommitter CreateElectedBudgetCommitter(
+        ReplicaGroupRegistry registry,
+        string groupId,
+        IReplicaRpcGateway gateway,
+        (ILogicalNamespacedCache<object?> Cache, ReplicaGroupApplier Applier) local,
+        TimeProvider budgetClock) =>
+        new(registry, new RotatingLocator(), gateway, local.Cache, (groupId, "n1"), new ReplicaTopologyStamp(ReplicaOwnerTestKit.Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
-            Applier = applier,
+            Applier = local.Applier,
             Election = registry.StateFor(groupId),
+            BudgetTimeProvider = budgetClock,
         };
 
     /// <summary>Reads the keys of the entries a group log holds, in log order.</summary>
