@@ -18,7 +18,7 @@ namespace Squirix.Server.Node.Services;
 /// <summary>Applies the committed entries of one replica group to local memory, densely in log order, and tracks how far they are applied.</summary>
 /// <remarks>
 /// One instance serves one group for its whole lifetime, so the applied index survives resyncs and coordinator replacement. The leader
-/// committer owns the instance of the owned group, and a follower group has its own, driven by one loop. Every
+/// committer drives the instance of a group this node leads, and the one loop of a follower group drives the instance of that group. Every
 /// apply path goes through <see cref="ApplyAsync" />: the commits of the running coordinator (own and late-majority entries alike) and
 /// the re-apply of committed entries at start. The callers serialize the applies (the coordinator's commit gate, or the committer
 /// gate while no coordinator runs, or the one loop of a follower group); the applied index is published with volatile writes because the applied-index flush reads it
@@ -32,7 +32,6 @@ internal sealed class ReplicaGroupApplier
     /// <summary>The largest number of committed entries read from the log in one batch.</summary>
     private const int BatchSize = 1024;
 
-    private readonly string _groupId;
     private readonly string _nodeId;
     private readonly ILogicalNamespacedCache<object?> _local;
     private readonly ILogger _log;
@@ -58,7 +57,7 @@ internal sealed class ReplicaGroupApplier
         ArgumentNullException.ThrowIfNull(groupId);
         ArgumentNullException.ThrowIfNull(nodeId);
         _local = local;
-        _groupId = groupId;
+        GroupId = groupId;
         _nodeId = nodeId;
         _log = log;
         _metrics = metrics;
@@ -68,12 +67,8 @@ internal sealed class ReplicaGroupApplier
     /// <remarks>Every entry at or below it has returned from its apply, so its cache journal frame is appended.</remarks>
     internal ulong AppliedIndex => Volatile.Read(ref _appliedIndex);
 
-    /// <summary>Initializes a value indicating whether the catch-up records the outcome of each applied entry in the idempotency state of the group log.</summary>
-    /// <remarks>
-    /// Set for a follower group, whose outcomes no commit of this node resolves, so a retry that reaches this node with the group finds
-    /// the outcome instead of running the operation again. The leader committer resolves the outcomes of its own group itself.
-    /// </remarks>
-    internal bool RecordsOutcomes { private get; init; }
+    /// <summary>Gets the identifier of the replica group whose entries this applier applies.</summary>
+    internal string GroupId { get; }
 
     /// <summary>Applies the next committed entry to memory and advances the applied index to it.</summary>
     /// <param name="logIndex">The log index of the entry.</param>
@@ -113,10 +108,7 @@ internal sealed class ReplicaGroupApplier
     /// <param name="commitIndex">The durable commit index of <paramref name="log" />.</param>
     /// <param name="cancellationToken">Cancellation token for reading the log; the applies themselves are not canceled.</param>
     /// <returns>A task that completes when the applied index reaches <paramref name="commitIndex" />.</returns>
-    /// <exception cref="InvalidOperationException">
-    /// The retained committed entries do not reach <paramref name="commitIndex" /> densely, or the applier records outcomes and the
-    /// outcomes of the group log are not rebuilt yet; in the latter case nothing is applied.
-    /// </exception>
+    /// <exception cref="InvalidOperationException">The retained committed entries do not reach <paramref name="commitIndex" /> densely.</exception>
     /// <exception cref="InvalidDataException">A committed entry is inconsistent; it and every later one stay unapplied.</exception>
     /// <remarks>
     /// Callers serialize the calls and the applies of one applier. After a restart memory holds at most what the cache journal kept,
@@ -127,7 +119,9 @@ internal sealed class ReplicaGroupApplier
     /// caller of the current execution, which can carry the idempotency scope of the write that started the committer; that scope would
     /// stamp their frames with a foreign operation id and count them as that RPC's effect, so they are applied on a pool thread started
     /// without the execution context. With no scope to inherit, the apply still marks itself as replicated, so each entry skips the wait
-    /// for its own node journal flush instead of holding the committer gate for one flush per entry.
+    /// for its own node journal flush instead of holding the committer gate for one flush per entry. Once the outcomes of the group log are
+    /// rebuilt, the outcome of each applied entry is recorded in its idempotency state, so a retry that reaches this node with the group
+    /// finds it; before the rebuild nothing is recorded, as the rebuild restores the outcome of every committed entry from the log.
     /// </remarks>
     internal async Task CatchUpAsync(IFollowerLog log, ulong durableAppliedIndex, ulong commitIndex, CancellationToken cancellationToken)
     {
@@ -141,7 +135,7 @@ internal sealed class ReplicaGroupApplier
         {
             var from = AppliedIndex;
             Volatile.Write(ref _appliedIndex, durableAppliedIndex);
-            ServerLog.ReplicaAppliedIndexReseeded(_log, _groupId, from, durableAppliedIndex);
+            ServerLog.ReplicaAppliedIndexReseeded(_log, GroupId, from, durableAppliedIndex);
         }
 
         if (AppliedIndex >= commitIndex)
@@ -256,10 +250,10 @@ internal sealed class ReplicaGroupApplier
 
     private async Task ReapplyCoreAsync(IFollowerLog log, ulong commitIndex, CancellationToken cancellationToken)
     {
-        // Checked before any effect: once the effect of an entry ran, its outcome must be recordable.
-        var outcomes = RecordsOutcomes ? log.Idempotency : null;
-        if (outcomes is { OutcomesRebuilt: false })
-            throw new InvalidOperationException($"The outcomes of group log {_groupId} are not rebuilt yet, so no committed entry is applied.");
+        // Read once before any effect: the rebuild never reverts, so once the effect of an entry ran its outcome stays recordable. Before
+        // the rebuild every entry applied here is still on the log, and the rebuild restores its outcome. The driver of this applier never
+        // runs the rebuild and the catch-up of the group at the same time.
+        var outcomes = log.Idempotency.OutcomesRebuilt ? log.Idempotency : null;
 
         while (AppliedIndex < commitIndex)
         {
@@ -288,8 +282,8 @@ internal sealed class ReplicaGroupApplier
         if (string.Equals(Interlocked.Exchange(ref _lastReported, error.Message), error.Message, StringComparison.Ordinal))
             return;
 
-        ServerLog.ReplicaInconsistentRecord(_log, _groupId, error);
-        _metrics?.ReportInconsistentRecord(_nodeId, _groupId);
+        ServerLog.ReplicaInconsistentRecord(_log, GroupId, error);
+        _metrics?.ReportInconsistentRecord(_nodeId, GroupId);
     }
 
     private Task StartReapplyAsync(IFollowerLog log, ulong commitIndex, CancellationToken cancellationToken) => Task.Factory.StartNew(

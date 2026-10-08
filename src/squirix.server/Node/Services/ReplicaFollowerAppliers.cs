@@ -13,7 +13,7 @@ namespace Squirix.Server.Node.Services;
 /// <remarks>
 /// One applier exists per follower group for the whole node lifetime, so its applied index survives resyncs. The apply loop of the
 /// group is the only caller of its catch-up, and the log maintenance pass flushes its applied index; the owned group's applier belongs
-/// to its committer instead. A follower applier records the outcome of every entry it applies in the idempotency state of the group log.
+/// to its committer instead. Once the outcomes of a group log are rebuilt, its applier records the outcome of every entry it applies.
 /// </remarks>
 [ThreadSafe]
 internal sealed class ReplicaFollowerAppliers
@@ -49,7 +49,7 @@ internal sealed class ReplicaFollowerAppliers
                 continue;
 
             groupIds.Add(groupId);
-            appliers.Add(groupId, new ReplicaGroupApplier(local, log, groupId, nodeId, metrics) { RecordsOutcomes = true });
+            appliers.Add(groupId, new ReplicaGroupApplier(local, log, groupId, nodeId, metrics));
         }
 
         _groupIds = [.. groupIds];
