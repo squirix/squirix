@@ -44,7 +44,7 @@ public sealed class QuorumReadWiringTests : NodeIntegrationTestBase
     {
         await using var fabric = new PartitionFabric();
         await using var cluster = await StartAsync(Options("quorum-wiring-failover", fabric, true), cancellationToken);
-        var ledger = new GroupAuthorityLedger(cluster, Owner, Bound);
+        var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Owner, Bound);
         var owner = cluster[Owner];
         var key = owner.FindKeyOwnedBy(Scope, Owner);
 

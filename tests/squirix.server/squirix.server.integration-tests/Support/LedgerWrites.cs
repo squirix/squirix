@@ -9,7 +9,7 @@ using Squirix.Server.TestKit.Hosting;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
-/// <summary>Writes committed through the committers of a node with authority over a group a <see cref="GroupAuthorityLedger" /> watches.</summary>
+/// <summary>Writes committed through the committers of a node with authority over a group a <see cref="GroupAuthorityLedger{TOptions}" /> watches.</summary>
 internal static class LedgerWrites
 {
     /// <summary>Commits one write through the committers of a node with authority, retrying while the group is not ready to take it.</summary>

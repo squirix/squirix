@@ -29,7 +29,7 @@ internal static class FencedReads
     /// <param name="key">A key of the group the ledger watches.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The text of the value read, or <see langword="null" /> when the key is absent.</returns>
-    internal static async Task<string?> ReadAsync(GroupAuthorityLedger ledger, ITestNodeHost host, string cacheName, string key, CancellationToken cancellationToken)
+    internal static async Task<string?> ReadAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost host, string cacheName, string key, CancellationToken cancellationToken)
     {
         var read = new StrongBox<string?>();
         await ledger.UntilValueAsync(
