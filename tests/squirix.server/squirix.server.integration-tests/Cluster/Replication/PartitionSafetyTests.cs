@@ -58,7 +58,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     {
         await using var fabric = new PartitionFabric();
         await using var cluster = await StartAsync(Three, Options("partition-majority", fabric), cancellationToken);
-        var ledger = new GroupAuthorityLedger(cluster, Group, Bound);
+        var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group, Bound);
         var (former, formerTerm) = await ledger.LeaderAsync(Three, 0UL, "the group gets a leader", cancellationToken);
         var key = cluster[former].FindKeyOwnedBy(Scope, Group);
         await CommitAsync(ledger, cluster[former], key, cancellationToken);
@@ -85,7 +85,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     {
         await using var fabric = new PartitionFabric();
         await using var cluster = await StartAsync(Three, Options("partition-minority-read", fabric), cancellationToken);
-        var ledger = new GroupAuthorityLedger(cluster, Group, Bound);
+        var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group, Bound);
         var (former, formerTerm) = await ledger.LeaderAsync(Three, 0UL, "the group gets a leader", cancellationToken);
 
         await fabric.IsolateAsync(former);
@@ -114,7 +114,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     {
         await using var fabric = new PartitionFabric();
         await using var cluster = await StartAsync(Three, Options("partition-former-leader", fabric), cancellationToken);
-        var ledger = new GroupAuthorityLedger(cluster, Group, Bound);
+        var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group, Bound);
         var (former, formerTerm) = await ledger.LeaderAsync(Three, 0UL, "the group gets a leader", cancellationToken);
 
         await fabric.IsolateAsync(former);
@@ -134,7 +134,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     {
         await using var fabric = new PartitionFabric();
         await using var cluster = await StartAsync(Three, Options("partition-one-leader", fabric), cancellationToken);
-        var ledger = new GroupAuthorityLedger(cluster, Group, Bound);
+        var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group, Bound);
         var leader = await ledger.LeaderAsync(Three, 0UL, "the group gets a leader", cancellationToken);
 
         for (var round = 0; round < 3; round++)
@@ -157,7 +157,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         string[] four = ["node-a", "node-b", "node-c", "node-d"];
         await using var fabric = new PartitionFabric();
         await using var cluster = await StartAsync(four, Options("partition-rf4-split", fabric, 4), cancellationToken);
-        var ledger = new GroupAuthorityLedger(cluster, Group, Bound);
+        var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group, Bound);
         var (leader, term) = await ledger.LeaderAsync(four, 0UL, "the group gets a leader", cancellationToken);
         var others = Without(four, leader);
 
@@ -178,7 +178,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         string[] five = ["node-a", "node-b", "node-c", "node-d", "node-e"];
         await using var fabric = new PartitionFabric();
         await using var cluster = await StartAsync(five, Options("partition-rf5", fabric, 5), cancellationToken);
-        var ledger = new GroupAuthorityLedger(cluster, Group, Bound);
+        var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group, Bound);
         var (former, formerTerm) = await ledger.LeaderAsync(five, 0UL, "the group gets a leader", cancellationToken);
         var others = Without(five, former);
         string[] minority = [former, others[0]];
@@ -204,7 +204,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     {
         await using var fabric = new PartitionFabric();
         await using var cluster = await StartAsync(Three, Options("partition-follower", fabric), cancellationToken);
-        var ledger = new GroupAuthorityLedger(cluster, Group, Bound);
+        var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group, Bound);
         var (leader, term) = await ledger.LeaderAsync(Three, 0UL, "the group gets a leader", cancellationToken);
 
         // A leader authorized by one follower while the other still starts may lose its quorum check to that start, not to the cut.
@@ -228,7 +228,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         await using var fabric = new PartitionFabric();
         var options = Options("partition-returned-follower", fabric, 3, static services => services.AddSingleton(new ReplicaReadinessOptions { InitialDelay = TimeSpan.FromHours(1), MaxDelay = TimeSpan.FromHours(1) }));
         await using var cluster = await StartAsync(Three, options, cancellationToken);
-        var ledger = new GroupAuthorityLedger(cluster, Group, Bound);
+        var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group, Bound);
         var (leader, _) = await ledger.LeaderAsync(Three, 0UL, "the group gets a leader", cancellationToken);
         var eligibility = cluster[leader].GetRequiredService<ReplicaGroupRegistry>().EligibilityFor(Group);
         await ledger.UntilAsync(eligibility.AllCanCountInWriteQuorum, "every follower counts in the write quorum", cancellationToken);
@@ -253,7 +253,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A task that completes once the write committed.</returns>
     /// <remarks>Every attempt carries the same operation identifier, so a retry never writes twice.</remarks>
-    private static Task CommitAsync(GroupAuthorityLedger ledger, ITestNodeHost node, string key, CancellationToken cancellationToken) =>
+    private static Task CommitAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost node, string key, CancellationToken cancellationToken) =>
         ledger.UntilValueAsync(
             (Committers: Committers(node), Key: key, OperationId: Guid.NewGuid().ToString("N")),
             static async (write, token) =>

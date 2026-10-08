@@ -239,6 +239,12 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
         throw new ObjectDisposedException(nameof(TestCluster<>), "The cluster was disposed while the node was starting.");
     }
 
+    /// <summary>Gets the started node with the supplied identifier, when it runs.</summary>
+    /// <param name="nodeId">Node identifier.</param>
+    /// <param name="node">The started test node host; <see langword="null" /> when the node was never started or was already stopped.</param>
+    /// <returns><see langword="true" /> when the node runs.</returns>
+    public bool TryGetNode(string nodeId, [NotNullWhen(true)] out ITestNodeHost? node) => _nodes.TryGetValue(nodeId, out node);
+
     /// <summary>Stops and removes one node while leaving the rest of the cluster running.</summary>
     /// <remarks>Stopping a node that is already stopped is a no-op; the identifier must still belong to the topology.</remarks>
     /// <param name="nodeId">Node identifier to stop.</param>
