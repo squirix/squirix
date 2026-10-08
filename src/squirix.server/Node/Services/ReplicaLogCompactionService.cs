@@ -144,12 +144,14 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
     /// <returns>A task that completes when the group was maintained or its failure was logged.</returns>
     private async Task MaintainFollowerLogAsync(string groupId, CancellationToken stoppingToken)
     {
-        if (!_registry.TryGetLog(groupId, out var log))
+        // A committer leading the group by election holds the lease of its applier and maintains the log under its commit gate.
+        var applier = _appliers.For(groupId);
+        if (!_registry.TryGetLog(groupId, out var log) || !applier.DriverLease.TryLock(out var lease))
             return;
 
         try
         {
-            await _appliers.For(groupId).FlushAsync(log, _durability, stoppingToken).ConfigureAwait(false);
+            await applier.FlushAsync(log, _durability, stoppingToken).ConfigureAwait(false);
             Report(groupId, await ReplicaLogCompactionStep.RunFollowerAsync(log, _policy, stoppingToken).ConfigureAwait(false));
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException && !stoppingToken.IsCancellationRequested)
@@ -161,6 +163,10 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
 
             _failed[groupId] = exception.GetType();
             return;
+        }
+        finally
+        {
+            lease.Dispose();
         }
 
         _ = _failed.Remove(groupId);

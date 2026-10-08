@@ -105,6 +105,44 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         _ = await Assert.That((retention.SnapshotIndex, retention.RetainedEntries)).IsEqualTo((3UL, 1));
     }
 
+    /// <summary>A group whose applier lease is held by a committer leading it is skipped by the follower pass: its log is neither flushed nor compacted.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FollowerPassSkipsLeasedGroup(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-maintenance-follower-leased");
+        await using var registry = await OpenRegistryAsync(dir, ["n1", "n2", "n3"], null, cancellationToken);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway());
+        using var meter = new Meter("test");
+        var metrics = new ReplicationMetrics(meter);
+        var appliers = new ReplicaGroupAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics);
+        var log = await SeedAsync(registry, "n2", 4, 3UL, cancellationToken);
+        _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
+        await appliers.For("n2").CatchUpAsync(log, 0UL, 3UL, cancellationToken);
+        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
+        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        using var service = new ReplicaLogCompactionService(
+            LeadOwn(committer),
+            durability.Instance(),
+            new ReplicaLogCompactionOptions(),
+            new ReplicaLogCompactionPolicy(long.MaxValue, 2),
+            metrics,
+            appliers,
+            registry,
+            NullLogger<ReplicaLogCompactionService>.Instance,
+            TimeProvider.System);
+        _ = appliers.For("n2").DriverLease.TryLock(out var lease);
+
+        await service.RunOnceAsync(cancellationToken);
+        var whileHeld = (await log.GetStatusAsync(cancellationToken)).LastAppliedIndex;
+        lease.Dispose();
+        await service.RunOnceAsync(cancellationToken);
+
+        var status = await log.GetStatusAsync(cancellationToken);
+        var retention = await log.GetRetentionAsync(cancellationToken);
+        _ = await Assert.That((whileHeld, status.LastAppliedIndex, retention.SnapshotIndex)).IsEqualTo((0UL, 3UL, 3UL));
+    }
+
     /// <summary>
     /// A follower group log is not compacted before its applier rebuilt the outcomes of the applied entries, which the snapshot would
     /// otherwise lose with their frames; after the rebuild it is.

@@ -126,6 +126,53 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         _ = await Assert.That((appliers.For("n1").AppliedIndex, appliers.For("n3").AppliedIndex)).IsEqualTo((0UL, 2UL));
     }
 
+    /// <summary>
+    /// While another driver holds the lease of a group applier, the apply loop of the group skips its passes, so nothing is applied twice;
+    /// once the lease is released, the next pass applies the committed entries.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ApplyLoopSkipsPassWhileLeaseHeld(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-apply-service-lease");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await SeedAsync(registry, "n2", 1UL, cancellationToken, "k1");
+        await SeedAsync(registry, "n3", 1UL, cancellationToken, "m1");
+        var cache = new StubCache();
+        using var meter = new Meter("test");
+        var appliers = CreateAppliers(registry, cache, meter);
+        _ = appliers.For("n2").DriverLease.TryLock(out var lease);
+        using var service = new ReplicaApplyService(
+            registry,
+            appliers,
+            LeadOwnGroup(registry, appliers),
+            ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            NullLogger<ReplicaApplyService>.Instance,
+            new FakeTimeProvider());
+        var other = WhenAppliedAsync(cache, 1);
+
+        await service.StartAsync(cancellationToken);
+        ulong whileHeld;
+        try
+        {
+            // The loop of n2 skipped its first pass and every pass its signal wakes while the lease is held.
+            await other.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            registry.ApplySignalFor("n2").Notify();
+            whileHeld = appliers.For("n2").AppliedIndex;
+            var released = WhenAppliedAsync(cache, 2);
+            lease.Dispose();
+            registry.ApplySignalFor("n2").Notify();
+            await released.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That((whileHeld, appliers.For("n2").AppliedIndex)).IsEqualTo((0UL, 1UL));
+        await SequenceAssert.EqualAsync(["m1", "k1"], cache.Applied.ToArray(), StringComparer.Ordinal);
+    }
+
     /// <summary>An entry the follower path appends and commits wakes the apply loop of its group, with no fallback pass.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

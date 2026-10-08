@@ -118,26 +118,35 @@ internal sealed class ReplicaApplyService : BackgroundService
         (Type Type, ulong AppliedIndex)? reported = null;
         while (true)
         {
-            try
+            // A committer leading the group by election holds the lease and drives the applier itself: the pass is skipped until it hands
+            // the group back.
+            if (applier.DriverLease.TryLock(out var lease))
             {
-                await CatchUpAsync(groupId, applier, log, stoppingToken).ConfigureAwait(false);
-                reported = null;
-            }
-            catch (InvalidDataException exception)
-            {
-                // The record never reached memory, and every later entry depends on it: the group stops here instead of skipping it.
-                ServerLog.ReplicaFollowerApplyStopped(_log, groupId, exception);
-                return;
-            }
-            catch (Exception exception) when (IsRetryable(exception) && !stoppingToken.IsCancellationRequested)
-            {
-                // The same fault repeats on every pass until it clears, so it is logged when its kind or the entry it stops at changes, not
-                // on every retry; its message may name the commit index, which moves on while the fault stays.
-                var fault = (exception.GetType(), applier.AppliedIndex);
-                if (reported != fault)
+                try
                 {
-                    reported = fault;
-                    ServerLog.ReplicaFollowerApplyRetry(_log, groupId, exception);
+                    await CatchUpAsync(groupId, applier, log, stoppingToken).ConfigureAwait(false);
+                    reported = null;
+                }
+                catch (InvalidDataException exception)
+                {
+                    // The record never reached memory, and every later entry depends on it: the group stops here instead of skipping it.
+                    ServerLog.ReplicaFollowerApplyStopped(_log, groupId, exception);
+                    return;
+                }
+                catch (Exception exception) when (IsRetryable(exception) && !stoppingToken.IsCancellationRequested)
+                {
+                    // The same fault repeats on every pass until it clears, so it is logged when its kind or the entry it stops at changes,
+                    // not on every retry; its message may name the commit index, which moves on while the fault stays.
+                    var fault = (exception.GetType(), applier.AppliedIndex);
+                    if (reported != fault)
+                    {
+                        reported = fault;
+                        ServerLog.ReplicaFollowerApplyRetry(_log, groupId, exception);
+                    }
+                }
+                finally
+                {
+                    lease.Dispose();
                 }
             }
 

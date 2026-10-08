@@ -248,6 +248,27 @@ public sealed class AsyncLockTests : ServerUnitTestBase
         asyncLock.Dispose();
     }
 
+    /// <summary>A free lock is taken without waiting; a held lock, one with queued waiters, and a disposed lock are refused.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FreeTakeRefusesHeldOrDisposedLock(CancellationToken cancellationToken)
+    {
+        var asyncLock = new AsyncLock();
+        var taken = asyncLock.TryLock(out var holder);
+        var whileHeld = asyncLock.TryLock(out _);
+        var waiter = asyncLock.LockAsync(cancellationToken);
+        holder.Dispose();
+        var queuedHolder = await waiter;
+        var whileHandedOff = asyncLock.TryLock(out _);
+        queuedHolder.Dispose();
+        var afterRelease = asyncLock.TryLock(out var again);
+        again.Dispose();
+        asyncLock.Dispose();
+        var afterDispose = asyncLock.TryLock(out _);
+
+        _ = await Assert.That((taken, whileHeld, whileHandedOff, afterRelease, afterDispose)).IsEqualTo((true, false, false, true, false));
+    }
+
     private static async Task RunStressRoundAsync(bool disposeMidway, CancellationToken cancellationToken)
     {
         var state = new StressState(new AsyncLock());

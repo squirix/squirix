@@ -122,6 +122,25 @@ internal sealed class AsyncLock : IDisposable
         }
     }
 
+    /// <summary>Takes the lock only when it is free, without waiting or queueing.</summary>
+    /// <param name="holder">The holder that releases the lock when disposed; <see langword="default"/> when the lock was not taken.</param>
+    /// <returns><see langword="true"/> when the lock was free and is now held; <see langword="false"/> when it is held or disposed.</returns>
+    /// <remarks>A lock with queued waiters is held, so a free take never overtakes them.</remarks>
+    internal bool TryLock(out AsyncLockHolder holder)
+    {
+        lock (_sync)
+        {
+            if (Volatile.Read(ref _disposed) == 0 && TryTakeFree(out var generation))
+            {
+                holder = new AsyncLockHolder(this, generation);
+                return true;
+            }
+        }
+
+        holder = default;
+        return false;
+    }
+
     /// <summary>Releases the acquisition issued <paramref name="generation"/>: hands ownership to the oldest queued waiter, or marks the lock free when none is queued.</summary>
     /// <param name="generation">The generation of the releasing acquisition.</param>
     /// <returns><see langword="true"/> when this call released the acquisition; <see langword="false"/> when it no longer held the lock.</returns>
