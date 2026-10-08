@@ -10,8 +10,9 @@ namespace Squirix.Server.Cluster.Replication;
 /// <summary>The leader table of a node with replicated groups, read from the election state of each served group.</summary>
 /// <remarks>
 /// The election state is the only source of authority and of the known leader: the table keeps no copy that could lag behind a step-down,
-/// so authority disappears from it at the moment the state revokes it. The table only remembers, per served group, the one route that
-/// answered as stale, and hides it until the state reports another route; that memory is process-local and never durable.
+/// so authority disappears from it at the moment the state revokes it. The table only remembers, per served group, the refuted route of
+/// the highest term, and hides every known leader of that term or below until the state reports a leader of a higher term; that memory
+/// is process-local and never durable.
 /// </remarks>
 [ThreadSafe]
 internal sealed class ReplicaLeaderTable : IGroupLeaderTable
@@ -58,10 +59,10 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
         if (!view.HasLeader || !_refuted.TryGetValue(groupId, out var refuted))
             return view;
 
-        if (view.Known == refuted)
+        if (view.Known.Term <= refuted.Term)
             return view with { Known = default };
 
-        // The state reports another route: the refutation is spent. Only the refutation read here is removed, never a newer one.
+        // The state reports a leader of a higher term: the refutation is spent. Only the refutation read here is removed, never a newer one.
         _ = _refuted.TryRemove(new KeyValuePair<string, LeaderRoute>(groupId, refuted));
         return view;
     }
@@ -72,7 +73,8 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
         if (string.IsNullOrEmpty(route.NodeId) || !_registry.TryGetState(groupId, out _))
             return;
 
-        _refuted[groupId] = route;
+        // The refutation of the higher term is kept, so a late refutation of an older route cannot bring back a newer stale one.
+        _ = _refuted.AddOrUpdate(groupId, static (_, added) => added, static (_, kept, added) => added.Term >= kept.Term ? added : kept, route);
     }
 
     /// <inheritdoc />
@@ -99,7 +101,7 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
             if (TryGetLeader(groupId, out _))
                 return true;
 
-            var remaining = timeout - clock.GetElapsedTime(started);
+            var remaining = timeout == Timeout.InfiniteTimeSpan ? timeout : timeout - clock.GetElapsedTime(started);
             if (!await state.RouteChanged.WaitAsync(version, remaining, clock, cancellationToken).ConfigureAwait(false))
                 return TryGetLeader(groupId, out _);
         }

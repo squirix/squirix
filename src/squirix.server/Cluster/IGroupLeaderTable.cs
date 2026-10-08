@@ -26,21 +26,31 @@ internal interface IGroupLeaderTable
     /// </returns>
     GroupLeaderView Read(string groupId);
 
-    /// <summary>Stops reporting a route that answered as stale, until the group reports another one.</summary>
+    /// <summary>Stops reporting a route that answered as stale, and any known leader of its term or below, until a higher term is known.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="route">The route that answered as stale.</param>
-    /// <remarks>Authority of this node is never refuted: the election state alone revokes it.</remarks>
+    /// <remarks>
+    /// Of several refutations the one of the highest term is kept. Authority of this node is never refuted: the election state alone
+    /// revokes it.
+    /// </remarks>
     void Refute(string groupId, in LeaderRoute route);
 
     /// <summary>Reads the leader of a group: this node when it has authority, otherwise the leader it last accepted contact from.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="route">The leader and its term; <see langword="default" /> when none is known.</param>
     /// <returns><see langword="true" /> when a leader is known.</returns>
+    /// <remarks>
+    /// Refuted routes are hidden here as in <see cref="Read" />, so no caller, the stale-owner refusal of a write included, names a route that
+    /// already answered as stale; such a caller sees no known leader instead.
+    /// </remarks>
     bool TryGetLeader(string groupId, out LeaderRoute route);
 
     /// <summary>Waits until a leader of a group is known, or <paramref name="timeout" /> elapses.</summary>
     /// <param name="groupId">Replica group identifier.</param>
-    /// <param name="timeout">The longest wait; zero or less checks once without waiting.</param>
+    /// <param name="timeout">
+    /// The longest wait; <see cref="Timeout.InfiniteTimeSpan" /> waits until a leader is known or the wait is canceled; any other value of
+    /// zero or less checks once without waiting.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait by throwing.</param>
     /// <returns><see langword="true" /> when <see cref="TryGetLeader" /> now succeeds; <see langword="false" /> on timeout or for an unserved group.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>

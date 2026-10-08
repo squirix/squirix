@@ -228,6 +228,10 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     /// The stale-owner refusal naming the owner when the led set is fixed, or naming the known leader when it is another node; otherwise,
     /// while this node leads the group without authority yet or knows no leader, the retryable Unavailable refusal.
     /// </returns>
+    /// <remarks>
+    /// The leader table hides refuted routes on purpose, so this refusal never names a leader that already answered as stale; it answers
+    /// Unavailable instead. A refusal derived from the full leader view is meant to replace this one.
+    /// </remarks>
     private Grpc.Core.RpcException Refusal(string groupId)
     {
         if (_authority is not { } table)

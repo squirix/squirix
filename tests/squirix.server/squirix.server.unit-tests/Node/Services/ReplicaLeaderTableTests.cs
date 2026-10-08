@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -20,6 +21,9 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     private static readonly string[] Groups = ["n1", "n2", "n3"];
 
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
+    private static readonly TimeSpan[] InvalidWaits =
+        [TimeSpan.Zero, TimeSpan.FromMilliseconds(-5), Timeout.InfiniteTimeSpan, ElectionTimerOptions.MaxLeaderWaitTimeout + TimeSpan.FromTicks(1)];
 
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(2);
 
@@ -212,6 +216,124 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
         _ = await Assert.That(new ElectionTimerOptions().LeaderWaitTimeout).IsEqualTo(TimeSpan.FromSeconds(2));
         _ = await Assert.That(options.LeaderWaitTimeout).IsEqualTo(TimeSpan.FromMilliseconds(500));
         _ = await Assert.That(pinned.LeaderWaitTimeout).IsEqualTo(TimeSpan.FromMilliseconds(50));
+    }
+
+    /// <summary>An explicit wait for a leader must be positive and bounded; an infinite wait is refused.</summary>
+    [Test]
+    public async Task UnboundedWaitIsRefused()
+    {
+        foreach (var value in InvalidWaits)
+            _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(value, static v => _ = new ElectionTimerOptions { LeaderWaitTimeout = v });
+
+        _ = await Assert.That(new ElectionTimerOptions { LeaderWaitTimeout = ElectionTimerOptions.MaxLeaderWaitTimeout }.LeaderWaitTimeout)
+            .IsEqualTo(ElectionTimerOptions.MaxLeaderWaitTimeout);
+    }
+
+    /// <summary>
+    /// A refutation of a newer route does not spend an older one: the older route the state still reports stays hidden until a leader of a
+    /// higher term than every refutation is known.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RefutationKeepsHighestTerm(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-leader-refuted-highest");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var table = new ReplicaLeaderTable(registry, "n1");
+        var state = registry.StateFor("n2");
+        state.ObserveLeaderContact("n2", 3UL);
+        table.Refute("n2", new LeaderRoute("n2", 3UL));
+        table.Refute("n2", new LeaderRoute("n3", 4UL));
+        var first = table.TryGetLeader("n2", out _);
+        table.Refute("n2", new LeaderRoute("n2", 3UL));
+        var second = table.TryGetLeader("n2", out _);
+
+        state.ObserveLeaderContact("n3", 4UL);
+        var sameTerm = table.TryGetLeader("n2", out _);
+        state.ObserveLeaderContact("n3", 5UL);
+
+        _ = await Assert.That((first, second, sameTerm)).IsEqualTo((false, false, false));
+        _ = await Assert.That((table.TryGetLeader("n2", out var route), route)).IsEqualTo((true, new LeaderRoute("n3", 5UL)));
+    }
+
+    /// <summary>A canceled wait for a leader throws, an infinite one included.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CanceledWaitThrows(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-leader-wait-cancel");
+        await using var registry = await OpenTimedRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
+        var table = new ReplicaLeaderTable(registry, "n1");
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var wait = table.WaitForLeaderAsync("n2", Timeout.InfiniteTimeSpan, cancel.Token);
+        var pending = wait.IsCompleted;
+
+        await cancel.CancelAsync();
+
+        _ = await Assert.That(pending).IsFalse();
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(wait);
+    }
+
+    /// <summary>A candidate that falls back to follower while it still knows the leader wakes the waiter with that leader.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WaitWakesOnCandidateFollower(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-leader-wait-candidate");
+        await using var registry = await OpenTimedRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
+        var table = new ReplicaLeaderTable(registry, "n1");
+        var state = registry.StateFor("n2");
+        state.ObserveLeaderContact("n3", 3UL);
+        state.SetElectionDriven(true);
+        state.BecomePreCandidate();
+        state.BecomeCandidate(4UL);
+        var wait = table.WaitForLeaderAsync("n2", Wait, cancellationToken).AsTask();
+        var pending = wait.IsCompleted;
+
+        state.BecomeFollower(4UL, false);
+
+        _ = await Assert.That(pending).IsFalse();
+        _ = await Assert.That(await wait.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsTrue();
+        _ = await Assert.That((table.TryGetLeader("n2", out var route), route)).IsEqualTo((true, new LeaderRoute("n3", 3UL)));
+    }
+
+    /// <summary>A stopped driver leaves the group a follower of the leader it knows, which wakes the waiter.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WaitWakesWhenDriverStops(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-leader-wait-undriven");
+        await using var registry = await OpenTimedRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
+        var table = new ReplicaLeaderTable(registry, "n1");
+        var state = registry.StateFor("n2");
+        state.ObserveLeaderContact("n3", 3UL);
+        state.SetElectionDriven(true);
+        state.BecomePreCandidate();
+        var wait = table.WaitForLeaderAsync("n2", Wait, cancellationToken).AsTask();
+        var pending = wait.IsCompleted;
+
+        state.SetElectionDriven(false);
+
+        _ = await Assert.That(pending).IsFalse();
+        _ = await Assert.That(await wait.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsTrue();
+    }
+
+    /// <summary>A zero timeout checks the table once and never waits.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ZeroTimeoutChecksOnce(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-leader-wait-zero");
+        await using var registry = await OpenTimedRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
+        var table = new ReplicaLeaderTable(registry, "n1");
+        var none = table.WaitForLeaderAsync("n2", TimeSpan.Zero, cancellationToken);
+        var noneResult = (none.IsCompleted, await none);
+        registry.StateFor("n2").ObserveLeaderContact("n3", 3UL);
+
+        var known = table.WaitForLeaderAsync("n2", TimeSpan.Zero, cancellationToken);
+
+        _ = await Assert.That(noneResult).IsEqualTo((true, false));
+        _ = await Assert.That((known.IsCompleted, await known)).IsEqualTo((true, true));
     }
 
     private static async Task<ReplicaGroupRegistry> OpenTimedRegistryAsync(TempDirectory dir, TimeProvider time, CancellationToken cancellationToken)
