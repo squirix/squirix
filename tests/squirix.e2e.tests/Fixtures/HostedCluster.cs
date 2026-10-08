@@ -20,19 +20,23 @@ internal sealed class HostedCluster : IAsyncDisposable
 {
     private static readonly string[] SingleNodeIds = ["nodeA"];
 
+    private static readonly string[] FiveNodeIds = ["nodeA", "nodeB", "nodeC", "nodeD", "nodeE"];
+
     private static readonly SemaphoreSlim StartupGate = new(ClusterStartupLimit.MaxConcurrentStartups, ClusterStartupLimit.MaxConcurrentStartups);
     private static readonly string[] ThreeNodeIds = ["nodeA", "nodeB", "nodeC"];
     private static readonly string[] TwoNodeIds = ["nodeA", "nodeB"];
 
     private readonly List<ISquirixClient> _clients = [];
-    private readonly TestCluster<ClusterStartOptions> _cluster;
     private readonly Dictionary<string, ISquirixClient> _nodeClients = [with(StringComparer.Ordinal)];
     private int _disposed;
 
     private HostedCluster(TestCluster<ClusterStartOptions> cluster)
     {
-        _cluster = cluster;
+        Cluster = cluster;
     }
+
+    /// <summary>Gets the underlying test cluster, for the testkit probes that read node state.</summary>
+    internal TestCluster<ClusterStartOptions> Cluster { get; }
 
     public async ValueTask DisposeAsync()
     {
@@ -47,7 +51,7 @@ internal sealed class HostedCluster : IAsyncDisposable
             await client.DisposeAsync();
 
         _nodeClients.Clear();
-        await _cluster.DisposeAsync();
+        await Cluster.DisposeAsync();
     }
 
     internal static ValueTask<HostedCluster> StartSingleNodeAsync(
@@ -61,6 +65,18 @@ internal sealed class HostedCluster : IAsyncDisposable
         var options = new MultiNodeStartOptions { Security = security, TimeProvider = timeProvider, ServicesConfigure = configure };
         return StartAsync(SingleNodeIds, options, name, persistence, cancellationToken);
     }
+
+    /// <summary>Starts a five-node cluster for RF=5 and wide-topology failover scenarios.</summary>
+    /// <param name="testName">Label used when creating a persistence temp directory.</param>
+    /// <param name="options">Replica count, failover, clock, fabric, security, and mTLS profile overrides.</param>
+    /// <param name="usePersistence">When <see langword="true" />, each node gets an isolated data directory.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A hosted cluster owning the started nodes.</returns>
+    internal static ValueTask<HostedCluster> StartFiveNodeAsync(
+        string? testName = null,
+        MultiNodeStartOptions? options = null,
+        bool usePersistence = false,
+        CancellationToken cancellationToken = default) => StartAsync(FiveNodeIds, options, testName, usePersistence, cancellationToken);
 
     /// <summary>Starts a three-node cluster for RF=3 quorum scenarios.</summary>
     /// <param name="testName">Label used when creating a persistence temp directory.</param>
@@ -89,11 +105,11 @@ internal sealed class HostedCluster : IAsyncDisposable
     /// <summary>Shuts one running node down abruptly, without a graceful drain, leaving it registered until it is stopped or restarted.</summary>
     /// <param name="nodeId">Node identifier.</param>
     /// <returns>A task that completes when the node has shut down.</returns>
-    internal ValueTask AbruptShutdownNodeAsync(string nodeId) => _cluster[nodeId].AbruptShutdownAsync();
+    internal ValueTask AbruptShutdownNodeAsync(string nodeId) => Cluster[nodeId].AbruptShutdownAsync();
 
     internal async ValueTask<ISquirixClient> ConnectClientAsync(string nodeId = "nodeA", CancellationToken cancellationToken = default)
     {
-        var client = await LoopbackConnect.ConnectAsync(_cluster[nodeId].Uri, cancellationToken);
+        var client = await LoopbackConnect.ConnectAsync(Cluster[nodeId].Uri, cancellationToken);
         _clients.Add(client);
         return client;
     }
@@ -113,17 +129,17 @@ internal sealed class HostedCluster : IAsyncDisposable
         if (_nodeClients.TryGetValue(nodeId, out var client))
             return await client.GetCacheAsync<T>(cacheName, cancellationToken);
 
-        client = await LoopbackConnect.ConnectAsync(_cluster[nodeId].Uri, cancellationToken);
+        client = await LoopbackConnect.ConnectAsync(Cluster[nodeId].Uri, cancellationToken);
         _nodeClients[nodeId] = client;
         return await client.GetCacheAsync<T>(cacheName, cancellationToken);
     }
 
-    internal Uri GetUri(string nodeId) => _cluster[nodeId].Uri;
+    internal Uri GetUri(string nodeId) => Cluster[nodeId].Uri;
 
     /// <summary>Gets a value indicating whether a running node opened the internode mTLS listener.</summary>
     /// <param name="nodeId">Node identifier.</param>
     /// <returns><see langword="true" /> when the node listens for internode mTLS traffic.</returns>
-    internal bool HasInterNodeMtlsListener(string nodeId) => _cluster[nodeId].HasInterNodeMtlsListener;
+    internal bool HasInterNodeMtlsListener(string nodeId) => Cluster[nodeId].HasInterNodeMtlsListener;
 
     /// <summary>Stops one node and starts it again on the same data directory and listen address.</summary>
     /// <param name="id">Node identifier to restart.</param>
@@ -135,7 +151,7 @@ internal sealed class HostedCluster : IAsyncDisposable
         // shutting down while the new one binds the same URI and data directory.
         await StopNodeAsync(id);
         cancellationToken.ThrowIfCancellationRequested();
-        _ = await _cluster.RestartNodeAsync(id, null, cancellationToken);
+        _ = await Cluster.RestartNodeAsync(id, null, cancellationToken);
     }
 
     /// <summary>Stops and removes one HostedCluster node while leaving other nodes running.</summary>
@@ -151,7 +167,7 @@ internal sealed class HostedCluster : IAsyncDisposable
         }
         finally
         {
-            await _cluster.StopNodeAsync(id);
+            await Cluster.StopNodeAsync(id);
         }
     }
 
@@ -168,7 +184,11 @@ internal sealed class HostedCluster : IAsyncDisposable
         ReplicaCount = startOptions.ReplicaCount,
         Security = startOptions.Security,
         MtlsProfile = startOptions.GetProfile(nodeId),
-        TimeProvider = startOptions.TimeProvider,
+        TimeProvider = startOptions.ClockFor(nodeId),
+        AutomaticFailoverEnabled = startOptions.Failover,
+        QuorumReadsEnabled = startOptions.Failover,
+        ElectionTiming = startOptions.ElectionTiming,
+        PartitionFabric = startOptions.PartitionFabric,
         ServicesConfigure = startOptions.ServicesConfigure == null ? null : services => startOptions.ServicesConfigure(nodeId, services),
     };
 
@@ -186,6 +206,8 @@ internal sealed class HostedCluster : IAsyncDisposable
         bool usePersistence,
         CancellationToken cancellationToken = default)
     {
+        startOptions?.EnsureElectionClocks(nodeIds);
+
         // Cap concurrent cluster startups process-wide: cold Debug host builds and RSA key
         // generation are CPU-heavy, and a thundering herd at session start pushes single
         // startups past the fixture budgets. Queued starters observe cancellation, and tests
