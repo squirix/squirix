@@ -34,13 +34,13 @@ internal sealed class ElectionTimerOptions
     /// </remarks>
     internal TimeSpan LeaderWaitTimeout => LeaderWaitTimeoutOverride ?? (ElectionTimeout + MaxJitter);
 
-    /// <summary>Gets the explicit longest wait for a leader, or <see langword="null" /> for the default of <see cref="LeaderWaitTimeout" />.</summary>
+    /// <summary>Initializes the explicit longest wait for a leader; <see langword="null" /> keeps the default of <see cref="LeaderWaitTimeout" />.</summary>
     /// <remarks>
     /// It must be positive and at most <see cref="MaxLeaderWaitTimeout" />; <see cref="System.Threading.Timeout.InfiniteTimeSpan" /> is
     /// refused, because a wait for a leader is always bounded. <see cref="EnsureValidLeaderWait" /> checks it once, when the leader table
     /// is built.
     /// </remarks>
-    internal TimeSpan? LeaderWaitTimeoutOverride { get; init; }
+    internal TimeSpan? LeaderWaitTimeoutOverride { private get; init; }
 
     /// <summary>Gets the largest random delay added to <see cref="ElectionTimeout" /> each time a follower arms its election.</summary>
     internal TimeSpan MaxJitter { get; init; } = TimeSpan.FromSeconds(1);
