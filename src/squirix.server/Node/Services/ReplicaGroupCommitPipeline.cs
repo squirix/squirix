@@ -110,6 +110,8 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         entries[0] = new FollowerLogEntry(mutation.LogIndex, mutation.Term, mutation.CanonicalPayload);
         var request = new FollowerLogAppendRequest(_selfId, mutation.Term, _prevLogIndex, _prevLogTerm, _commitIndex, new ReadOnlyMemory<FollowerLogEntry>(entries));
         var result = await _log.AppendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!result.Success && string.Equals(result.RefusalCode, FollowerLogRefusal.StaleTerm, StringComparison.Ordinal))
+            throw new ReplicaTermSupersededException($"Local group append was refused: the log holds a term above the entry term {mutation.Term}.");
         if (!result.Success)
             throw new InvalidOperationException($"Local group append was refused: {result.RefusalCode}.");
 

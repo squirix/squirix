@@ -84,6 +84,27 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
         _ = await Assert.That((await Log(registry).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
     }
 
+    /// <summary>A failed append whose entry the log already holds is an unknown outcome even when the failure reads as a stale-term refusal.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HeldEntryWinsOverStaleTerm(CancellationToken cancellationToken)
+    {
+        using var hooks = new StallableFollowerLogFaultHooks();
+        await using var registry = await OpenRegistryAsync(hooks, cancellationToken);
+        await using var committer = CreateCommitter(registry, TimeProvider.System);
+        await committer.CommitSetAsync(Guid.NewGuid().ToString("N"), "cache", "k1", Entry(), cancellationToken);
+
+        hooks.StallNextMetaWrite();
+        var write = committer.CommitSetAsync(Guid.NewGuid().ToString("N"), "cache", "k2", Entry(), cancellationToken);
+        await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        hooks.ReleaseWithFailure(new ReplicaTermSupersededException("Injected stale-term refusal after the frames were written."));
+
+        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+
+        _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
+        _ = await Assert.That((await Log(registry).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
+    }
+
     /// <summary>A committed identifier reused with another request is reported as a reuse, and the group keeps committing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

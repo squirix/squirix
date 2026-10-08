@@ -2,12 +2,13 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>The promotion of <see cref="ReplicaGroupCommitter" /> into a term an election won.</summary>
+/// <summary>The promotion of <see cref="ReplicaGroupCommitter" /> into a term an election won, and the authority check of its writes.</summary>
 internal static class ReplicaGroupCommitterLeadership
 {
     extension(ReplicaGroupCommitter committer)
@@ -63,6 +64,48 @@ internal static class ReplicaGroupCommitterLeadership
 
                 return false;
             }
+        }
+
+        /// <summary>Starts the coordinator for a write, refusing it with stale-term when the log moved past the led term.</summary>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>A task that completes once the coordinator is started.</returns>
+        /// <exception cref="Grpc.Core.RpcException">
+        /// The log holds a term above the led one, as after a local append the log refused for a stale term: stale-term, nothing was written.
+        /// </exception>
+        /// <remarks>Runs under the commit gate, and only while the committer is not started.</remarks>
+        internal async Task StartForWriteAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                await committer.StartAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (ReplicaTermSupersededException)
+            {
+                throw StaleTermFailure.Create(null, 0);
+            }
+        }
+
+        /// <summary>Refuses a write unless the election state grants this node authority in the very term of its leadership.</summary>
+        /// <exception cref="Grpc.Core.RpcException">
+        /// The write is refused before anything is appended: stale-term when a higher term deposed this node, stale-owner naming a known
+        /// leader, or the retryable Unavailable refusal while the leadership is not authorized or holds another term.
+        /// </exception>
+        /// <remarks>
+        /// A committer led statically is never refused here. Runs under the commit gate, so a leadership that changed while the write waited
+        /// for the gate is caught. The authority of a tenure alone is sticky; the election state revokes authority at once when a higher
+        /// term is seen, and the term check refuses a write that reaches a later leadership.
+        /// </remarks>
+        internal void ThrowIfNoWriteAuthority()
+        {
+            if (committer.Election is not { } election)
+                return;
+
+            var view = election.ReadRoute();
+            if (view.HasAuthority && committer.Tenure is { Authorized: true } tenure && tenure.Term == view.Term)
+                return;
+
+            var self = committer.Probe.SelfId;
+            throw LeaderRefusal.Create(LeaderRefusal.Classify(in view, self), in view, self, true);
         }
     }
 }

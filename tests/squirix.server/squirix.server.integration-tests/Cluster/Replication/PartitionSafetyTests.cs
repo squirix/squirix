@@ -14,6 +14,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Grpc.Mappers;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -70,7 +71,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         await CommitAsync(ledger, cluster[next], key, cancellationToken);
 
         _ = await Assert.That(nextTerm).IsGreaterThan(formerTerm);
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That(IsDefinitePreAppendRefusal(refused)).IsTrue().Because($"the cut-off leader refuses before any append, got {refused.StatusCode}: {refused.Status.Detail}");
         _ = await Assert.That((await Log(cluster[former]).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(formerLast);
     }
 
@@ -290,6 +291,20 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     }
 
     private static bool HasAuthority(ITestNodeHost node) => node.GetRequiredService<IGroupLeaderTable>().HasLocalAuthority(Group, out _);
+
+    /// <summary>
+    /// Tells whether a refusal is definite and comes before any append: retryable while no leader is known, stale-term once a higher term
+    /// was seen, or stale-owner once the contact of the new leader arrived. Which one depends on what the cut-off leader observed.
+    /// </summary>
+    /// <param name="refused">The refusal.</param>
+    /// <returns><see langword="true" /> for one of the three pre-append refusals.</returns>
+    private static bool IsDefinitePreAppendRefusal(RpcException refused) => (refused.StatusCode, refused.Status.Detail) switch
+    {
+        (StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail) => true,
+        (StatusCode.FailedPrecondition, GrpcStaleOwnerMarkers.StaleTermErrorCodeValue) => true,
+        (StatusCode.FailedPrecondition, _) => string.Equals(refused.Trailers.GetValue(GrpcStaleOwnerMarkers.ErrorCodeMetadataKey), "stale-owner", StringComparison.Ordinal),
+        _ => false,
+    };
 
     private static IFollowerLog Log(ITestNodeHost host) =>
         host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(Group, out var log) ? log : throw new InvalidOperationException($"The group log {Group} is not open.");

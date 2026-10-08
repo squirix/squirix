@@ -78,10 +78,17 @@ internal static class CachePipelineRegistration
             sp.GetRequiredService<MetricsCacheDecorator<object?>>(),
             sp.GetRequiredService<IBackpressureGate>(),
             sp.GetRequiredService<IBackpressureClientIdResolver>()));
-        _ = services.AddSingleton(static sp => new OwnershipGuardCacheDecorator<object?>(
-            sp.GetRequiredService<TopologyOptions>().NodeId,
-            sp.GetRequiredService<INodeLocator>(),
-            sp.GetRequiredService<BackpressureCacheDecorator<object?>>()));
+        _ = services.AddSingleton(static sp =>
+        {
+            // Only the table of the election state names elected leaders; the static table keeps the refusal trailers of static ownership.
+            var leaders = sp.GetRequiredService<IGroupLeaderTable>();
+            return new OwnershipGuardCacheDecorator<object?>(
+                sp.GetRequiredService<TopologyOptions>().NodeId,
+                sp.GetRequiredService<INodeLocator>(),
+                leaders,
+                leaders is not StaticLeaderTable,
+                sp.GetRequiredService<BackpressureCacheDecorator<object?>>());
+        });
         _ = services.AddSingleton(static sp => new ValidationCacheDecorator<object?>(sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>()));
         _ = services.AddSingleton(static sp => new DomainErrorMappingCacheDecorator<object?>(sp.GetRequiredService<ValidationCacheDecorator<object?>>()));
         _ = services.AddSingleton(static sp => new TracingCacheDecorator<object?>(
