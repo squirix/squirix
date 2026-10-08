@@ -63,8 +63,28 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
     {
         var keyed = PrepareNoop(2UL, 1UL) with { KeyPayload = Key };
 
-        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(keyed, static record => ReplicaCacheApplier.ResolveShape(in record));
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(keyed, static record => _ = ReplicaCacheApplier.ResolveShape(in record));
         _ = await Assert.That(ReplicaCacheApplier.ResolveShape(PrepareNoop(2UL, 1UL))).IsEqualTo(ReplicaEffectKind.NoCacheEffect);
+    }
+
+    /// <summary>
+    /// The applier refuses a no-op that claims to be applied or names a cache before anything runs: the cache stays untouched and the
+    /// applied index does not move.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ApplierRefusesMalformedNoop(CancellationToken cancellationToken)
+    {
+        var cache = new StubCache();
+        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, GroupId, "n1");
+        var applied = PrepareNoop(2UL, 1UL) with { OutcomePayload = ReplicaOutcomeCodec.Encode(true, ReadOnlyMemory<byte>.Empty) };
+        var cached = PrepareNoop(2UL, 1UL) with { CacheName = "cache" };
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, ReplicaLogCodec.Encode(in applied), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, ReplicaLogCodec.Encode(in cached), cancellationToken));
+
+        _ = await Assert.That(applier.AppliedIndex).IsEqualTo(0UL);
+        _ = await Assert.That(cache.Applied.Count).IsEqualTo(0);
     }
 
     /// <summary>A snapshot keeps the leader-term kind of a record through its wire value.</summary>
@@ -98,7 +118,7 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
     [Test]
     public async Task NoopBypassesCapacity()
     {
-        var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), new FakeTimeProvider(DateTimeOffset.UtcNow));
+        var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1)));
         _ = state.Reserve("client", "first", [1], GroupRecordKind.UserMutation, 1UL, 1UL);
         _ = state.TryResolve("client", "first", [2], 1UL, 1UL);
 
