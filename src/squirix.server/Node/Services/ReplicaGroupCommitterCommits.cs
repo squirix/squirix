@@ -118,10 +118,7 @@ internal static class ReplicaGroupCommitterCommits
         {
             var logger = committer.Log;
             return new ReplicaCommitCoordinator(
-                new ReplicaCommitCoordinatorOptions(slots.ReplicaCount, status.LastLogIndex, status.CommitIndex, ReplicaGroupCommitter.MaxInFlight)
-                {
-                    LeaderReplicaIndex = slots.LeaderReplicaIndex,
-                },
+                new ReplicaCommitCoordinatorOptions(slots.ReplicaCount, status.LastLogIndex, status.CommitIndex, ReplicaGroupCommitter.MaxInFlight, slots.LeaderReplicaIndex),
                 pipeline,
                 ReplicaGroupCommitter.NoOpCommitHooks.Instance,
                 log.Idempotency,
