@@ -200,7 +200,7 @@ internal sealed class ReplicaFollower
             return new FollowerLogVoteResult(false, FollowerLogRefusal.NotMember, 0UL);
 
         if (!_members.IsMember(groupId, ballot.CandidateId))
-            return new FollowerLogVoteResult(false, RefusalCodes.NotMember, 0UL);
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.NotMember, 0UL);
 
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         if (status.IsTopologyMismatch(fingerprint, generation))
@@ -238,7 +238,7 @@ internal sealed class ReplicaFollower
 
         // A candidate outside the replica set gets nothing: no term reaches the log, so a stray peer cannot depose the leader.
         if (!_members.IsMember(groupId, ballot.CandidateId))
-            return new FollowerLogVoteResult(false, RefusalCodes.NotMember, 0UL);
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.NotMember, 0UL);
 
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         if (status.IsTopologyMismatch(fingerprint, generation))

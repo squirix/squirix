@@ -29,6 +29,16 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     private readonly TopologyFingerprint _topologyFingerprint;
     private readonly bool _votesEnabled;
 
+    /// <summary>Initializes a new instance of the <see cref="SquirixReplicationServiceAdapter" /> class.</summary>
+    /// <param name="cluster">Cluster topology configuration.</param>
+    /// <param name="mtlsOptions">Cluster mTLS options of this node.</param>
+    /// <param name="mtls">The mTLS material that verifies replication callers.</param>
+    /// <param name="groups">Replica group registry of this node; <see langword="null" /> keeps the adapter a refusing stub.</param>
+    /// <param name="members">The replica sets of the served groups, which bound who may ask for a vote; required whenever <paramref name="groups" /> is given.</param>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="cluster" />, <paramref name="mtlsOptions" /> or <paramref name="mtls" /> is <see langword="null" />, or
+    /// <paramref name="groups" /> is given without <paramref name="members" />.
+    /// </exception>
     internal SquirixReplicationServiceAdapter(
         TopologyOptions cluster,
         MtlsOptions mtlsOptions,

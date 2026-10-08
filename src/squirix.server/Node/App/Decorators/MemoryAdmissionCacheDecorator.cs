@@ -162,7 +162,10 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
         var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing != null)
-            return IsRecorded(cacheName, key, operationId) && await AccountAnsweredAsync(keyValue, _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken)).ConfigureAwait(false);
+        {
+            var recorded = IsRecorded(cacheName, key, operationId);
+            return recorded && await AccountAnsweredAsync(keyValue, _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken)).ConfigureAwait(false);
+        }
 
         if (AdmitReplaceOrInsert(keyValue, null, entry, AdmissionOperations.TryAdd, operationId))
             return await AccountAnsweredAsync(keyValue, _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken)).ConfigureAwait(false);
@@ -180,7 +183,10 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         using var keyGuard = await LockKeyAsync(keyValue, cancellationToken).ConfigureAwait(false);
         var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing == null)
-            return IsRecorded(cacheName, key, operationId) && await AccountAnsweredAsync(keyValue, _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken)).ConfigureAwait(false);
+        {
+            var recorded = IsRecorded(cacheName, key, operationId);
+            return recorded && await AccountAnsweredAsync(keyValue, _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken)).ConfigureAwait(false);
+        }
 
         var replacement = new NodeCacheEntry<T>
         {

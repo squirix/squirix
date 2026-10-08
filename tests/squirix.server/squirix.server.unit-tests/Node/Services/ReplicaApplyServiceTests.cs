@@ -202,7 +202,8 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         {
             await first.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             var second = WhenAppliedAsync(cache, 2);
-            var appended = await new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers()).AppendAsync("n2", Fingerprint, 1, Batch(Prepare("k2", 2UL), 1UL, 2UL), cancellationToken);
+            var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+            var appended = await follower.AppendAsync("n2", Fingerprint, 1, Batch(Prepare("k2", 2UL), 1UL, 2UL), cancellationToken);
             _ = await Assert.That(appended.Success).IsTrue().Because($"refused with '{appended.RefusalCode}'");
             await second.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         }
@@ -228,7 +229,13 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         var events = new EventRecordingLogger();
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache, meter);
-        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), events, new FakeTimeProvider());
+        using var service = new ReplicaApplyService(
+            registry,
+            appliers,
+            LeadOwnGroup(registry, appliers),
+            ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            events,
+            new FakeTimeProvider());
         var first = WhenAppliedAsync(cache, 1);
 
         await service.StartAsync(cancellationToken);
@@ -355,7 +362,13 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         var events = new EventRecordingLogger();
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache.Instance(), meter);
-        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), events, new FakeTimeProvider());
+        using var service = new ReplicaApplyService(
+            registry,
+            appliers,
+            LeadOwnGroup(registry, appliers),
+            ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            events,
+            new FakeTimeProvider());
 
         await service.StartAsync(cancellationToken);
         try
