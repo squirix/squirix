@@ -195,19 +195,25 @@ internal static class ServerHostingComposition
     /// <param name="sp">The service provider.</param>
     /// <param name="fingerprint">The static topology fingerprint.</param>
     /// <returns>The committer.</returns>
-    private static ReplicaGroupCommitter CreateReplicaGroupCommitter(IServiceProvider sp, ImmutableArray<byte> fingerprint) => new(
-        sp.GetRequiredService<ReplicaGroupRegistry>(),
-        sp.GetRequiredService<IReplicaGroupLocator>(),
-        sp.GetRequiredService<IReplicaRpcGateway>(),
-        sp.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey),
-        sp.GetRequiredService<TopologyOptions>().NodeId,
-        new ReplicaTopologyStamp(fingerprint.AsMemory(), sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration),
-        sp.GetRequiredService<ILogger<ReplicaGroupCommitter>>())
+    private static ReplicaGroupCommitter CreateReplicaGroupCommitter(IServiceProvider sp, ImmutableArray<byte> fingerprint)
     {
-        Recovery = sp.GetRequiredService<IJournalCoordinator>(),
-        Metrics = sp.GetRequiredService<ReplicationMetrics>(),
-        Clock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
-    };
+        var topology = sp.GetRequiredService<TopologyOptions>();
+
+        // The node leads the group it owns, statically.
+        return new ReplicaGroupCommitter(
+            sp.GetRequiredService<ReplicaGroupRegistry>(),
+            sp.GetRequiredService<IReplicaGroupLocator>(),
+            sp.GetRequiredService<IReplicaRpcGateway>(),
+            sp.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey),
+            (topology.NodeId, topology.NodeId),
+            new ReplicaTopologyStamp(fingerprint.AsMemory(), topology.ConfigurationGeneration),
+            sp.GetRequiredService<ILogger<ReplicaGroupCommitter>>())
+        {
+            Recovery = sp.GetRequiredService<IJournalCoordinator>(),
+            Metrics = sp.GetRequiredService<ReplicationMetrics>(),
+            Clock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
+        };
+    }
 
     /// <summary>
     /// Registers cluster locator, internode transport, and replication planning services.

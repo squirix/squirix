@@ -84,12 +84,13 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         var senders = ReplicaFollowerSenders.Create(
             gateway,
             [GroupId, "n2", "n3"],
+            0,
             in status,
             in header,
             new ReplicaFollowerSenders.SenderTiming(HangGuard, HangGuard, TimeProvider.System),
             static _ => { });
         var lagging = new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance);
-        return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log, senders, GroupId, lagging, in status, 1);
+        return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log, senders, (GroupId, 0), lagging, in status, 1);
     }
 
     private static PreparedReplicaMutation Mutation(ulong logIndex)

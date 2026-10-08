@@ -24,7 +24,7 @@ public sealed class ReplicaReadinessProbeTests
         var eligibility = new ReplicaEligibility(3);
         var leader = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready);
 
-        ReplicaReadinessProbe.MarkLeaderReady(eligibility, in leader, Fingerprint, 1);
+        ReplicaReadinessProbe.MarkLeaderReady(eligibility, 0, in leader, Fingerprint, 1);
 
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsTrue();
     }

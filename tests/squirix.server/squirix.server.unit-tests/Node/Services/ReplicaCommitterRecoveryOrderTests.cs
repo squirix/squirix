@@ -169,7 +169,7 @@ public sealed class ReplicaCommitterRecoveryOrderTests : IsolatedStorageTestBase
     }
 
     private static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, ScriptedApplyCache local, RecoveryLifecycle recovery, IReplicaRpcGateway? gateway = null) =>
-        new(registry, new TwoNodeLocator(), gateway ?? new AcceptingGateway(), local, OwnedGroup, new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+        new(registry, new TwoNodeLocator(), gateway ?? new AcceptingGateway(), local, (OwnedGroup, OwnedGroup), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Recovery = recovery,
             ShutdownBudget = StallTimeout,

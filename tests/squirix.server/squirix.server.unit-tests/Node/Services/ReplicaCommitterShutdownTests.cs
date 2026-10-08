@@ -49,7 +49,7 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
             new ThreeNodeLocator(),
             gateway,
             local,
-            OwnedGroup,
+            (OwnedGroup, OwnedGroup),
             new ReplicaTopologyStamp(Fingerprint, 1),
             NullLogger<ReplicaGroupCommitter>.Instance)
         {
@@ -131,7 +131,7 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
         ParkingGateway gateway,
         TimeSpan? shutdownBudget = null,
         IReplicaGroupLocator? locator = null) =>
-        new(registry, locator ?? new TwoNodeLocator(), gateway, local, OwnedGroup, new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+        new(registry, locator ?? new TwoNodeLocator(), gateway, local, (OwnedGroup, OwnedGroup), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Recovery = RecoveryLifecycle.Recovered(),
             ShutdownBudget = shutdownBudget ?? StallTimeout,

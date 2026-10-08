@@ -24,4 +24,12 @@ internal sealed record ReplicaCommitCoordinatorOptions(int ReplicaCount, ulong I
     /// <summary>Gets the durable group commit index at coordinator start.</summary>
     /// <remarks>Entries above it form an uncommitted tail, which the coordinator must be given as a <see cref="ReplicaRecoveredTail" />.</remarks>
     internal ulong InitialCommitIndex { get; } = InitialCommitIndex;
+
+    /// <summary>Gets the zero-based replica slot of the leader, whose own durable log counts toward the majority; zero unless set.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The slot is not a slot of the group.</exception>
+    internal int LeaderReplicaIndex
+    {
+        get;
+        init => field = value >= 0 && value < ReplicaCount ? value : throw new ArgumentOutOfRangeException(nameof(value), value, "The leader slot must be a slot of the group.");
+    }
 }

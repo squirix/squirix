@@ -15,7 +15,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>Serialized owner-side replicated commits for the group owned by this node.</summary>
+/// <summary>Serialized leader-side replicated commits for one replica group this node leads.</summary>
 /// <remarks>
 /// Commits run one at a time per group under <see cref="AsyncLock" />: log indexes stay dense with no
 /// gaps, prepare-time reads stay exact through the ordered applying, and the coordinator never observes
@@ -52,7 +52,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <param name="locator">Replica group locator resolving the owned group members.</param>
     /// <param name="gateway">Follower replication RPCs.</param>
     /// <param name="local">Local cache pipeline used for prepare reads and memory applies.</param>
-    /// <param name="selfId">This node identifier; the node owns the group with this identifier.</param>
+    /// <param name="identity">The identifier of the group and the identifier of this node, which leads it and is a member of it.</param>
     /// <param name="topology">Static topology fingerprint and configuration generation.</param>
     /// <param name="log">Logger for lifecycle failures.</param>
     internal ReplicaGroupCommitter(
@@ -60,7 +60,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         IReplicaGroupLocator locator,
         IReplicaRpcGateway gateway,
         ILogicalNamespacedCache<object?> local,
-        string selfId,
+        (string GroupId, string SelfId) identity,
         in ReplicaTopologyStamp topology,
         ILogger<ReplicaGroupCommitter> log)
     {
@@ -68,18 +68,19 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(locator);
         ArgumentNullException.ThrowIfNull(gateway);
         ArgumentNullException.ThrowIfNull(local);
-        ArgumentException.ThrowIfNullOrWhiteSpace(selfId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(identity.GroupId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(identity.SelfId);
         ArgumentNullException.ThrowIfNull(log);
         Log = log;
         _registry = registry;
         _locator = locator;
         _gateway = gateway;
         _local = local;
-        _applier = new Lazy<ReplicaGroupApplier>(() => new ReplicaGroupApplier(local, Log, selfId, selfId, Metrics), LazyThreadSafetyMode.ExecutionAndPublication);
-        GroupId = selfId;
+        _applier = new Lazy<ReplicaGroupApplier>(() => new ReplicaGroupApplier(local, Log, identity.GroupId, identity.SelfId, Metrics), LazyThreadSafetyMode.ExecutionAndPublication);
+        GroupId = identity.GroupId;
         _topology = topology.Fingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topology)) : topology;
         _probe = new Lazy<ReplicaVerificationProbe>(
-            () => new ReplicaVerificationProbe(registry, locator, gateway, selfId, _topology.Fingerprint, _topology.Generation, Log),
+            () => new ReplicaVerificationProbe(registry, locator, gateway, identity, _topology.Fingerprint, _topology.Generation, Log),
             LazyThreadSafetyMode.ExecutionAndPublication);
         CommitBudget = DefaultCommitBudget;
         ShutdownBudget = DefaultShutdownBudget;
@@ -143,7 +144,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <remarks>Commits and verifications wait for the gate before they read memory, so no decision is prepared against a partly recovered cache.</remarks>
     internal required IJournalCoordinatorLifecycle Recovery { private get; init; }
 
-    /// <summary>Gets the identifier of the owned replica group, which is this node's identifier.</summary>
+    /// <summary>Gets the identifier of the replica group this committer leads.</summary>
     internal string GroupId { get; }
 
     /// <summary>Initializes the replication metrics counting the inconsistent log records the committer refuses to apply; none are counted unless set.</summary>
@@ -510,7 +511,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private async Task StartAsync(CancellationToken cancellationToken)
     {
         if (!_registry.TryGetLog(GroupId, out var log))
-            throw new InvalidOperationException($"This node does not serve its owned replica group '{GroupId}'.");
+            throw new InvalidOperationException($"This node does not serve the replica group '{GroupId}' it leads.");
 
         var replacing = _coordinator != null;
         await RetireCoordinatorAsync().ConfigureAwait(false);
@@ -524,6 +525,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         var term = Math.Max(1UL, status.CurrentTerm);
         var (members, header) = Probe.BuildMembership(term);
+        var leaderIndex = Probe.LeaderReplicaIndex;
         var tail = ReplicaLeaderTail.From(read);
 
         // A restart with durable progress leaves every slot recovering. Verify the leader's own log and every follower against its
@@ -533,20 +535,20 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // outside this gate.
         var eligibility = _registry.EligibilityFor(GroupId);
         if (replacing)
-            ReplicaReadinessProbe.UnverifyFollowers(eligibility);
+            ReplicaReadinessProbe.UnverifyFollowers(eligibility, leaderIndex);
 
-        ReplicaReadinessProbe.MarkLeaderReady(eligibility, in status, _topology.Fingerprint, _topology.Generation);
-        var results = eligibility.CanCountInWriteQuorum(0)
-            ? await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility), members, header, status, ReplicaVerificationProbe.ProbeTimeout, cancellationToken)
+        ReplicaReadinessProbe.MarkLeaderReady(eligibility, leaderIndex, in status, _topology.Fingerprint, _topology.Generation);
+        var results = eligibility.CanCountInWriteQuorum(leaderIndex)
+            ? await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility, leaderIndex), members, header, status, ReplicaVerificationProbe.ProbeTimeout, cancellationToken)
                                          .ConfigureAwait(false)
             : [];
 
         // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
         var lagging = new ReplicaLaggingFollowers(GroupId, eligibility, Probe.Repairs, Log);
-        var pipeline = new ReplicaGroupCommitPipeline(Applier, log, CreateSenders(members, in status, in header), GroupId, lagging, in status, term);
+        var pipeline = new ReplicaGroupCommitPipeline(Applier, log, CreateSenders(members, leaderIndex, in status, in header), (header.LeaderNodeId, leaderIndex), lagging, in status, term);
         var factory = new ReplicaMutationFactory(_local, GroupId, term, Clock, Log);
         _pipeline = pipeline;
-        _coordinator = this.CreateCoordinator(_locator.ReplicaCount, pipeline, log, in status, eligibility, Applier.RecoverTail(tail, term, factory));
+        _coordinator = this.CreateCoordinator((_locator.ReplicaCount, leaderIndex), pipeline, log, in status, eligibility, Applier.RecoverTail(tail, term, factory));
 
         // Before a restart the outcomes of the committed entries above the snapshot lived only in memory; their records carry them, so
         // a retry of an operation committed before the restart replays its outcome. The recovered tail is pinned first and keeps its pins.
@@ -554,22 +556,24 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             await RestoreOutcomesAsync(log, pipeline, cancellationToken).ConfigureAwait(false);
 
         // Verified slots are admitted at the leader's last index before they count, so they cover the recovered tail.
-        ReplicaReadinessProbe.ApplyAll(eligibility, results, in status, _topology.Fingerprint, _topology.Generation, _coordinator);
+        ReplicaReadinessProbe.ApplyAll(eligibility, leaderIndex, results, in status, _topology.Fingerprint, _topology.Generation, _coordinator);
         _factory = factory;
         _started = true;
     }
 
     /// <summary>Creates the sender of every follower slot, seeded with the last entry of the leader log.</summary>
-    /// <param name="members">Ordered group members; index zero is this node.</param>
+    /// <param name="members">Group members in slot order.</param>
+    /// <param name="leaderIndex">The slot of this node, which gets no sender.</param>
     /// <param name="status">Durable log status of the leader.</param>
     /// <param name="header">Replication envelope identity for follower calls.</param>
-    /// <returns>The senders of slots one and up, in slot order.</returns>
+    /// <returns>The senders of the follower slots, in slot order.</returns>
     /// <remarks>The commit budget bounds one request, and the shutdown budget bounds waiting for one that ignores its cancellation on dispose.</remarks>
-    private ReplicaFollowerSender[] CreateSenders(string[] members, in FollowerLogStatus status, in ReplicaRpcHeader header)
+    private ReplicaFollowerSender[] CreateSenders(string[] members, int leaderIndex, in FollowerLogStatus status, in ReplicaRpcHeader header)
     {
         return ReplicaFollowerSenders.Create(
             _gateway,
             members,
+            leaderIndex,
             in status,
             in header,
             new ReplicaFollowerSenders.SenderTiming(CommitBudget, ShutdownBudget, BudgetTimeProvider),

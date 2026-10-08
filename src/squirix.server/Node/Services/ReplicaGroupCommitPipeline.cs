@@ -27,6 +27,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     private readonly IFollowerLog _log;
     private readonly string _selfId;
     private readonly ReplicaFollowerSender[] _senders;
+    private readonly ReplicaSlots _slots;
     private readonly ulong _term;
     private ulong _commitIndex;
     private Task<ReplicaDurableAcknowledgement>[] _enqueued = [];
@@ -37,8 +38,8 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitPipeline" /> class.</summary>
     /// <param name="applier">The committer's applier, which applies committed entries to memory in log order.</param>
     /// <param name="log">Owned group log for local durable appending.</param>
-    /// <param name="senders">The senders of follower slots one and up, in slot order; the pipeline owns them and closes them.</param>
-    /// <param name="selfId">This node identifier.</param>
+    /// <param name="senders">The senders of the follower slots, in slot order; the pipeline owns them and closes them.</param>
+    /// <param name="leader">This node identifier and its slot in the group, which has no sender.</param>
     /// <param name="lagging">Demotes and queues for repair the followers that did not acknowledge an entry.</param>
     /// <param name="status">Durable log status seeding previous and commit positions.</param>
     /// <param name="term">The leader term the pipeline appends and replicates in.</param>
@@ -46,7 +47,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         ReplicaGroupApplier applier,
         IFollowerLog log,
         ReplicaFollowerSender[] senders,
-        string selfId,
+        (string SelfId, int ReplicaIndex) leader,
         ReplicaLaggingFollowers lagging,
         in FollowerLogStatus status,
         ulong term)
@@ -54,11 +55,12 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         ArgumentNullException.ThrowIfNull(applier);
         ArgumentNullException.ThrowIfNull(log);
         ArgumentNullException.ThrowIfNull(senders);
-        ArgumentException.ThrowIfNullOrWhiteSpace(selfId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(leader.SelfId);
 
         _applier = applier;
         _log = log;
-        _selfId = selfId;
+        _selfId = leader.SelfId;
+        _slots = new ReplicaSlots(leader.ReplicaIndex);
         _senders = senders;
         _lagging = lagging;
         _term = term;
@@ -90,7 +92,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <exception cref="InvalidOperationException">The entry is not the one this pipeline appended last.</exception>
     public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
         mutation.LogIndex == _enqueuedIndex && _enqueuedIndex != 0
-            ? new ValueTask<ReplicaDurableAcknowledgement>(_enqueued[replicaIndex - 1])
+            ? new ValueTask<ReplicaDurableAcknowledgement>(_enqueued[_slots.SenderOf(replicaIndex)])
             : ValueTask.FromException<ReplicaDurableAcknowledgement>(
                 new InvalidOperationException($"Entry {mutation.LogIndex} was not appended locally by this pipeline; the last one was {_enqueuedIndex}."));
 
@@ -129,12 +131,12 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
 
     /// <inheritdoc />
     /// <remarks>Called under the commit gate and from background follower observation; it never waits and never throws.</remarks>
-    public void RecordLaggingReplica(int replicaIndex, ulong logIndex) => _lagging.Record(replicaIndex, logIndex, _senders[replicaIndex - 1].NodeId);
+    public void RecordLaggingReplica(int replicaIndex, ulong logIndex) => _lagging.Record(replicaIndex, logIndex, _senders[_slots.SenderOf(replicaIndex)].NodeId);
 
     /// <summary>Gets what a catch-up of a follower slot runs against: this pipeline, the slot's sender, the leader log and term.</summary>
     /// <param name="replicaIndex">One-based follower slot.</param>
     /// <returns>The target.</returns>
-    internal ReplicaCatchUpTarget CatchUpTargetFor(int replicaIndex) => new(replicaIndex, this, _senders[replicaIndex - 1], _log, _term);
+    internal ReplicaCatchUpTarget CatchUpTargetFor(int replicaIndex) => new(replicaIndex, this, _senders[_slots.SenderOf(replicaIndex)], _log, _term);
 
     /// <summary>Stops admitting entries to every follower sender and waits for the queued ones to be answered.</summary>
     /// <param name="budget">The longest wait, shared by all senders.</param>
