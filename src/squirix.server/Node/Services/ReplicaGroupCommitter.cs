@@ -619,12 +619,16 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <param name="write">Whether a write is to be prepared next; <see langword="false" /> for verification.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The running coordinator and mutation factory.</returns>
-    /// <exception cref="Grpc.Core.RpcException">The write has no verified majority: Unavailable, nothing was written.</exception>
+    /// <exception cref="Grpc.Core.RpcException">The write has no verified majority or no authorized leadership: Unavailable, nothing was written.</exception>
     /// <exception cref="SquirixException">An appended entry is not yet applied (too many requests).</exception>
     /// <exception cref="InvalidOperationException">The committer is not started.</exception>
     private async Task<(ReplicaCommitCoordinator Coordinator, ReplicaMutationFactory Factory)> EnsureStartedAsync(bool write, CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
+
+        // A write that passed the write gate may reach a later leadership whose leader-term entry is not committed yet: refused the same way.
+        if (write && Election != null && _tenure is not { Authorized: true })
+            throw ServerOpContract.NoLeaderAuthority();
         if (!_started)
             await StartAsync(cancellationToken).ConfigureAwait(false);
 
