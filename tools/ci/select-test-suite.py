@@ -30,9 +30,11 @@ SERVER_UNIT_PROJECT = "tests/squirix.server/squirix.server.unit-tests/Squirix.Se
 # translated to one TUnit treenode-filter. The legacy Client/Persistence substring
 # matched 3 MultiNode-owned methods still covered by e2e-multi-node; no legacy
 # Persistence-only test exists outside Cache.SingleNode.
-# e2e-multi-node is every end-to-end test outside Cache.SingleNode except the stress suite
-# (Property("Suite","Stress"), run by its own job), selected by exclusion so a new class
-# runs without being listed here.
+# e2e-multi-node is every end-to-end test outside Cache.SingleNode and Cache.MultiNode.Failover
+# except the stress suite (Property("Suite","Stress"), run by its own job), selected by exclusion
+# so a new class runs without being listed here.
+# e2e-failover is the failover end-to-end tests (Cache.MultiNode.Failover) except the stress suite:
+# they run whole clusters through elections and fault bounds, so they get a job of their own.
 SUITES = {
     "unit": ("tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj", "", False),
     "client-integration": ("tests/squirix/squirix.integration-tests/Squirix.IntegrationTests.csproj", "", False),
@@ -46,7 +48,12 @@ SUITES = {
     ),
     "e2e-multi-node": (
         "tests/squirix.e2e.tests/Squirix.E2ETests.csproj",
-        "/*/(*)&(!Squirix.E2ETests.Cache.SingleNode*)/*/*[Suite!=Stress]",
+        "/*/(*)&(!Squirix.E2ETests.Cache.SingleNode*)&(!Squirix.E2ETests.Cache.MultiNode.Failover*)/*/*[Suite!=Stress]",
+        True,
+    ),
+    "e2e-failover": (
+        "tests/squirix.e2e.tests/Squirix.E2ETests.csproj",
+        "/*/Squirix.E2ETests.Cache.MultiNode.Failover*/*/*[Suite!=Stress]",
         True,
     ),
     "protocol-model": ("tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj", "", False),
@@ -55,17 +62,22 @@ SUITES = {
 # Group id -> suites one job runs back to back. Starting a job (runner, checkout, build outputs, certificate) takes about
 # as long as a suite runs, and every job holds one of the 20 slots of the organization, so suites share jobs. The groups
 # are balanced by run time: none is much longer than the longest suite, the server integration tests.
-#  - `light`: the suites that finish in a few seconds each (ubuntu, pull requests, which run the multi-node end-to-end
-#    tests in a job of their own).
-#  - `light-e2e`: `light` plus the multi-node end-to-end tests (ubuntu, outside pull requests); ubuntu runs the server
-#    unit tests alone, so its three jobs (with the server integration tests) end at about the same time.
-#  - `server-unit-e2e`: the server unit tests and the multi-node end-to-end tests (Windows; macOS runs the two suites as separate jobs).
+#  - `light`: the suites that finish in a few seconds each (ubuntu, pull requests, which run the multi-node and the failover
+#    end-to-end tests in jobs of their own).
+#  - `light-e2e`: `light` plus the multi-node end-to-end tests (ubuntu, outside pull requests).
+#  - `server-unit-failover`: the server unit tests and the failover end-to-end tests (ubuntu, outside pull requests), so
+#    its three jobs (with the server integration tests) end at about the same time.
+#  - `server-unit-e2e`: the server unit tests and the multi-node and failover end-to-end tests (Windows; macOS runs the
+#    server unit tests as a separate job).
+#  - `e2e-cluster`: the multi-node and the failover end-to-end tests (macOS).
 #  - `desktop-integration`: the short suites Windows and macOS run, plus the server integration tests.
 #  - `arm-client`, `arm-server`: every suite ARM covers; nothing waits for ARM, so two jobs are enough.
 GROUPS = {
     "light": ("unit", "client-integration", "protocol-model", "smoke", "e2e-single-node"),
     "light-e2e": ("unit", "client-integration", "protocol-model", "smoke", "e2e-single-node", "e2e-multi-node"),
-    "server-unit-e2e": ("server-unit", "e2e-multi-node"),
+    "server-unit-failover": ("server-unit", "e2e-failover"),
+    "server-unit-e2e": ("server-unit", "e2e-multi-node", "e2e-failover"),
+    "e2e-cluster": ("e2e-multi-node", "e2e-failover"),
     "desktop-integration": ("unit", "client-integration", "e2e-single-node", "server-integration"),
     "arm-client": ("unit", "client-integration", "protocol-model", "e2e-single-node", "e2e-multi-node"),
     "arm-server": ("server-unit", "server-integration"),

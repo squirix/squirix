@@ -526,11 +526,12 @@ jobs:
             matrix:
                 # The organization runs at most 20 jobs at a time, and a run that asks for more leaves jobs waiting for a runner.
                 # Starting a job also takes about as long as a suite runs. So outside pull requests the suites share three jobs
-                # of similar length. A pull request run stays far below the limit and runs the multi-node end-to-end tests in a
-                # job of their own, because the ubuntu test jobs end it. The groups are defined in tools/ci/select-test-suite.py.
+                # of similar length. A pull request run stays far below the limit and runs the multi-node and the failover
+                # end-to-end tests in jobs of their own, because the ubuntu test jobs end it. The groups are defined in
+                # tools/ci/select-test-suite.py.
                 suite: ${{ fromJSON(github.event_name == 'pull_request'
-                    && '["light", "e2e-multi-node", "server-unit", "server-integration"]'
-                    || '["light-e2e", "server-unit", "server-integration"]') }}
+                    && '["light", "e2e-multi-node", "e2e-failover", "server-unit", "server-integration"]'
+                    || '["light-e2e", "server-unit-failover", "server-integration"]') }}
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -645,9 +646,10 @@ jobs:
             fail-fast: ${{ github.event_name == 'pull_request' }}
             max-parallel: 6
             matrix:
-                # The server unit tests and the multi-node end-to-end tests run in jobs of their own: on macOS they ended the
-                # push run as one job. Three jobs start together after the build, which stays within the 20 job limit; see test-ubuntu.
-                suite: [ desktop-integration, server-unit, e2e-multi-node ]
+                # The server unit tests and the multi-node and failover end-to-end tests run in jobs of their own: on macOS they
+                # ended the push run as one job. Three jobs start together after the build, which stays within the 20 job limit;
+                # see test-ubuntu.
+                suite: [ desktop-integration, server-unit, e2e-cluster ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
