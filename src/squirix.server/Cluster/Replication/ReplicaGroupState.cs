@@ -261,7 +261,10 @@ internal sealed class ReplicaGroupState
     internal void BecomePreCandidate()
     {
         lock (_sync)
+        {
             SetRoleLocked(ReplicaGroupRole.PreCandidate);
+            RouteChanged.Publish();
+        }
     }
 
     /// <summary>Starts a vote round in a term the log already holds durably with this node's own vote.</summary>
@@ -273,6 +276,7 @@ internal sealed class ReplicaGroupState
             SetRoleLocked(ReplicaGroupRole.Candidate);
             _term = term;
             _ = RaiseLocked(term);
+            RouteChanged.Publish();
         }
     }
 

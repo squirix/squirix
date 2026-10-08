@@ -14,6 +14,9 @@ namespace Squirix.Server.Cluster.Replication;
 [ThreadSafe]
 internal sealed class ReplicaRouteSignal
 {
+    /// <summary>The longest delay a timer accepts; a longer finite delay is clamped to it.</summary>
+    internal static readonly TimeSpan MaxDelay = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
+
     private readonly Lock _sync = new();
     private TaskCompletionSource? _changed;
     private long _version;
@@ -44,7 +47,10 @@ internal sealed class ReplicaRouteSignal
 
     /// <summary>Waits until a publication after <paramref name="version" /> or until <paramref name="delay" /> elapses.</summary>
     /// <param name="version">The version the caller saw before it checked the route.</param>
-    /// <param name="delay">The longest wait; zero or less does not wait.</param>
+    /// <param name="delay">
+    /// The longest wait: <see cref="Timeout.InfiniteTimeSpan" /> waits for a publication or the cancellation only; any other value of zero
+    /// or less does not wait; a value above <see cref="MaxDelay" /> is clamped to it.
+    /// </param>
     /// <param name="timeProvider">The time source of the delay.</param>
     /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait by throwing.</param>
     /// <returns><see langword="true" /> when a publication happened after <paramref name="version" />; <see langword="false" /> on timeout.</returns>
@@ -58,14 +64,15 @@ internal sealed class ReplicaRouteSignal
             if (_version != version)
                 return true;
 
-            if (delay <= TimeSpan.Zero)
+            if (delay <= TimeSpan.Zero && delay != Timeout.InfiniteTimeSpan)
                 return false;
 
             _changed ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             changed = _changed.Task;
         }
 
-        using var timeout = new CancellationTokenSource(delay, timeProvider);
+        // A timer accepts the infinite delay as is; a finite delay above its limit is clamped.
+        using var timeout = new CancellationTokenSource(delay > MaxDelay ? MaxDelay : delay, timeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         await changed.WaitAsync(linked.Token).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         if (changed.IsCompleted)

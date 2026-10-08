@@ -58,6 +58,28 @@ public sealed class ReplicaRouteSignalTests : ServerUnitTestBase
         _ = await Assert.That(await wait.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsFalse();
     }
 
+    /// <summary>A delay longer than a timer accepts is clamped instead of throwing, and an infinite one waits for a publication.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LongDelayIsClamped(CancellationToken cancellationToken)
+    {
+        var signal = new ReplicaRouteSignal();
+        var time = new FakeTimeProvider();
+        var seen = signal.Version;
+        var clamped = signal.WaitAsync(seen, TimeSpan.FromDays(100), time, cancellationToken);
+        var infinite = signal.WaitAsync(seen, Timeout.InfiniteTimeSpan, time, cancellationToken);
+        time.Advance(TimeSpan.FromDays(40));
+        var pending = clamped.IsCompleted || infinite.IsCompleted;
+        time.Advance(ReplicaRouteSignal.MaxDelay);
+        var timedOut = await clamped.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        var infinitePending = infinite.IsCompleted;
+
+        signal.Publish();
+
+        _ = await Assert.That((pending, timedOut, infinitePending)).IsEqualTo((false, false, false));
+        _ = await Assert.That(await infinite.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsTrue();
+    }
+
     /// <summary>A canceled wait throws instead of reporting a timeout.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -72,7 +94,7 @@ public sealed class ReplicaRouteSignalTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
     }
 
-    /// <summary>The election state publishes a granted authority, a new known leader, and a revoked authority, but not a repeated contact.</summary>
+    /// <summary>The election state publishes every role change, a granted or revoked authority, and a new known leader, but not a repeated contact.</summary>
     [Test]
     public async Task StatePublishesRouteChanges()
     {
@@ -83,6 +105,9 @@ public sealed class ReplicaRouteSignalTests : ServerUnitTestBase
         state.ObserveLeaderContact("n2", 4UL);
         var repeated = state.RouteChanged.Version;
         state.SetElectionDriven(true);
+        state.BecomePreCandidate();
+        state.BecomeCandidate(5UL);
+        var campaign = state.RouteChanged.Version;
         _ = state.BecomeLeader(5UL);
         _ = state.GrantAuthority(5UL);
         var granted = state.RouteChanged.Version;
@@ -90,7 +115,8 @@ public sealed class ReplicaRouteSignalTests : ServerUnitTestBase
 
         _ = await Assert.That(contact).IsEqualTo(start + 1);
         _ = await Assert.That(repeated).IsEqualTo(contact);
-        _ = await Assert.That(granted).IsEqualTo(contact + 2);
+        _ = await Assert.That(campaign).IsEqualTo(contact + 2);
+        _ = await Assert.That(granted).IsEqualTo(campaign + 2);
         _ = await Assert.That(state.RouteChanged.Version).IsEqualTo(granted + 1);
     }
 }

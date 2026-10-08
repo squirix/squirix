@@ -14,6 +14,9 @@ namespace Squirix.Server.Cluster.Replication;
 [Immutable]
 internal sealed class ElectionTimerOptions
 {
+    /// <summary>The longest configurable wait for a leader; a request deadline is far shorter.</summary>
+    internal static readonly TimeSpan MaxLeaderWaitTimeout = TimeSpan.FromMinutes(1);
+
     private readonly TimeSpan? _leaderWaitTimeout;
 
     /// <summary>Gets the time without leader contact after which a follower starts an election; also the window of the leader quorum check.</summary>
@@ -29,12 +32,19 @@ internal sealed class ElectionTimerOptions
     /// <summary>Gets the longest wait of an entry node for a leader of a served group that has none known.</summary>
     /// <remarks>
     /// Defaults to <see cref="ElectionTimeout" /> plus <see cref="MaxJitter" />, the longest a follower waits before it campaigns; the remaining
-    /// deadline of the request caps it further.
+    /// deadline of the request caps it further. An explicit value must be positive and at most <see cref="MaxLeaderWaitTimeout" />:
+    /// <see cref="System.Threading.Timeout.InfiniteTimeSpan" /> is refused, because a wait for a leader is always bounded.
     /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The value is zero, negative, or above <see cref="MaxLeaderWaitTimeout" />.</exception>
     internal TimeSpan LeaderWaitTimeout
     {
         get => _leaderWaitTimeout ?? (ElectionTimeout + MaxJitter);
-        init => _leaderWaitTimeout = value;
+        init
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(value, TimeSpan.Zero);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(value, MaxLeaderWaitTimeout);
+            _leaderWaitTimeout = value;
+        }
     }
 
     /// <summary>Gets the largest random delay added to <see cref="ElectionTimeout" /> each time a follower arms its election.</summary>
