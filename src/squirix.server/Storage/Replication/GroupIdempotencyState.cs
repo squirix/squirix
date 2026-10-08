@@ -245,7 +245,7 @@ internal sealed class GroupIdempotencyState
             for (var i = 0; i < released.Count; i++)
             {
                 if (_records.Remove(released[i], out var stored))
-                    _exemptPins -= ExemptPinCount(stored.Record);
+                    AdjustExemptPins(stored.Record, -1);
             }
 
             return released.Count;
@@ -293,8 +293,8 @@ internal sealed class GroupIdempotencyState
                 // TryResolve can match and resolve the record instead of leaving a stale, unresolvable entry that
                 // would pin capacity for the whole retention window. A resolved record already carries its durable
                 // outcome, so its original coordinates are kept intact.
-                if (existing.IsUnresolved && (existing.LogIndex != logIndex || existing.Term != term))
-                    _records[key] = stored with { Record = existing with { LogIndex = logIndex, Term = term } };
+                if (stored.TryMoveTo(logIndex, term, out var moved))
+                    _records[key] = moved;
 
                 return GroupIdempotencyReserveResult.Success;
             }
@@ -306,8 +306,7 @@ internal sealed class GroupIdempotencyState
             var memory = BufferEx.CopyToOwned(operationFingerprint);
             var record = new GroupIdempotencyRecord(scope, operationId, memory, ReadOnlyMemory<byte>.Empty, kind, _timeProvider.GetUtcNow().UtcDateTime, null, logIndex, term);
             _records[key] = new StoredRecord(record, 0L, TimeSpan.Zero);
-            if (!answersRetries)
-                _exemptPins++;
+            AdjustExemptPins(in record, 1);
 
             return GroupIdempotencyReserveResult.Success;
         }
@@ -410,7 +409,7 @@ internal sealed class GroupIdempotencyState
 
             // The record of the identity, if any, is replaced or dropped below.
             if (known)
-                _exemptPins -= ExemptPinCount(stored.Record);
+                AdjustExemptPins(stored.Record, -1);
 
             // An expiration or a leader-term no-op answers no retry: its pin, if any, is resolved by dropping it, and no outcome is kept.
             if (!AnswersRetries(record.Kind))
@@ -441,7 +440,7 @@ internal sealed class GroupIdempotencyState
             if (!releasable || !_records.Remove(key))
                 return false;
 
-            _exemptPins -= ExemptPinCount(in record);
+            AdjustExemptPins(in record, -1);
             return true;
         }
     }
@@ -473,7 +472,7 @@ internal sealed class GroupIdempotencyState
             // An expiration or a leader-term no-op answers no retry: resolving it drops the pin instead of retaining an outcome.
             if (!AnswersRetries(record.Kind))
             {
-                _exemptPins -= ExemptPinCount(in record);
+                AdjustExemptPins(in record, -1);
                 return _records.Remove(key);
             }
 
@@ -488,10 +487,11 @@ internal sealed class GroupIdempotencyState
     /// <returns><see langword="false" /> for an expiration tombstone or a leader-term no-op; otherwise <see langword="true" />.</returns>
     private static bool AnswersRetries(GroupRecordKind kind) => kind is not (GroupRecordKind.Expiration or GroupRecordKind.LeaderTerm);
 
-    /// <summary>Counts a record as an exempt pin: an unresolved record of a kind that answers no retry, which sits outside the capacity.</summary>
-    /// <param name="record">The record.</param>
-    /// <returns>1 for an exempt pin; otherwise 0.</returns>
-    private static int ExemptPinCount(in GroupIdempotencyRecord record) => record.IsUnresolved && !AnswersRetries(record.Kind) ? 1 : 0;
+    /// <summary>Counts a record in or out of the exempt pins when it is one: an unresolved record of a kind that answers no retry, which sits outside the capacity.</summary>
+    /// <param name="record">The record added to or removed from the store.</param>
+    /// <param name="sign">1 when the record is added; -1 when it is removed.</param>
+    /// <remarks>Called under <see cref="_sync" />.</remarks>
+    private void AdjustExemptPins(in GroupIdempotencyRecord record, int sign) => _exemptPins += record.IsUnresolved && !AnswersRetries(record.Kind) ? sign : 0;
 
     private List<GroupOperationKey> CollectExpiredKeys()
     {
@@ -575,7 +575,7 @@ internal sealed class GroupIdempotencyState
 
         _exemptPins = 0;
         foreach (var stored in _records.Values)
-            _exemptPins += ExemptPinCount(stored.Record);
+            AdjustExemptPins(stored.Record, 1);
     }
 
     /// <summary>Identity of a retained idempotency record.</summary>
@@ -601,6 +601,18 @@ internal sealed class GroupIdempotencyState
         /// <param name="clock">The clock the anchor was read from.</param>
         /// <returns>The age the record was restored with plus the time since it was anchored.</returns>
         internal TimeSpan Age(TimeProvider clock) => AgeAtAnchor + clock.GetElapsedTime(AnchorTimestamp);
+
+        /// <summary>Moves an unresolved record to the coordinates it is re-reserved at; a resolved record keeps its own.</summary>
+        /// <param name="logIndex">The journal index that now carries the record.</param>
+        /// <param name="term">The term in which the record was appended again.</param>
+        /// <param name="moved">The record at the new coordinates when it moved; otherwise this record.</param>
+        /// <returns><see langword="true" /> when the record is unresolved and its coordinates differ.</returns>
+        internal bool TryMoveTo(ulong logIndex, ulong term, out StoredRecord moved)
+        {
+            var move = Record.IsUnresolved && (Record.LogIndex != logIndex || Record.Term != term);
+            moved = move ? this with { Record = Record with { LogIndex = logIndex, Term = term } } : this;
+            return move;
+        }
 
         /// <summary>Returns the record to export, its resolution time restated as the capture time minus its age.</summary>
         /// <param name="clock">The clock the anchor was read from.</param>
