@@ -101,12 +101,20 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
 
     private static ReplicaVoteRequest MapVoteRequest(in ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm)
     {
-        // A candidate claims no leadership: the voter ignores the leader identity, so none is sent.
-        var envelope = MapHeader(in header);
-        envelope.LeaderNodeId = string.Empty;
+        // A candidate claims no leadership: the voter ignores the leader identity, so none is sent and the caller's value,
+        // which may be null, never reaches the protobuf setter.
         return new ReplicaVoteRequest
         {
-            Header = envelope,
+            Header = new ReplicationEnvelopeHeader
+            {
+                SchemaVersion = EnvelopeSchema.Version,
+                GroupId = header.GroupId,
+                TopologyFingerprint = ByteString.CopyFrom(header.TopologyFingerprint.Span),
+                ConfigurationGeneration = header.ConfigurationGeneration,
+                Term = header.Term,
+                LeaderNodeId = string.Empty,
+                SenderNodeId = header.SenderNodeId,
+            },
             LastLogIndex = lastLogIndex,
             LastLogTerm = lastLogTerm,
         };
