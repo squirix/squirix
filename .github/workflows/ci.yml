@@ -402,6 +402,13 @@ jobs:
                 shell: bash
                 run: echo "NUGET_PACKAGES=${RUNNER_TEMP}\\nuget-packages" >> "$GITHUB_ENV"
 
+            # Defender scans every file the build writes (restored packages, intermediate and output assemblies). The runner is
+            # disposable and builds only this repository's code, so its work folders are excluded from scanning.
+            -   name: Exclude Work Folders From Defender
+                if: steps.gate.outputs.build == 'true'
+                shell: pwsh
+                run: Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, $env:TEMP
+
             -   name: Build Release Outputs
                 if: steps.gate.outputs.build == 'true'
                 uses: ./.github/actions/build-release
@@ -599,6 +606,12 @@ jobs:
                       sleep 5
                     done
                     git checkout -q --detach FETCH_HEAD
+
+            # Defender scans every file a test creates (journals, snapshots, certificates), which doubles the time of storage-heavy
+            # tests. The runner is disposable and runs only this repository's code, so its work folders are excluded from scanning.
+            -   name: Exclude Work Folders From Defender
+                shell: pwsh
+                run: Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, $env:TEMP
 
             # Tests create their storage under the temp folder. The default one sits on the system drive, where a flush
             # takes 3-16 ms; on the work drive it takes 0.1-0.3 ms, which matters to every test that waits for durability.
@@ -1907,6 +1920,12 @@ jobs:
                 uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
                 with:
                     global-json-file: global.json
+
+            # Defender scans every file a test creates (journals, snapshots, certificates), which doubles the time of storage-heavy
+            # tests. The runner is disposable and runs only this repository's code, so its work folders are excluded from scanning.
+            -   name: Exclude Work Folders From Defender
+                shell: pwsh
+                run: Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, $env:TEMP
 
             -   name: Restore And Build
                 run: dotnet build squirix.slnx --configuration Release
