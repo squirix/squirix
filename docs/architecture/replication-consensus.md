@@ -178,14 +178,20 @@ The leader decides every replicated mutation once, at prepare time, from one rea
 clock. The record carries the decision: the outcome (the applied flag and, for a remove, the removed entry), the
 effect, and the pinned absolute expiration deadline.
 
-| Kind             | Applied when              | Effect when applied                     | Effect otherwise |
-|------------------|---------------------------|-----------------------------------------|------------------|
-| Set              | always                    | write the entry                         | not possible     |
-| TryAdd           | the key is absent         | write the entry                         | nothing          |
-| Update           | the key is live           | write the entry with the new value      | nothing          |
-| Touch            | the key is live           | write the entry with the new deadline   | nothing          |
-| RemoveExpiration | the live entry has one    | write the entry without a deadline      | nothing          |
-| Remove           | the key is live           | delete the key                          | delete the key   |
+| Kind             | Applied when                 | Effect when applied                   | Effect otherwise                     |
+|------------------|------------------------------|---------------------------------------|--------------------------------------|
+| Set              | always                       | write the entry                       | not possible                         |
+| TryAdd           | the key is absent or expired | write the entry                       | nothing                              |
+| Update           | the key is live              | write the entry with the new value    | nothing; delete the key when expired |
+| Touch            | the key is live              | write the entry with the new deadline | nothing; delete the key when expired |
+| RemoveExpiration | the live entry has one       | write the entry without a deadline    | nothing; delete the key when expired |
+| Remove           | the key is live              | delete the key                        | delete the key                       |
+| Expire           | never                        | not possible                          | delete the key                       |
+
+A key is expired when its stored deadline is at or before the prepare time on the leader clock. An Update, Touch or
+RemoveExpiration that finds the key expired folds the expiry into its record: the record reports nothing applied, carries
+no entry, carries the passed deadline, and deletes the key. An Expire record has the same shape and is committed only to
+remove an expired key.
 
 An upserted entry is written exactly as decided: value, absolute deadline, version and tags. The deadline of Set and
 TryAdd is the earlier of the entry's absolute expiration and its relative expiration measured from prepare time; the
@@ -211,13 +217,37 @@ gets `COMMIT_OUTCOME_UNKNOWN`, its idempotency outcome stays unresolved, later w
 by `squirix_replication_inconsistent_records_total`.
 
 Update, Touch and RemoveExpiration apply by writing the whole decided entry, so under memory pressure the write is admitted
-like an insert: if the key was lazily removed between the decision and the apply, the admission can refuse it after the
-majority. The entry then stays pending and later writes are refused with `replica_apply_pending` until the pressure clears.
+like an insert: if the admission refuses it after the majority, the entry stays pending and later writes are refused with
+`replica_apply_pending` until the pressure clears.
 Pinned deadlines are rounded up to whole milliseconds, the precision of the cache journal, so a journal recovery and a log re-apply write
 the same entry.
 
-The canonical record encoding is version 3 and nodes refuse records of any other version: every node of a replica group
-must run the same replica log codec version.
+The canonical record encoding is version 4 and nodes refuse records of any other version, version 3 included: every node
+of a replica group must run the same replica log codec version.
+
+### Expiry
+
+Only the leader decides that a key expired, on its own clock, and a key becomes absent for readers only through a
+committed record. On activated hosts the cache, its snapshots, journal recovery and journal compaction keep an entry past
+its deadline until a committed record removes it; RF=1 and foundation-only hosts keep expiring on the local clock.
+
+- A read on the leader that finds its entry at or past the deadline commits an Expire record and applies it before it
+  reports the miss. Concurrent reads of one key share one commit. A read whose Expire record cannot commit (no write
+  majority, a pending apply, the commit budget, or an unknown outcome) is refused with gRPC `Unavailable` and the detail
+  `replica_expiration_pending`; nothing was read, and a retry may succeed. It is never reported as `COMMIT_OUTCOME_UNKNOWN`.
+- A background sweep on the leader expires, every 10 seconds, up to 1024 owned keys that no read touched; a pass stops
+  at its first failure, logs it once, and the next pass retries. Keys of groups the node only follows are left to their
+  leader.
+- A follower never expires an entry on its own: it keeps the entry until it applies the Expire record or a conditional
+  write that folded the expiry.
+- Leader clocks can disagree. An entry expires when the leader that serves the key finds its deadline passed; a leader
+  whose clock is ahead removes it that much earlier, one that is behind that much later, bounded by the clock skew
+  between members. Once committed, the removal holds on every replica whatever its clock.
+- After a failover the new leader starts from the committed log: a key the old leader expired stays absent, and a key it
+  still read live is expired by the new leader on its own clock at the first read or sweep.
+- An Expire record takes its identity from the expired entry (cache, key, version and deadline) under an operation scope
+  no cache name can use, so no client operation shares it. It answers no client retry: it is pinned only while in flight,
+  never counts against the group idempotency capacity or retention, and leaves no outcome.
 
 ## Consequences
 
