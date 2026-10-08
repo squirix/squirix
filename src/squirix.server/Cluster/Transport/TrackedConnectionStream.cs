@@ -20,13 +20,19 @@ internal sealed class TrackedConnectionStream : NetworkStream
 
     private readonly Socket _socket;
 
-    private int _released;
+    /// <summary>One while the stream holds its connection entry; set only once the base constructor succeeded, so the finalizer of a half-built stream releases nothing.</summary>
+    private int _tracked;
 
-    private TrackedConnectionStream(Socket socket, TrackedConnections connections)
+    /// <summary>Initializes a new instance of the <see cref="TrackedConnectionStream" /> class.</summary>
+    /// <param name="socket">The connected socket, owned by the stream.</param>
+    /// <param name="connections">The pool's connections, left when the stream is disposed.</param>
+    /// <exception cref="IOException"><paramref name="socket" /> is not connected.</exception>
+    internal TrackedConnectionStream(Socket socket, TrackedConnections connections)
         : base(socket, true)
     {
         _socket = socket;
         _connections = connections;
+        _tracked = 1;
     }
 
     /// <summary>Connects to the peer as the runtime default does (TCP, no delay, dual-stack DNS endpoint) and tracks the connection in <paramref name="connections" />.</summary>
@@ -79,7 +85,7 @@ internal sealed class TrackedConnectionStream : NetworkStream
         }
         finally
         {
-            if (Interlocked.Exchange(ref _released, 1) == 0)
+            if (Interlocked.Exchange(ref _tracked, 0) == 1)
             {
                 _connections.Unregister(_socket);
                 _connections.Exit();
