@@ -98,7 +98,8 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         _quorum = new ReplicaCommitQuorum(options.ReplicaCount, options.InitialCommitIndex, eligibility);
 
         // The leader durably holds its whole log: its own slot counts through the recovered tail, followers only once verified.
-        _quorum.Admit(0, options.InitialLogIndex);
+        LeaderReplicaIndex = options.LeaderReplicaIndex;
+        _quorum.Admit(LeaderReplicaIndex, options.InitialLogIndex);
         _sequencer = new ReplicaLogIndexSequencer(options.InitialLogIndex);
         _turn = new ReplicaLogTurn(options.InitialLogIndex);
         _admission = new ReplicaMutationGate(options.MaxInFlight);
@@ -113,6 +114,9 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// <summary>Initializes the time source of the commit budget; the system clock unless set.</summary>
     /// <remarks>Test seam: production coordinators keep the system clock.</remarks>
     internal TimeProvider BudgetTimeProvider { private get; init; } = TimeProvider.System;
+
+    /// <summary>Gets the zero-based replica slot of the leader; every other slot is a follower.</summary>
+    internal int LeaderReplicaIndex { get; }
 
     /// <summary>Gets a value indicating whether some locally appended entry is not applied to memory yet.</summary>
     /// <remarks>The owner reads it under its commit gate, where no commit body runs, so only background follower observation can change it.</remarks>
@@ -284,7 +288,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         var pendingReplicaIndexes = new HashSet<int>();
         try
         {
-            ReplicaFollowerFanOut.StartFollowers(_quorum, _pipeline, mutation, pending, pendingReplicaIndexes, cancellationToken);
+            ReplicaFollowerFanOut.StartFollowers(_quorum, LeaderReplicaIndex, _pipeline, mutation, pending, pendingReplicaIndexes, cancellationToken);
 
             await _faultHooks.OnStageAsync(ReplicaCommitStage.FollowerFanOutStarted, mutation, cancellationToken).ConfigureAwait(false);
 
@@ -401,7 +405,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         // before the decision point below, never after it.
         await _faultHooks.OnStageAsync(ReplicaCommitStage.LocalAppendDurable, mutation, majorityCancellation).ConfigureAwait(false);
         var leader = new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true);
-        _ = _quorum.TryRecord(0, in leader, mutation);
+        _ = _quorum.TryRecord(LeaderReplicaIndex, in leader, mutation);
         await CollectMajorityAsync(mutation, majorityCancellation).ConfigureAwait(false);
 
         // Decision point: a durable majority holds the entry, so it is committed. Neither the caller nor the budget may stop
@@ -536,8 +540,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
-        var recordKind = string.Equals(mutation.OperationScope, ReplicaExpirationOperationId.OperationScope, StringComparison.Ordinal) ? GroupRecordKind.Expiration
-            : GroupRecordKind.UserMutation;
+        var recordKind = GroupRecordKinds.FromScope(mutation.OperationScope);
         var reserved = _idempotency.Reserve(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint.Span, recordKind, mutation.LogIndex, mutation.Term);
 
         if (reserved == GroupIdempotencyReserveResult.CapacityExceeded)
@@ -666,8 +669,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             // A same-identity retry must find the recovered entry pinned, never re-execute it: its outcome is unknown until a commit covers it.
             foreach (var entry in recovered.Mutations)
             {
-                var kind = string.Equals(entry.OperationScope, ReplicaExpirationOperationId.OperationScope, StringComparison.Ordinal) ? GroupRecordKind.Expiration
-                    : GroupRecordKind.UserMutation;
+                var kind = GroupRecordKinds.FromScope(entry.OperationScope);
                 var reserved = idempotency.Reserve(entry.OperationScope, entry.OperationId, entry.OperationFingerprint.Span, kind, entry.LogIndex, entry.Term, true);
                 if (reserved != GroupIdempotencyReserveResult.Success)
                     throw new InvalidOperationException($"Recovered log entry {entry.LogIndex} cannot be pinned for idempotent retries: {reserved}.");

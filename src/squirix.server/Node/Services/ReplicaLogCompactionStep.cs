@@ -135,8 +135,12 @@ internal static class ReplicaLogCompactionStep
     /// <returns>The first refusal among the follower slots, or <see langword="null" />.</returns>
     private static ReplicaLogCompactionOutcome? FollowerRefusal(ReplicaCommitCoordinator coordinator, ReplicaEligibility eligibility, ulong commit)
     {
-        for (var i = 1; i < eligibility.ReplicaCount; i++)
+        var slots = new ReplicaSlots(coordinator.LeaderReplicaIndex);
+        for (var i = 0; i < eligibility.ReplicaCount; i++)
         {
+            if (!slots.IsFollower(i))
+                continue;
+
             if (!eligibility.CanCountInWriteQuorum(i))
                 return ReplicaLogCompactionOutcome.FollowerNotReady;
 

@@ -11,4 +11,7 @@ internal enum ReplicaEffectKind
 
     /// <summary>Leaves memory as it is: the leader found nothing to change.</summary>
     Unchanged = 3,
+
+    /// <summary>Touches no cache at all: a leader-term no-op, which names no cache and no key.</summary>
+    NoCacheEffect = 4,
 }

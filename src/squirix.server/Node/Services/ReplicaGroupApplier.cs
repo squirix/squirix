@@ -238,12 +238,16 @@ internal sealed class ReplicaGroupApplier
         // The group log is the durable source of a replicated write: its cache journal frame must not become an RPC write-ahead
         // intent, or a restart would rebuild a Started record that hides the group outcome the committer replays. The suspension holds
         // with or without an RPC scope, and it also makes the apply skip the wait for its own flush: the entry is already durable in the
-        // group log, and the flush of the applied index waits for the node journal before it advances the durable index.
-        using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
+        // group log, and the flush of the applied index waits for the node journal before it advances the durable index. A leader-term
+        // no-op names no cache: nothing runs for it, and only the applied index moves past it.
+        if (effect != ReplicaEffectKind.NoCacheEffect)
         {
-            // The entry is committed: the operation took effect even when its effect writes no cache frame.
-            RpcMutationIdempotencyExecutionAmbient.NotifyMutationApplied();
-            await ReplicaCacheApplier.ExecuteAsync(_local, record, effect, entry, cancellationToken).ConfigureAwait(false);
+            using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
+            {
+                // The entry is committed: the operation took effect even when its effect writes no cache frame.
+                RpcMutationIdempotencyExecutionAmbient.NotifyMutationApplied();
+                await ReplicaCacheApplier.ExecuteAsync(_local, record, effect, entry, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         outcomes?.RecordCommittedOutcome(in outcome);

@@ -64,7 +64,7 @@ internal static class ReplicaCacheApplier
                 // The result reflects the local liveness of the key, not the committed outcome.
                 _ = await cache.RemoveAsync(record.OperationId, record.CacheName, key, cancellationToken).ConfigureAwait(false);
                 break;
-            case ReplicaEffectKind.Unchanged:
+            case ReplicaEffectKind.Unchanged or ReplicaEffectKind.NoCacheEffect:
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(record), effect, "Unsupported replica effect.");
@@ -89,7 +89,8 @@ internal static class ReplicaCacheApplier
     /// Set upserts and is always applied. TryAdd, Update, Touch and RemoveExpiration upsert the resulting entry when applied and change
     /// nothing otherwise, with an empty payload and no deadline. Remove deletes the key whatever the outcome, carries no payload, and
     /// reports the removed entry only when applied. Expire deletes the key the leader found expired: not applied, no payload, and the
-    /// passed deadline. Update, Touch and RemoveExpiration that found the key expired carry the same shape and delete it too.
+    /// passed deadline. Update, Touch and RemoveExpiration that found the key expired carry the same shape and delete it too. A leader-term
+    /// no-op touches no cache: not applied, under the leader-term scope, with no cache, key, payload or deadline.
     /// </remarks>
     internal static ReplicaEffectKind ResolveEffect(in ReplicaLogRecord record) => Resolve(in record, out _);
 
@@ -117,6 +118,7 @@ internal static class ReplicaCacheApplier
         var deadlineInRange = record.ExpiresUtcTicks >= 0 && record.ExpiresUtcTicks <= DateTime.MaxValue.Ticks;
         return !deadlineInRange ? throw Inconsistent(in record, "the deadline is out of range", applied) : record.MutationKind switch
         {
+            ReplicaMutationKinds.LeaderNoop => ResolveLeaderNoop(in record, applied, previous),
             ReplicaMutationKinds.Remove => ResolveRemove(in record, applied, previous),
             ReplicaMutationKinds.Expire => ResolveExpire(in record, applied, previous),
 
@@ -139,6 +141,14 @@ internal static class ReplicaCacheApplier
     private static ReplicaEffectKind ResolveExpire(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous) =>
         IsExpiryShape(in record, applied, previous) ? ReplicaEffectKind.Delete
             : throw Inconsistent(in record, "an expiration is applied, carries a payload or a previous entry, or has no deadline", applied);
+
+    private static ReplicaEffectKind ResolveLeaderNoop(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous)
+    {
+        var wellFormed = !applied && previous.IsEmpty && record.MutationPayload.IsEmpty && record.ExpiresUtcTicks == 0 && record.KeyPayload.IsEmpty &&
+            record.CacheName.Length == 0 && string.Equals(record.OperationScope, ReplicaLeaderOperationId.OperationScope, StringComparison.Ordinal);
+        return wellFormed ? ReplicaEffectKind.NoCacheEffect
+            : throw Inconsistent(in record, "a leader-term no-op is applied, names a cache, a key or a deadline, carries a payload, or has another scope", applied);
+    }
 
     private static ReplicaEffectKind ResolveRemove(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous)
     {

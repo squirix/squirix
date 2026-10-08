@@ -22,6 +22,7 @@ internal static class ReplicaReadinessProbe
 {
     /// <summary>Applies the probe verdict of every follower slot.</summary>
     /// <param name="eligibility">Participation gates of the owned group.</param>
+    /// <param name="leaderReplicaIndex">Zero-based slot of the leader, which no probe verdict touches.</param>
     /// <param name="results">Per-slot probe outcomes; slots that were not probed carry the default unreachable verdict.</param>
     /// <param name="leader">Leader log status the probes were built from.</param>
     /// <param name="fingerprint">Static topology fingerprint.</param>
@@ -29,6 +30,7 @@ internal static class ReplicaReadinessProbe
     /// <param name="coordinator">Running coordinator to re-base, or <see langword="null" /> before it exists.</param>
     internal static void ApplyAll(
         ReplicaEligibility eligibility,
+        int leaderReplicaIndex,
         ReplicaProbeResult[] results,
         in FollowerLogStatus leader,
         ReadOnlyMemory<byte> fingerprint,
@@ -36,8 +38,12 @@ internal static class ReplicaReadinessProbe
         ReplicaCommitCoordinator? coordinator)
     {
         ArgumentNullException.ThrowIfNull(results);
-        for (var i = 1; i < results.Length; i++)
-            Apply(eligibility, i, in results[i], in leader, fingerprint, generation, coordinator);
+        var slots = new ReplicaSlots(leaderReplicaIndex);
+        for (var i = 0; i < results.Length; i++)
+        {
+            if (slots.IsFollower(i))
+                Apply(eligibility, i, in results[i], in leader, fingerprint, generation, coordinator);
+        }
     }
 
     /// <summary>Admits a catching-up follower slot that a catch-up session verified to hold the leader log exactly through an index.</summary>
@@ -73,51 +79,59 @@ internal static class ReplicaReadinessProbe
 
     /// <summary>Marks the leader's own slot ready from its durable log tail.</summary>
     /// <param name="eligibility">Participation gates of the owned group.</param>
+    /// <param name="leaderReplicaIndex">Zero-based slot of the leader.</param>
     /// <param name="leader">Leader log status; an uncommitted tail is part of the leader's durable log and counts toward its slot.</param>
     /// <param name="fingerprint">Static topology fingerprint.</param>
     /// <param name="generation">Static configuration generation.</param>
-    internal static void MarkLeaderReady(ReplicaEligibility eligibility, in FollowerLogStatus leader, ReadOnlyMemory<byte> fingerprint, ulong generation)
+    internal static void MarkLeaderReady(ReplicaEligibility eligibility, int leaderReplicaIndex, in FollowerLogStatus leader, ReadOnlyMemory<byte> fingerprint, ulong generation)
     {
         ArgumentNullException.ThrowIfNull(eligibility);
         if (leader.Readiness != FollowerLogReadiness.Ready)
             return;
 
         var progress = TailProgress(in leader, fingerprint, generation);
-        _ = eligibility.TryMarkReady(0, in progress, in progress);
+        _ = eligibility.TryMarkReady(leaderReplicaIndex, in progress, in progress);
     }
 
     /// <summary>Takes every ready follower slot out of the write quorum, so it counts again only after a probe or a catch-up session verifies it.</summary>
     /// <param name="eligibility">Participation gates of the owned group.</param>
+    /// <param name="leaderReplicaIndex">Zero-based slot of the leader, which stays as it is.</param>
     /// <remarks>
     /// A new coordinator starts every slot at the commit index. A follower can stay ready behind it: a slower follower is not demoted,
     /// and a failure of its append that the retired coordinator never observed (a call that hangs past its cancellation) is lost.
     /// </remarks>
-    internal static void UnverifyFollowers(ReplicaEligibility eligibility)
+    internal static void UnverifyFollowers(ReplicaEligibility eligibility, int leaderReplicaIndex)
     {
         ArgumentNullException.ThrowIfNull(eligibility);
 
-        // No verified progress reaches the maximum index, so every ready slot is demoted.
-        for (var i = 1; i < eligibility.ReplicaCount; i++)
-            _ = eligibility.TryDemote(i, ulong.MaxValue);
+        // No verified progress reaches the maximum index, so every ready follower slot is demoted.
+        var slots = new ReplicaSlots(leaderReplicaIndex);
+        for (var i = 0; i < eligibility.ReplicaCount; i++)
+        {
+            if (slots.IsFollower(i))
+                _ = eligibility.TryDemote(i, ulong.MaxValue);
+        }
     }
 
     /// <summary>Selects the follower slots that still need verification.</summary>
     /// <param name="eligibility">Participation gates of the owned group.</param>
-    /// <returns>A per-slot flag array; slot zero (the leader) is never selected.</returns>
-    internal static bool[] NonReadyFollowers(ReplicaEligibility eligibility)
+    /// <param name="leaderReplicaIndex">Zero-based slot of the leader, which is never selected.</param>
+    /// <returns>A per-slot flag array.</returns>
+    internal static bool[] NonReadyFollowers(ReplicaEligibility eligibility, int leaderReplicaIndex)
     {
         ArgumentNullException.ThrowIfNull(eligibility);
         var candidates = new bool[eligibility.ReplicaCount];
-        for (var i = 1; i < candidates.Length; i++)
-            candidates[i] = !eligibility.CanCountInWriteQuorum(i);
+        var slots = new ReplicaSlots(leaderReplicaIndex);
+        for (var i = 0; i < candidates.Length; i++)
+            candidates[i] = slots.IsFollower(i) && !eligibility.CanCountInWriteQuorum(i);
 
         return candidates;
     }
 
     /// <summary>Probes the selected follower slots in parallel.</summary>
     /// <param name="gateway">Follower replication RPCs.</param>
-    /// <param name="candidates">Per-slot flags selecting the slots to probe.</param>
-    /// <param name="members">Ordered group members; index zero is the leader.</param>
+    /// <param name="candidates">Per-slot flags selecting the slots to probe; the leader slot is never selected.</param>
+    /// <param name="members">Ordered group members, in slot order.</param>
     /// <param name="header">Replication envelope identity.</param>
     /// <param name="leader">Leader log status naming the entry the followers must hold.</param>
     /// <param name="timeout">Per-probe budget.</param>
@@ -137,7 +151,7 @@ internal static class ReplicaReadinessProbe
         var results = new ReplicaProbeResult[candidates.Length];
         var slots = new List<int>(candidates.Length);
         var probes = new List<Task<ReplicaProbeResult>>(candidates.Length);
-        for (var i = 1; i < candidates.Length; i++)
+        for (var i = 0; i < candidates.Length; i++)
         {
             if (!candidates[i])
                 continue;

@@ -10,7 +10,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>Probes the followers of the owned replica group for verification, without the commit gate.</summary>
+/// <summary>Probes the followers of a replica group this node leads for verification, without the commit gate.</summary>
 /// <remarks>
 /// Followers are probed without the gate, so a dead or slow peer never delays writes. The verdicts are admitted afterwards under the
 /// commit gate of the committer, and the followers that answered but lack entries are handed to the catch-up pass.
@@ -27,6 +27,7 @@ internal sealed class ReplicaVerificationProbe
     private readonly ILogger _log;
     private readonly ReplicaGroupRegistry _registry;
     private readonly Lock _reportSync = new();
+    private readonly string _selfId;
     private readonly ReadOnlyMemory<byte> _topologyFingerprint;
 
     /// <summary>The followers the last admitted verification found answering, and the pipeline lookup of their catch-up target.</summary>
@@ -39,15 +40,16 @@ internal sealed class ReplicaVerificationProbe
     /// <param name="registry">Replica group registry of this node.</param>
     /// <param name="locator">Replica group locator resolving the owned group members.</param>
     /// <param name="gateway">Follower replication RPCs.</param>
-    /// <param name="groupId">The owned replica group identifier, which is this node's identifier.</param>
+    /// <param name="identity">The replica group identifier and this node identifier, the leader of the group and a member of it.</param>
     /// <param name="topologyFingerprint">Static topology fingerprint.</param>
     /// <param name="generation">Static configuration generation.</param>
     /// <param name="log">Logger for the blocked tail report.</param>
+    /// <exception cref="InvalidOperationException">This node is not a member of the group.</exception>
     internal ReplicaVerificationProbe(
         ReplicaGroupRegistry registry,
         IReplicaGroupLocator locator,
         IReplicaRpcGateway gateway,
-        string groupId,
+        (string GroupId, string SelfId) identity,
         ReadOnlyMemory<byte> topologyFingerprint,
         ulong generation,
         ILogger log)
@@ -55,28 +57,37 @@ internal sealed class ReplicaVerificationProbe
         _registry = registry;
         _locator = locator;
         _gateway = gateway;
-        _groupId = groupId;
+        _groupId = identity.GroupId;
+        _selfId = identity.SelfId;
         _topologyFingerprint = topologyFingerprint;
         _generation = generation;
         _log = log;
         Repairs = new ReplicaRepairQueue(locator.ReplicaCount);
+        var members = new string[locator.ReplicaCount];
+        locator.GetReplicaGroup(_groupId, members);
+        LeaderReplicaIndex = Array.IndexOf(members, _selfId);
+        if (LeaderReplicaIndex < 0)
+            throw new InvalidOperationException($"Node '{_selfId}' is not a member of replica group '{_groupId}'.");
     }
+
+    /// <summary>Gets the slot of this node in the group, the slot it leads from; every other slot is a follower.</summary>
+    internal int LeaderReplicaIndex { get; }
 
     /// <summary>Gets the follower slots the commit path demoted, waiting for the readiness service to verify and catch them up.</summary>
     internal ReplicaRepairQueue Repairs { get; }
 
     /// <summary>Builds the group members and the replication envelope identity for a term.</summary>
     /// <param name="term">The leader's current term.</param>
-    /// <returns>The ordered members, index zero being this node, and the envelope header.</returns>
+    /// <returns>The members in slot order, this node at <see cref="LeaderReplicaIndex" />, and the envelope header naming this node as leader and sender.</returns>
     internal (string[] Members, ReplicaRpcHeader Header) BuildMembership(ulong term)
     {
         var members = new string[_locator.ReplicaCount];
         _locator.GetReplicaGroup(_groupId, members);
-        return (members, new ReplicaRpcHeader(_groupId, _topologyFingerprint, _generation, term, _groupId, _groupId));
+        return (members, new ReplicaRpcHeader(_groupId, _topologyFingerprint, _generation, term, _selfId, _selfId));
     }
 
     /// <summary>Probes the non-ready followers against the leader log.</summary>
-    /// <param name="log">The owned group log.</param>
+    /// <param name="log">The group log.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The final verification state, or the probing the admission under the commit gate continues from.</returns>
     internal async Task<ReplicaVerificationSnapshot> ProbeAsync(IFollowerLog log, CancellationToken cancellationToken)
@@ -105,13 +116,14 @@ internal sealed class ReplicaVerificationProbe
             return new ReplicaVerificationSnapshot(ReplicaVerification.AllReady);
 
         var (members, header) = BuildMembership(term);
-        var probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility), members, header, status, ProbeTimeout, cancellationToken)
+        var probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility, LeaderReplicaIndex), members, header, status, ProbeTimeout, cancellationToken)
                                                .ConfigureAwait(false);
         var answered = new bool[probed.Length];
         var anyAnswered = false;
-        for (var i = 1; i < probed.Length; i++)
+        var slots = new ReplicaSlots(LeaderReplicaIndex);
+        for (var i = 0; i < probed.Length; i++)
         {
-            answered[i] = probed[i].Kind == ReplicaProbeKind.Accepted || probed[i].Kind == ReplicaProbeKind.LogMismatch;
+            answered[i] = slots.IsFollower(i) && (probed[i].Kind == ReplicaProbeKind.Accepted || probed[i].Kind == ReplicaProbeKind.LogMismatch);
             anyAnswered |= answered[i];
         }
 
@@ -125,7 +137,7 @@ internal sealed class ReplicaVerificationProbe
     /// <param name="snapshot">The follower probing taken outside the commit gate.</param>
     /// <param name="coordinator">The running coordinator the verified slots are admitted into.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The eligibility of the owned group after the verdicts were applied.</returns>
+    /// <returns>The eligibility of the group after the verdicts were applied.</returns>
     /// <remarks>Runs under the commit gate of the committer.</remarks>
     internal async Task<ReplicaEligibility> AdmitVerifiedSlotsAsync(
         IFollowerLog log,
@@ -145,13 +157,13 @@ internal sealed class ReplicaVerificationProbe
         // StartAsync may have verified some of these slots while this call waited for the gate: an older verdict
         // must not demote them.
         var eligibility = _registry.EligibilityFor(_groupId);
-        for (var i = 1; i < probed.Length; i++)
+        for (var i = 0; i < probed.Length; i++)
         {
             if (eligibility.CanCountInWriteQuorum(i))
                 probed[i] = default;
         }
 
-        ReplicaReadinessProbe.ApplyAll(eligibility, probed, in current, _topologyFingerprint, _generation, coordinator);
+        ReplicaReadinessProbe.ApplyAll(eligibility, LeaderReplicaIndex, probed, in current, _topologyFingerprint, _generation, coordinator);
         return eligibility;
     }
 
@@ -171,7 +183,7 @@ internal sealed class ReplicaVerificationProbe
             return targets;
 
         var eligibility = _registry.EligibilityFor(_groupId);
-        for (var i = 1; i < offer.Answered.Length; i++)
+        for (var i = 0; i < offer.Answered.Length; i++)
         {
             if (offer.Answered[i] && eligibility.StateFor(i) == ReplicaParticipantState.CatchingUp)
                 targets.Add(offer.TargetFor(i));

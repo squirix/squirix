@@ -106,6 +106,34 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         return (Build(ReplicaExpirationOperationId.OperationScope, in record, index), null);
     }
 
+    /// <summary>Prepares the no-op that commits the term of this factory: it touches no cache and answers no client retry.</summary>
+    /// <param name="index">Reserved group log index.</param>
+    /// <returns>The prepared no-op, whose identity is derived from the group and the term alone.</returns>
+    /// <remarks>
+    /// A leader commits it before it serves: an entry of its own term covers every older entry its log holds. A retry in the same term
+    /// keeps the identity and replays the retained entry instead of appending a second one.
+    /// </remarks>
+    internal PreparedReplicaMutation PrepareLeaderTerm(ulong index)
+    {
+        var record = new ReplicaLogRecord(
+            index,
+            _term,
+            ReplicaLeaderOperationId.Create(_term),
+            ReplicaLeaderOperationId.OperationScope,
+            ReplicaLeaderOperationId.Fingerprint(_groupId, _term),
+            nameof(GroupRecordKind.LeaderTerm),
+            string.Empty,
+            ReadOnlyMemory<byte>.Empty,
+            ReplicaMutationKinds.LeaderNoop,
+            ReadOnlyMemory<byte>.Empty,
+            ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty),
+            0,
+            _clock.GetUtcNow().UtcDateTime.Ticks,
+            0,
+            0);
+        return Build(ReplicaLeaderOperationId.OperationScope, in record, index);
+    }
+
     /// <summary>Prepares a replicated remove with the observed previous entry as the outcome.</summary>
     /// <param name="operationId">Client operation identifier.</param>
     /// <param name="cacheName">Target cache name.</param>

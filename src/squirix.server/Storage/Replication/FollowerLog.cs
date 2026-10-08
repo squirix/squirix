@@ -437,6 +437,20 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         };
     }
 
+    /// <inheritdoc />
+    public async Task<ulong> ObserveTermAsync(ulong term, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        if (IsDisposed || Readiness != FollowerLogReadiness.Ready || term <= _meta.CurrentTerm)
+            return _meta.CurrentTerm;
+
+        // The higher term is durable before anyone acts on it; any vote of an older term is cleared with it.
+        var observed = _meta with { CurrentTerm = term, VotedFor = string.Empty };
+        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, observed, cancellationToken).ConfigureAwait(false);
+        _meta = observed;
+        return term;
+    }
+
     internal async Task<FollowerLogReconcileResult> ReconcileTailAsync(ulong fromIndex, ulong prevLogTerm, ulong leaderTerm, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);

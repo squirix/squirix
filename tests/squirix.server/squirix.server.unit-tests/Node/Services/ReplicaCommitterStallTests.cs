@@ -95,7 +95,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var clock = new DueTimerClock(ShortCommitBudget);
         await using var registry = await OpenRegistryAsync(cancellationToken);
         await using var defaults = CreateCommitter(registry, local, log);
-        await using var committer = new ReplicaGroupCommitter(registry, new TwoNodeLocator(), gateway, local, OwnedGroup, new ReplicaTopologyStamp(Fingerprint, 1), log)
+        await using var committer = new ReplicaGroupCommitter(registry, new TwoNodeLocator(), gateway, local, (OwnedGroup, OwnedGroup), new ReplicaTopologyStamp(Fingerprint, 1), log)
         {
             Recovery = RecoveryLifecycle.Recovered(),
             CommitBudget = ShortCommitBudget,
@@ -412,7 +412,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         ILogicalNamespacedCache<object?> local,
         ILogger<ReplicaGroupCommitter>? log = null,
         IReplicaRpcGateway? gateway = null) =>
-        new(registry, new TwoNodeLocator(), gateway ?? new AcceptingGateway(), local, "n1", new ReplicaTopologyStamp(Fingerprint, 1), log ?? new LeakRecordingLogger())
+        new(registry, new TwoNodeLocator(), gateway ?? new AcceptingGateway(), local, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), log ?? new LeakRecordingLogger())
         {
             Recovery = RecoveryLifecycle.Recovered(),
             ShutdownBudget = TimeSpan.FromMilliseconds(200),

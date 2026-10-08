@@ -9,6 +9,7 @@ internal static class ReplicaFollowerFanOut
 {
     /// <summary>Starts the append of the entry on every follower and observes each started append.</summary>
     /// <param name="quorum">Quorum that records follower acknowledgements.</param>
+    /// <param name="leaderReplicaIndex">Zero-based slot of the leader, which is never sent to.</param>
     /// <param name="pipeline">Pipeline that appends to followers and records lagging replicas.</param>
     /// <param name="mutation">The entry being committed.</param>
     /// <param name="pending">Receives the follower observations; filled in place so the caller can observe the ones started before a failure.</param>
@@ -16,6 +17,7 @@ internal static class ReplicaFollowerFanOut
     /// <param name="cancellationToken">The commit budget token.</param>
     internal static void StartFollowers(
         ReplicaCommitQuorum quorum,
+        int leaderReplicaIndex,
         IReplicaCommitPipeline pipeline,
         PreparedReplicaMutation mutation,
         List<Task<FollowerCompletion>> pending,
@@ -23,8 +25,12 @@ internal static class ReplicaFollowerFanOut
         CancellationToken cancellationToken)
     {
         var followerTasks = new HashSet<Task<ReplicaDurableAcknowledgement>>(ReferenceEqualityComparer.Instance);
-        for (var replicaIndex = 1; replicaIndex < quorum.ReplicaCount; replicaIndex++)
+        var slots = new ReplicaSlots(leaderReplicaIndex);
+        for (var replicaIndex = 0; replicaIndex < quorum.ReplicaCount; replicaIndex++)
         {
+            if (!slots.IsFollower(replicaIndex))
+                continue;
+
             var followerTask = pipeline.AppendFollowerAsync(replicaIndex, mutation, cancellationToken).AsTask();
             if (!followerTasks.Add(followerTask))
             {

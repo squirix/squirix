@@ -43,7 +43,7 @@ internal sealed class ReplicaVerificationSnapshot
     /// <summary>Gets the replication envelope identity of the follower calls.</summary>
     internal ReplicaRpcHeader Header { get; }
 
-    /// <summary>Gets the group members; index zero is this node.</summary>
+    /// <summary>Gets the group members in slot order.</summary>
     internal string[] Members { get; }
 
     /// <summary>Gets the per-slot verdicts.</summary>

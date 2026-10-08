@@ -45,14 +45,14 @@ internal static class ReplicaOutcomeRecovery
         var restored = 0;
         var clientOutcomes = 0;
 
-        // Expiration tombstones carry no outcome and take no place in the store, so they do not count toward the frames read: the read
-        // goes on past them until it has seen as many client outcomes as the store holds.
+        // Expiration tombstones and leader-term no-ops carry no outcome and take no place in the store, so they do not count toward the
+        // frames read: the read goes on past them until it has seen as many client outcomes as the store holds.
         _ = await log.ReadRecentCommittedAsync(
                 int.MaxValue,
                 entry =>
                 {
                     var record = Rebuild(in entry, out var decidedUtc);
-                    if (record.Kind == GroupRecordKind.Expiration)
+                    if (record.Kind is GroupRecordKind.Expiration or GroupRecordKind.LeaderTerm)
                         return true;
 
                     var result = idempotency.RestoreOutcome(in record, now - decidedUtc);
@@ -79,8 +79,7 @@ internal static class ReplicaOutcomeRecovery
             throw new InvalidDataException($"Committed group log entry {decoded.LogIndex} does not carry a readable decision time.");
 
         var decidedUtc = new DateTime(decoded.DecidedUtcTicks, DateTimeKind.Utc);
-        var kind = string.Equals(decoded.OperationScope, ReplicaExpirationOperationId.OperationScope, StringComparison.Ordinal) ? GroupRecordKind.Expiration
-            : GroupRecordKind.UserMutation;
+        var kind = GroupRecordKinds.FromScope(decoded.OperationScope);
 
         // The decoder hands out owned buffers, so the record keeps them as they are.
         return new GroupIdempotencyRecord(

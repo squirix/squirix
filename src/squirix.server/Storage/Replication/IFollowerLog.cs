@@ -174,4 +174,14 @@ internal interface IFollowerLog : IAsyncDisposable
     /// below one, the static provisional leader term, is refused as stale and changes nothing.
     /// </remarks>
     Task<FollowerLogVoteResult> RequestVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken);
+
+    /// <summary>Adopts a higher term seen in a reply, persisting it with the vote cleared before it is reported.</summary>
+    /// <param name="term">The observed term.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The durable term after the call: <paramref name="term" /> once adopted, otherwise the unchanged durable term.</returns>
+    /// <remarks>
+    /// The term never goes down and the log entries are never touched: a term at or below the durable one, or a log that is not ready,
+    /// changes nothing. A failed metadata write fails the log, like every other durable term step.
+    /// </remarks>
+    Task<ulong> ObserveTermAsync(ulong term, CancellationToken cancellationToken);
 }

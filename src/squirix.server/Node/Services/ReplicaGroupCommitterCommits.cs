@@ -67,7 +67,7 @@ internal static class ReplicaGroupCommitterCommits
         }
 
         /// <summary>Creates the commit coordinator of a start over its pipeline and the recovered leader tail.</summary>
-        /// <param name="replicaCount">The number of replicas of the group, this node included.</param>
+        /// <param name="slots">The number of replicas of the group, this node included, and the slot of this node, the leader.</param>
         /// <param name="pipeline">The pipeline of the new coordinator.</param>
         /// <param name="log">The owned group log.</param>
         /// <param name="status">Durable log status of the leader.</param>
@@ -75,7 +75,7 @@ internal static class ReplicaGroupCommitterCommits
         /// <param name="recoveredTail">The recovered uncommitted tail entries.</param>
         /// <returns>The coordinator.</returns>
         internal ReplicaCommitCoordinator CreateCoordinator(
-            int replicaCount,
+            (int ReplicaCount, int LeaderReplicaIndex) slots,
             IReplicaCommitPipeline pipeline,
             IFollowerLog log,
             in FollowerLogStatus status,
@@ -84,7 +84,10 @@ internal static class ReplicaGroupCommitterCommits
         {
             var logger = committer.Log;
             return new ReplicaCommitCoordinator(
-                new ReplicaCommitCoordinatorOptions(replicaCount, status.LastLogIndex, status.CommitIndex, ReplicaGroupCommitter.MaxInFlight),
+                new ReplicaCommitCoordinatorOptions(slots.ReplicaCount, status.LastLogIndex, status.CommitIndex, ReplicaGroupCommitter.MaxInFlight)
+                {
+                    LeaderReplicaIndex = slots.LeaderReplicaIndex,
+                },
                 pipeline,
                 ReplicaGroupCommitter.NoOpCommitHooks.Instance,
                 log.Idempotency,
