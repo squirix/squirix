@@ -16,6 +16,8 @@ public sealed class LeaderRefusalTests : ServerUnitTestBase
 {
     private const string Self = "n1";
 
+    private static readonly string[] NonAsciiLeaders = ["n\u00f63", "n\t3"];
+
     /// <summary>A node that leads with authority refuses nothing.</summary>
     [Test]
     public async Task AuthorityIsNotRefused()
@@ -55,6 +57,22 @@ public sealed class LeaderRefusalTests : ServerUnitTestBase
         _ = await Assert.That(hinted.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
         _ = await Assert.That((hinted.Trailers.GetValue("squirix-leader-node-id"), hinted.Trailers.GetValue("squirix-leader-term"))).IsEqualTo(("n3", "7"));
         _ = await Assert.That((plain.Status.Detail, plain.Trailers.Count)).IsEqualTo((hinted.Status.Detail, 1));
+    }
+
+    /// <summary>A leader whose identifier is not printable ASCII is left out of the trailers; the refusal itself stays the same.</summary>
+    [Test]
+    public async Task NonAsciiLeaderHasNoHint()
+    {
+        foreach (var leader in NonAsciiLeaders)
+        {
+            var view = new GroupLeaderView(true, false, false, 7, 7, new LeaderRoute(leader, 7));
+
+            var failure = LeaderRefusal.Create(LeaderRefusalKind.StaleOwner, in view, Self, true);
+
+            _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, $"Key is owned by '{leader}', not current node 'n1'."));
+            _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
+            _ = await Assert.That(failure.Trailers.Count).IsEqualTo(1);
+        }
     }
 
     /// <summary>A follower that knows no leader, or knows only itself, refuses retryably.</summary>
