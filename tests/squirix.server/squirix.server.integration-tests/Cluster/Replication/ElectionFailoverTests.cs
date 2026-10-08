@@ -52,9 +52,10 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
     {
         const string scope = "election-failover";
         await using var cluster = await StartClusterAsync(Nodes[0], Nodes[1], Nodes[2], Options(scope, true), cancellationToken);
-        var first = await LeaderAsync(cluster, Nodes, "the group of the owner gets a leader", cancellationToken);
+        var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, OwnerId, Bound);
+        var first = await ledger.LeaderAsync(Nodes, 0UL, "the group of the owner gets a leader", cancellationToken);
 
-        await FailOverAsync(cluster, first, Options(scope, false), cancellationToken);
+        await FailOverAsync(cluster, ledger, first, Options(scope, false), cancellationToken);
     }
 
     /// <summary>
@@ -75,10 +76,11 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
             // Each setup reserves new addresses, so it gets a data directory of its own: the topology stamp of an earlier setup differs.
             var scope = $"election-owner-failover-{attempt}";
             await using var cluster = await StartClusterAsync(Nodes[0], Nodes[1], Nodes[2], Options(scope, true), cancellationToken);
+            var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, OwnerId, Bound);
             (string NodeId, ulong Term) first;
             try
             {
-                first = await LeaderAsync(cluster, Nodes, "the group of the owner gets a leader", cancellationToken, OwnerBound);
+                first = await ledger.LeaderAsync(Nodes, 0UL, "the group of the owner gets a leader", OwnerBound, cancellationToken);
             }
             catch (TimeoutException)
             {
@@ -89,7 +91,7 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
             if (!string.Equals(first.NodeId, OwnerId, StringComparison.Ordinal) || first.Term != 1UL)
                 continue;
 
-            await FailOverAsync(cluster, first, Options(scope, false), cancellationToken);
+            await FailOverAsync(cluster, ledger, first, Options(scope, false), cancellationToken);
             return;
         }
 
@@ -116,28 +118,29 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
 
     /// <summary>Stops the leader of the owner group, waits for the next leader, checks its leader-term entry, and restarts the former leader.</summary>
     /// <param name="cluster">The running cluster.</param>
+    /// <param name="ledger">The election safety record of the owner group, checked on every poll.</param>
     /// <param name="first">The leader to stop and its term.</param>
     /// <param name="restart">The start options of the restart.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>An asynchronous operation.</returns>
-    private static async Task FailOverAsync(TestCluster<IntegrationStartOptions> cluster, (string NodeId, ulong Term) first, IntegrationStartOptions restart, CancellationToken cancellationToken)
+    private static async Task FailOverAsync(
+        TestCluster<IntegrationStartOptions> cluster,
+        GroupAuthorityLedger<IntegrationStartOptions> ledger,
+        (string NodeId, ulong Term) first,
+        IntegrationStartOptions restart,
+        CancellationToken cancellationToken)
     {
         await cluster.StopNodeAsync(first.NodeId);
         var others = Array.FindAll(Nodes, id => !string.Equals(id, first.NodeId, StringComparison.Ordinal));
-        var (secondLeader, elected) = await LeaderAsync(cluster, others, "another node gains authority over the group", cancellationToken);
+        var (secondLeader, elected) = await ledger.LeaderAsync(others, 0UL, "another node gains authority over the group", cancellationToken);
         var (noop, committed) = await NoopAsync(cluster[secondLeader], elected, cancellationToken);
 
         var restarted = await cluster.StartNodeAsync(first.NodeId, restart, cancellationToken);
-        await PhaseAsync(
+        await ledger.UntilValueAsync(
+            (Node: restarted, Former: first.NodeId, Term: elected),
+            static (s, token) => FollowsAsync(s.Node, (s.Former, s.Term), token),
             "the restarted former leader follows the new term",
-            () => cluster.WaitUntilValueAsync(
-                (nodes, token) =>
-                {
-                    _ = HighestAuthority(nodes, Nodes);
-                    return FollowsAsync(nodes[first.NodeId], (first.NodeId, elected), token);
-                },
-                Bound,
-                cancellationToken));
+            cancellationToken);
 
         _ = await Assert.That(elected).IsGreaterThan(first.Term);
         _ = await Assert.That(elected).IsGreaterThanOrEqualTo(2UL);
@@ -153,59 +156,6 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
     private static async ValueTask<bool> FollowsAsync(ITestNodeHost node, (string NodeId, ulong Term) follower, CancellationToken cancellationToken) =>
         (await Log(node).GetStatusAsync(cancellationToken)).CurrentTerm >= follower.Term && Table(node).TryGetLeader(OwnerId, out var route) &&
         !string.Equals(route.NodeId, follower.NodeId, StringComparison.Ordinal);
-
-    /// <summary>Waits until one of the given nodes has local authority over the group of the owner, checking election safety on every poll.</summary>
-    /// <param name="cluster">The cluster.</param>
-    /// <param name="candidates">The running nodes that may lead.</param>
-    /// <param name="phase">What the wait expects, for the timeout message.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <param name="bound">The longest wait; <see cref="Bound" /> unless set.</param>
-    /// <returns>The authorized node with the highest term, and that term.</returns>
-    /// <exception cref="InvalidOperationException">Two nodes hold authority in the same term.</exception>
-    private static async Task<(string NodeId, ulong Term)> LeaderAsync(
-        TestCluster<IntegrationStartOptions> cluster,
-        string[] candidates,
-        string phase,
-        CancellationToken cancellationToken,
-        TimeSpan? bound = null)
-    {
-        var leader = (NodeId: string.Empty, Term: 0UL);
-        await PhaseAsync(
-            phase,
-            () => cluster.WaitUntilAsync(
-                nodes =>
-                {
-                    leader = HighestAuthority(nodes, candidates);
-                    return leader.Term != 0;
-                },
-                bound ?? Bound,
-                cancellationToken));
-        return leader;
-    }
-
-    /// <summary>Reads which node holds authority over the owner group in the highest term, refusing two holders of one term.</summary>
-    /// <param name="cluster">The cluster.</param>
-    /// <param name="candidates">The running nodes.</param>
-    /// <returns>The node and its term; a zero term when none holds authority.</returns>
-    /// <exception cref="InvalidOperationException">Two nodes hold authority in the same term.</exception>
-    private static (string NodeId, ulong Term) HighestAuthority(TestCluster<IntegrationStartOptions> cluster, string[] candidates)
-    {
-        var leader = (NodeId: string.Empty, Term: 0UL);
-        var holders = new Dictionary<ulong, string>();
-        foreach (var candidate in candidates)
-        {
-            if (!Table(cluster[candidate]).HasLocalAuthority(OwnerId, out var term))
-                continue;
-
-            if (!holders.TryAdd(term, candidate))
-                throw new InvalidOperationException($"Nodes {holders[term]} and {candidate} both hold authority over group {OwnerId} in term {term}.");
-
-            if (term > leader.Term)
-                leader = (candidate, term);
-        }
-
-        return leader;
-    }
 
     private static IFollowerLog Log(ITestNodeHost host) =>
         host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(OwnerId, out var log) ? log : throw new InvalidOperationException($"The group log {OwnerId} is not open.");
@@ -244,23 +194,6 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
             VoteRpcTimeout = TimeSpan.FromSeconds(2),
         }),
     };
-
-    /// <summary>Awaits one bounded wait of the scenario, naming it when it times out.</summary>
-    /// <param name="phase">What the wait expects.</param>
-    /// <param name="wait">Starts the wait.</param>
-    /// <returns>An asynchronous operation.</returns>
-    /// <exception cref="TimeoutException">The wait timed out; the message names the phase.</exception>
-    private static async Task PhaseAsync(string phase, Func<Task> wait)
-    {
-        try
-        {
-            await wait();
-        }
-        catch (TimeoutException exception)
-        {
-            throw new TimeoutException($"Timed out waiting until {phase}.", exception);
-        }
-    }
 
     private static IGroupLeaderTable Table(ITestNodeHost host) => host.GetRequiredService<IGroupLeaderTable>();
 }

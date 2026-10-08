@@ -462,6 +462,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 },
                 WaitForRecovery = options.WaitForRecovery,
                 ServicesConfigure = options.ServicesConfigure,
+                ElectionTiming = options.ElectionTiming,
                 TimeProvider = options.TimeProvider,
                 BackpressureOptions = options.BackpressureOptions,
                 PersistenceOptions = persistenceOptions,

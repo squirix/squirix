@@ -24,6 +24,9 @@ internal sealed class NodeHostStartOptions
 
     internal Action<ILoggingBuilder>? ConfigureLogging { get; init; }
 
+    /// <summary>Gets the election timing registered for the node before <see cref="ServicesConfigure" /> runs; the product defaults when not set.</summary>
+    internal TestElectionTiming? ElectionTiming { get; init; }
+
     /// <summary>Gets a value indicating whether the closed replication service is mapped for transport/identity tests only.</summary>
     internal bool FoundationOnly { get; init; }
 
