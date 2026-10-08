@@ -125,6 +125,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
+    [Timeout(120_000)]
     public async Task NonMemberEntryReachesLeader(CancellationToken cancellationToken)
     {
         var topology = new ClusterNode[FourNodes.Length];
@@ -165,7 +166,10 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         _ = await Assert.That(refusal).IsNull().Because($"the write through {EntryOutsideGroup} must reach the new leader; writes: {string.Join("; ", outcomes)}");
         var leader = await LeaderAsync(cluster, survivors, cancellationToken);
         _ = await Assert.That((Table(cluster[EntryOutsideGroup]).TryGetLearnedLeader(OwnerId, out var learned), learned.NodeId)).IsEqualTo((true, leader));
-        var read = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, deadline: DateTime.UtcNow.Add(Bound), cancellationToken: cancellationToken);
+        var read = await client.GetValueAsync(
+            new GetValueAsyncRequest { CacheName = CacheName, Key = key },
+            deadline: DateTime.UtcNow.Add(Bound),
+            cancellationToken: cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
     }
 

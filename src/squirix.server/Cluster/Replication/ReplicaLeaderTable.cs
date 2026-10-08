@@ -55,7 +55,11 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
     }
 
     /// <inheritdoc />
-    /// <remarks>The replica set decides whether this node serves the group, so a hint is ignored for a served group before the registry opens too.</remarks>
+    /// <remarks>
+    /// The replica set decides whether this node serves the group, so a hint is ignored for a served group before the registry opens too. A
+    /// member learned in term zero, because it served a fallback, gives way to any hint of a higher term, even one that is already stale; such a
+    /// hint answers stale in its turn and is then forgotten.
+    /// </remarks>
     public void Learn(string groupId, in LeaderRoute hint)
     {
         if (string.IsNullOrEmpty(hint.NodeId) || string.Equals(hint.NodeId, _selfId, StringComparison.Ordinal))

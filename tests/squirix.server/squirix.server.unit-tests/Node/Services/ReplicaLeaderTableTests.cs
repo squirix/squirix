@@ -302,6 +302,20 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
         _ = await Assert.That(table.TryGetLeader("n2", out _) || table.TryGetLeader("n1", out _)).IsFalse();
     }
 
+    /// <summary>A member learned in term zero after it served a fallback gives way to a hint of any higher term, even a stale one.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TermZeroGivesWayToHint(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-leader-learned-zero");
+        await using var registry = await OpenRegistryAsync(dir, ["n1", "n4", "n5"], null, cancellationToken);
+        var table = new ReplicaLeaderTable(registry, "n1", new ReplicaGroupLocator(new PhysicalNodeRing(["n1", "n2", "n3", "n4", "n5"]), 3));
+        table.Learn("n2", new LeaderRoute("n3", 0UL));
+        table.Learn("n2", new LeaderRoute("n4", 2UL));
+
+        _ = await Assert.That((table.TryGetLearnedLeader("n2", out var learned), learned)).IsEqualTo((true, new LeaderRoute("n4", 2UL)));
+    }
+
     /// <summary>A canceled wait for a leader throws, an infinite one included.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
