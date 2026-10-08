@@ -391,8 +391,11 @@ jobs:
                 id: changes
                 uses: ./.github/actions/detect-changes
 
+            # bash, not the default PowerShell of a Windows runner: there "$GITHUB_OUTPUT" is an empty PowerShell variable, the output
+            # is lost, and the build is skipped.
             -   name: Decide Whether To Build
                 id: gate
+                shell: bash
                 run: echo "build=${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
 
             # The system drive of the runner is slow: unpacking the package cache there takes 35 s. The SDK already lives on the
