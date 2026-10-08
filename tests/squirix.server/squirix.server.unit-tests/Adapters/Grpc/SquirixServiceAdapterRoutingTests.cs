@@ -7,6 +7,7 @@ using Grpc.Core;
 using Rocks;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime;
@@ -132,9 +133,7 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
         static async (adapter, context) => _ = await adapter.Update(new UpdateAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
     ];
 
-    private static RpcException StaleOwnerWithHint(string leader) => new(
-        new Status(StatusCode.FailedPrecondition, $"Key is owned by '{leader}', not current node '{Remote}'."),
-        new Metadata { { "squirix-error-code", "stale-owner" }, { StaleRouteSignals.LeaderNodeIdMetadataKey, leader }, { StaleRouteSignals.LeaderTermMetadataKey, "3" } });
+    private static RpcException StaleOwnerWithHint(string leader) => StaleOwnerFailure.Create(leader, Remote, 3);
 
     private static CacheEntryWire CreateEntry() => new() { Expiration = Duration.FromTimeSpan(TimeSpan.FromMinutes(1)) };
 

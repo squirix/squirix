@@ -17,7 +17,7 @@ namespace Squirix.Server.Adapters.Grpc;
 /// The group of a key is named by its ring owner. Its leader comes from the leader table: with a static table the ring owner always leads,
 /// so the call runs locally or is forwarded once to the owner, and every refusal is relayed. With an election-led table the router waits
 /// for a leader within the deadline, and when the chosen route answers as stale (nothing was appended), refutes it and reroutes once with
-/// the same request, so with the same operation id; a second stale answer ends the operation as <see cref="StaleRouteSignals.LeaderChanged" />.
+/// the same request, so with the same operation id; a second stale answer ends the operation as <see cref="ServerOpContract.LeaderChanged" />.
 /// Transport failures, an unknown commit outcome, and every other failure are never rerouted.
 /// </remarks>
 [Immutable]
@@ -97,7 +97,7 @@ internal sealed class OwnerRouter
         // only repeat the refused attempt: one attempt, its refusal relayed.
         return (Internal: _invocationState.IsInternalOwnerInvocation, Static: _table is StaticLeaderTable) switch
         {
-            (true, _) when !IsSelf(in route) => throw RefuseInternal(in route),
+            (true, _) when !IsSelf(in route) => throw RefuseInternal(groupId, in route),
             (true, _) or (_, true) => AttemptAsync(in route, state, forward, local, cancellationToken),
             _ => RouteAsync(groupId, route, state, forward, local, cancellationToken),
         };
@@ -113,11 +113,21 @@ internal sealed class OwnerRouter
     private bool IsSelf(in LeaderRoute route) => string.Equals(route.NodeId, _ownershipResolver.SelfNodeId, StringComparison.Ordinal);
 
     /// <summary>Refuses a trusted internal owner RPC that reached a node without authority over the key's group; it is never forwarded again.</summary>
-    /// <param name="route">The leader this node knows; <see langword="default" /> when none.</param>
-    /// <returns>The stale-owner refusal naming the known leader, or the no-leader refusal.</returns>
-    private RpcException RefuseInternal(in LeaderRoute route) => string.IsNullOrEmpty(route.NodeId)
-        ? ServerOpContract.NoLeaderAuthority()
-        : StaleOwnerFailure.Create(route.NodeId, _ownershipResolver.SelfNodeId);
+    /// <param name="groupId">The group.</param>
+    /// <param name="route">The leader this node knows; with a static table, always the ring owner.</param>
+    /// <returns>
+    /// With a static table the stale-owner refusal naming the owner, as before leader routing; otherwise the leader refusal of the group view, with
+    /// the leader hint trailers.
+    /// </returns>
+    private RpcException RefuseInternal(string groupId, in LeaderRoute route)
+    {
+        var self = _ownershipResolver.SelfNodeId;
+        if (_table is StaticLeaderTable)
+            return StaleOwnerFailure.Create(route.NodeId, self);
+
+        var view = _table.Read(groupId);
+        return LeaderRefusal.Create(LeaderRefusal.Classify(in view, self), in view, self, true);
+    }
 
     /// <summary>Resolves the route of a group without waiting.</summary>
     /// <param name="groupId">The group, named by the ring owner of the key.</param>
@@ -166,13 +176,13 @@ internal sealed class OwnerRouter
     {
         _table.Refute(groupId, in refused);
         if (!budget.TryConsumeReroute() || budget.HasExpired())
-            throw StaleRouteSignals.LeaderChanged();
+            throw ServerOpContract.LeaderChanged();
 
         // The hint of the refusing node comes first; this node decides its own authority from its table, never from a hint.
         var next = !string.IsNullOrEmpty(hint.NodeId) && !IsSelf(in hint) && !string.Equals(hint.NodeId, refused.NodeId, StringComparison.Ordinal)
             ? hint
             : await ResolveAsync(groupId, budget, cancellationToken).ConfigureAwait(false);
-        return string.Equals(next.NodeId, refused.NodeId, StringComparison.Ordinal) ? throw StaleRouteSignals.LeaderChanged() : next;
+        return string.Equals(next.NodeId, refused.NodeId, StringComparison.Ordinal) ? throw ServerOpContract.LeaderChanged() : next;
     }
 
     /// <summary>Runs the call on the leader of a group, rerouting once when the route answers as stale.</summary>

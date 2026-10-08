@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -65,7 +64,7 @@ public sealed class OwnerRouterRerouteTests
     public async Task StaleTermTrailerReroutes()
     {
         var table = new FakeLeaderTable(Self, new LeaderRoute(First, 2));
-        var trailers = new Metadata { { GrpcStaleOwnerMarkers.ErrorCodeMetadataKey, RefusalCodes.StaleTerm }, { StaleRouteSignals.LeaderNodeIdMetadataKey, Second } };
+        var trailers = new Metadata { { GrpcStaleOwnerMarkers.ErrorCodeMetadataKey, RefusalCodes.StaleTerm }, { GrpcStaleOwnerMarkers.LeaderNodeIdMetadataKey, Second } };
         var attempts = new Attempts(new RpcException(new Status(StatusCode.FailedPrecondition, "deposed"), trailers));
 
         _ = await attempts.RunAsync(CreateRouter(table, false, TimeProvider.System));
@@ -83,7 +82,7 @@ public sealed class OwnerRouterRerouteTests
         var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)));
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo(StaleRouteSignals.LeaderChangedDetail);
+        _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo($"{First},{Second}");
         _ = await Assert.That(table.Refuted.Count).IsEqualTo(2);
     }
@@ -145,7 +144,7 @@ public sealed class OwnerRouterRerouteTests
 
         var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)));
 
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo(StaleRouteSignals.LeaderChangedDetail);
+        _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo(Attempts.Local);
     }
 
@@ -160,7 +159,7 @@ public sealed class OwnerRouterRerouteTests
 
         var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, clock)));
 
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo(StaleRouteSignals.LeaderChangedDetail);
+        _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo(First);
     }
 
@@ -192,6 +191,8 @@ public sealed class OwnerRouterRerouteTests
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         _ = await Assert.That(failure.Status.Detail).IsEqualTo($"Key is owned by '{First}', not current node '{Self}'.");
+        _ = await Assert.That(failure.Trailers.GetValue(GrpcStaleOwnerMarkers.LeaderNodeIdMetadataKey)).IsEqualTo(First);
+        _ = await Assert.That(failure.Trailers.GetValue(GrpcStaleOwnerMarkers.LeaderTermMetadataKey)).IsEqualTo("2");
         _ = await Assert.That(attempts.Targets.Count).IsEqualTo(0);
     }
 
@@ -215,8 +216,8 @@ public sealed class OwnerRouterRerouteTests
         var trailers = new Metadata
         {
             { GrpcStaleOwnerMarkers.ErrorCodeMetadataKey, "stale-owner" },
-            { StaleRouteSignals.LeaderNodeIdMetadataKey, Second },
-            { StaleRouteSignals.LeaderTermMetadataKey, "x" },
+            { GrpcStaleOwnerMarkers.LeaderNodeIdMetadataKey, Second },
+            { GrpcStaleOwnerMarkers.LeaderTermMetadataKey, "x" },
         };
 
         _ = await Assert.That(StaleRouteSignals.TryReadStale(new RpcException(new Status(StatusCode.FailedPrecondition, "stale"), trailers), out var hint)).IsTrue();
@@ -224,20 +225,8 @@ public sealed class OwnerRouterRerouteTests
         _ = await Assert.That(StaleRouteSignals.TryReadStale(new RpcException(new Status(StatusCode.Unavailable, RefusalCodes.StaleTerm), trailers), out _)).IsFalse();
     }
 
-    private static RpcException StaleOwner(string? leader, ulong term)
-    {
-        var failure = StaleOwnerFailure.Create(Group, First);
-        if (leader == null)
-            return failure;
-
-        var trailers = new Metadata
-        {
-            { GrpcStaleOwnerMarkers.ErrorCodeMetadataKey, "stale-owner" },
-            { StaleRouteSignals.LeaderNodeIdMetadataKey, leader },
-            { StaleRouteSignals.LeaderTermMetadataKey, term.ToString(CultureInfo.InvariantCulture) },
-        };
-        return new RpcException(failure.Status, trailers);
-    }
+    private static RpcException StaleOwner(string? leader, ulong term) =>
+        leader == null ? StaleOwnerFailure.Create(Group, First) : StaleOwnerFailure.Create(leader, First, term);
 
     private static OwnerRouter CreateRouter(IGroupLeaderTable table, bool internalCall, TimeProvider clock)
     {
