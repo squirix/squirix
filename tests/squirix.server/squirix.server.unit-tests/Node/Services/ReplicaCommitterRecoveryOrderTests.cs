@@ -172,6 +172,7 @@ public sealed class ReplicaCommitterRecoveryOrderTests : IsolatedStorageTestBase
         new(registry, new TwoNodeLocator(), gateway ?? new AcceptingGateway(), local, (OwnedGroup, OwnedGroup), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Recovery = recovery,
+            Applier = new ReplicaGroupApplier(local, NullLogger.Instance, OwnedGroup, OwnedGroup),
             ShutdownBudget = StallTimeout,
         };
 

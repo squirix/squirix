@@ -13,7 +13,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>Applies the committed entries of every follower group this node serves to local memory, densely in log order.</summary>
+/// <summary>Applies the committed entries of every served group this node does not lead to local memory, densely in log order.</summary>
 /// <remarks>
 /// Each follower group runs its own loop, the single caller of the group's applier: it catches memory up through the durable commit
 /// index, then waits until the follower path signals new entries, or until a fallback interval elapses. Nothing is applied before local
@@ -27,7 +27,8 @@ internal sealed class ReplicaApplyService : BackgroundService
     /// <summary>The longest wait between two passes of a group when no signal arrives.</summary>
     private static readonly TimeSpan FallbackInterval = TimeSpan.FromSeconds(1);
 
-    private readonly ReplicaFollowerAppliers _appliers;
+    private readonly ReplicaGroupAppliers _appliers;
+    private readonly ReplicaGroupCommitters _committers;
     private readonly ILogger<ReplicaApplyService> _log;
     private readonly IJournalCoordinatorLifecycle _recovery;
     private readonly ReplicaGroupRegistry _registry;
@@ -35,24 +36,28 @@ internal sealed class ReplicaApplyService : BackgroundService
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaApplyService" /> class.</summary>
     /// <param name="registry">Replica group registry holding the follower group logs and their apply signals.</param>
-    /// <param name="appliers">The appliers of the follower groups.</param>
+    /// <param name="appliers">The appliers of the served groups.</param>
+    /// <param name="committers">The committers of the led groups, whose appliers they drive themselves.</param>
     /// <param name="recovery">The journal lifecycle whose startup gate opens once local recovery has replayed the journal into memory.</param>
     /// <param name="log">Logger reporting stopped groups and retried passes.</param>
     /// <param name="timeProvider">Time source of the fallback interval.</param>
     internal ReplicaApplyService(
         ReplicaGroupRegistry registry,
-        ReplicaFollowerAppliers appliers,
+        ReplicaGroupAppliers appliers,
+        ReplicaGroupCommitters committers,
         IJournalCoordinatorLifecycle recovery,
         ILogger<ReplicaApplyService> log,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(appliers);
+        ArgumentNullException.ThrowIfNull(committers);
         ArgumentNullException.ThrowIfNull(recovery);
         ArgumentNullException.ThrowIfNull(log);
         ArgumentNullException.ThrowIfNull(timeProvider);
         _registry = registry;
         _appliers = appliers;
+        _committers = committers;
         _recovery = recovery;
         _log = log;
         _timeProvider = timeProvider;
@@ -80,7 +85,11 @@ internal sealed class ReplicaApplyService : BackgroundService
         var groupIds = _appliers.GroupIds;
         var loops = new List<Task>(groupIds.Count);
         for (var i = 0; i < groupIds.Count; i++)
-            loops.Add(ApplyLoopAsync(groupIds[i], stopping.Token));
+        {
+            // A led group's committer is the one driver of its applier; the led set is fixed for the node lifetime.
+            if (!_committers.Leads(groupIds[i]))
+                loops.Add(ApplyLoopAsync(groupIds[i], stopping.Token));
+        }
 
         // Without a failed loop, every loop ended with the host: memory keeps what was applied, and a restart applies the committed entries
         // above the durable applied index again.

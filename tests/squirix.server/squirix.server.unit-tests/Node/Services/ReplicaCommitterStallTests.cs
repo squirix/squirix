@@ -98,6 +98,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         await using var committer = new ReplicaGroupCommitter(registry, new TwoNodeLocator(), gateway, local, (OwnedGroup, OwnedGroup), new ReplicaTopologyStamp(Fingerprint, 1), log)
         {
             Recovery = RecoveryLifecycle.Recovered(),
+            Applier = new ReplicaGroupApplier(local, log, OwnedGroup, OwnedGroup),
             CommitBudget = ShortCommitBudget,
             BudgetTimeProvider = clock,
             ShutdownBudget = LogShutdownBudget,
@@ -415,6 +416,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         new(registry, new TwoNodeLocator(), gateway ?? new AcceptingGateway(), local, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), log ?? new LeakRecordingLogger())
         {
             Recovery = RecoveryLifecycle.Recovered(),
+            Applier = new ReplicaGroupApplier(local, log ?? NullLogger<ReplicaGroupCommitter>.Instance, "n1", "n1"),
             ShutdownBudget = TimeSpan.FromMilliseconds(200),
         };
 

@@ -125,6 +125,8 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<ILoggerFactory>(),
             ReplicaGroupLogOptions(sp)));
 
+        AddReplicaGroupAppliers(services);
+
         // Factory registrations let the container own disposal: the registry closes follower-log durability workers
         // and the committers drain their coordinators on host shutdown.
         _ = services.AddSingleton(static sp => CreateReplicaGroupCommitters(sp, sp.GetRequiredService<ReplicaGroupActivation>().Fingerprint));
@@ -133,15 +135,10 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<ILogger<ReplicaGroupReadinessService>>(),
             sp.GetService<TimeProvider>() ?? TimeProvider.System,
             sp.GetRequiredService<ReplicaCatchUpMetrics>()));
-        _ = services.AddSingleton(static sp => new ReplicaFollowerAppliers(
-            sp.GetRequiredService<ReplicaGroupRegistry>(),
-            sp.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey),
-            sp.GetRequiredService<TopologyOptions>().NodeId,
-            sp.GetRequiredService<ILogger<ReplicaFollowerAppliers>>(),
-            sp.GetRequiredService<ReplicationMetrics>()));
         _ = services.AddHostedService(static sp => new ReplicaApplyService(
             sp.GetRequiredService<ReplicaGroupRegistry>(),
-            sp.GetRequiredService<ReplicaFollowerAppliers>(),
+            sp.GetRequiredService<ReplicaGroupAppliers>(),
+            sp.GetRequiredService<ReplicaGroupCommitters>(),
             sp.GetRequiredService<IJournalCoordinator>(),
             sp.GetRequiredService<ILogger<ReplicaApplyService>>(),
             sp.GetService<TimeProvider>() ?? TimeProvider.System));
@@ -152,7 +149,7 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<ReplicaLogCompactionOptions>(),
             ReplicaLogCompactionPolicy.From(sp.GetRequiredService<PersistenceOptions>()),
             sp.GetRequiredService<ReplicationMetrics>(),
-            sp.GetRequiredService<ReplicaFollowerAppliers>(),
+            sp.GetRequiredService<ReplicaGroupAppliers>(),
             sp.GetRequiredService<ReplicaGroupRegistry>(),
             sp.GetRequiredService<ILogger<ReplicaLogCompactionService>>(),
             sp.GetService<TimeProvider>() ?? TimeProvider.System));
@@ -169,6 +166,16 @@ internal static class ServerHostingComposition
                 HealthStatus.Unhealthy,
                 ["ready"]));
     }
+
+    /// <summary>Registers the appliers of every served group, which the committers of the led groups and the apply loops of the others drive.</summary>
+    /// <param name="services">DI service collection.</param>
+    private static void AddReplicaGroupAppliers(IServiceCollection services) =>
+        _ = services.AddSingleton(static sp => new ReplicaGroupAppliers(
+            sp.GetRequiredService<ReplicaGroupRegistry>(),
+            sp.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey),
+            sp.GetRequiredService<TopologyOptions>().NodeId,
+            sp.GetRequiredService<ILogger<ReplicaGroupAppliers>>(),
+            sp.GetRequiredService<ReplicationMetrics>()));
 
     /// <summary>Registers the sweep that expires the keys of the led groups no read touches, through committed tombstones.</summary>
     /// <param name="services">DI service collection.</param>
@@ -218,7 +225,7 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<ILogger<ReplicaGroupCommitter>>())
         {
             Recovery = sp.GetRequiredService<IJournalCoordinator>(),
-            Metrics = sp.GetRequiredService<ReplicationMetrics>(),
+            Applier = sp.GetRequiredService<ReplicaGroupAppliers>().For(topology.NodeId),
             Clock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
         };
         return led;

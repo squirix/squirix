@@ -19,6 +19,7 @@ using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -42,7 +43,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
     /// <summary>How long a stop is given to end a service early while a group loop still applies an entry.</summary>
     private static readonly TimeSpan StopGrace = TimeSpan.FromMilliseconds(200);
 
-    /// <summary>Every follower group applies its committed entries and nothing above its commit index; the owned group has no follower applier.</summary>
+    /// <summary>Every follower group applies its committed entries and nothing above its commit index.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task AppliesCommittedFollowerEntries(CancellationToken cancellationToken)
@@ -57,6 +58,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         using var service = new ReplicaApplyService(
             registry,
             appliers,
+            LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             NullLogger<ReplicaApplyService>.Instance,
             new FakeTimeProvider());
@@ -72,11 +74,48 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
             await service.StopAsync(cancellationToken);
         }
 
-        await SequenceAssert.EqualAsync(["n2", "n3"], [.. appliers.GroupIds], StringComparer.Ordinal);
         _ = await Assert.That((appliers.For("n2").AppliedIndex, appliers.For("n3").AppliedIndex)).IsEqualTo((2UL, 1UL));
         var keys = cache.Applied.ToArray();
         Array.Sort(keys, StringComparer.Ordinal);
         await SequenceAssert.EqualAsync(["k1", "k2", "m1"], keys, StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// A group this node leads gets no apply loop: its committer is the one driver of its applier, so a committed entry of it stays for
+    /// the committer while the other groups apply theirs.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ApplyServiceSkipsLedGroups(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-apply-service-led");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await SeedAsync(registry, "n1", 1UL, cancellationToken, "o1");
+        await SeedAsync(registry, "n3", 1UL, cancellationToken, "m1");
+        var cache = new StubCache();
+        using var meter = new Meter("test");
+        var appliers = CreateAppliers(registry, cache, meter);
+        using var service = new ReplicaApplyService(
+            registry,
+            appliers,
+            LeadOwnGroup(registry, appliers),
+            ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            NullLogger<ReplicaApplyService>.Instance,
+            new FakeTimeProvider());
+        var applied = WhenAppliedAsync(cache, 1);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            await applied.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        await SequenceAssert.EqualAsync(["m1"], cache.Applied.ToArray(), StringComparer.Ordinal);
+        _ = await Assert.That((appliers.For("n1").AppliedIndex, appliers.For("n3").AppliedIndex)).IsEqualTo((0UL, 1UL));
     }
 
     /// <summary>An entry the follower path appends and commits wakes the apply loop of its group, with no fallback pass.</summary>
@@ -93,6 +132,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         using var service = new ReplicaApplyService(
             registry,
             appliers,
+            LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             NullLogger<ReplicaApplyService>.Instance,
             new FakeTimeProvider());
@@ -129,7 +169,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         var events = new EventRecordingLogger();
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache, meter);
-        using var service = new ReplicaApplyService(registry, appliers, ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), events, new FakeTimeProvider());
+        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), events, new FakeTimeProvider());
         var first = WhenAppliedAsync(cache, 1);
 
         await service.StartAsync(cancellationToken);
@@ -168,6 +208,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         using var service = new ReplicaApplyService(
             registry,
             appliers,
+            LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             NullLogger<ReplicaApplyService>.Instance,
             new FakeTimeProvider());
@@ -211,6 +252,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         using var service = new ReplicaApplyService(
             registry,
             appliers,
+            LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             NullLogger<ReplicaApplyService>.Instance,
             new FakeTimeProvider());
@@ -254,7 +296,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         var events = new EventRecordingLogger();
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache.Instance(), meter);
-        using var service = new ReplicaApplyService(registry, appliers, ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), events, new FakeTimeProvider());
+        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), events, new FakeTimeProvider());
 
         await service.StartAsync(cancellationToken);
         try
@@ -294,6 +336,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         using var service = new ReplicaApplyService(
             registry,
             appliers,
+            LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             NullLogger<ReplicaApplyService>.Instance,
             new FakeTimeProvider());
@@ -319,11 +362,22 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         _ = await Assert.That((appliers.For("n2").AppliedIndex, appliers.For("n3").AppliedIndex)).IsEqualTo((0UL, 1UL));
     }
 
-    private static ReplicaFollowerAppliers CreateAppliers(ReplicaGroupRegistry registry, ILogicalNamespacedCache<object?> cache, Meter meter) => new(
+    /// <summary>Leads the own group n1 with a committer driving the applier of that group.</summary>
+    /// <param name="registry">The registry of node n1.</param>
+    /// <param name="appliers">The appliers of the served groups.</param>
+    /// <returns>The committers of the led groups.</returns>
+    private static ReplicaGroupCommitters LeadOwnGroup(ReplicaGroupRegistry registry, ReplicaGroupAppliers appliers)
+    {
+        var led = new ReplicaGroupCommitter[1];
+        led[0] = CreateGroupCommitter(registry, "n1", new ScriptedGateway(), new StubCache(), TimeProvider.System, appliers.For("n1"));
+        return new ReplicaGroupCommitters(led, "n1", Owners(), TimeProvider.System);
+    }
+
+    private static ReplicaGroupAppliers CreateAppliers(ReplicaGroupRegistry registry, ILogicalNamespacedCache<object?> cache, Meter meter) => new(
         registry,
         cache,
         "n1",
-        NullLogger<ReplicaFollowerAppliers>.Instance,
+        NullLogger<ReplicaGroupAppliers>.Instance,
         new ReplicationMetrics(meter));
 
     /// <summary>Returns a task that completes once the cache applied at least <paramref name="count" /> writes.</summary>

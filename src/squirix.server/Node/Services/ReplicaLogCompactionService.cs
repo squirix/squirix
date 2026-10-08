@@ -23,7 +23,7 @@ namespace Squirix.Server.Node.Services;
 /// </remarks>
 internal sealed class ReplicaLogCompactionService : BackgroundService
 {
-    private readonly ReplicaFollowerAppliers _appliers;
+    private readonly ReplicaGroupAppliers _appliers;
     private readonly ReplicaGroupCommitters _committers;
     private readonly IJournalDurabilityCoordinator _durability;
 
@@ -47,7 +47,7 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
     /// <param name="options">The maintenance schedule.</param>
     /// <param name="policy">The compaction thresholds.</param>
     /// <param name="metrics">The replication metrics counting compactions and skipped compactions.</param>
-    /// <param name="appliers">The appliers of the follower groups, whose applied indexes are persisted and whose logs are compacted after the led logs.</param>
+    /// <param name="appliers">The appliers of the served groups; those of the groups this node does not lead are persisted and compacted after the led logs.</param>
     /// <param name="registry">Replica group registry holding the follower group logs.</param>
     /// <param name="log">Logger reporting compaction outcome changes and failed passes.</param>
     /// <param name="timeProvider">Time source for the delay between passes.</param>
@@ -57,7 +57,7 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
         ReplicaLogCompactionOptions options,
         ReplicaLogCompactionPolicy policy,
         ReplicationMetrics metrics,
-        ReplicaFollowerAppliers appliers,
+        ReplicaGroupAppliers appliers,
         ReplicaGroupRegistry registry,
         ILogger<ReplicaLogCompactionService> log,
         TimeProvider timeProvider)
@@ -93,7 +93,10 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
 
         var groupIds = _appliers.GroupIds;
         for (var i = 0; i < groupIds.Count; i++)
-            await MaintainFollowerLogAsync(groupIds[i], stoppingToken).ConfigureAwait(false);
+        {
+            if (!_committers.Leads(groupIds[i]))
+                await MaintainFollowerLogAsync(groupIds[i], stoppingToken).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc />

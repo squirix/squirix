@@ -28,16 +28,19 @@ internal static class LedGroupsTestKit
     /// <param name="gateway">Follower transport double.</param>
     /// <param name="cache">Local cache pipeline.</param>
     /// <param name="clock">The clock of the decisions.</param>
+    /// <param name="applier">The applier of the group; a new one applying to <paramref name="cache" /> when not set.</param>
     /// <returns>The committer.</returns>
     internal static ReplicaGroupCommitter CreateGroupCommitter(
         ReplicaGroupRegistry registry,
         string groupId,
         IReplicaRpcGateway gateway,
         ILogicalNamespacedCache<object?> cache,
-        TimeProvider clock) =>
+        TimeProvider clock,
+        ReplicaGroupApplier? applier = null) =>
         new(registry, new RotatingLocator(), gateway, cache, (groupId, "n1"), new ReplicaTopologyStamp(ReplicaOwnerTestKit.Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            Applier = applier ?? new ReplicaGroupApplier(cache, NullLogger.Instance, groupId, "n1"),
             Clock = clock,
         };
 

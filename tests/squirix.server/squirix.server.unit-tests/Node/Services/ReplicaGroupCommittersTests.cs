@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
@@ -76,6 +77,23 @@ public sealed class ReplicaGroupCommittersTests : ServerUnitTestBase
 
         _ = await Assert.That(committers.ForKey(CacheName, "c")).IsSameReferenceAs(own);
         _ = await Assert.That((committers.Leads("n1"), committers.Leads("n2"))).IsEqualTo((true, false));
+    }
+
+    /// <summary>A committer refuses the applier of another group at construction, so no group's entries are applied by a foreign driver.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ForeignApplierIsRefused(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-led-groups-foreign");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var foreign = new ReplicaGroupApplier(new StubCache(), NullLogger.Instance, "n1", "n1");
+
+        var failure = NodeExceptionAssert.For<ArgumentException>().Throws(
+            registry,
+            foreign,
+            static (served, applier) => _ = CreateGroupCommitter(served, "n2", new ScriptedGateway(), new StubCache(), TimeProvider.System, applier));
+
+        _ = await Assert.That(failure.Message).Contains("'n1'");
     }
 
     /// <summary>Disposing the committers disposes every led committer, so each refuses a write afterwards.</summary>

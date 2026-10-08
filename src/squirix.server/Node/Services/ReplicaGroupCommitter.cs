@@ -6,7 +6,6 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
@@ -30,7 +29,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private static readonly TimeSpan DefaultCommitBudget = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
 
-    private readonly Lazy<ReplicaGroupApplier> _applier;
     private readonly Lazy<ReplicaExpirationCoordinator<NodeCacheEntry<object?>>> _expiration;
     private readonly AsyncLock _gate = new();
     private readonly IReplicaRpcGateway _gateway;
@@ -76,7 +74,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _locator = locator;
         _gateway = gateway;
         _local = local;
-        _applier = new Lazy<ReplicaGroupApplier>(() => new ReplicaGroupApplier(local, Log, identity.GroupId, identity.SelfId, Metrics), LazyThreadSafetyMode.ExecutionAndPublication);
         GroupId = identity.GroupId;
         _topology = topology.Fingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topology)) : topology;
         _probe = new Lazy<ReplicaVerificationProbe>(
@@ -147,8 +144,24 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the identifier of the replica group this committer leads.</summary>
     internal string GroupId { get; }
 
-    /// <summary>Initializes the replication metrics counting the inconsistent log records the committer refuses to apply; none are counted unless set.</summary>
-    internal ReplicationMetrics? Metrics { private get; init; }
+    /// <summary>Initializes the applier of the led group, which this committer drives for as long as it leads the group.</summary>
+    /// <remarks>
+    /// The applier lives as long as the node, so its applied index survives a replaced coordinator; while this committer leads the group
+    /// it is the only caller of the applier's catch-up and applies.
+    /// </remarks>
+    /// <exception cref="ArgumentException">The applier serves another group.</exception>
+    internal required ReplicaGroupApplier Applier
+    {
+        private get;
+        init
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            if (!string.Equals(value.GroupId, GroupId, StringComparison.Ordinal))
+                throw new ArgumentException($"The applier of group '{value.GroupId}' cannot serve the committer of group '{GroupId}'.", nameof(value));
+
+            field = value;
+        }
+    }
 
     /// <summary>Gets or initializes the longest wait for an in-flight commit on dispose, which also caps the coordinator's own teardown wait; 30 seconds unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
@@ -172,8 +185,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     /// <summary>Gets the follower verification, which also hands out the followers to catch up.</summary>
     internal ReplicaVerificationProbe Probe => _probe.Value;
-
-    private ReplicaGroupApplier Applier => _applier.Value;
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()

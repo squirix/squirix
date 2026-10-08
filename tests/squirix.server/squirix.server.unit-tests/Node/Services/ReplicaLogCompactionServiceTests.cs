@@ -36,7 +36,7 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
         using var meter = new Meter("test");
         var metrics = new ReplicationMetrics(meter);
-        var appliers = new ReplicaFollowerAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaFollowerAppliers>.Instance, metrics);
+        var appliers = new ReplicaGroupAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics);
         var log = await SeedAsync(registry, "n2", 3, 3UL, cancellationToken);
         _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
         await appliers.For("n2").CatchUpAsync(log, 0UL, 3UL, cancellationToken);
@@ -80,7 +80,7 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
         using var meter = new Meter("test");
         var metrics = new ReplicationMetrics(meter);
-        var appliers = new ReplicaFollowerAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaFollowerAppliers>.Instance, metrics);
+        var appliers = new ReplicaGroupAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics);
         var log = await SeedAsync(registry, "n2", 4, 3UL, cancellationToken);
         _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
         await appliers.For("n2").CatchUpAsync(log, 0UL, 3UL, cancellationToken);
@@ -140,7 +140,7 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
         using var meter = new Meter("test");
         var metrics = new ReplicationMetrics(meter);
-        var appliers = new ReplicaFollowerAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaFollowerAppliers>.Instance, metrics);
+        var appliers = new ReplicaGroupAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics);
         var log = await SeedAsync(registry, "n2", 3, 3UL, cancellationToken);
         _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
         var failing = new[] { true };

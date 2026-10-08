@@ -59,14 +59,19 @@ internal static class ReplicaOwnerTestKit
         new(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), log ?? NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            Applier = new ReplicaGroupApplier(cache, log ?? NullLogger<ReplicaGroupCommitter>.Instance, "n1", "n1"),
         };
 
-    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, TimeSpan commitBudget) =>
-        new(registry, new ThreeNodeLocator(), gateway, new StubCache(), ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, TimeSpan commitBudget)
+    {
+        var cache = new StubCache();
+        return new ReplicaGroupCommitter(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            Applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n1", "n1"),
             CommitBudget = commitBudget,
         };
+    }
 
     internal static ReplicaGroupCommitter CreateCommitter(
         ReplicaGroupRegistry registry,
@@ -74,7 +79,12 @@ internal static class ReplicaOwnerTestKit
         ILogicalNamespacedCache<object?> cache,
         TimeProvider clock,
         ReplicationMetrics? metrics = null) =>
-        new(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance) { Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), Clock = clock, Metrics = metrics };
+        new(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+        {
+            Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            Applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n1", "n1", metrics),
+            Clock = clock,
+        };
 
     /// <summary>Creates a committer on one clock for its decisions and budgets, whose dispose drain runs on its own clock and budget.</summary>
     /// <param name="registry">Replica group registry of the owner.</param>
@@ -94,6 +104,7 @@ internal static class ReplicaOwnerTestKit
         new(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), log)
         {
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            Applier = new ReplicaGroupApplier(cache, log, "n1", "n1"),
             Clock = clock,
             BudgetTimeProvider = clock,
             ShutdownTimeProvider = shutdown.Clock,
@@ -105,12 +116,16 @@ internal static class ReplicaOwnerTestKit
     /// <param name="gateway">Follower transport double.</param>
     /// <param name="budgetClock">The time source of the commit budget and of the follower request timeouts.</param>
     /// <returns>The committer.</returns>
-    internal static ReplicaGroupCommitter CreateCommitterOnBudgetClock(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, TimeProvider budgetClock) =>
-        new(registry, new ThreeNodeLocator(), gateway, new StubCache(), ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+    internal static ReplicaGroupCommitter CreateCommitterOnBudgetClock(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, TimeProvider budgetClock)
+    {
+        var cache = new StubCache();
+        return new ReplicaGroupCommitter(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            Applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n1", "n1"),
             BudgetTimeProvider = budgetClock,
         };
+    }
 
     /// <summary>Creates a committer whose follower request timeouts run on <paramref name="budgetClock" />, under short commit and shutdown budgets.</summary>
     /// <param name="registry">Replica group registry of the owner.</param>
@@ -124,14 +139,18 @@ internal static class ReplicaOwnerTestKit
         IReplicaRpcGateway gateway,
         TimeProvider budgetClock,
         TimeSpan commitBudget,
-        TimeSpan shutdownBudget) =>
-        new(registry, new ThreeNodeLocator(), gateway, new StubCache(), ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+        TimeSpan shutdownBudget)
+    {
+        var cache = new StubCache();
+        return new ReplicaGroupCommitter(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            Applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n1", "n1"),
             BudgetTimeProvider = budgetClock,
             CommitBudget = commitBudget,
             ShutdownBudget = shutdownBudget,
         };
+    }
 
     internal static Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, CancellationToken cancellationToken) => OpenRegistryAsync(dir, null, cancellationToken);
 

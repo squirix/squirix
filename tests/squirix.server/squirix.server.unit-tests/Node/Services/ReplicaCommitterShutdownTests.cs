@@ -54,6 +54,7 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
             NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Recovery = RecoveryLifecycle.Recovered(),
+            Applier = new ReplicaGroupApplier(local, NullLogger.Instance, OwnedGroup, OwnedGroup),
             ShutdownBudget = ObserverDrainBudget,
             ShutdownTimeProvider = new FakeTimeProvider(),
         };
@@ -134,6 +135,7 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
         new(registry, locator ?? new TwoNodeLocator(), gateway, local, (OwnedGroup, OwnedGroup), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Recovery = RecoveryLifecycle.Recovered(),
+            Applier = new ReplicaGroupApplier(local, NullLogger.Instance, OwnedGroup, OwnedGroup),
             ShutdownBudget = shutdownBudget ?? StallTimeout,
         };
 

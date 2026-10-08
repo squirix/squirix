@@ -199,7 +199,7 @@ public sealed class FollowerLogCompactionTests : NodeIntegrationTestBase
         await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, OwnerId, [(FollowerId, follower)], cancellationToken);
         var log = GroupLog(follower);
         await AwaitAppliedAsync(follower, (await log.GetStatusAsync(cancellationToken)).CommitIndex, cancellationToken);
-        await follower.GetRequiredService<ReplicaFollowerAppliers>().For(OwnerId).FlushAsync(log, follower.GetRequiredService<IJournalCoordinator>(), cancellationToken);
+        await follower.GetRequiredService<ReplicaGroupAppliers>().For(OwnerId).FlushAsync(log, follower.GetRequiredService<IJournalCoordinator>(), cancellationToken);
         return (await log.GetStatusAsync(cancellationToken)).LastAppliedIndex;
     }
 
@@ -211,7 +211,7 @@ public sealed class FollowerLogCompactionTests : NodeIntegrationTestBase
     /// <exception cref="TimeoutException">The follower did not apply through the index within the bound.</exception>
     private static async Task AwaitAppliedAsync(ITestNodeHost follower, ulong index, CancellationToken cancellationToken)
     {
-        var applier = follower.GetRequiredService<ReplicaFollowerAppliers>().For(OwnerId);
+        var applier = follower.GetRequiredService<ReplicaGroupAppliers>().For(OwnerId);
         var started = Stopwatch.GetTimestamp();
         while (applier.AppliedIndex < index)
         {

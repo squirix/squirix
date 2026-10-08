@@ -108,6 +108,7 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
         return new ReplicaGroupCommitter(registry, new TwoNodeLocator(), new AcceptingGateway(), local, (OwnedGroup, OwnedGroup), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Recovery = RecoveryLifecycle.Recovered(),
+            Applier = new ReplicaGroupApplier(local, NullLogger.Instance, OwnedGroup, OwnedGroup),
             CommitBudget = ShortCommitBudget,
             BudgetTimeProvider = budgetClock,
             ShutdownBudget = TimeSpan.FromMilliseconds(200),
