@@ -161,6 +161,10 @@ internal sealed class OwnerRpcForwarder
             }
             catch (RpcException ex)
             {
+                // Only a failure of this client carries its cause; a status the owner sent never does. A failed connect sent nothing.
+                if (ex.StatusCode == StatusCode.Unavailable && OwnerUnreachableFailure.IsConnectFailure(ex.Status.DebugException))
+                    throw OwnerUnreachableFailure.Create(ex.Status.DebugException!);
+
                 // The owner refused because its ring differs from this node: fence this node too, then relay the refusal with its trailers.
                 if (RingMismatchFailure.IsMismatch(ex))
                     _ringAgreement.ReportOutboundMismatch(owner);
@@ -169,7 +173,10 @@ internal sealed class OwnerRpcForwarder
             }
             catch (Exception ex) when (ex is HttpRequestException or IOException)
             {
-                throw new RpcException(new Status(StatusCode.Unavailable, $"Key owner '{owner}' is unreachable."));
+                // Any other transport failure may follow a request the owner already received, so it is not reported as unreachable.
+                throw OwnerUnreachableFailure.IsConnectFailure(ex)
+                    ? OwnerUnreachableFailure.Create(ex)
+                    : new RpcException(new Status(StatusCode.Unavailable, $"The connection to key owner '{owner}' failed after the call may have reached it."));
             }
         }
     }
