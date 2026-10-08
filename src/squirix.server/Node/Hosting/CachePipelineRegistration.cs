@@ -81,6 +81,8 @@ internal static class CachePipelineRegistration
         _ = services.AddSingleton(static sp => new OwnershipGuardCacheDecorator<object?>(
             sp.GetRequiredService<TopologyOptions>().NodeId,
             sp.GetRequiredService<INodeLocator>(),
+            sp.GetRequiredService<IGroupLeaderTable>(),
+            ServerHostingComposition.LeadsByElection(sp.GetRequiredService<TopologyOptions>()),
             sp.GetRequiredService<BackpressureCacheDecorator<object?>>()));
         _ = services.AddSingleton(static sp => new ValidationCacheDecorator<object?>(sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>()));
         _ = services.AddSingleton(static sp => new DomainErrorMappingCacheDecorator<object?>(sp.GetRequiredService<ValidationCacheDecorator<object?>>()));

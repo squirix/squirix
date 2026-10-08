@@ -7,6 +7,7 @@ using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
@@ -16,7 +17,10 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
-/// <summary>The ownership guard refuses every operation on a key another node owns and passes the rest through.</summary>
+/// <summary>
+/// The ownership guard refuses every operation on a key of a group this node does not lead with authority and passes the rest through:
+/// without elections the ring owner leads statically, with elections the leader view decides the refusal.
+/// </summary>
 [Immutable]
 public sealed class OwnershipGuardCacheDecoratorTests
 {
@@ -50,6 +54,83 @@ public sealed class OwnershipGuardCacheDecoratorTests
             _ = await Assert.That(failure.Status.Detail).IsEqualTo("Key is owned by 'node-b', not current node 'node-a'.");
             _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
         }
+    }
+
+    /// <summary>Without elections the refusal carries only the stale-owner error code, as before the leader table existed.</summary>
+    [Test]
+    public async Task StaticTableAddsNoLeaderHint()
+    {
+        var guard = CreateGuard(Remote, new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, 4));
+
+        _ = await Assert.That(failure.Trailers.Count).IsEqualTo(1);
+    }
+
+    /// <summary>A leader a higher term deposed refuses every operation, reads included, with stale-term before the inner cache.</summary>
+    [Test]
+    public async Task DeposedLeaderRefusesStaleTerm()
+    {
+        var guard = CreateElectedGuard(new GroupLeaderView(true, false, true, 2, 3, default), new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
+
+        for (var operation = 0; operation < OperationCount; operation++)
+        {
+            var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, operation));
+
+            _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
+            _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-term");
+            _ = await Assert.That(failure.Trailers.Get("squirix-leader-node-id")).IsNull();
+        }
+    }
+
+    /// <summary>A follower that knows the leader refuses as a stale owner naming it in the hint trailers.</summary>
+    [Test]
+    public async Task FollowerRefusesWithLeaderHint()
+    {
+        var guard = CreateElectedGuard(new GroupLeaderView(true, false, false, 4, 4, new LeaderRoute(Remote, 4)), new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, 0));
+
+        _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "Key is owned by 'node-b', not current node 'node-a'."));
+        _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(failure.Trailers.GetValue("squirix-leader-node-id")).IsEqualTo(Remote);
+        _ = await Assert.That(failure.Trailers.GetValue("squirix-leader-term")).IsEqualTo("4");
+    }
+
+    /// <summary>A leader whose leader-term entry is not committed yet refuses retryably: no other leader is known.</summary>
+    [Test]
+    public async Task PromotionPendingIsUnavailable()
+    {
+        var guard = CreateElectedGuard(new GroupLeaderView(true, false, true, 2, 2, default), new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, 2));
+
+        _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+    }
+
+    /// <summary>A group this node does not serve is refused as a stale owner naming the ring owner, which serves it.</summary>
+    [Test]
+    public async Task UnservedGroupNamesRingOwner()
+    {
+        var guard = CreateElectedGuard(default, new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, 0));
+
+        _ = await Assert.That(failure.Status.Detail).IsEqualTo("Key is owned by 'node-b', not current node 'node-a'.");
+        _ = await Assert.That(failure.Trailers.Count).IsEqualTo(1);
+    }
+
+    /// <summary>A key of a group this node leads with authority reaches the inner cache, whichever node owns it on the ring.</summary>
+    [Test]
+    public async Task AuthorizedLeaderServesForeignGroup()
+    {
+        var calls = new StrongBox<int>();
+        var guard = CreateElectedGuard(new GroupLeaderView(true, true, false, 5, 5, new LeaderRoute(Self, 5)), CreateCountingInner(calls));
+
+        for (var operation = 0; operation < OperationCount; operation++)
+            await StartAsync(guard, operation);
+
+        _ = await Assert.That(calls.Value).IsEqualTo(OperationCount);
     }
 
     /// <summary>A key this node owns reaches the inner cache for every operation.</summary>
@@ -123,7 +204,16 @@ public sealed class OwnershipGuardCacheDecoratorTests
     {
         var locator = new INodeLocatorCreateExpectations();
         _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(owner);
-        return new OwnershipGuardCacheDecorator<string>(Self, locator.Instance(), inner);
+        return new OwnershipGuardCacheDecorator<string>(Self, locator.Instance(), new StaticLeaderTable(Self), false, inner);
+    }
+
+    private static OwnershipGuardCacheDecorator<string> CreateElectedGuard(in GroupLeaderView view, ILogicalNamespacedCache<string> inner)
+    {
+        var locator = new INodeLocatorCreateExpectations();
+        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Remote);
+        var leaders = new IGroupLeaderTableCreateExpectations();
+        _ = leaders.Setups.Read(Remote).ReturnValue(view);
+        return new OwnershipGuardCacheDecorator<string>(Self, locator.Instance(), leaders.Instance(), true, inner);
     }
 
     private static Task StartAsync(OwnershipGuardCacheDecorator<string> guard, int operation) => Operations[operation](guard);
