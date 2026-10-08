@@ -2,7 +2,9 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
@@ -24,6 +26,8 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// </summary>
 public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
 {
+    private const int OlderTermTailEventId = 4010;
+
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
     /// <summary>A start that fails after it appended the leader-term entry is retried without a second entry: the promotion keeps its index.</summary>
@@ -185,6 +189,53 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
         _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsFalse();
         _ = await Assert.That(await log.GetTermAtAsync(1UL, cancellationToken)).IsEqualTo(3UL);
+    }
+
+    /// <summary>
+    /// A leadership whose leader-term entry append failed leaves a tail of an older term: verification reports it blocked with a warning
+    /// once per blocked state, and warns again when the blocked tail grows.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedNoopLeavesOlderTermTail(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-failed-noop");
+        using var hooks = new StallableFollowerLogFaultHooks();
+        await using var registry = await OpenRegistryAsync(dir, Groups, new FollowerLogOptions { FaultHooks = hooks }, cancellationToken);
+        var log = await TermAsync(registry, "n2", 1UL, cancellationToken);
+        var clock = new FakeTimeProvider();
+        _ = await log.AppendAsync(new FollowerLogAppendRequest("n2", 1UL, 0UL, 0UL, 0UL, OlderEntry(1UL, clock)), cancellationToken);
+        _ = await log.ObserveTermAsync(2UL, cancellationToken);
+        var events = new EventRecordingLogger();
+        var cache = new StubCache();
+        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1");
+        await using var committer = CreateElectedBudgetCommitter(registry, "n2", new HoldingGateway(), (cache, applier), clock, events);
+
+        hooks.StallNextFrameWrite();
+        var promotion = committer.PromoteAsync(2UL, cancellationToken);
+        await hooks.Entered.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        hooks.ReleaseWithFailure(new System.IO.IOException("Injected leader-term entry write failure."));
+        await hooks.Exited.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        var authorized = await promotion.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That((authorized, committer.Tenure?.Term, committer.Tenure?.NoopIndex)).IsEqualTo((false, 2UL, 0UL));
+        _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
+        _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
+        _ = await Assert.That(events.Count(OlderTermTailEventId)).IsEqualTo(1);
+        _ = await Assert.That(events.Find(OlderTermTailEventId)?.Level).IsEqualTo(LogLevel.Warning);
+
+        _ = await log.AppendAsync(new FollowerLogAppendRequest("n1", 2UL, 1UL, 1UL, 0UL, OlderEntry(2UL, clock)), cancellationToken);
+        _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
+
+        _ = await Assert.That(events.Count(OlderTermTailEventId)).IsEqualTo(2);
+        var status = await log.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((status.CurrentTerm, status.LastLogIndex, status.LastLogTerm, status.CommitIndex)).IsEqualTo((2UL, 2UL, 1UL, 0UL));
+    }
+
+    private static FollowerLogEntry[] OlderEntry(ulong index, TimeProvider clock)
+    {
+        var record = new ReplicaMutationFactory(new StubCache(), "n2", 1UL, clock, NullLogger.Instance).PrepareLeaderTerm(index);
+        return [new FollowerLogEntry(index, 1UL, record.CanonicalPayload)];
     }
 
     private static ReplicaGroupCommitter Elected(ReplicaGroupRegistry registry, HoldingGateway gateway)
