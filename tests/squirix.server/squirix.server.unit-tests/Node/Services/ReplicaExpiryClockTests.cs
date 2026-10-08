@@ -9,6 +9,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -224,6 +225,44 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         _ = await restarted.Committer.VerifyReplicasAsync(cancellationToken);
 
         _ = await Assert.That(await restarted.RawAsync(cancellationToken)).IsNull();
+    }
+
+    /// <summary>A restart rebuilds a client outcome that more expiration tombstones than the idempotency store holds followed: a retry replays it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RestartReplaysOutcomeBehindTombstones(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-expiry-clock-rebuild");
+        var options = new FollowerLogOptions { IdempotencyCapacity = 4 };
+        var clock = new FakeTimeProvider(Start);
+        var operationId = NewOperationId();
+        var entry = new NodeCacheEntry<object?>("v", 1);
+        ulong written;
+        await using (var registry = await OpenRegistryAsync(dir, options, cancellationToken))
+        await using (var leader = new Leader(registry, clock))
+        {
+            await leader.Committer.CommitSetAsync(operationId, CacheName, Key, entry, cancellationToken);
+            for (var i = 0; i < 5; i++)
+            {
+                var expired = "expired-" + i.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                await leader.Physical.SetAsync(new CacheKey(CacheName, expired), new NodeCacheEntry<object?>("x", 1, Start.UtcDateTime), cancellationToken);
+                _ = await leader.Committer.ExpireAsync(CacheName, expired, cancellationToken);
+            }
+
+            written = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
+            var tombstones = 0;
+            var records = await RecordsAsync(registry, cancellationToken);
+            for (var i = 0; i < records.Count; i++)
+                tombstones += string.Equals(records[i].MutationKind, ReplicaMutationKinds.Expire, StringComparison.Ordinal) ? 1 : 0;
+
+            _ = await Assert.That(tombstones).IsEqualTo(5);
+        }
+
+        await using var restartedRegistry = await OpenRegistryAsync(dir, options, cancellationToken);
+        await using var restarted = new Leader(restartedRegistry, clock);
+        await restarted.Committer.CommitSetAsync(operationId, CacheName, Key, entry, cancellationToken);
+
+        _ = await Assert.That((await StatusAsync(restartedRegistry, cancellationToken)).LastLogIndex).IsEqualTo(written);
     }
 
     private static async Task<List<ReplicaLogRecord>> RecordsAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)

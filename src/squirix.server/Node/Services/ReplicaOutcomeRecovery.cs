@@ -23,7 +23,7 @@ internal static class ReplicaOutcomeRecovery
     /// <exception cref="InvalidDataException">A retained committed record cannot be read back.</exception>
     /// <remarks>
     ///     <para>
-    ///     The entries are read back from disk one at a time, applied or not, newest first and no more than the idempotency store holds:
+    ///     The entries are read back from disk one at a time, applied or not, newest first, until as many client outcomes as the idempotency store holds were read:
     ///     the pinned recovered tail keeps its places, and the newest log outcomes take what is left: an outcome a snapshot restored is
     ///     displaced by a newer log outcome when the store is full, and replaced by a newer outcome of its identity. The read stops at the
     ///     first outcome that finds no older one to displace.
@@ -43,17 +43,24 @@ internal static class ReplicaOutcomeRecovery
         idempotency.BeginOutcomeRebuild();
         var now = clock.GetUtcNow().UtcDateTime;
         var restored = 0;
+        var clientOutcomes = 0;
+
+        // Expiration tombstones carry no outcome and take no place in the store, so they do not count toward the frames read: the read
+        // goes on past them until it has seen as many client outcomes as the store holds.
         _ = await log.ReadRecentCommittedAsync(
-                idempotency.Capacity,
+                int.MaxValue,
                 entry =>
                 {
                     var record = Rebuild(in entry, out var decidedUtc);
+                    if (record.Kind == GroupRecordKind.Expiration)
+                        return true;
+
                     var result = idempotency.RestoreOutcome(in record, now - decidedUtc);
                     if (result == GroupOutcomeRestoreResult.Restored)
                         restored++;
 
                     // Full at this index: no resolved outcome older than it remains, so the older frames would only be read to be refused.
-                    return result != GroupOutcomeRestoreResult.Full;
+                    return result != GroupOutcomeRestoreResult.Full && ++clientOutcomes < idempotency.Capacity;
                 },
                 cancellationToken)
             .ConfigureAwait(false);
