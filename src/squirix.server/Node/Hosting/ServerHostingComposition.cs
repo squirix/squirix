@@ -195,18 +195,15 @@ internal static class ServerHostingComposition
 
     /// <summary>Registers the verification of the followers of the led groups, with its retry schedule.</summary>
     /// <param name="services">DI service collection.</param>
-    private static void AddReplicaGroupReadiness(IServiceCollection services)
-    {
-        _ = services.AddSingleton(new ReplicaReadinessOptions());
+    private static void AddReplicaGroupReadiness(IServiceCollection services) =>
         _ = services.AddHostedService(static sp => new ReplicaGroupReadinessService(
             sp.GetRequiredService<ReplicaGroupCommitters>(),
             sp.GetRequiredService<ILogger<ReplicaGroupReadinessService>>(),
             sp.GetService<TimeProvider>() ?? TimeProvider.System,
             sp.GetRequiredService<ReplicaCatchUpMetrics>())
         {
-            Options = sp.GetRequiredService<ReplicaReadinessOptions>(),
+            Options = sp.GetService<ReplicaReadinessOptions>() ?? new ReplicaReadinessOptions(),
         });
-    }
 
     /// <summary>Registers the election drivers of the served groups, which hand won terms to the committers.</summary>
     /// <param name="services">DI service collection.</param>
