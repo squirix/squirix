@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.UnitTests.Support;
@@ -42,16 +43,23 @@ public sealed class StaticLeaderTableTests : ServerUnitTestBase
         _ = await Assert.That((table.TryGetLeader("n2", out var route), route)).IsEqualTo((true, new LeaderRoute("n2", 1UL)));
     }
 
-    /// <summary>The cluster locator registers the static table only as a fallback: a table registered earlier is kept.</summary>
+    /// <summary>
+    /// The cluster locator registers the static table as the fallback; an election-led host registered afterwards replaces it, and a table
+    /// registered before the locator is kept.
+    /// </summary>
     [Test]
     public async Task LocatorRegistersFallbackTable()
     {
         var cluster = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") }) { NodeId = "n1" };
-        var earlier = new StaticLeaderTable("other");
+        var election = new StaticLeaderTable("other");
+        var replaced = new ServiceCollection().AddSquirixClusterLocator(cluster).Replace(ServiceDescriptor.Singleton<IGroupLeaderTable>(election));
         await using var fallback = new ServiceCollection().AddSquirixClusterLocator(cluster).BuildServiceProvider();
-        await using var kept = new ServiceCollection().AddSingleton<IGroupLeaderTable>(earlier).AddSquirixClusterLocator(cluster).BuildServiceProvider();
+        await using var elected = replaced.BuildServiceProvider();
+        await using var kept = new ServiceCollection().AddSingleton<IGroupLeaderTable>(election).AddSquirixClusterLocator(cluster).BuildServiceProvider();
 
         _ = await Assert.That(fallback.GetRequiredService<IGroupLeaderTable>().HasLocalAuthority("n1", out _)).IsTrue();
-        _ = await Assert.That(kept.GetRequiredService<IGroupLeaderTable>()).IsSameReferenceAs(earlier);
+        _ = await Assert.That(elected.GetRequiredService<IGroupLeaderTable>()).IsSameReferenceAs(election);
+        _ = await Assert.That(elected.GetServices<IGroupLeaderTable>()).Count().IsEqualTo(1);
+        _ = await Assert.That(kept.GetRequiredService<IGroupLeaderTable>()).IsSameReferenceAs(election);
     }
 }

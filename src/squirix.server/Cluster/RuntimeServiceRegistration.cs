@@ -21,7 +21,10 @@ internal static class RuntimeServiceRegistration
     {
         /// <summary>Registers static topology node location, ownership resolution, and the static leader table.</summary>
         /// <param name="cluster">Cluster topology configuration.</param>
-        /// <remarks>The static leader table is the fallback: a node whose groups an election leads registers its own table instead.</remarks>
+        /// <remarks>
+        /// The static leader table is added only when no table is registered yet; a node whose groups an election leads replaces it with the
+        /// table of its election state afterwards.
+        /// </remarks>
         /// <returns><paramref name="services" /> for chaining.</returns>
         internal IServiceCollection AddSquirixClusterLocator(TopologyOptions cluster)
         {

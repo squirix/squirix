@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -123,10 +124,14 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<ReplicaGroupRegistry>().GroupIds));
 
         AddReplicaGroupAppliers(services);
+
+        // The cluster locator registered the static leader table; an election-led node replaces it with the table of its election state.
         if (LeadsByElection(cluster))
-            _ = services.AddSingleton<IGroupLeaderTable>(sp => new ReplicaLeaderTable(sp.GetRequiredService<ReplicaGroupRegistry>(), cluster.NodeId));
-        else
-            _ = services.AddSingleton<IGroupLeaderTable>(new StaticLeaderTable(cluster.NodeId));
+        {
+            _ = services.Replace(ServiceDescriptor.Singleton<IGroupLeaderTable>(static sp => new ReplicaLeaderTable(
+                sp.GetRequiredService<ReplicaGroupRegistry>(),
+                sp.GetRequiredService<TopologyOptions>().NodeId)));
+        }
 
         // Factory registrations let the container own disposal: the registry closes follower-log durability workers
         // and the committers drain their coordinators on host shutdown.
