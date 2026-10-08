@@ -39,6 +39,8 @@ Details: [bootstrap-client-failover.md](bootstrap-client-failover.md).
   replacement is elected; RF=2 never promotes after peer loss
 - RF>=3 with persistence and mTLS survives single-node loss on the remaining majority; automatic failover and
   quorum reads apply only to RF>=3 after the proof matrix (see [architecture/replication-consensus.md](architecture/replication-consensus.md))
+- Automatic failover is off in this release: the owner of each key leads its replica group. Leader election for RF>=3 is
+  implemented behind an internal switch that is not configurable yet; RF=1 and RF=2 never elect
 - Multi-key operations are not transactions across owners
 - Memory pressure may reject growing writes before they are persisted
 - Journal disk quota may reject durable appends with `JOURNAL_DISK_QUOTA` before they are persisted
