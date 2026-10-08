@@ -15,7 +15,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// request, while they stay contiguous in index and term. There are no retries and no repair: a failed or refused request fails the
 /// entries it carried, and later entries are still sent once. <see cref="EnqueueAsync" /> never waits, so a slow follower cannot hold up
 /// its caller. A catch-up pauses the live sends through <see cref="BeginCatchUpAsync" /> and sends in their place, so the follower never
-/// sees two senders at once.
+/// sees two senders at once. A heartbeat goes out only while the slot is idle: an empty append at the last enqueued entry, so it never
+/// overtakes an entry; every follower reply, to an append or a heartbeat, is handed to <see cref="ReplyObserver" />.
 /// </remarks>
 [ThreadSafe]
 internal sealed class ReplicaFollowerSender : IAsyncDisposable
@@ -138,6 +139,12 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
 
     /// <summary>Gets the identifier of the follower this sender appends to.</summary>
     internal string NodeId { get; }
+
+    /// <summary>Initializes the owner callback that receives, with <see cref="ReplicaIndex" />, every follower reply to a live append or a heartbeat; it must not throw or wait.</summary>
+    internal Action<int, FollowerLogAppendResult>? ReplyObserver { private get; init; }
+
+    /// <summary>Initializes the slot of the follower in its group, handed to <see cref="ReplyObserver" />; zero unless set.</summary>
+    internal int ReplicaIndex { private get; init; }
 
     /// <summary>Initializes the longest wait on dispose for the request in flight; 30 seconds unless set.</summary>
     internal TimeSpan ShutdownBudget
@@ -369,6 +376,31 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         return completion.Task;
     }
 
+    /// <summary>Sends one heartbeat when the slot is idle: an empty append at the last enqueued entry, carrying the leader commit index.</summary>
+    /// <param name="leaderCommitIndex">Leader commit index to carry.</param>
+    /// <returns><see langword="true" /> when the heartbeat went out; <see langword="false" /> when an append, a catch-up, or a drain is under way, or the sender is closed.</returns>
+    /// <remarks>
+    /// Never waits. Entries enqueued while the heartbeat is in flight are sent after it. A busy slot needs no heartbeat: its live appends
+    /// reach the follower and their replies are observed the same way.
+    /// </remarks>
+    internal bool TryEnqueueHeartbeat(ulong leaderCommitIndex)
+    {
+        TaskCompletionSource started;
+        FollowerBatch heartbeat;
+        lock (_sync)
+        {
+            if (_closed || Draining || _pending.Count > 0 || _loopDone != null || _leaseDone != null)
+                return false;
+
+            heartbeat = new FollowerBatch([], _header.LeaderNodeId, _header.Term, _lastEnqueuedIndex, _lastEnqueuedTerm, leaderCommitIndex);
+            started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _loopDone = started;
+        }
+
+        StartLoop(started, heartbeat);
+        return true;
+    }
+
     /// <summary>Sends one catch-up request with the sender's identity, per-request timeout, and closing token.</summary>
     /// <param name="batch">The request.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -431,8 +463,12 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
-    private async Task RunAsync(TaskCompletionSource done)
+    private async Task RunAsync(TaskCompletionSource done, FollowerBatch? heartbeat)
     {
+        // A failed heartbeat fails nothing: the follower simply does not count as heard from.
+        if (heartbeat is { } empty)
+            _ = await SendHeartbeatAsync(empty).CaptureFailureAsync().ConfigureAwait(false);
+
         // A pending-free exit is decided under the lock in TakeBatch, so an enqueue racing the exit starts a loop of its own.
         while (TakeBatch() is { } batch)
         {
@@ -457,7 +493,16 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token);
         var result = await _rpc.AppendEntriesAsync(NodeId, _header, request, linked.Token).ConfigureAwait(false);
+        ReplyObserver?.Invoke(ReplicaIndex, result);
         Complete(batch, in result, NodeId);
+    }
+
+    private async Task SendHeartbeatAsync(FollowerBatch heartbeat)
+    {
+        using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token);
+        var result = await _rpc.AppendEntriesAsync(NodeId, _header, heartbeat, linked.Token).ConfigureAwait(false);
+        ReplyObserver?.Invoke(ReplicaIndex, result);
     }
 
     private async Task<FollowerLogAppendResult> SendCatchUpCoreAsync(FollowerBatch batch, TaskCompletionSource done, CancellationToken cancellationToken)
@@ -479,20 +524,21 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
 
     /// <summary>Starts the send loop on the calling thread, up to its first wait, without the caller's execution context.</summary>
     /// <param name="done">The completion source the loop completes when it ends.</param>
+    /// <param name="heartbeat">An empty append the loop sends before any waiting entry, or <see langword="null" />.</param>
     /// <remarks>
     /// The first send runs inline so an idle slot sends at once. The flow suppression covers only the start, and the loop's
     /// continuations then run without the ambient scope of whoever enqueued first.
     /// </remarks>
-    private void StartLoop(TaskCompletionSource done)
+    private void StartLoop(TaskCompletionSource done, FollowerBatch? heartbeat = null)
     {
         if (ExecutionContext.IsFlowSuppressed())
         {
-            _ = RunAsync(done);
+            _ = RunAsync(done, heartbeat);
             return;
         }
 
         using (ExecutionContext.SuppressFlow())
-            _ = RunAsync(done);
+            _ = RunAsync(done, heartbeat);
     }
 
     /// <summary>Takes the next request from the waiting entries, or ends the loop when none wait or a catch-up lease paused the sends.</summary>

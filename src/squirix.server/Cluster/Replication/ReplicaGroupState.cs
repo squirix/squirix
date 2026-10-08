@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -186,6 +187,22 @@ internal sealed class ReplicaGroupState
 
         if (wake)
             _wake.Notify();
+    }
+
+    /// <summary>Records a follower reply to an append or heartbeat of this leader, as a contact or as an observed term.</summary>
+    /// <param name="replicaIndex">The slot of the follower.</param>
+    /// <param name="reply">The reply.</param>
+    /// <remarks>
+    /// Only an answer from the follower's log is a contact: accepted, a log mismatch the leader repairs, or a log not ready yet. A refusal
+    /// before the log (another topology, another membership) proves nothing, and its term is still observed.
+    /// </remarks>
+    internal void RecordFollowerReply(int replicaIndex, in FollowerLogAppendResult reply)
+    {
+        if (reply.Success || string.Equals(reply.RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal) ||
+            string.Equals(reply.RefusalCode, FollowerLogRefusal.NotReady, StringComparison.Ordinal))
+            RecordFollowerContact(replicaIndex, reply.CurrentTerm);
+        else
+            ObserveHigherTerm(reply.CurrentTerm);
     }
 
     /// <summary>Tells whether this leader heard from enough followers lately to form a majority with itself.</summary>
