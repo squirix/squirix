@@ -180,9 +180,19 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        // Expiries in flight go first: they queue on the gate the drain below takes. The wait is bounded, and an expiry left running
-        // is faulted by the gate disposal below.
-        await _expiration.Value.DisposeAsync().ConfigureAwait(false);
+        // One shutdown budget bounds the whole drain: the expiries first, then the gate, so dispose never waits longer than the budget.
+        using var budget = new CancellationTokenSource(ShutdownBudget, ShutdownTimeProvider);
+
+        // Expiries in flight go first: they queue on the gate the drain below takes. An expiry still running when the budget ends is
+        // reported by the expiration coordinator and faulted by the gate disposal below.
+        try
+        {
+            await _expiration.Value.DisposeAsync().AsTask().WaitAsync(budget.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (budget.IsCancellationRequested)
+        {
+            // The gate drain below finds the budget spent as well and leaks the gate loudly.
+        }
 
         // Drain in-flight committer operations holding _gate so their AsyncLockHolder can release
         // the gate before it is disposed of. New admissions fail closed via ThrowIfDisposed. The drain stays held until the
@@ -194,18 +204,15 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // the services behind this one (the group logs and the journal). Callers queued behind the stuck holder are still faulted,
         // by disposing the gate: the holder keeps exclusion and can still release.
         AsyncLockHolder drain;
-        using (var budget = new CancellationTokenSource(ShutdownBudget, ShutdownTimeProvider))
+        try
         {
-            try
-            {
-                drain = await _gate.LockAsync(budget.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                ServerLog.ReplicaCommitterLeakedOnShutdownTimeout(Log, ShutdownBudget);
-                _gate.Dispose();
-                return;
-            }
+            drain = await _gate.LockAsync(budget.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            ServerLog.ReplicaCommitterLeakedOnShutdownTimeout(Log, ShutdownBudget);
+            _gate.Dispose();
+            return;
         }
 
         using (drain)

@@ -76,6 +76,30 @@ internal static class ReplicaOwnerTestKit
         ReplicationMetrics? metrics = null) =>
         new(registry, new ThreeNodeLocator(), gateway, cache, "n1", new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance) { Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), Clock = clock, Metrics = metrics };
 
+    /// <summary>Creates a committer on one clock for its decisions and budgets, whose dispose drain runs on its own clock and budget.</summary>
+    /// <param name="registry">Replica group registry of the owner.</param>
+    /// <param name="gateway">Follower transport double.</param>
+    /// <param name="cache">Local cache pipeline.</param>
+    /// <param name="clock">The clock of the decisions, the commit budget and the follower request timeouts.</param>
+    /// <param name="log">The committer logger.</param>
+    /// <param name="shutdown">The clock and the length of the shutdown budget.</param>
+    /// <returns>The committer.</returns>
+    internal static ReplicaGroupCommitter CreateCommitter(
+        ReplicaGroupRegistry registry,
+        IReplicaRpcGateway gateway,
+        ILogicalNamespacedCache<object?> cache,
+        TimeProvider clock,
+        ILogger<ReplicaGroupCommitter> log,
+        (TimeProvider Clock, TimeSpan Budget) shutdown) =>
+        new(registry, new ThreeNodeLocator(), gateway, cache, "n1", new ReplicaTopologyStamp(Fingerprint, 1), log)
+        {
+            Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            Clock = clock,
+            BudgetTimeProvider = clock,
+            ShutdownTimeProvider = shutdown.Clock,
+            ShutdownBudget = shutdown.Budget,
+        };
+
     /// <summary>Creates a committer whose commit budget and follower request timeouts run on <paramref name="budgetClock" />.</summary>
     /// <param name="registry">Replica group registry of the owner.</param>
     /// <param name="gateway">Follower transport double.</param>

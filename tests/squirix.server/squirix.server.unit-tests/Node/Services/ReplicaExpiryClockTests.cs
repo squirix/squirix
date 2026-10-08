@@ -202,6 +202,49 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         _ = await Assert.That((await leader.Cache.GetEntryAsync(CacheName, Key, cancellationToken))?.Value).IsEqualTo("v");
     }
 
+    /// <summary>Dispose with an expiry queued behind a commit that never ends completes within one shutdown budget and reports the leak once.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeBoundsExpiryOnGate(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-expiry-clock-dispose");
+        var clock = new FakeTimeProvider(Start);
+        var shutdownClock = new FakeTimeProvider(Start);
+        var budget = TimeSpan.FromMilliseconds(50);
+        var log = new EventRecordingLogger();
+        var gateway = new ReplicaCommitterDoubles.ParkingGateway { HeldNode = "n2" };
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
+        var committer = CreateCommitter(registry, gateway, new ClientCache<object?>(physical, physical), clock, log, (shutdownClock, budget));
+        try
+        {
+            await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+            clock.Advance(Ttl);
+
+            // Both followers park the next write, which holds the commit gate; the expiry queues behind it.
+            gateway.Arm();
+            var stuck = committer.CommitSetAsync(NewOperationId(), CacheName, "other", new NodeCacheEntry<object?>("w", 1), cancellationToken);
+            await gateway.Entered.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            var expiry = committer.ExpireAsync(CacheName, Key, cancellationToken);
+
+            var disposal = committer.DisposeAsync().AsTask();
+            shutdownClock.Advance(budget);
+            await disposal.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
+            // The gate drain reports its leak once; the expiry it faults may end before the expiration coordinator needs to report one.
+            _ = await Assert.That(log.Count(4005)).IsEqualTo(1);
+            _ = await Assert.That(log.Count(4032)).IsLessThanOrEqualTo(1);
+            _ = await Assert.That(stuck.IsCompleted).IsFalse();
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception, NodeCacheEntry<object?>?>(new ValueTask<NodeCacheEntry<object?>?>(expiry.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken)));
+        }
+        finally
+        {
+            gateway.Release();
+            gateway.ReleaseHeld();
+            await committer.DisposeAsync();
+        }
+    }
+
     /// <summary>A replica applying the committed records keeps the entry past its deadline on its own clock until the tombstone is applied.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
