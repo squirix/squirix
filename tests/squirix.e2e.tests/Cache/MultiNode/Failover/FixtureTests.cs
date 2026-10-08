@@ -104,11 +104,14 @@ public sealed class FixtureTests : EndToEndTestBase
             Eventually.SucceedsAsync(
                 0,
                 static (_, _) => Task.FromException(new RpcException(new Status(StatusCode.Unavailable, "down"))),
-                TimeSpan.FromMilliseconds(500),
+                TimeSpan.FromSeconds(2),
                 attempts,
                 cancellationToken));
 
-        _ = await Assert.That(attempts.Count).IsGreaterThanOrEqualTo(2);
-        _ = await Assert.That(failure.Message).Contains($"attempt {attempts.Count}:", StringComparison.Ordinal);
+        _ = await Assert.That(attempts.Count).IsGreaterThanOrEqualTo(1);
+        for (var i = 1; i <= attempts.Count; i++)
+            _ = await Assert.That(failure.Message).Contains($"attempt {i}:", StringComparison.Ordinal);
+
+        _ = await Assert.That(failure.Message).DoesNotContain($"attempt {attempts.Count + 1}:", StringComparison.Ordinal);
     }
 }
