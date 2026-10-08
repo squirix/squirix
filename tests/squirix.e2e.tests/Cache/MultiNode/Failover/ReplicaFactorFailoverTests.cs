@@ -55,6 +55,9 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
         var (lostFailure, lostElapsed) = await RefuseAsync((Cache: cache, Key: lost), static (s, token) => s.Cache.SetAsync(s.Key, 2L, cancellationToken: token), cancellationToken);
         await watch;
 
+        // The refusals may outlast the watch: observe once more, so authority gained during them is counted and checked as well.
+        _ = probe.Ledger("nodeA").Observe();
+        _ = probe.Ledger("nodeB").Observe();
         _ = await Assert.That(local).IsEqualTo(new CacheValueResult<long>(true, 1L));
         _ = await Assert.That(keptElapsed).IsLessThanOrEqualTo(RefusalBound).Because(keptFailure.ToString());
         _ = await Assert.That(IsRefusal(keptFailure)).IsTrue().Because(keptFailure.ToString());
@@ -66,7 +69,7 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
 
     /// <summary>
     /// After the owner of an RF=1 group stops, no node takes its group over: its keys are refused within the deadline, while the keys of the
-    /// running owners keep a clean register history with no failed call.
+    /// running owners keep a clean register history with no failed call while the refusals run.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -87,14 +90,15 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
 
         await cluster.StopNodeAsync("nodeA");
         var watch = probe.AssertNoElectionAsync("nodeA", timing.Round * 3, false, cancellationToken);
+        var unaffected = workload.RunAsync(100, 100, cancellationToken);
         var (writeFailure, writeElapsed) = await RefuseAsync((Cache: cache, Key: lost), static (s, token) => s.Cache.SetAsync(s.Key, 2L, cancellationToken: token), cancellationToken);
         var (readFailure, readElapsed) = await RefuseAsync(
             (Cache: cache, Key: lost),
             static async (s, token) => _ = await s.Cache.GetValueAsync(s.Key, token),
             cancellationToken);
-        await workload.RunAsync(20, 20, cancellationToken);
-        await watch;
+        await Task.WhenAll(unaffected, watch);
 
+        _ = probe.Ledger("nodeA").Observe();
         var history = workload.History;
         _ = await Assert.That(writeElapsed).IsLessThanOrEqualTo(RefusalBound).Because(writeFailure.ToString());
         _ = await Assert.That(IsRefusal(writeFailure)).IsTrue().Because(writeFailure.ToString());
