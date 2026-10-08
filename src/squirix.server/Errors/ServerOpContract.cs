@@ -7,6 +7,9 @@ internal static class ServerOpContract
 {
     internal const string CommitOutcomeUnknownDetail = "COMMIT_OUTCOME_UNKNOWN";
 
+    /// <summary>The stable detail of the refusal of a read whose expired entry the leader could not remove yet.</summary>
+    internal const string ExpirationPendingDetail = "replica_expiration_pending";
+
     internal const string NoWriteMajorityDetail = "Replica group has no verified write majority; nothing was written.";
 
     internal const string RingFencedDetail =
@@ -27,6 +30,11 @@ internal static class ServerOpContract
     /// <summary>Creates the refusal of a replicated write before its local append, while the group has no verified write majority.</summary>
     /// <returns><see cref="StatusCode.Unavailable" /> without the unknown-outcome code: nothing was written, so a retry may run elsewhere or later.</returns>
     internal static RpcException NoWriteMajority() => new(new Status(StatusCode.Unavailable, NoWriteMajorityDetail));
+
+    /// <summary>Creates the refusal of a read that found its entry expired while the tombstone of the entry could not commit.</summary>
+    /// <param name="cause">The failure of the tombstone commit.</param>
+    /// <returns><see cref="StatusCode.Unavailable" /> with <see cref="ExpirationPendingDetail" />: nothing was read, so a retry may succeed later.</returns>
+    internal static RpcException ExpirationPending(Exception cause) => new(new Status(StatusCode.Unavailable, ExpirationPendingDetail, cause));
 
     internal static SquirixException CommitOutcomeUnknown() => new(SquirixErrorCode.CommitOutcomeUnknown, "CommitOutcomeUnknown", CommitOutcomeUnknownDetail);
 

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Backpressure;
@@ -103,9 +104,13 @@ internal static class RuntimeServiceRegistration
             // expiration can be advanced deterministically instead of relying on real-time delays.
             _ = services.AddSingleton(TimeProvider.System);
 
-            // Who decides expiry, read by the cache, its snapshots, recovery and journal compaction alike. AddSingleton<T>(T) is
-            // constrained to class, so the descriptor boxes the enum.
-            services.Add(new ServiceDescriptor(typeof(CacheExpiryAuthority), static _ => CacheExpiryAuthority.LocalClock, ServiceLifetime.Singleton));
+            // Who decides expiry, read by the cache, its snapshots, recovery and journal compaction alike. FeatureState is the single
+            // source of truth: on network-replication-activated hosts only committed records remove an entry, so the leader decides expiry;
+            // RF=1 and foundation-only hosts keep the local clock. AddSingleton<T>(T) is constrained to class, so the descriptor boxes the enum.
+            services.Add(new ServiceDescriptor(
+                typeof(CacheExpiryAuthority),
+                static sp => sp.GetService<FeatureState>().NetworkReplicationEnabled ? CacheExpiryAuthority.CommittedRecords : CacheExpiryAuthority.LocalClock,
+                ServiceLifetime.Singleton));
             _ = services.AddSingleton(static sp => new PhysicalCache<object?>(
                 sp.GetService<TimeProvider>(),
                 new EvictionOptions { Policy = EvictionPolicyType.Lru },

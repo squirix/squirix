@@ -135,9 +135,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <remarks>Test seam: production committers keep the system clock.</remarks>
     internal TimeProvider ShutdownTimeProvider { private get; init; } = TimeProvider.System;
 
-    /// <summary>Initializes the time source that pins the expiration deadlines of prepared records; the system clock unless set.</summary>
-    /// <remarks>Only the prepare of a mutation reads it. Applying a record never does.</remarks>
-    internal TimeProvider Clock { private get; init; } = TimeProvider.System;
+    /// <summary>Gets or initializes the time source that pins the expiration deadlines of prepared records and decides expiry; the system clock unless set.</summary>
+    /// <remarks>The prepare of a mutation and the expiry check of a read use it. Applying a record never does.</remarks>
+    internal TimeProvider Clock { get; init; } = TimeProvider.System;
 
     /// <summary>Initializes the journal lifecycle whose startup gate opens once local recovery has replayed the journal into memory.</summary>
     /// <remarks>Commits and verifications wait for the gate before they read memory, so no decision is prepared against a partly recovered cache.</remarks>
