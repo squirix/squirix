@@ -139,6 +139,7 @@ internal static class ReplicaGroupCommitterCommits
         /// <returns>The committed outcome payload.</returns>
         /// <exception cref="SquirixException">The outcome is unknown, or the write is refused retryably.</exception>
         /// <exception cref="ServerOpIdMismatchException">The operation identifier is reused with another request.</exception>
+        /// <exception cref="Grpc.Core.RpcException">The log refused the local append with a stale term: stale-term, nothing was written.</exception>
         /// <remarks>Runs under the commit gate.</remarks>
         private async ValueTask<ReadOnlyMemory<byte>> CommitWithPreAppendResyncAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation)
         {
@@ -182,6 +183,10 @@ internal static class ReplicaGroupCommitterCommits
                 // The commit runs on the budget only, so a cancellation here is the budget expiring before the append: a definite refusal.
                 if (error is OperationCanceledException)
                     throw ServerOpContract.TooManyRequests(ReplicaGroupCommitter.CommitBudgetRefusalReason);
+
+                // The log refused the entry because a higher term reached it durably: nothing was appended, and this leadership is stale.
+                if (IsLocalAppendStaleTerm(error))
+                    throw StaleTermFailure.Create(null, 0);
                 throw;
             }
         }
@@ -214,6 +219,9 @@ internal static class ReplicaGroupCommitterCommits
             ? GroupIdempotencyLookup.Miss
             : log.Idempotency.Lookup(write.Scope, write.OperationId, fingerprint(state), out record);
     }
+
+    private static bool IsLocalAppendStaleTerm(Exception error) =>
+        error is InvalidOperationException && string.Equals(error.Message, ReplicaGroupCommitPipeline.LocalAppendStaleTermMessage, StringComparison.Ordinal);
 
     private static bool IsPostAppendOutcome(Exception error) =>
         error is InvalidOperationException && error.Message.StartsWith(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
