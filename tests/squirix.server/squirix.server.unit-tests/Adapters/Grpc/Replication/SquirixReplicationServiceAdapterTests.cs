@@ -5,12 +5,14 @@ using System.Threading.Tasks;
 using Google.Protobuf;
 using Grpc.Core;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -47,6 +49,23 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         TopologyOptions? cluster = null;
 
         _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(material, cluster, static (m, c) => _ = new SquirixReplicationServiceAdapter(c!, new MtlsOptions(), m));
+    }
+
+    /// <summary>Verifies that the adapter constructor requires the replica sets whenever it is given a group registry.</summary>
+    /// <returns>A task that completes when the registry is disposed.</returns>
+    [Test]
+    public async Task ConstructorRequiresMembersWithGroups()
+    {
+        using var dir = new TempDirectory("squirix-replication-adapter-members");
+        await using var registry = new ReplicaGroupRegistry(dir, ["node-a"], 1, ReadOnlyMemory<byte>.Of(9), 1UL, NullLoggerFactory.Instance);
+
+        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(
+            registry,
+            static r => _ = new SquirixReplicationServiceAdapter(
+                CreateTopology(),
+                new MtlsOptions { InternalListenPort = 6001 },
+                MtlsCertificate.Load(new MtlsOptions(), null, false),
+                r));
     }
 
     /// <summary>Verifies that the adapter constructor requires mTLS certificate material.</summary>

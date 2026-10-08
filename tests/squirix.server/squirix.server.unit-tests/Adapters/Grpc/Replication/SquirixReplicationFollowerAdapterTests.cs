@@ -130,7 +130,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     [Test]
     public async Task OwnGroupVoteIsRefusedAsync(CancellationToken cancellationToken)
     {
-        await using var follower = await CreateFollowerScopeAsync(CreateTopology().NodeId, true, cancellationToken);
+        await using var follower = await CreateFollowerScopeAsync(CreateTopology().NodeId, true, null, cancellationToken);
         follower.Header.Term = 2;
         var request = new ReplicaVoteRequest { Header = follower.Header };
         var before = await File.ReadAllBytesAsync(MetaPath(follower), cancellationToken);
@@ -153,7 +153,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     [Test]
     public async Task DrivenOwnGroupVoteReachesLogAsync(CancellationToken cancellationToken)
     {
-        await using var follower = await CreateFollowerScopeAsync(CreateTopology().NodeId, true, cancellationToken);
+        await using var follower = await CreateFollowerScopeAsync(CreateTopology().NodeId, true, null, cancellationToken);
         follower.Registry.StateFor(follower.Header.GroupId).SetElectionDriven(true);
         follower.Header.Term = 2;
 
@@ -169,7 +169,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     [Test]
     public async Task StatusReportsElectionRoleAsync(CancellationToken cancellationToken)
     {
-        await using var follower = await CreateFollowerScopeAsync("node-a", true, cancellationToken);
+        await using var follower = await CreateFollowerScopeAsync("node-a", true, null, cancellationToken);
         var state = follower.Registry.StateFor(follower.Header.GroupId);
         var request = new GetReplicaStatusRequest { Header = follower.Header };
         var before = await follower.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, follower.HttpContext));
@@ -188,7 +188,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     [Test]
     public async Task PreVoteOnServedGroupKeepsTermAsync(CancellationToken cancellationToken)
     {
-        await using var follower = await CreateFollowerScopeAsync("node-a", true, cancellationToken);
+        await using var follower = await CreateFollowerScopeAsync("node-a", true, null, cancellationToken);
         var request = new ReplicaVoteRequest { Header = follower.Header };
 
         var response = await follower.Adapter.PreVote(request, new TestServerCallContext(null, follower.HttpContext));
@@ -205,7 +205,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     [Test]
     public async Task ProvisionalTermVoteIsRefusedAsync(CancellationToken cancellationToken)
     {
-        await using var follower = await CreateFollowerScopeAsync("node-a", true, cancellationToken);
+        await using var follower = await CreateFollowerScopeAsync("node-a", true, null, cancellationToken);
         follower.Header.Term = 1;
         var request = new ReplicaVoteRequest { Header = follower.Header };
 
@@ -239,12 +239,31 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         _ = await Assert.That(response.AppliedIndex).IsEqualTo(1UL);
     }
 
+    /// <summary>A verified sender outside the replica set of the group gets no vote and no pre-vote, and no term reaches the log.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NonMemberVoteIsRefusedAsync(CancellationToken cancellationToken)
+    {
+        var members = new ReplicaMembership(new ReplicaGroupLocator(new PhysicalNodeRing(["node-b", "node-c", "node-d"]), 3), ["node-b"]);
+        await using var follower = await CreateFollowerScopeAsync("node-b", true, members, cancellationToken);
+        follower.Header.Term = 2;
+        var request = new ReplicaVoteRequest { Header = follower.Header };
+
+        var vote = await follower.Adapter.RequestVote(request, new TestServerCallContext(null, follower.HttpContext));
+        var preVote = await follower.Adapter.PreVote(request, new TestServerCallContext(null, follower.HttpContext));
+
+        _ = await Assert.That((vote.Granted, vote.RefusalCode, vote.Term)).IsEqualTo((false, RefusalCodes.NotMember, 0UL));
+        _ = await Assert.That((preVote.Granted, preVote.RefusalCode, preVote.Term)).IsEqualTo((false, RefusalCodes.NotMember, 0UL));
+        var status = await GroupStatusAsync(follower, cancellationToken);
+        _ = await Assert.That((status.CurrentTerm, status.VotedFor)).IsEqualTo((0UL, string.Empty));
+    }
+
     /// <summary>Verifies that a vote on a served group is granted to the verified sender and persisted before the answer.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task VoteOnServedGroupIsGrantedAsync(CancellationToken cancellationToken)
     {
-        await using var follower = await CreateFollowerScopeAsync("node-a", true, cancellationToken);
+        await using var follower = await CreateFollowerScopeAsync("node-a", true, null, cancellationToken);
         follower.Header.Term = 2;
         var request = new ReplicaVoteRequest { Header = follower.Header };
 
@@ -287,14 +306,19 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The follower scope owning the adapter and its storage.</returns>
     private static Task<FollowerScope> CreateFollowerScopeAsync(string groupId, CancellationToken cancellationToken) =>
-        CreateFollowerScopeAsync(groupId, false, cancellationToken);
+        CreateFollowerScopeAsync(groupId, false, null, cancellationToken);
 
     /// <summary>Creates an adapter backed by an opened single-group registry.</summary>
     /// <param name="groupId">The replica group identifier served by the registry.</param>
     /// <param name="votesEnabled">Whether automatic failover is on, so the adapter answers votes from the log.</param>
+    /// <param name="members">The replica sets of the group; <see langword="null" /> counts every node a member.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The follower scope owning the adapter and its storage.</returns>
-    private static async Task<FollowerScope> CreateFollowerScopeAsync(string groupId, bool votesEnabled, CancellationToken cancellationToken)
+    private static async Task<FollowerScope> CreateFollowerScopeAsync(
+        string groupId,
+        bool votesEnabled,
+        IReplicaMembership? members,
+        CancellationToken cancellationToken)
     {
         var topology = CreateTopology(votesEnabled);
         var mtls = new MtlsOptions { InternalListenPort = 6001 };
@@ -304,7 +328,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var dir = new TempDirectory("squirix-replication-adapter");
         var registry = new ReplicaGroupRegistry(dir, [groupId], 1, ReadOnlyMemory<byte>.Of(9), topology.ConfigurationGeneration, NullLoggerFactory.Instance);
         await registry.OpenAsync(cancellationToken);
-        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material, registry, RocksDoubles.CreateReplicaMembers());
+        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material, registry, members ?? RocksDoubles.CreateReplicaMembers());
         var header = new ReplicationEnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,

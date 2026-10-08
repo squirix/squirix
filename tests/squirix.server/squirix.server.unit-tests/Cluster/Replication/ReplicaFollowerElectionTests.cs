@@ -101,6 +101,34 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         _ = await Assert.That(state.GrantAuthority(2UL)).IsTrue();
     }
 
+    /// <summary>On a ring of four nodes with three replicas, a configured node outside the replica set of the group gets no vote.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RingNodeOutsideGroupRefused(CancellationToken cancellationToken)
+    {
+        string[] ring = ["n1", "n2", "n3", "n4"];
+        var locator = new ReplicaGroupLocator(new PhysicalNodeRing(ring), 3);
+        var replicaSet = new string[3];
+        locator.GetReplicaGroup(GroupId, replicaSet);
+        var outsider = ring[0];
+        for (var i = 0; i < ring.Length; i++)
+        {
+            if (Array.IndexOf(replicaSet, ring[i]) < 0)
+                outsider = ring[i];
+        }
+
+        using var dir = new TempDirectory("squirix-follower-election-ring-outsider");
+        await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
+        var follower = new ReplicaFollower(registry, new ReplicaMembership(locator, registry.GroupIds));
+
+        var vote = await follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest(outsider, 5UL, 0UL, 0UL), cancellationToken);
+        var status = await follower.GetStatusAsync(GroupId, cancellationToken);
+
+        _ = await Assert.That(Array.IndexOf(replicaSet, outsider)).IsLessThan(0);
+        _ = await Assert.That((vote.Granted, vote.RefusalCode, vote.CurrentTerm)).IsEqualTo((false, RefusalCodes.NotMember, 0UL));
+        _ = await Assert.That(status?.CurrentTerm).IsEqualTo(0UL);
+    }
+
     /// <summary>A leader with authority refuses the pre-votes of its group: it is the live leader.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -113,7 +141,8 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         _ = state.BecomeLeader(2UL);
         _ = state.GrantAuthority(2UL);
 
-        var refused = await new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers()).PreVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 3UL, 0UL, 0UL), cancellationToken);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var refused = await follower.PreVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 3UL, 0UL, 0UL), cancellationToken);
 
         _ = await Assert.That((refused.Granted, refused.RefusalCode)).IsEqualTo((false, RefusalCodes.LeaderContact));
     }
@@ -146,7 +175,8 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-election-mismatch");
         await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
 
-        var result = await new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers()).AppendAsync(GroupId, Fingerprint, 1UL, new FollowerBatch([], "n2", 3UL, 5UL, 1UL, 0UL), cancellationToken);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var result = await follower.AppendAsync(GroupId, Fingerprint, 1UL, new FollowerBatch([], "n2", 3UL, 5UL, 1UL, 0UL), cancellationToken);
 
         _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.LogMismatch);
         _ = await Assert.That(registry.StateFor(GroupId).TryGetKnownLeader(out var leader, out var term)).IsTrue();
