@@ -10,6 +10,8 @@ namespace Squirix.Server.Node.Services;
 
 /// <summary>Replicated owner-local cache: reads stay local, mutations commit through the led group that owns their key.</summary>
 /// <remarks>
+/// Under quorum reads, a read first fences on the leader of the group that owns its key: a read index confirmed by a majority in the led
+/// term and applied to memory, so the local read observes every write committed before it arrived. Without them reads are not fenced.
 /// Storage keeps an entry past its deadline until a committed record removes it, and only the leader decides expiry. A read that finds
 /// its entry past the deadline on the leader clock commits the tombstone of the entry before it reports the miss, so no replica reports
 /// the key absent before the group agrees it is; when the tombstone cannot commit, the read is refused retryably.
@@ -22,22 +24,31 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
 {
     private readonly ReplicaGroupCommitters _committers;
     private readonly ILogicalNamespacedCache<object?> _inner;
+    private readonly bool _quorumReads;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicatedCache" /> class.</summary>
     /// <param name="inner">Local cache pipeline used for reads and ordered applies.</param>
     /// <param name="committers">The serialized replicated committers of the led groups.</param>
-    internal ReplicatedCache(ILogicalNamespacedCache<object?> inner, ReplicaGroupCommitters committers)
+    /// <param name="quorumReads">Whether reads fence on the elected leader of their group; only for groups led by election.</param>
+    internal ReplicatedCache(ILogicalNamespacedCache<object?> inner, ReplicaGroupCommitters committers, bool quorumReads = false)
     {
         ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(committers);
         _inner = inner;
         _committers = committers;
+        _quorumReads = quorumReads;
     }
 
     /// <inheritdoc />
-    /// <exception cref="Grpc.Core.RpcException">The entry expired and its tombstone could not commit: Unavailable, retryable.</exception>
+    /// <exception cref="Grpc.Core.RpcException">
+    /// The entry expired and its tombstone could not commit: Unavailable, retryable. Under quorum reads, also the refusal of a read this
+    /// node may not serve as the leader of the group, or whose read index no majority confirmed in time; nothing was read.
+    /// </exception>
     public async ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
+        if (_quorumReads)
+            await _committers.ForKey(cacheName, key).ConfirmReadAsync(cancellationToken).ConfigureAwait(false);
+
         var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         return IsExpired(entry) ? await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false) : entry;
     }

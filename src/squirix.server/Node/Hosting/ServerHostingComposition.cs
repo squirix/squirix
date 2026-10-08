@@ -189,6 +189,7 @@ internal static class ServerHostingComposition
     {
         Election = sp.GetService<ElectionTimerOptions>() ?? new ElectionTimerOptions(),
         ElectionClock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
+        QuorumReads = cluster.QuorumReadsEnabled && LeadsByElection(cluster),
     };
 
     /// <summary>Registers the appliers of every served group, which the committers of the led groups and the apply loops of the others drive.</summary>

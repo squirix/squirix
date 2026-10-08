@@ -147,6 +147,11 @@ internal static class CachePipelineRegistration
 
         // FeatureState is the single source of truth: only network-replication-activated hosts commit.
         // RF=1 and foundation-only hosts keep the direct single-copy path untouched.
-        return sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled ? new ReplicatedCache(inner, sp.GetRequiredService<ReplicaGroupCommitters>()) : inner;
+        if (!sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled)
+            return inner;
+
+        // Reads fence on the elected leader only under quorum reads, as the registry tells its elected leaders; a group led statically
+        // has no read index to confirm.
+        return new ReplicatedCache(inner, sp.GetRequiredService<ReplicaGroupCommitters>(), sp.GetRequiredService<ReplicaGroupRegistry>().QuorumReads);
     }
 }

@@ -40,6 +40,10 @@ internal static class FailoverActivationGate
     }
 
     /// <summary>Checks whether a quorum read may be served under explicit quorum-read activation.</summary>
+    /// <remarks>
+    /// A leader read under quorum reads runs this check last, once a majority confirmed its read index in the led term and memory applied
+    /// it; no lease and no local timer stands in for that confirmation.
+    /// </remarks>
     /// <param name="quorumReadsEnabled">The explicit post-proof quorum-read switch.</param>
     /// <param name="replicaCount">The configured replica factor, including the leader.</param>
     /// <param name="hasMajorityContact">Whether the leader recently contacted a majority.</param>

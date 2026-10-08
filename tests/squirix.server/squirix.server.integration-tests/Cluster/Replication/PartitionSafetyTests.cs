@@ -28,7 +28,7 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 /// <remarks>
 /// Every wait reads the leader table of every node and checks election safety against all earlier reads. Writes go through the committers
 /// of a node with authority: a client write reaches the new leader of a group only through leader routing, which this release does not
-/// have yet, and reads are not fenced by authority yet either, so the minority is shown to fail closed on the write side.
+/// have yet. Reads under quorum reads go through the replicated cache of a node over its local chain, fenced by a read index.
 /// </remarks>
 public sealed class PartitionSafetyTests : NodeIntegrationTestBase
 {
@@ -61,14 +61,14 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group, Bound);
         var (former, formerTerm) = await ledger.LeaderAsync(Three, 0UL, "the group gets a leader", cancellationToken);
         var key = cluster[former].FindKeyOwnedBy(Scope, Group);
-        await CommitAsync(ledger, cluster[former], key, cancellationToken);
+        await LedgerWrites.CommitAsync(ledger, cluster[former], Scope, key, cancellationToken);
 
         await fabric.IsolateAsync(former);
         var (next, nextTerm) = await ledger.LeaderAsync(Without(Three, former), formerTerm, "the majority elects a leader", cancellationToken);
         await ledger.UntilAsync(() => !HasAuthority(cluster[former]), "the cut-off leader loses its authority", cancellationToken);
         var formerLast = (await Log(cluster[former]).GetStatusAsync(cancellationToken)).LastLogIndex;
         var refused = NodeExceptionAssert.For<RpcException>().Throws(Committers(cluster[former]), key, static (committers, k) => _ = committers.ForKey(Scope, k));
-        await CommitAsync(ledger, cluster[next], key, cancellationToken);
+        await LedgerWrites.CommitAsync(ledger, cluster[next], Scope, key, cancellationToken);
 
         _ = await Assert.That(nextTerm).IsGreaterThan(formerTerm);
         _ = await Assert.That(IsDefinitePreAppendRefusal(refused)).IsTrue().Because($"the cut-off leader refuses before any append, got {refused.StatusCode}: {refused.Status.Detail}");
@@ -76,22 +76,25 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     }
 
     /// <summary>
-    /// A leader cut off from the majority does not commit what the majority commits, and the authority its status reports refuses a read;
-    /// reads themselves are not fenced by authority yet.
+    /// A leader cut off from the majority does not commit what the majority commits, the authority its status reports refuses a read, and
+    /// under quorum reads the read itself is refused, both right after the cut and once the leader lost its authority.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task MinorityCannotServeCurrentRead(CancellationToken cancellationToken)
     {
         await using var fabric = new PartitionFabric();
-        await using var cluster = await StartAsync(Three, Options("partition-minority-read", fabric), cancellationToken);
+        await using var cluster = await StartAsync(Three, Options("partition-minority-read", fabric, quorumReads: true), cancellationToken);
         var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group, Bound);
         var (former, formerTerm) = await ledger.LeaderAsync(Three, 0UL, "the group gets a leader", cancellationToken);
+        var key = cluster[former].FindKeyOwnedBy(Scope, Group);
 
         await fabric.IsolateAsync(former);
+        var cutOff = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(FencedReads.Fenced(cluster[former]).GetEntryAsync(Scope, key, cancellationToken));
         var (next, _) = await ledger.LeaderAsync(Without(Three, former), formerTerm, "the majority elects a leader", cancellationToken);
-        await CommitAsync(ledger, cluster[next], cluster[next].FindKeyOwnedBy(Scope, Group), cancellationToken);
+        await LedgerWrites.CommitAsync(ledger, cluster[next], Scope, key, cancellationToken);
         await ledger.UntilAsync(() => !HasAuthority(cluster[former]), "the cut-off leader loses its authority", cancellationToken);
+        var deposed = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(FencedReads.Fenced(cluster[former]).GetEntryAsync(Scope, key, cancellationToken));
         var current = (await Log(cluster[next]).GetStatusAsync(cancellationToken)).CommitIndex;
         var stale = await StatusAsync(cluster[former], cancellationToken);
         var read = LeaderAuthorityGate.CheckRead(
@@ -105,6 +108,39 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         _ = await Assert.That(stale.CommitIndex).IsLessThan(current);
         _ = await Assert.That((stale.IsLeader, read.Allowed)).IsEqualTo((false, false));
         _ = await Assert.That(stale.Role).IsNotEqualTo(ReplicaElectionRole.AuthorizedLeader);
+
+        // Right after the cut the leader may still hold authority, so its round goes unconfirmed, or it may have lost it already.
+        _ = await Assert.That(cutOff.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(
+            string.Equals(cutOff.Status.Detail, ServerOpContract.ReadQuorumUnconfirmedDetail, StringComparison.Ordinal) ||
+            string.Equals(cutOff.Status.Detail, ServerOpContract.NoLeaderAuthorityDetail, StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That((deposed.StatusCode, deposed.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+    }
+
+    /// <summary>
+    /// Under quorum reads the leader serves a fenced read of what it committed, and after a failover the leader the majority elected serves
+    /// the value it committed in its own term.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MajorityLeaderServesQuorumRead(CancellationToken cancellationToken)
+    {
+        await using var fabric = new PartitionFabric();
+        await using var cluster = await StartAsync(Three, Options("partition-quorum-read", fabric, quorumReads: true), cancellationToken);
+        var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group, Bound);
+        var (former, formerTerm) = await ledger.LeaderAsync(Three, 0UL, "the group gets a leader", cancellationToken);
+        var key = cluster[former].FindKeyOwnedBy(Scope, Group);
+        var firstWrite = Guid.NewGuid().ToString("N");
+        var secondWrite = Guid.NewGuid().ToString("N");
+        await LedgerWrites.CommitAsync(ledger, cluster[former], Scope, key, cancellationToken, firstWrite);
+        var first = await FencedReads.ReadAsync(ledger, cluster[former], Scope, key, cancellationToken);
+
+        await fabric.IsolateAsync(former);
+        var (next, _) = await ledger.LeaderAsync(Without(Three, former), formerTerm, "the majority elects a leader", cancellationToken);
+        await LedgerWrites.CommitAsync(ledger, cluster[next], Scope, key, cancellationToken, secondWrite);
+        var second = await FencedReads.ReadAsync(ledger, cluster[next], Scope, key, cancellationToken);
+
+        _ = await Assert.That((first, second)).IsEqualTo((firstWrite, secondWrite));
     }
 
     /// <summary>A leader cut off while the majority elected a later term follows that term once the links heal, without authority.</summary>
@@ -186,7 +222,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
 
         await SplitAsync(fabric, minority, majority);
         var (next, nextTerm) = await ledger.LeaderAsync(majority, formerTerm, "the three-node majority elects a leader", cancellationToken);
-        await CommitAsync(ledger, cluster[next], cluster[next].FindKeyOwnedBy(Scope, Group), cancellationToken);
+        await LedgerWrites.CommitAsync(ledger, cluster[next], Scope, cluster[next].FindKeyOwnedBy(Scope, Group), cancellationToken);
         await ledger.UntilAsync(() => ledger.Observe(minority).Term == 0UL, "the two-node minority holds no authority", cancellationToken);
         await ledger.HoldsAsync(() => ledger.Observe(minority).Term == 0UL, Watch, "the two-node minority never leads", cancellationToken);
 
@@ -236,7 +272,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         var slot = SlotOf(cluster[leader], returned);
 
         await fabric.IsolateAsync(returned);
-        await CommitAsync(ledger, cluster[leader], cluster[leader].FindKeyOwnedBy(Scope, Group), cancellationToken);
+        await LedgerWrites.CommitAsync(ledger, cluster[leader], Scope, cluster[leader].FindKeyOwnedBy(Scope, Group), cancellationToken);
         await ledger.UntilAsync(() => !eligibility.CanCountInWriteQuorum(slot), "the cut-off follower leaves the write quorum", cancellationToken);
         var committed = (await Log(cluster[leader]).GetStatusAsync(cancellationToken)).CommitIndex;
         fabric.HealAll();
@@ -245,35 +281,6 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         _ = await Assert.That((await Log(cluster[returned]).GetStatusAsync(cancellationToken)).LastLogIndex).IsGreaterThanOrEqualTo(committed);
         _ = await Assert.That(ledger.Observe(Three).NodeId).IsEqualTo(leader);
     }
-
-    /// <summary>Commits one write through the committers of a node with authority, retrying while the group is not ready to take it.</summary>
-    /// <param name="ledger">The election safety record, checked on every attempt.</param>
-    /// <param name="node">The node with authority.</param>
-    /// <param name="key">A key of the group.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>A task that completes once the write committed.</returns>
-    /// <remarks>Every attempt carries the same operation identifier, so a retry never writes twice.</remarks>
-    private static Task CommitAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost node, string key, CancellationToken cancellationToken) =>
-        ledger.UntilValueAsync(
-            (Committers: Committers(node), Key: key, OperationId: Guid.NewGuid().ToString("N")),
-            static async (write, token) =>
-            {
-                try
-                {
-                    await write.Committers.ForKey(Scope, write.Key).CommitSetAsync(write.OperationId, Scope, write.Key, new NodeCacheEntry<object?> { Value = write.OperationId }, token);
-                    return true;
-                }
-                catch (RpcException exception) when (exception.StatusCode is StatusCode.Unavailable or StatusCode.ResourceExhausted)
-                {
-                    return false;
-                }
-                catch (SquirixException)
-                {
-                    return false;
-                }
-            },
-            "a write commits",
-            cancellationToken);
 
     private static ReplicaGroupCommitters Committers(ITestNodeHost host) => host.GetRequiredService<ReplicaGroupCommitters>();
 
@@ -309,12 +316,13 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     private static IFollowerLog Log(ITestNodeHost host) =>
         host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(Group, out var log) ? log : throw new InvalidOperationException($"The group log {Group} is not open.");
 
-    private static IntegrationStartOptions Options(string scope, PartitionFabric fabric, int replicaCount = 3, Action<IServiceCollection>? configure = null) => new()
+    private static IntegrationStartOptions Options(string scope, PartitionFabric fabric, int replicaCount = 3, Action<IServiceCollection>? configure = null, bool quorumReads = false) => new()
     {
         ReplicaCount = replicaCount,
         UsePersistence = true,
         ExtraScope = scope,
         AutomaticFailoverEnabled = true,
+        QuorumReadsEnabled = quorumReads,
         PartitionFabric = fabric,
         ServicesConfigure = services =>
         {

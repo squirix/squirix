@@ -6,9 +6,9 @@ namespace Squirix.Server.Cluster.Replication;
 /// instead of serving possibly stale state. An old leader that observes a higher term steps down
 /// and stops serving. Single-node groups bypass the protocol entirely: no quorum gate and no
 /// election timer. <see cref="CheckWrite" /> already gates production write readiness (see
-/// <c language="csharp">ReplicaReadiness</c>); <see cref="CheckRead" /> is consulted only by
-/// tests and by <c language="csharp">FailoverActivationGate</c>'s quorum-read path until that
-/// path is wired into production.
+/// <c language="csharp">ReplicaReadiness</c>); <see cref="CheckRead" /> gates a fenced leader read
+/// through <c language="csharp">FailoverActivationGate</c>'s quorum-read path, after the read index
+/// is confirmed and applied.
 /// </remarks>
 internal static class LeaderAuthorityGate
 {
