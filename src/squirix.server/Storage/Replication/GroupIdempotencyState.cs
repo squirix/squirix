@@ -60,6 +60,17 @@ internal sealed class GroupIdempotencyState
     private readonly TimeSpan _retention;
     private readonly Lock _sync = new();
     private readonly TimeProvider _timeProvider;
+
+    /// <summary>
+    /// The number of unresolved records of a kind that answers no retry; they sit in <see cref="_records" /> but not against the capacity.
+    /// Guarded by <see cref="_sync" />.
+    /// </summary>
+    /// <remarks>
+    /// Such a record is only ever added by <see cref="Reserve" /> and never resolved in place, and expiry and rebuild eviction touch resolved
+    /// records only, so every path that removes or replaces an unresolved record keeps the count.
+    /// </remarks>
+    private int _exemptPins;
+
     private int _outcomesRebuilt;
 
     /// <summary>The state of the rebuild in progress; <see langword="null" /> outside a rebuild. Guarded by <see cref="_sync" />.</summary>
@@ -114,7 +125,7 @@ internal sealed class GroupIdempotencyState
     {
         lock (_sync)
         {
-            (_rebuild ?? new OutcomeRebuild()).TrimTo(_records, Capacity);
+            (_rebuild ?? new OutcomeRebuild()).TrimTo(_records, Capacity + _exemptPins);
             _rebuild = null;
         }
 
@@ -232,7 +243,11 @@ internal sealed class GroupIdempotencyState
             }
 
             for (var i = 0; i < released.Count; i++)
-                _ = _records.Remove(released[i]);
+            {
+                if (_records.Remove(released[i], out var stored))
+                    _exemptPins -= ExemptPinCount(stored.Record);
+            }
+
             return released.Count;
         }
     }
@@ -284,12 +299,16 @@ internal sealed class GroupIdempotencyState
                 return GroupIdempotencyReserveResult.Success;
             }
 
-            if (_records.Count >= Capacity && !alreadyLogged && AnswersRetries(kind))
+            var answersRetries = AnswersRetries(kind);
+            if (_records.Count - _exemptPins >= Capacity && !alreadyLogged && answersRetries)
                 return GroupIdempotencyReserveResult.CapacityExceeded;
 
             var memory = BufferEx.CopyToOwned(operationFingerprint);
             var record = new GroupIdempotencyRecord(scope, operationId, memory, ReadOnlyMemory<byte>.Empty, kind, _timeProvider.GetUtcNow().UtcDateTime, null, logIndex, term);
             _records[key] = new StoredRecord(record, 0L, TimeSpan.Zero);
+            if (!answersRetries)
+                _exemptPins++;
+
             return GroupIdempotencyReserveResult.Success;
         }
     }
@@ -349,7 +368,7 @@ internal sealed class GroupIdempotencyState
         {
             return OutcomesRebuilt
                 ? ThrowHelper.Throw<GroupOutcomeRestoreResult>(new InvalidOperationException("The outcomes of the committed log entries are already rebuilt."))
-                : (_rebuild ??= new OutcomeRebuild()).Restore(_records, in record, age, (_retention, Capacity, _timeProvider));
+                : (_rebuild ??= new OutcomeRebuild()).Restore(_records, in record, age, (_retention, Capacity + _exemptPins, _timeProvider));
         }
     }
 
@@ -385,8 +404,13 @@ internal sealed class GroupIdempotencyState
         {
             ExpireCore();
             var key = GroupOperationKey.Of(in record);
-            if (_records.TryGetValue(key, out var stored) && stored.Record.IsResolved && stored.Record.LogIndex >= record.LogIndex)
+            var known = _records.TryGetValue(key, out var stored);
+            if (known && stored.Record.IsResolved && stored.Record.LogIndex >= record.LogIndex)
                 return;
+
+            // The record of the identity, if any, is replaced or dropped below.
+            if (known)
+                _exemptPins -= ExemptPinCount(stored.Record);
 
             // An expiration or a leader-term no-op answers no retry: its pin, if any, is resolved by dropping it, and no outcome is kept.
             if (!AnswersRetries(record.Kind))
@@ -414,7 +438,11 @@ internal sealed class GroupIdempotencyState
             var known = _records.TryGetValue(key, out var stored);
             var record = stored.Record;
             var releasable = known && !record.IsResolved && record.LogIndex == logIndex && record.Term == term;
-            return releasable && _records.Remove(key);
+            if (!releasable || !_records.Remove(key))
+                return false;
+
+            _exemptPins -= ExemptPinCount(in record);
+            return true;
         }
     }
 
@@ -444,7 +472,10 @@ internal sealed class GroupIdempotencyState
 
             // An expiration or a leader-term no-op answers no retry: resolving it drops the pin instead of retaining an outcome.
             if (!AnswersRetries(record.Kind))
+            {
+                _exemptPins -= ExemptPinCount(in record);
                 return _records.Remove(key);
+            }
 
             var resolved = record.Resolve(BufferEx.CopyToOwned(outcomePayload), _timeProvider.GetUtcNow().UtcDateTime);
             _records[key] = new StoredRecord(resolved, _timeProvider.GetTimestamp(), TimeSpan.Zero);
@@ -456,6 +487,11 @@ internal sealed class GroupIdempotencyState
     /// <param name="kind">The record kind.</param>
     /// <returns><see langword="false" /> for an expiration tombstone or a leader-term no-op; otherwise <see langword="true" />.</returns>
     private static bool AnswersRetries(GroupRecordKind kind) => kind is not (GroupRecordKind.Expiration or GroupRecordKind.LeaderTerm);
+
+    /// <summary>Counts a record as an exempt pin: an unresolved record of a kind that answers no retry, which sits outside the capacity.</summary>
+    /// <param name="record">The record.</param>
+    /// <returns>1 for an exempt pin; otherwise 0.</returns>
+    private static int ExemptPinCount(in GroupIdempotencyRecord record) => record.IsUnresolved && !AnswersRetries(record.Kind) ? 1 : 0;
 
     private List<GroupOperationKey> CollectExpiredKeys()
     {
@@ -536,6 +572,10 @@ internal sealed class GroupIdempotencyState
 
         for (var i = 0; i < retained.Count; i++)
             _records[GroupOperationKey.Of(retained[i].Record)] = retained[i];
+
+        _exemptPins = 0;
+        foreach (var stored in _records.Values)
+            _exemptPins += ExemptPinCount(stored.Record);
     }
 
     /// <summary>Identity of a retained idempotency record.</summary>

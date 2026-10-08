@@ -55,6 +55,27 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
         _ = await Assert.That(state.Lookup("client", "pin", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
     }
 
+    /// <summary>A recovered tail pin that answers no retry takes no capacity from the outcomes a rebuild restores.</summary>
+    /// <param name="leaderTerm">Whether the exempt pin is a leader-term no-op rather than an expiration.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task ExemptTailPinLeavesCapacityToRebuild(bool leaderTerm)
+    {
+        var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1));
+        _ = state.Reserve("system", "exempt", [1], leaderTerm ? GroupRecordKind.LeaderTerm : GroupRecordKind.Expiration, 9UL, 1UL, true);
+        state.BeginOutcomeRebuild();
+
+        var restored = state.RestoreOutcome(Outcome("five", 5UL), TimeSpan.Zero);
+        var full = state.RestoreOutcome(Outcome("four", 4UL), TimeSpan.Zero);
+        state.MarkOutcomesRebuilt();
+
+        _ = await Assert.That(restored).IsEqualTo(GroupOutcomeRestoreResult.Restored);
+        _ = await Assert.That(full).IsEqualTo(GroupOutcomeRestoreResult.Full);
+        _ = await Assert.That(state.Lookup("client", "five", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(state.Lookup("system", "exempt", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
+    }
+
     /// <summary>A rebuilt outcome never evicts an outcome with a newer log index.</summary>
     [Test]
     public async Task RestoredOutcomeNeverEvictsNewerOne()

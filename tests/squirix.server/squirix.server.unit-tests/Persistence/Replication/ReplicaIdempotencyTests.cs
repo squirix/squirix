@@ -95,6 +95,28 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         _ = await Assert.That(state.ExportResolved(out _).Count).IsEqualTo(1);
     }
 
+    /// <summary>A pin that answers no retry takes no capacity from a client operation, before or after it is dropped.</summary>
+    /// <param name="leaderTerm">Whether the exempt pin is a leader-term no-op rather than an expiration.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task ExemptPinLeavesCapacityToClient(bool leaderTerm)
+    {
+        var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), new FakeTimeProvider(DateTimeOffset.UtcNow));
+        _ = state.Reserve("system", "exempt", [1], leaderTerm ? GroupRecordKind.LeaderTerm : GroupRecordKind.Expiration, 1UL, 1UL);
+
+        var admitted = state.Reserve("client", "first", [2], GroupRecordKind.UserMutation, 2UL, 1UL);
+        var dropped = state.TryResolve("system", "exempt", [3], 1UL, 1UL);
+        var refused = state.Reserve("client", "second", [4], GroupRecordKind.UserMutation, 3UL, 1UL);
+        _ = state.ReleaseFromIndex(2UL);
+        var readmitted = state.Reserve("client", "second", [4], GroupRecordKind.UserMutation, 2UL, 2UL);
+
+        _ = await Assert.That(admitted).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(dropped).IsTrue();
+        _ = await Assert.That(refused).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
+        _ = await Assert.That(readmitted).IsEqualTo(GroupIdempotencyReserveResult.Success);
+    }
+
     /// <summary>An expiration outcome is neither restored by a rebuild nor kept by a follower apply, which drops its pin.</summary>
     [Test]
     public async Task ExpirationOutcomeIsNeverRetained()
