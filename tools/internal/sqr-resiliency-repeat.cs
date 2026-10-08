@@ -11,6 +11,7 @@ var runs = new[]
     new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/RpcMutationIdempotencyIntegrationTests/*", "Mutation idempotency integration tests"),
     new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/CrossNodeOpIdIdempotencyTests/*", "Cross-node operation idempotency integration tests"),
     new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/RpcIdempotencyRestartTests/*", "Idempotency restart integration tests"),
+    new ResiliencyRun("tests/squirix.e2e.tests/Squirix.E2ETests.csproj", "/*/Squirix.E2ETests.Cache.MultiNode.Failover*/*/*[Suite!=Stress]", "Failover end-to-end tests"),
 };
 
 var output = Console.Out;
