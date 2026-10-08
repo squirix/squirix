@@ -37,7 +37,7 @@ public sealed class LeaderSlotTests : ServerUnitTestBase
         _ = eligibility.TryMarkReady(1, in ready, in ready);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2);
         var idempotency = new GroupIdempotencyState(4, TimeSpan.MaxValue);
-        await using var atTwo = new ReplicaCommitCoordinator(options with { LeaderReplicaIndex = 2 }, new IdlePipeline(), ReplicaFaultHooks.CreateNoOp(), idempotency);
+        await using var atTwo = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 2, 2), new IdlePipeline(), ReplicaFaultHooks.CreateNoOp(), idempotency);
         await using var atZero = new ReplicaCommitCoordinator(options, new IdlePipeline(), ReplicaFaultHooks.CreateNoOp(), idempotency);
         var clock = new FakeTimeProvider();
 

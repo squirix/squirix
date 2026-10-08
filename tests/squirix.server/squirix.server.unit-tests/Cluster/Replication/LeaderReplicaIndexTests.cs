@@ -48,7 +48,7 @@ public sealed class LeaderReplicaIndexTests : ServerUnitTestBase
     public async Task LeaderAtSlotTwoReachesMajority(CancellationToken cancellationToken)
     {
         var pipeline = new SlotPipeline(0);
-        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2) { LeaderReplicaIndex = 2 };
+        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2, 2);
         await using var coordinator = new ReplicaCommitCoordinator(options, pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue));
 
         var outcome = await coordinator.CommitAsync(ReplicaMutationTestKit.CreateMutation(), TimeSpan.FromSeconds(30), cancellationToken);
@@ -66,8 +66,8 @@ public sealed class LeaderReplicaIndexTests : ServerUnitTestBase
     [Test]
     public async Task OptionsRefuseOutsideLeaderSlot()
     {
-        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(3, static slot => _ = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2) { LeaderReplicaIndex = slot });
-        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(-1, static slot => _ = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2) { LeaderReplicaIndex = slot });
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(3, static slot => _ = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2, slot));
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(-1, static slot => _ = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2, slot));
         _ = await Assert.That(new ReplicaCommitCoordinatorOptions(3, 0, 0, 2).LeaderReplicaIndex).IsEqualTo(0);
     }
 

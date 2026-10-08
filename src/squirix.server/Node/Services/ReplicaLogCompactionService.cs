@@ -49,39 +49,38 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
     /// <summary>Initializes a new instance of the <see cref="ReplicaLogCompactionService" /> class.</summary>
     /// <param name="committers">The committers of the led groups.</param>
     /// <param name="durability">The node cache journal the group applies write to.</param>
-    /// <param name="options">The maintenance schedule.</param>
-    /// <param name="policy">The compaction thresholds.</param>
+    /// <param name="schedule">The maintenance schedule and the compaction thresholds.</param>
     /// <param name="metrics">The replication metrics counting compactions and skipped compactions.</param>
-    /// <param name="appliers">The appliers of the served groups; those of the groups this node does not lead are persisted and compacted after the led logs.</param>
-    /// <param name="registry">Replica group registry holding the follower group logs.</param>
+    /// <param name="followers">
+    /// The appliers of the served groups, those of the groups this node does not lead being persisted and compacted after the led logs, and
+    /// the replica group registry holding the follower group logs.
+    /// </param>
     /// <param name="log">Logger reporting compaction outcome changes and failed passes.</param>
     /// <param name="timeProvider">Time source for the delay between passes.</param>
     internal ReplicaLogCompactionService(
         ReplicaGroupCommitters committers,
         IJournalDurabilityCoordinator durability,
-        ReplicaLogCompactionOptions options,
-        ReplicaLogCompactionPolicy policy,
+        (ReplicaLogCompactionOptions Options, ReplicaLogCompactionPolicy Policy) schedule,
         ReplicationMetrics metrics,
-        ReplicaGroupAppliers appliers,
-        ReplicaGroupRegistry registry,
+        (ReplicaGroupAppliers Appliers, ReplicaGroupRegistry Registry) followers,
         ILogger<ReplicaLogCompactionService> log,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(committers);
         ArgumentNullException.ThrowIfNull(durability);
-        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(schedule.Options);
         ArgumentNullException.ThrowIfNull(metrics);
-        ArgumentNullException.ThrowIfNull(appliers);
-        ArgumentNullException.ThrowIfNull(registry);
+        ArgumentNullException.ThrowIfNull(followers.Appliers);
+        ArgumentNullException.ThrowIfNull(followers.Registry);
         ArgumentNullException.ThrowIfNull(log);
         ArgumentNullException.ThrowIfNull(timeProvider);
         _committers = committers;
         _durability = durability;
-        _interval = options.Interval;
-        _policy = policy;
+        _interval = schedule.Options.Interval;
+        _policy = schedule.Policy;
         _metrics = metrics;
-        _appliers = appliers;
-        _registry = registry;
+        _appliers = followers.Appliers;
+        _registry = followers.Registry;
         _log = log;
         _timeProvider = timeProvider;
     }

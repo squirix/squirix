@@ -369,12 +369,12 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     [ThreadSafe]
     private sealed class InnerCalls
     {
-        private int _getEntry;
-        private int _set;
+        private volatile int _getEntry;
+        private volatile int _set;
 
-        internal int GetEntry => Volatile.Read(ref _getEntry);
+        internal int GetEntry => _getEntry;
 
-        internal int Set => Volatile.Read(ref _set);
+        internal int Set => _set;
 
         internal void CountGetEntry() => _ = Interlocked.Increment(ref _getEntry);
 

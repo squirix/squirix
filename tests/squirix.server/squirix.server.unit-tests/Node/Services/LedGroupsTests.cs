@@ -205,11 +205,9 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         using var service = new ReplicaLogCompactionService(
             committers,
             durability.Instance(),
-            new ReplicaLogCompactionOptions(),
-            new ReplicaLogCompactionPolicy(long.MaxValue, 1),
+            (new ReplicaLogCompactionOptions(), new ReplicaLogCompactionPolicy(long.MaxValue, 1)),
             metrics,
-            appliers,
-            registry,
+            (appliers, registry),
             NullLogger<ReplicaLogCompactionService>.Instance,
             TimeProvider.System);
 

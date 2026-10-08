@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -17,10 +16,18 @@ namespace Squirix.Server.Node.Services;
 
 /// <summary>Serialized leader-side replicated commits for one replica group this node leads.</summary>
 /// <remarks>
+/// <para>
 /// Commits run one at a time per group under <see cref="AsyncLock" />: log indexes stay dense with no
 /// gaps, prepare-time reads stay exact through the ordered applying, and the coordinator never observes
 /// admission pressure or turn waits. The coordinator itself is never canceled; a fixed commit budget
 /// bounds every attempt up to its durable majority, and idempotent retries recover unknown outcomes.
+/// </para>
+/// <para>
+/// This type owns the state of the running coordinator and its lifecycle. The operations built on it are in
+/// <see cref="ReplicaGroupCommitterCommits" />, <see cref="ReplicaGroupCommitterStarts" />, <see cref="ReplicaGroupCommitterVerification" />,
+/// <see cref="ReplicaGroupCommitterRepair" />, <see cref="ReplicaGroupCommitterLeadership" />, <see cref="ReplicaGroupCommitterCompaction" />,
+/// and <see cref="ReplicaGroupCommitterWrites" />.
+/// </para>
 /// </remarks>
 internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 {
@@ -31,19 +38,12 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
 
     private readonly Lazy<ReplicaExpirationCoordinator<NodeCacheEntry<object?>>> _expiration;
-    private readonly AsyncLock _gate = new();
-    private readonly IReplicaRpcGateway _gateway;
-    private readonly ILogicalNamespacedCache<object?> _local;
     private readonly IReplicaGroupLocator _locator;
-    private readonly ReplicaGroupRegistry _registry;
     private readonly Lazy<ReplicaVerificationProbe> _probe;
-    private readonly ReplicaTopologyStamp _topology;
     private ReplicaCommitCoordinator? _coordinator;
     private int _disposed;
     private ReplicaMutationFactory? _factory;
     private ReplicaGroupCommitPipeline? _pipeline;
-
-    private bool _started;
 
     /// <summary>The leadership of the group by election, or <see langword="null" /> while there is none; written by the driver's calls only.</summary>
     private ReplicaLeaderTenure? _tenure;
@@ -74,14 +74,14 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(identity.SelfId);
         ArgumentNullException.ThrowIfNull(log);
         Log = log;
-        _registry = registry;
+        Registry = registry;
         _locator = locator;
-        _gateway = gateway;
-        _local = local;
+        Gateway = gateway;
+        Local = local;
         GroupId = identity.GroupId;
-        _topology = topology.Fingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topology)) : topology;
+        Topology = topology.Fingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topology)) : topology;
         _probe = new Lazy<ReplicaVerificationProbe>(
-            () => new ReplicaVerificationProbe(registry, locator, gateway, identity, _topology.Fingerprint, _topology.Generation, Log),
+            () => new ReplicaVerificationProbe(registry, locator, gateway, identity, Topology.Fingerprint, Topology.Generation, Log),
             LazyThreadSafetyMode.ExecutionAndPublication);
         CommitBudget = DefaultCommitBudget;
         ShutdownBudget = DefaultShutdownBudget;
@@ -89,21 +89,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // Created on first use, after the init-only budgets are set. One run of the expiry serves every caller of the key, so it takes no
         // caller token: the commit budget bounds the wait before the append, and the commit itself is budget-bounded.
         _expiration = new Lazy<ReplicaExpirationCoordinator<NodeCacheEntry<object?>>>(
-            () => new ReplicaExpirationCoordinator<NodeCacheEntry<object?>>(async (cacheName, key) =>
-            {
-                ThrowIfDisposed();
-                using var budget = new CancellationTokenSource(CommitBudget, BudgetTimeProvider);
-                await WaitForLocalRecoveryAsync(budget.Token).ConfigureAwait(false);
-                ThrowIfDisposed();
-                using var guard = await _gate.LockAsync(budget.Token).ConfigureAwait(false);
-                var (coordinator, factory) = await EnsureStartedAsync(true, budget.Token).ConfigureAwait(false);
-                var (tombstone, current) = await factory.PrepareExpireAsync(cacheName, key, PeekNextIndex(), budget.Token).ConfigureAwait(false);
-                if (tombstone == null)
-                    return current;
-
-                _ = await this.CommitWithPreAppendResyncAsync(coordinator, tombstone).ConfigureAwait(false);
-                return null;
-            })
+            () => new ReplicaExpirationCoordinator<NodeCacheEntry<object?>>((cacheName, key) => this.CommitExpiryAsync(cacheName, key))
             {
                 ShutdownBudget = ShutdownBudget,
                 ShutdownTimeProvider = ShutdownTimeProvider,
@@ -162,13 +148,13 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the identifier of the replica group this committer leads.</summary>
     internal string GroupId { get; }
 
-    /// <summary>Initializes the election state of the group; when set, this committer leads only a term an election hands it.</summary>
+    /// <summary>Gets or initializes the election state of the group; when set, this committer leads only a term an election hands it.</summary>
     /// <remarks>
     /// Without it the committer leads the own group statically, in the term of its log, as long as the node runs. With it nothing starts
-    /// before <see cref="PromoteAsync" />: a promotion appends a leader-term entry of the won term, every follower reply is posted to the
-    /// state, and the committer stops leading at <see cref="RetireAsync" />.
+    /// before <see cref="ReplicaGroupCommitterLeadership.PromoteAsync" />: a promotion appends a leader-term entry of the won term, every
+    /// follower reply is posted to the state, and the committer stops leading at <see cref="RetireAsync" />.
     /// </remarks>
-    internal ReplicaGroupState? Election { private get; init; }
+    internal ReplicaGroupState? Election { get; init; }
 
     /// <summary>Gets the pipeline of the running coordinator, whose senders carry the heartbeats of an elected leader.</summary>
     internal ReplicaGroupCommitPipeline? RunningPipeline => Volatile.Read(ref _pipeline);
@@ -176,7 +162,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the current leadership of the group by election, or <see langword="null" /> while there is none.</summary>
     internal ReplicaLeaderTenure? Tenure => Volatile.Read(ref _tenure);
 
-    /// <summary>Initializes the applier of the led group, which this committer drives for as long as it leads the group.</summary>
+    /// <summary>Gets or initializes the applier of the led group, which this committer drives for as long as it leads the group.</summary>
     /// <remarks>
     /// The applier lives as long as the node, so its applied index survives a replaced coordinator; while this committer leads the group
     /// it is the only caller of the applier's catch-up and applies.
@@ -184,7 +170,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <exception cref="ArgumentException">The applier serves another group.</exception>
     internal required ReplicaGroupApplier Applier
     {
-        private get;
+        get;
         init
         {
             ArgumentNullException.ThrowIfNull(value);
@@ -218,6 +204,29 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the follower verification, which also hands out the followers to catch up.</summary>
     internal ReplicaVerificationProbe Probe => _probe.Value;
 
+    /// <summary>Gets the commit gate: appends, commits, applies, starts, and retirements of the group run one at a time under it.</summary>
+    internal AsyncLock Gate { get; } = new();
+
+    /// <summary>Gets the follower replication RPCs.</summary>
+    internal IReplicaRpcGateway Gateway { get; }
+
+    /// <summary>Gets the local cache pipeline used for prepare reads and memory applies.</summary>
+    internal ILogicalNamespacedCache<object?> Local { get; }
+
+    /// <summary>Gets the replica group registry of this node.</summary>
+    internal ReplicaGroupRegistry Registry { get; }
+
+    /// <summary>Gets the static topology fingerprint and configuration generation.</summary>
+    internal ReplicaTopologyStamp Topology { get; }
+
+    /// <summary>Gets the running coordinator, or <see langword="null" /> before the first start and after a retirement.</summary>
+    /// <remarks>Read under the commit gate; <see cref="ReadCoordinator" /> reads it outside the gate.</remarks>
+    internal ReplicaCommitCoordinator? Coordinator => _coordinator;
+
+    /// <summary>Gets a value indicating whether the coordinator is started and its pipeline positions follow the durable log.</summary>
+    /// <remarks>Read and written under the commit gate.</remarks>
+    internal bool IsStarted { get; private set; }
+
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
@@ -238,7 +247,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             // The gate drain below finds the budget spent as well and leaks the gate loudly.
         }
 
-        // Drain in-flight committer operations holding _gate so their AsyncLockHolder can release
+        // Drain in-flight committer operations holding the gate so their AsyncLockHolder can release
         // the gate before it is disposed of. New admissions fail closed via ThrowIfDisposed. The drain stays held until the
         // coordinator and the gate are disposed, so no caller queued behind it runs a body against a coordinator being torn down:
         // disposing the gate faults every queued caller with ObjectDisposedException.
@@ -250,12 +259,12 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         AsyncLockHolder drain;
         try
         {
-            drain = await _gate.LockAsync(budget.Token).ConfigureAwait(false);
+            drain = await Gate.LockAsync(budget.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             ServerLog.ReplicaCommitterLeakedOnShutdownTimeout(Log, ShutdownBudget);
-            _gate.Dispose();
+            Gate.Dispose();
             return;
         }
 
@@ -274,275 +283,37 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             finally
             {
                 _tenure?.Dispose();
-                _gate.Dispose();
+                Gate.Dispose();
             }
         }
     }
-
-    /// <summary>Commits one write under the commit gate: prepares it at the next log index, commits it, and decodes its outcome.</summary>
-    /// <typeparam name="TState">The arguments of the write.</typeparam>
-    /// <typeparam name="TResult">The decoded outcome.</typeparam>
-    /// <param name="write">The cache scope and the client operation identifier of the write.</param>
-    /// <param name="state">The arguments of the write, handed to <paramref name="prepare" />.</param>
-    /// <param name="fingerprint">
-    /// Computes the operation fingerprint of the write from its arguments; called only when the write is refused before it is
-    /// prepared and an entry with its identity is retained.
-    /// </param>
-    /// <param name="prepare">Prepares the mutation from the running factory, the arguments, and the log index it is appended at.</param>
-    /// <param name="decode">Decodes the committed outcome.</param>
-    /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
-    /// <returns>The decoded outcome of the committed write.</returns>
-    /// <exception cref="ServerOpIdMismatchException">The operation identifier is reused with another request.</exception>
-    /// <exception cref="SquirixException">The outcome of the operation is unknown, or the write is refused retryably.</exception>
-    /// <remarks>The typed writes built on this method are in <see cref="ReplicaGroupCommitterWrites" />.</remarks>
-    internal async Task<TResult> CommitAsync<TState, TResult>(
-        (string Scope, string OperationId) write,
-        TState state,
-        Func<TState, byte[]> fingerprint,
-        Func<ReplicaMutationFactory, TState, ulong, CancellationToken, ValueTask<PreparedReplicaMutation>> prepare,
-        Func<ReadOnlyMemory<byte>, ValueTask<TResult>> decode,
-        CancellationToken cancellationToken)
-    {
-        ThrowIfDisposed();
-        await WaitForLocalRecoveryAsync(cancellationToken).ConfigureAwait(false);
-        ThrowIfDisposed();
-        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var starting = EnsureStartedAsync(true, cancellationToken);
-        if (await starting.CaptureFailureAsync().ConfigureAwait(false) != null)
-        {
-            // Whatever refused the start, a retained entry of this operation decides the answer. A retry of a committed operation replays
-            // its outcome: it needs no majority and no apply. A retry of an operation whose entry is appended but not yet committed
-            // (possibly by the process before a restart) must neither re-execute nor be told it failed: its outcome stays unknown until a
-            // commit resolves the entry. The same identifier with another request is a reuse, whatever the state of the entry. Without a
-            // retained entry the refusal stands and is rethrown by the await below.
-            var retained = ReplicaGroupCommitterCommits.LookupRetained(_registry.TryGetLog(GroupId, out var log) ? log : null, write, state, fingerprint, out var recorded);
-            if (retained == GroupIdempotencyLookup.Found)
-                return await decode(recorded.OutcomePayload).ConfigureAwait(false);
-            if (retained == GroupIdempotencyLookup.Mismatch)
-                throw new ServerOpIdMismatchException();
-            if (retained == GroupIdempotencyLookup.Unresolved)
-                throw ServerOpContract.CommitOutcomeUnknown();
-        }
-
-        var (coordinator, factory) = await starting.ConfigureAwait(false);
-        var index = PeekNextIndex();
-        var mutation = await prepare(factory, state, index, cancellationToken).ConfigureAwait(false);
-        var outcome = await this.CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
-        return await decode(outcome).ConfigureAwait(false);
-    }
-
-    /// <summary>Persists the in-memory applied index of the owned group log once the cache journal holds every applied entry durably.</summary>
-    /// <param name="durability">The node cache journal whose frames the applies appended.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the durable applied index is at least the in-memory one read at the start.</returns>
-    /// <exception cref="InvalidOperationException">The owned group log refused the applied advance.</exception>
-    /// <remarks>
-    /// Runs outside the commit gate. Every entry at or below the applied index read here returned from its apply, which appends its
-    /// cache journal frame first, so the durability barrier awaited next covers all of them; only then does the log advance its applied
-    /// index and release the applied payloads, so a crash never leaves the log claiming an apply the cache journal lost. Nothing is
-    /// done while the durable applied index is already there.
-    /// </remarks>
-    internal async Task FlushAppliedAsync(IJournalDurabilityCoordinator durability, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(durability);
-        ThrowIfDisposed();
-        if (!_registry.TryGetLog(GroupId, out var log))
-            return;
-
-        await Applier.FlushAsync(log, durability, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Compacts the owned group log through its commit index once it reaches a threshold and nothing still needs its entries.</summary>
-    /// <param name="policy">The compaction thresholds.</param>
-    /// <param name="durability">The node cache journal whose frames the applies appended.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The step outcome; only <see cref="ReplicaLogCompactionOutcome.Compacted" /> changes the log.</returns>
-    /// <remarks>
-    /// The thresholds, and advisorily the followers, are checked without the commit gate. Everything else is one step under it: no
-    /// write can append, commit, or apply between the checks and the compaction, so a steady write load cannot keep moving the commit
-    /// index past the applied one. A write arriving meanwhile waits for the step and then appends after the compacted log.
-    /// </remarks>
-    internal async Task<ReplicaLogCompactionOutcome> CompactOwnedLogAsync(
-        ReplicaLogCompactionPolicy policy,
-        IJournalDurabilityCoordinator durability,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(durability);
-        ThrowIfDisposed();
-        if (!_registry.TryGetLog(GroupId, out var log))
-            return ReplicaLogCompactionOutcome.NotReady;
-
-        var retention = await log.GetRetentionAsync(cancellationToken).ConfigureAwait(false);
-        if (!policy.IsReachedBy(in retention))
-            return ReplicaLogCompactionOutcome.BelowThreshold;
-
-        // An advisory check first, without the gate: a follower that is down or lagging then refuses the step without holding the
-        // gate for the whole follower wait on every pass. The decisive check runs again under the gate. The wait budget bounds only these
-        // waits: once the gate is held, the compaction runs to its end, so a budget never cancels a durable rewrite of the log.
-        var eligibility = _registry.EligibilityFor(GroupId);
-        using var budget = new CancellationTokenSource(CompactionWaitBudget, BudgetTimeProvider);
-        using var waiting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
-        AsyncLockHolder guard;
-        try
-        {
-            if (Volatile.Read(ref _coordinator) is { } running)
-            {
-                var observed = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-                if (await ReplicaLogCompactionStep.AwaitFollowersAsync(running, eligibility, observed.CommitIndex, Clock, waiting.Token).ConfigureAwait(false) is { } refused)
-                    return refused;
-            }
-
-            guard = await _gate.LockAsync(waiting.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (budget.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            return ReplicaLogCompactionOutcome.Busy;
-        }
-
-        using var held = guard;
-        ThrowIfDisposed();
-
-        // An elected leader compacts only once its leader-term entry is committed: the authority check reads the term of that entry.
-        return _started && _coordinator is { } coordinator && (Election == null || _tenure is { Authorized: true })
-            ? await ReplicaLogCompactionStep.RunAsync(log, coordinator, eligibility, Applier.AppliedIndex, durability, Clock, cancellationToken).ConfigureAwait(false)
-            : ReplicaLogCompactionOutcome.NotReady;
-    }
-
-    /// <summary>Verifies non-ready replica slots against the leader log so a restarted group regains its write quorum.</summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>
-    /// The verification state: <see cref="ReplicaVerification.Pending" /> while some follower is not yet verified or an uncommitted
-    /// tail is not yet committed; <see cref="ReplicaVerification.Blocked" /> while the log is not ready or its uncommitted tail holds
-    /// no entry of the current term.
-    /// </returns>
-    /// <remarks>
-    /// Followers are probed without holding the commit gate, so a dead or slow peer never delays writes; a follower that lacks entries,
-    /// the uncommitted tail included, is caught up afterwards by the readiness service through its sender. Only when some follower answered does the gate get taken to start the coordinator (which
-    /// recovers the tail), re-check that the leader tail did not move, admit the verified slots, and commit what they now cover.
-    /// </remarks>
-    internal async Task<ReplicaVerification> VerifyReplicasAsync(CancellationToken cancellationToken)
-    {
-        ThrowIfDisposed();
-        await WaitForLocalRecoveryAsync(cancellationToken).ConfigureAwait(false);
-        ThrowIfDisposed();
-        if (!_registry.TryGetLog(GroupId, out var log))
-            return ReplicaVerification.Blocked;
-
-        // A committer that leads by election verifies nothing once it no longer leads, and verifies in its led term while it does.
-        var tenure = Volatile.Read(ref _tenure);
-        if (Election != null && tenure == null)
-            return ReplicaVerification.Blocked;
-
-        var snapshot = await Probe.ProbeAsync(log, tenure?.Term ?? 0UL, cancellationToken).ConfigureAwait(false);
-        if (snapshot.Verdict is { } verdict)
-            return verdict;
-
-        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        ThrowIfDisposed();
-
-        // A retirement may have run while the probe was out: the snapshot then belongs to a leadership that is over.
-        return Election != null && !ReferenceEquals(_tenure, tenure) ? ReplicaVerification.Blocked
-            : await AdmitVerifiedAsync(log, snapshot, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Admits a follower slot a catch-up session verified, under the commit gate, and commits what the slot now covers.</summary>
-    /// <param name="replicaIndex">Zero-based follower slot.</param>
-    /// <param name="result">The session result.</param>
-    /// <param name="pipeline">The pipeline whose sender the session ran on; a slot is never admitted into a newer one.</param>
-    /// <param name="cancellationToken">Cancellation token for queueing on the gate.</param>
-    /// <returns><see langword="true" /> when the slot became ready.</returns>
-    /// <remarks>
-    /// Called while the session's lease still holds the sender, so no live entry past the held index reaches the follower, and no
-    /// acknowledgement of one is lost to a slot that does not count yet, before the slot's match index is raised.
-    /// </remarks>
-    internal async Task<bool> AdmitCaughtUpFollowerAsync(int replicaIndex, ReplicaCatchUpResult result, IReplicaCommitPipeline pipeline, CancellationToken cancellationToken)
-    {
-        ThrowIfDisposed();
-        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        ThrowIfDisposed();
-        if (!ReferenceEquals(_pipeline, pipeline) || _coordinator is not { } coordinator || !_registry.TryGetLog(GroupId, out var log))
-            return false;
-
-        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        var eligibility = _registry.EligibilityFor(GroupId);
-        var wasReady = eligibility.CanCountInWriteQuorum(replicaIndex);
-        ReplicaReadinessProbe.AdmitCaughtUp(eligibility, replicaIndex, in result, status.CommitIndex, _topology.Fingerprint, _topology.Generation, coordinator);
-        if (wasReady || !eligibility.CanCountInWriteQuorum(replicaIndex))
-            return false;
-
-        _ = await TryApplyPendingAsync().ConfigureAwait(false);
-        return true;
-    }
-
-    /// <summary>Tells whether the owned group log holds the entry of a prepared mutation.</summary>
-    /// <param name="mutation">The prepared mutation.</param>
-    /// <returns><see langword="true" /> when the log holds the entry.</returns>
-    internal ValueTask<bool> HoldsEntryAsync(PreparedReplicaMutation mutation) => _registry.HoldsEntryAsync(GroupId, mutation);
 
     /// <summary>Drops the started state, so the next attempt rebuilds the pipeline positions from the durable log status.</summary>
     /// <remarks>Runs under the commit gate.</remarks>
-    internal void DropStartedState() => _started = false;
+    internal void DropStartedState() => IsStarted = false;
 
-    /// <summary>Leads the group in a won term and reports whether its leader-term entry is committed.</summary>
+    /// <summary>Reads the running coordinator outside the commit gate.</summary>
+    /// <returns>The running coordinator, or <see langword="null" /> when there is none.</returns>
+    internal ReplicaCommitCoordinator? ReadCoordinator() => Volatile.Read(ref _coordinator);
+
+    /// <summary>Takes the leadership of a won term: the applier lease first, then the tenure; a leadership already taken is kept.</summary>
     /// <param name="term">The won term.</param>
-    /// <param name="cancellationToken">Cancellation token; it ends the wait for the applier lease, local recovery, or the commit gate.</param>
-    /// <returns>
-    /// <see langword="true" /> once the leader-term entry this promotion appended is committed by a coordinator of this promotion and the
-    /// log still holds it in <paramref name="term" />; <see langword="false" /> while it is not, or when the start failed and is retried.
-    /// </returns>
-    /// <exception cref="InvalidOperationException">The committer leads statically, or still leads another term.</exception>
-    /// <remarks>
-    /// The first call takes the lease of the applier, waiting for a running apply pass, and keeps it until <see cref="RetireAsync" />, so
-    /// the apply loop of the group never runs meanwhile. The entry is appended once per promotion, at a new index with an identity of its
-    /// own, so no entry of an earlier leadership, committed or not, stands in for it. It is committed without the write majority check of
-    /// client writes: every follower starts unverified, and verification needs an entry of the term in the tail.
-    /// </remarks>
-    internal async Task<bool> PromoteAsync(ulong term, CancellationToken cancellationToken)
+    /// <param name="cancellationToken">Cancellation token; it ends the wait for the applier lease.</param>
+    /// <returns>The leadership of <paramref name="term" />.</returns>
+    /// <exception cref="InvalidOperationException">The committer still leads another term.</exception>
+    /// <remarks>Called by the promotion only, which the election driver serializes.</remarks>
+    internal async Task<ReplicaLeaderTenure> TakeTenureAsync(ulong term, CancellationToken cancellationToken)
     {
-        ArgumentOutOfRangeException.ThrowIfZero(term);
-        ThrowIfDisposed();
-        if (Election == null)
-            throw new InvalidOperationException($"Replica group '{GroupId}' is led statically and is never promoted.");
-
-        await WaitForLocalRecoveryAsync(cancellationToken).ConfigureAwait(false);
-        var tenure = Volatile.Read(ref _tenure);
-        if (tenure == null)
+        if (Tenure is { } tenure)
         {
-            await Applier.DriverLease.LeadAsync(cancellationToken).ConfigureAwait(false);
-            _tenure = new ReplicaLeaderTenure(term, Applier.DriverLease);
-            tenure = _tenure;
-        }
-        else if (tenure.Term != term)
-        {
-            throw new InvalidOperationException($"Replica group '{GroupId}' still leads term {tenure.Term}; it cannot be promoted to term {term}.");
+            return tenure.Term == term
+                ? tenure
+                : throw new InvalidOperationException($"Replica group '{GroupId}' still leads term {tenure.Term}; it cannot be promoted to term {term}.");
         }
 
-        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        ThrowIfDisposed();
-        try
-        {
-            if (!_started)
-                await StartAsync(cancellationToken).ConfigureAwait(false);
-
-            // A start that succeeded ends the fault: the same fault coming back later is logged again.
-            _ = tenure.ReportFault(null);
-            _ = await TryApplyPendingAsync().ConfigureAwait(false);
-            return _registry.TryGetLog(GroupId, out var log) && await tenure.IsAuthorizedAsync(_coordinator, log, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception exception) when (exception is IOException or InvalidDataException or InvalidOperationException or SquirixException)
-        {
-            // The start is retried on the next call: a storage fault, an inconsistent record, a log that moved past the term, or committed
-            // entries of a replaced coordinator still to apply. The same fault repeats every tick, so it is logged when it changes.
-            if (tenure.ReportFault(exception.GetType()))
-            {
-                if (exception is IOException or InvalidDataException)
-                    ServerLog.ReplicaPromotionStorageRetry(Log, GroupId, term, exception);
-                else
-                    ServerLog.ReplicaPromotionRetry(Log, GroupId, term, exception);
-            }
-
-            return false;
-        }
+        await Applier.DriverLease.LeadAsync(cancellationToken).ConfigureAwait(false);
+        _tenure = new ReplicaLeaderTenure(term, Applier.DriverLease);
+        return _tenure;
     }
 
     /// <summary>Stops leading the group by election: closes its followers, disposes its coordinator, and releases the applier lease.</summary>
@@ -557,10 +328,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// </remarks>
     internal async Task<bool> RetireAsync(CancellationToken cancellationToken)
     {
-        if (Volatile.Read(ref _tenure) is not { } tenure)
+        if (Tenure is not { } tenure)
             return true;
 
-        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        using var guard = await Gate.LockAsync(cancellationToken).ConfigureAwait(false);
         if (!await TryApplyPendingAsync().ConfigureAwait(false) && _coordinator is { } retained && Applier.AppliedIndex < retained.CommitIndex)
             return false;
 
@@ -570,49 +341,27 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (_coordinator != null)
             await _coordinator.DisposeAsync().ConfigureAwait(false);
 
-        _coordinator = null;
-        Volatile.Write(ref _pipeline, null);
-        _factory = null;
-        _started = false;
+        ClearRun();
         Volatile.Write(ref _tenure, null);
         await tenure.EndAsync().ConfigureAwait(false);
         return true;
     }
 
+    /// <summary>Throws once this committer is disposing or disposed.</summary>
+    /// <exception cref="ObjectDisposedException">The committer is disposing or disposed.</exception>
+    internal void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+
     /// <summary>Waits until local recovery has replayed the journal into memory, so no decision is prepared against a partly recovered cache.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes once the journal startup gate is open.</returns>
     /// <remarks>Must run before the commit gate is taken: a commit queued on the gate never waits for recovery while holding it.</remarks>
-    private async ValueTask WaitForLocalRecoveryAsync(CancellationToken cancellationToken)
+    internal async ValueTask WaitForLocalRecoveryAsync(CancellationToken cancellationToken)
     {
         if (_recovered)
             return;
 
         await Recovery.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
         _recovered = true;
-    }
-
-    /// <summary>Admits the followers verified outside the gate and commits what the verified slots now cover.</summary>
-    /// <param name="log">The owned group log.</param>
-    /// <param name="snapshot">The follower probing taken outside the gate.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The verification state.</returns>
-    /// <remarks>Runs under the commit gate.</remarks>
-    private async Task<ReplicaVerification> AdmitVerifiedAsync(
-        IFollowerLog log,
-        ReplicaVerificationSnapshot snapshot,
-        CancellationToken cancellationToken)
-    {
-        // A coordinator that still retains entries is never replaced (its restart refuses): the verified slots are admitted into it,
-        // and its resolver commits and applies what they now cover. Otherwise the coordinator starts here, recovering the log tail.
-        var coordinator = !await TryApplyPendingAsync().ConfigureAwait(false) && _coordinator is { } retained ? retained
-            : (await EnsureStartedAsync(false, cancellationToken).ConfigureAwait(false)).Coordinator;
-        var eligibility = await Probe.AdmitVerifiedSlotsAsync(log, snapshot, coordinator, cancellationToken).ConfigureAwait(false);
-        if (_pipeline is { } pipeline)
-            Probe.OfferCatchUp(snapshot.Answered, pipeline.CatchUpTargetFor);
-
-        var applied = await TryApplyPendingAsync().ConfigureAwait(false);
-        return applied && eligibility.AllCanCountInWriteQuorum() ? ReplicaVerification.AllReady : ReplicaVerification.Pending;
     }
 
     /// <summary>Starts the coordinator when needed and, for a write, checks that it may be prepared and appended now.</summary>
@@ -622,24 +371,25 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <exception cref="Grpc.Core.RpcException">The write has no verified majority or no authorized leadership: Unavailable, nothing was written.</exception>
     /// <exception cref="SquirixException">An appended entry is not yet applied (too many requests).</exception>
     /// <exception cref="InvalidOperationException">The committer is not started.</exception>
-    private async Task<(ReplicaCommitCoordinator Coordinator, ReplicaMutationFactory Factory)> EnsureStartedAsync(bool write, CancellationToken cancellationToken)
+    /// <remarks>Runs under the commit gate.</remarks>
+    internal async Task<(ReplicaCommitCoordinator Coordinator, ReplicaMutationFactory Factory)> EnsureStartedAsync(bool write, CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
 
         // A write that passed the write gate may reach a later leadership whose leader-term entry is not committed yet: refused the same way.
         if (write && Election != null && _tenure is not { Authorized: true })
             throw ServerOpContract.NoLeaderAuthority();
-        if (!_started)
+        if (!IsStarted)
             await StartAsync(cancellationToken).ConfigureAwait(false);
 
         // Refused before anything is appended: a write that cannot reach a majority would leave an uncommitted local tail.
         // Dropping the started state re-probes the followers on the next write. Decisions are prepared from live memory, so an
         // entry that is appended but not yet applied would leave the decision blind to its effect: such a
         // write fails definitely and may be retried; only this gate appends, so the check cannot go stale before the prepare.
-        var majority = !write || _registry.EligibilityFor(GroupId).HasWriteMajority();
+        var majority = !write || Registry.EligibilityFor(GroupId).HasWriteMajority();
         var applied = !write || (majority && await TryApplyPendingAsync().ConfigureAwait(false));
         if (!majority)
-            _started = false;
+            DropStartedState();
 
         return (majority, applied, _coordinator, _factory) switch
         {
@@ -651,17 +401,24 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     }
 
     /// <summary>Returns the next group log index to prepare with: the one after the last entry appended to the local log.</summary>
+    /// <returns>The next log index.</returns>
     /// <remarks>
     /// The index follows the local appends of the running pipeline, so it moves only when an entry is appended: a prepare that fails, a
     /// refusal before the append, and a retry the coordinator answers from the idempotency state without appending all leave it for the
     /// next write, and the durable log stays dense.
     /// </remarks>
     /// <exception cref="InvalidOperationException">The committer is not started.</exception>
-    private ulong PeekNextIndex() => ThrowHelper.Required(_pipeline, "Replica group committer is not started.").NextLogIndex;
+    internal ulong PeekNextIndex() => ThrowHelper.Required(_pipeline, "Replica group committer is not started.").NextLogIndex;
 
-    private async Task StartAsync(CancellationToken cancellationToken)
+    /// <summary>Starts a coordinator over the durable log, replacing the one of the previous start once its committed entries are applied.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes once the coordinator is started.</returns>
+    /// <exception cref="InvalidOperationException">This node does not serve the group, or the log moved past the led term.</exception>
+    /// <exception cref="Grpc.Core.RpcException">The leadership by election is retired: Unavailable, nothing was written.</exception>
+    /// <remarks>Runs under the commit gate, and only while the committer is not started.</remarks>
+    internal async Task StartAsync(CancellationToken cancellationToken)
     {
-        if (!_registry.TryGetLog(GroupId, out var log))
+        if (!Registry.TryGetLog(GroupId, out var log))
             throw new InvalidOperationException($"This node does not serve the replica group '{GroupId}' it leads.");
 
         // A start after retirement refuses like the write gate: no leader with authority here, nothing written.
@@ -669,47 +426,11 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var replacing = _coordinator != null;
         await RetireCoordinatorAsync().ConfigureAwait(false);
 
-        // One read pairs the status with its tail: a commit left running by the disposed coordinator may still advance the log.
-        var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
+        var (pipeline, factory, read, term, eligibility, results) = await this.LaunchAsync(log, tenure, replacing, cancellationToken).ConfigureAwait(false);
         var status = read.Status;
-
-        // Memory must hold every committed entry before anything new is prepared.
-        await Applier.CatchUpAsync(log, status.LastAppliedIndex, status.CommitIndex, cancellationToken).ConfigureAwait(false);
-
-        // A static leader leads in the term of its log. An elected one leads its won term and appends its leader-term entry before any
-        // follower is probed, so verification can admit the followers that hold it; the entry commits like a recovered tail.
-        var term = tenure?.TermFor(in status, GroupId) ?? Math.Max(1UL, status.CurrentTerm);
-        var factory = new ReplicaMutationFactory(_local, GroupId, term, Clock, Log);
-        if (tenure != null)
-        {
-            read = await tenure.AppendNoopAsync(log, read, factory, Probe.SelfId, cancellationToken).ConfigureAwait(false);
-            status = read.Status;
-        }
-
-        var (members, header) = Probe.BuildMembership(term);
         var leaderIndex = Probe.LeaderReplicaIndex;
-        var tail = ReplicaLeaderTail.From(read);
-
-        // A restart with durable progress leaves every slot recovering. Verify the leader's own log and every follower against its
-        // last entry before the first commit, so the quorum is built from verified slots only. A follower still ready under a replaced
-        // coordinator is verified again: it may hold less than the commit index the new coordinator starts it at. An uncommitted tail is
-        // recovered by the coordinator and commits once verified slots hold it; followers lacking it are caught up through their senders,
-        // outside this gate.
-        var eligibility = _registry.EligibilityFor(GroupId);
-        if (replacing || tenure != null)
-            ReplicaReadinessProbe.UnverifyFollowers(eligibility, leaderIndex);
-
-        ReplicaReadinessProbe.MarkLeaderReady(eligibility, leaderIndex, in status, _topology.Fingerprint, _topology.Generation);
-        var results = eligibility.CanCountInWriteQuorum(leaderIndex)
-            ? await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility, leaderIndex), members, header, status, ReplicaVerificationProbe.ProbeTimeout, cancellationToken).ConfigureAwait(false)
-            : [];
-        ReplicaReadinessProbe.RecordContacts(Election, results, term);
-
-        // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
-        var lagging = new ReplicaLaggingFollowers(GroupId, eligibility, Probe.Repairs, Log);
-        var pipeline = new ReplicaGroupCommitPipeline(Applier, log, CreateSenders(members, leaderIndex, in status, in header), (header.LeaderNodeId, leaderIndex), lagging, in status, term);
         _pipeline = pipeline;
-        _coordinator = this.CreateCoordinator((_locator.ReplicaCount, leaderIndex), pipeline, log, in status, eligibility, Applier.RecoverTail(tail, term, factory));
+        _coordinator = this.CreateCoordinator((_locator.ReplicaCount, leaderIndex), pipeline, log, in status, eligibility, Applier.RecoverTail(ReplicaLeaderTail.From(read), term, factory));
 
         // Before a restart the outcomes of the committed entries above the snapshot lived only in memory; their records carry them, so
         // a retry of an operation committed before the restart replays its outcome. The recovered tail is pinned first and keeps its pins.
@@ -717,42 +438,41 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             await RestoreOutcomesAsync(log, pipeline, cancellationToken).ConfigureAwait(false);
 
         // Verified slots are admitted at the leader's last index before they count, so they cover the recovered tail.
-        ReplicaReadinessProbe.ApplyAll(eligibility, leaderIndex, results, in status, _topology.Fingerprint, _topology.Generation, _coordinator);
+        ReplicaReadinessProbe.ApplyAll(eligibility, leaderIndex, results, in status, Topology.Fingerprint, Topology.Generation, _coordinator);
         _factory = factory;
-        _started = true;
+        IsStarted = true;
     }
 
-    /// <summary>Creates the sender of every follower slot, seeded with the last entry of the leader log.</summary>
-    /// <param name="members">Group members in slot order.</param>
-    /// <param name="leaderIndex">The slot of this node, which gets no sender.</param>
-    /// <param name="status">Durable log status of the leader.</param>
-    /// <param name="header">Replication envelope identity for follower calls.</param>
-    /// <returns>The senders of the follower slots, in slot order.</returns>
+    /// <summary>Applies the committed entries the current coordinator still retains.</summary>
+    /// <returns><see langword="true" /> when no coordinator retains an unapplied entry.</returns>
     /// <remarks>
-    /// The commit budget bounds one request, and the shutdown budget bounds waiting for one that ignores its cancellation on dispose. An
-    /// elected leader posts every reply to the election state, and queues a follower out of the write quorum for repair once it answers.
+    /// An apply failure is logged and reported as <see langword="false" />: the entry stays retained and the caller refuses
+    /// definitely, before anything of its own is appended.
     /// </remarks>
-    private ReplicaFollowerSender[] CreateSenders(string[] members, int leaderIndex, in FollowerLogStatus status, in ReplicaRpcHeader header)
+    internal async Task<bool> TryApplyPendingAsync()
     {
-        Action<int, FollowerLogAppendResult>? replies = null;
-        if (Election is { } election)
-        {
-            var answering = new ReplicaAnsweringFollowers(_registry.EligibilityFor(GroupId), Probe.Repairs, election.Clock, election.Options.ElectionTimeout);
-            replies = (slot, reply) =>
-            {
-                election.RecordFollowerReply(slot, in reply);
-                answering.Observe(slot, in reply);
-            };
-        }
+        if (_coordinator == null)
+            return true;
 
-        return ReplicaFollowerSenders.Create(
-            _gateway,
-            members,
-            leaderIndex,
-            in status,
-            in header,
-            new ReplicaFollowerSenders.SenderTiming(CommitBudget, ShutdownBudget, BudgetTimeProvider) { Replies = replies },
-            budget => ServerLog.ReplicaFollowerSenderLeakedOnShutdown(Log, budget));
+        try
+        {
+            return await _coordinator.ApplyCommittedAsync().ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not ObjectDisposedException)
+        {
+            ServerLog.ReplicaPendingApplyFailed(Log, error);
+            return false;
+        }
+    }
+
+    /// <summary>Forgets the coordinator, the pipeline, and the mutation factory of the last start, and drops the started state.</summary>
+    /// <remarks>Runs under the commit gate, after the pipeline and the coordinator are closed or are being closed.</remarks>
+    private void ClearRun()
+    {
+        _coordinator = null;
+        Volatile.Write(ref _pipeline, null);
+        _factory = null;
+        DropStartedState();
     }
 
     /// <summary>Rebuilds the outcomes of the committed log entries once, after the coordinator of the first start pinned the recovered tail.</summary>
@@ -774,8 +494,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         catch
         {
             var coordinator = _coordinator;
-            _coordinator = null;
-            _pipeline = null;
+            ClearRun();
             await this.CloseSendersAsync(pipeline).ConfigureAwait(false);
             if (coordinator != null)
                 await coordinator.DisposeAsync().ConfigureAwait(false);
@@ -808,30 +527,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
 
         await _coordinator.DisposeAsync().ConfigureAwait(false);
-    }
-
-    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-
-    /// <summary>Applies the committed entries the current coordinator still retains.</summary>
-    /// <returns><see langword="true" /> when no coordinator retains an unapplied entry.</returns>
-    /// <remarks>
-    /// An apply failure is logged and reported as <see langword="false" />: the entry stays retained and the caller refuses
-    /// definitely, before anything of its own is appended.
-    /// </remarks>
-    private async Task<bool> TryApplyPendingAsync()
-    {
-        if (_coordinator == null)
-            return true;
-
-        try
-        {
-            return await _coordinator.ApplyCommittedAsync().ConfigureAwait(false);
-        }
-        catch (Exception error) when (error is not ObjectDisposedException)
-        {
-            ServerLog.ReplicaPendingApplyFailed(Log, error);
-            return false;
-        }
     }
 
     /// <summary>No-op fault hooks for production commits outside fault-injection tests.</summary>
