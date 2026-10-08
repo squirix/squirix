@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 
@@ -18,8 +19,12 @@ internal static class RuntimeServiceRegistration
     /// <param name="services">The service collection to register locators on.</param>
     extension(IServiceCollection services)
     {
-        /// <summary>Registers static topology node location and ownership resolution.</summary>
+        /// <summary>Registers static topology node location, ownership resolution, and the static leader table.</summary>
         /// <param name="cluster">Cluster topology configuration.</param>
+        /// <remarks>
+        /// The static leader table is added only when no table is registered yet; a node whose groups an election leads replaces it with the
+        /// table of its election state afterwards.
+        /// </remarks>
         /// <returns><paramref name="services" /> for chaining.</returns>
         internal IServiceCollection AddSquirixClusterLocator(TopologyOptions cluster)
         {
@@ -31,6 +36,7 @@ internal static class RuntimeServiceRegistration
             _ = services.AddSingleton<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(
                 sp.GetRequiredService<INodeLocator>(),
                 sp.GetRequiredService<TopologyOptions>()));
+            services.TryAddSingleton<IGroupLeaderTable>(new StaticLeaderTable(cluster.NodeId));
             return services;
         }
     }

@@ -14,6 +14,9 @@ namespace Squirix.Server.Cluster.Replication;
 [Immutable]
 internal sealed class ElectionTimerOptions
 {
+    /// <summary>The longest configurable wait for a leader; a request deadline is far shorter.</summary>
+    internal static readonly TimeSpan MaxLeaderWaitTimeout = TimeSpan.FromMinutes(1);
+
     /// <summary>Gets the time without leader contact after which a follower starts an election; also the window of the leader quorum check.</summary>
     internal TimeSpan ElectionTimeout { get; init; } = TimeSpan.FromSeconds(1);
 
@@ -24,9 +27,35 @@ internal sealed class ElectionTimerOptions
     /// <remarks>Drawn once per options instance unless set, so nodes differ while a test can pin it for a deterministic run.</remarks>
     internal ulong JitterSeed { get; init; } = BinaryPrimitives.ReadUInt64LittleEndian(RandomNumberGenerator.GetBytes(sizeof(ulong)));
 
+    /// <summary>Gets the longest wait of an entry node for a leader of a served group that has none known.</summary>
+    /// <remarks>
+    /// <see cref="LeaderWaitTimeoutOverride" /> when set; otherwise <see cref="ElectionTimeout" /> plus <see cref="MaxJitter" />, the longest a
+    /// follower waits before it campaigns. The remaining deadline of the request caps it further.
+    /// </remarks>
+    internal TimeSpan LeaderWaitTimeout => LeaderWaitTimeoutOverride ?? (ElectionTimeout + MaxJitter);
+
+    /// <summary>Initializes the explicit longest wait for a leader; <see langword="null" /> keeps the default of <see cref="LeaderWaitTimeout" />.</summary>
+    /// <remarks>
+    /// It must be positive and at most <see cref="MaxLeaderWaitTimeout" />; <see cref="System.Threading.Timeout.InfiniteTimeSpan" /> is
+    /// refused, because a wait for a leader is always bounded. <see cref="EnsureValidLeaderWait" /> checks it once, when the leader table
+    /// is built.
+    /// </remarks>
+    internal TimeSpan? LeaderWaitTimeoutOverride { private get; init; }
+
     /// <summary>Gets the largest random delay added to <see cref="ElectionTimeout" /> each time a follower arms its election.</summary>
     internal TimeSpan MaxJitter { get; init; } = TimeSpan.FromSeconds(1);
 
     /// <summary>Gets the longest wait for one pre-vote or vote reply; an unanswered voter counts as a refusal.</summary>
     internal TimeSpan VoteRpcTimeout { get; init; } = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>Checks that the wait for a leader of the options is bounded: positive and at most <see cref="MaxLeaderWaitTimeout" />.</summary>
+    /// <param name="options">The options to check.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The wait is zero, negative, infinite, or above <see cref="MaxLeaderWaitTimeout" />.</exception>
+    internal static void EnsureValidLeaderWait(ElectionTimerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var wait = options.LeaderWaitTimeout;
+        if (wait <= TimeSpan.Zero || wait > MaxLeaderWaitTimeout)
+            throw new ArgumentOutOfRangeException(nameof(options), wait, "The wait for a leader must be positive and bounded.");
+    }
 }
