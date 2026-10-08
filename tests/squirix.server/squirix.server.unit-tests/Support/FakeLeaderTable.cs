@@ -33,6 +33,9 @@ internal sealed class FakeLeaderTable : IGroupLeaderTable
     /// <summary>Gets a value indicating whether a wait blocks until its cancellation; a wait returns at once unless set.</summary>
     internal bool BlockWaits { get; init; }
 
+    /// <summary>Gets the learned routes, in order.</summary>
+    internal List<LeaderRoute> Learned { get; } = [];
+
     /// <summary>Gets the refuted routes, in order.</summary>
     internal List<LeaderRoute> Refuted { get; } = [];
 
@@ -51,6 +54,9 @@ internal sealed class FakeLeaderTable : IGroupLeaderTable
     }
 
     /// <inheritdoc />
+    public void Learn(string groupId, in LeaderRoute hint) => Learned.Add(hint);
+
+    /// <inheritdoc />
     public GroupLeaderView Read(string groupId) => Served ? new GroupLeaderView(true, false, false, _leader.Term, _leader.Term, _leader) : default;
 
     /// <inheritdoc />
@@ -65,6 +71,13 @@ internal sealed class FakeLeaderTable : IGroupLeaderTable
     {
         route = _leader;
         return !string.IsNullOrEmpty(route.NodeId);
+    }
+
+    /// <inheritdoc />
+    public bool TryGetLearnedLeader(string groupId, out LeaderRoute route)
+    {
+        route = default;
+        return false;
     }
 
     /// <inheritdoc />

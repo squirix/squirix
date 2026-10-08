@@ -25,6 +25,8 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     private static readonly TimeSpan[] InvalidWaits =
         [TimeSpan.Zero, TimeSpan.FromMilliseconds(-5), Timeout.InfiniteTimeSpan, ElectionTimerOptions.MaxLeaderWaitTimeout + TimeSpan.FromTicks(1)];
 
+    private static readonly IReplicaGroupLocator Ring = OwnerRouters.Locator(Groups);
+
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(2);
 
     /// <summary>
@@ -37,7 +39,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-table");
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1");
+        var table = new ReplicaLeaderTable(registry, "n1", Ring);
         var led = registry.StateFor("n2");
         led.SetElectionDriven(true);
         _ = led.BecomeLeader(2UL);
@@ -63,7 +65,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-table-deposed");
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1");
+        var table = new ReplicaLeaderTable(registry, "n1", Ring);
         var led = registry.StateFor("n2");
         led.SetElectionDriven(true);
         _ = led.BecomeLeader(2UL);
@@ -81,7 +83,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-wait-contact");
         await using var registry = await OpenTimedRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1");
+        var table = new ReplicaLeaderTable(registry, "n1", Ring);
         var wait = table.WaitForLeaderAsync("n2", Wait, cancellationToken).AsTask();
         var pending = wait.IsCompleted;
 
@@ -99,7 +101,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-wait-authority");
         await using var registry = await OpenTimedRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1");
+        var table = new ReplicaLeaderTable(registry, "n1", Ring);
         var state = registry.StateFor("n1");
         state.SetElectionDriven(true);
         _ = state.BecomeLeader(4UL);
@@ -120,7 +122,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-wait-refuted");
         await using var registry = await OpenTimedRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1");
+        var table = new ReplicaLeaderTable(registry, "n1", Ring);
         var state = registry.StateFor("n2");
         state.ObserveLeaderContact("n2", 3UL);
         table.Refute("n2", new LeaderRoute("n2", 3UL));
@@ -142,7 +144,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-leader-wait-timeout");
         var time = new FakeTimeProvider();
         await using var registry = await OpenTimedRegistryAsync(dir, time, cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1");
+        var table = new ReplicaLeaderTable(registry, "n1", Ring);
         var wait = table.WaitForLeaderAsync("n2", Wait, cancellationToken).AsTask();
         time.Advance(Wait - TimeSpan.FromMilliseconds(1));
         var early = wait.IsCompleted;
@@ -160,7 +162,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-refuted-term");
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1");
+        var table = new ReplicaLeaderTable(registry, "n1", Ring);
         var state = registry.StateFor("n2");
         state.ObserveLeaderContact("n2", 3UL);
         table.Refute("n2", new LeaderRoute("n2", 3UL));
@@ -179,7 +181,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-refuted-self");
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1");
+        var table = new ReplicaLeaderTable(registry, "n1", Ring);
         var state = registry.StateFor("n1");
         state.SetElectionDriven(true);
         _ = state.BecomeLeader(2UL);
@@ -197,7 +199,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-unserved");
         await using var registry = await OpenTimedRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1");
+        var table = new ReplicaLeaderTable(registry, "n1", Ring);
         table.Refute("n4", new LeaderRoute("n4", 1UL));
 
         var wait = table.WaitForLeaderAsync("n4", Wait, cancellationToken);
@@ -236,7 +238,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
         {
             Election = new ElectionTimerOptions { LeaderWaitTimeoutOverride = Timeout.InfiniteTimeSpan },
         };
-        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(registry, static r => _ = new ReplicaLeaderTable(r, "n1"));
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(registry, static r => _ = new ReplicaLeaderTable(r, "n1", Ring));
         var bounded = new ElectionTimerOptions { LeaderWaitTimeoutOverride = ElectionTimerOptions.MaxLeaderWaitTimeout };
         ElectionTimerOptions.EnsureValidLeaderWait(bounded);
 
@@ -253,7 +255,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-refuted-highest");
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1");
+        var table = new ReplicaLeaderTable(registry, "n1", Ring);
         var state = registry.StateFor("n2");
         state.ObserveLeaderContact("n2", 3UL);
         table.Refute("n2", new LeaderRoute("n2", 3UL));
@@ -270,6 +272,36 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
         _ = await Assert.That((table.TryGetLeader("n2", out var route), route)).IsEqualTo((true, new LeaderRoute("n3", 5UL)));
     }
 
+    /// <summary>
+    /// A leader hint is kept only for a group this node does not serve and only when it names a member of that group; the newest term wins, a
+    /// refutation of the kept leader forgets it, and the election state of the group is untouched.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LearnKeepsNewestMemberHint(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-leader-learned");
+        await using var registry = await OpenRegistryAsync(dir, ["n1", "n4", "n5"], null, cancellationToken);
+        var table = new ReplicaLeaderTable(registry, "n1", new ReplicaGroupLocator(new PhysicalNodeRing(["n1", "n2", "n3", "n4", "n5"]), 3));
+        table.Learn("n2", new LeaderRoute("n3", 4UL));
+        table.Learn("n2", new LeaderRoute("n4", 3UL));
+        table.Learn("n2", new LeaderRoute("n5", 9UL));
+        table.Learn("n2", new LeaderRoute("n1", 9UL));
+        table.Learn("n1", new LeaderRoute("n2", 9UL));
+        var kept = (table.TryGetLearnedLeader("n2", out var learned), learned);
+        table.Learn("n2", new LeaderRoute("n4", 4UL));
+        var newer = (table.TryGetLearnedLeader("n2", out var replaced), replaced);
+        table.Refute("n2", new LeaderRoute("n3", 9UL));
+        var other = table.TryGetLearnedLeader("n2", out _);
+        table.Refute("n2", new LeaderRoute("n4", 4UL));
+
+        _ = await Assert.That(kept).IsEqualTo((true, new LeaderRoute("n3", 4UL)));
+        _ = await Assert.That(newer).IsEqualTo((true, new LeaderRoute("n4", 4UL)));
+        _ = await Assert.That(other).IsTrue();
+        _ = await Assert.That(table.TryGetLearnedLeader("n2", out _) || table.TryGetLearnedLeader("n1", out _)).IsFalse();
+        _ = await Assert.That(table.TryGetLeader("n2", out _) || table.TryGetLeader("n1", out _)).IsFalse();
+    }
+
     /// <summary>A canceled wait for a leader throws, an infinite one included.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -277,7 +309,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-wait-cancel");
         await using var registry = await OpenTimedRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1");
+        var table = new ReplicaLeaderTable(registry, "n1", Ring);
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var wait = table.WaitForLeaderAsync("n2", Timeout.InfiniteTimeSpan, cancel.Token);
         var pending = wait.IsCompleted;
@@ -295,7 +327,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-wait-candidate");
         await using var registry = await OpenTimedRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1");
+        var table = new ReplicaLeaderTable(registry, "n1", Ring);
         var state = registry.StateFor("n2");
         state.ObserveLeaderContact("n3", 3UL);
         state.SetElectionDriven(true);
@@ -318,7 +350,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-wait-undriven");
         await using var registry = await OpenTimedRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1");
+        var table = new ReplicaLeaderTable(registry, "n1", Ring);
         var state = registry.StateFor("n2");
         state.ObserveLeaderContact("n3", 3UL);
         state.SetElectionDriven(true);
@@ -339,7 +371,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-wait-zero");
         await using var registry = await OpenTimedRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1");
+        var table = new ReplicaLeaderTable(registry, "n1", Ring);
         var none = table.WaitForLeaderAsync("n2", TimeSpan.Zero, cancellationToken);
         var noneResult = (none.IsCompleted, await none);
         registry.StateFor("n2").ObserveLeaderContact("n3", 3UL);

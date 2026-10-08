@@ -129,8 +129,7 @@ internal static class ServerHostingComposition
         if (LeadsByElection(cluster))
         {
             _ = services.Replace(ServiceDescriptor.Singleton<IGroupLeaderTable>(static sp => new ReplicaLeaderTable(
-                sp.GetRequiredService<ReplicaGroupRegistry>(),
-                sp.GetRequiredService<TopologyOptions>().NodeId)));
+                sp.GetRequiredService<ReplicaGroupRegistry>(), sp.GetRequiredService<TopologyOptions>().NodeId, sp.GetRequiredService<IReplicaGroupLocator>())));
         }
 
         // Factory registrations let the container own disposal: the registry closes follower-log durability workers
