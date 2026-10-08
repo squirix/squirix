@@ -45,7 +45,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
         using var scenario = RecoveryScenarioBuilder.Create("squirix-compact-idempotency-recovery");
         var persistence = CreatePersistence(scenario.DataDir);
         await WritePutAndIdempotencyAsync(persistence, scenario.Ledger, cancellationToken);
-        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(), DateTime.UtcNow, cancellationToken);
+        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(), DateTime.UtcNow, DateTime.UtcNow, cancellationToken);
 
         var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
@@ -65,7 +65,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
         using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await WritePutAndIdempotencyAsync(persistence, manifestStore, cancellationToken);
 
-        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(), DateTime.UtcNow, cancellationToken);
+        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(), DateTime.UtcNow, DateTime.UtcNow, cancellationToken);
 
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         var found = false;
@@ -120,10 +120,10 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
         }
 
         var reader = StoreFactory.CreateReader();
-        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, reader, DateTime.UtcNow, cancellationToken);
+        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, reader, DateTime.UtcNow, DateTime.UtcNow, cancellationToken);
         await AssertStartedFrameHasFingerprintAsync(persistence, await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken), cancellationToken);
 
-        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, reader, DateTime.UtcNow, cancellationToken);
+        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, reader, DateTime.UtcNow, DateTime.UtcNow, cancellationToken);
         await AssertStartedFrameHasFingerprintAsync(persistence, await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken), cancellationToken);
 
         var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
@@ -167,7 +167,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
             await journal.AwaitDurabilityCommitAsync(cancellationToken);
         }
 
-        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(), DateTime.UtcNow, cancellationToken);
+        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(), DateTime.UtcNow, DateTime.UtcNow, cancellationToken);
 
         var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);

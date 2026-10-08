@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Backpressure;
@@ -54,7 +55,9 @@ internal static class RuntimeServiceRegistration
             _ = services.AddHostedServices();
             _ = services.AddSingleton<ILocalCacheRecovery<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
             _ = services.AddSingleton<ILocalCacheSnapshotReader<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
-            _ = services.AddSingleton<ISnapshotEntryCapture>(static sp => new LocalCacheSnapshotCapture<object?>(sp.GetRequiredService<ILocalCacheSnapshotReader<object?>>()));
+            _ = services.AddSingleton<ISnapshotEntryCapture>(static sp => new LocalCacheSnapshotCapture<object?>(
+                sp.GetRequiredService<ILocalCacheSnapshotReader<object?>>(),
+                sp.GetRequiredService<CacheExpiryAuthority>()));
 
             _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
             _ = services.AddSingleton<IGrpcCacheOperations<object?>, CacheOperations<object?>>();
@@ -101,7 +104,17 @@ internal static class RuntimeServiceRegistration
             // expiration can be advanced deterministically instead of relying on real-time delays.
             _ = services.AddSingleton(TimeProvider.System);
 
-            _ = services.AddSingleton(static sp => new PhysicalCache<object?>(sp.GetService<TimeProvider>(), new EvictionOptions { Policy = EvictionPolicyType.Lru }));
+            // Who decides expiry, read by the cache, its snapshots, recovery and journal compaction alike. FeatureState is the single
+            // source of truth: on network-replication-activated hosts only committed records remove an entry, so the leader decides expiry;
+            // RF=1 and foundation-only hosts keep the local clock. AddSingleton<T>(T) is constrained to class, so the descriptor boxes the enum.
+            services.Add(new ServiceDescriptor(
+                typeof(CacheExpiryAuthority),
+                static sp => sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled ? CacheExpiryAuthority.CommittedRecords : CacheExpiryAuthority.LocalClock,
+                ServiceLifetime.Singleton));
+            _ = services.AddSingleton(static sp => new PhysicalCache<object?>(
+                sp.GetService<TimeProvider>(),
+                new EvictionOptions { Policy = EvictionPolicyType.Lru },
+                sp.GetRequiredService<CacheExpiryAuthority>()));
             _ = services.AddSingleton<ILocalCache<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
             _ = services.AddSingleton<ILocalCacheReadOperations<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
             _ = services.AddSingleton<ILocalCacheMutationOperations<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());

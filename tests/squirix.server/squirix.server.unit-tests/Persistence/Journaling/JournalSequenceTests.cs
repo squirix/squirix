@@ -173,7 +173,7 @@ public sealed class JournalSequenceTests : IsolatedStorageTestBase
             await AppendAsync(first, "c", cancellationToken);
         }
 
-        await JournalCompactor.CompactAsync(persistence, ledger, StoreFactory.CreateReader(), DateTime.UtcNow, cancellationToken);
+        await JournalCompactor.CompactAsync(persistence, ledger, StoreFactory.CreateReader(), DateTime.UtcNow, DateTime.UtcNow, cancellationToken);
         var compacted = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         await using (var second = CreateJournal(persistence, compacted, ledger))
         {

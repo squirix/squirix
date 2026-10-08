@@ -27,6 +27,11 @@ namespace Squirix.Server.Storage.Replication;
 ///     than its capacity, until retention ages them out. Refusing one would fail the group log over an entry that is already committed.
 ///     </para>
 ///     <para>
+///     Expiration tombstones (<see cref="GroupRecordKind.Expiration" />) answer no client retry: their pin holds the identity only while the
+///     entry is in flight, never counts against the capacity, and the record is dropped once the entry resolves, so no expiration outcome is
+///     retained, exported, or restored.
+///     </para>
+///     <para>
 ///     A snapshot carries the time its outcomes were captured on the same clock that stamped their resolution times, so a
 ///     restoring node takes the age of each outcome from that one clock and keeps counting it on its own monotonic clock. Node
 ///     clocks never meet in a subtraction. The time a snapshot spends at rest or in transit does not count toward retention:
@@ -279,7 +284,7 @@ internal sealed class GroupIdempotencyState
                 return GroupIdempotencyReserveResult.Success;
             }
 
-            if (_records.Count >= Capacity && !alreadyLogged)
+            if (_records.Count >= Capacity && !alreadyLogged && kind != GroupRecordKind.Expiration)
                 return GroupIdempotencyReserveResult.CapacityExceeded;
 
             var memory = BufferEx.CopyToOwned(operationFingerprint);
@@ -335,6 +340,10 @@ internal sealed class GroupIdempotencyState
         if (record.IsUnresolved)
             throw new ArgumentException("A restored outcome must be resolved.", nameof(record));
 
+        // An expiration answers no retry, so its outcome is never restored; the rebuild reads on past it.
+        if (record.Kind == GroupRecordKind.Expiration)
+            return GroupOutcomeRestoreResult.Expired;
+
         // No sweep here: a start restores many outcomes in a row, and the next lookup or reservation sweeps anyway.
         lock (_sync)
         {
@@ -378,6 +387,13 @@ internal sealed class GroupIdempotencyState
             var key = GroupOperationKey.Of(in record);
             if (_records.TryGetValue(key, out var stored) && stored.Record.IsResolved && stored.Record.LogIndex >= record.LogIndex)
                 return;
+
+            // An expiration answers no retry: its pin, if any, is resolved by dropping it, and no outcome is kept.
+            if (record.Kind == GroupRecordKind.Expiration)
+            {
+                _ = _records.Remove(key);
+                return;
+            }
 
             var age = _timeProvider.GetUtcNow().UtcDateTime - record.ResolvedUtc!.Value;
             _records[key] = new StoredRecord(record, _timeProvider.GetTimestamp(), age > TimeSpan.Zero ? age : TimeSpan.Zero);
@@ -425,6 +441,10 @@ internal sealed class GroupIdempotencyState
             // A resolved record already carries its durable outcome; re-resolution must never overwrite it.
             if (record.IsResolved)
                 return false;
+
+            // An expiration answers no retry: resolving it drops the pin instead of retaining an outcome.
+            if (record.Kind == GroupRecordKind.Expiration)
+                return _records.Remove(key);
 
             var resolved = record.Resolve(BufferEx.CopyToOwned(outcomePayload), _timeProvider.GetUtcNow().UtcDateTime);
             _records[key] = new StoredRecord(resolved, _timeProvider.GetTimestamp(), TimeSpan.Zero);

@@ -31,6 +31,17 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
         _ = await Assert.That(ReplicaLogCodec.Decode(encoded)).IsNull();
     }
 
+    /// <summary>Verifies that a version 3 record, which cannot carry an expiration tombstone, is refused instead of being read.</summary>
+    [Test]
+    public async Task DecodeRefusesVersionThree()
+    {
+        var encoded = ReplicaLogCodec.Encode(CreateRecord());
+
+        BinaryPrimitives.WriteUInt16LittleEndian(encoded, 3);
+
+        _ = await Assert.That(ReplicaLogCodec.Decode(encoded)).IsNull();
+    }
+
     /// <summary>Verifies that an empty payload is rejected.</summary>
     [Test]
     public async Task DecodeRejectsEmpty() => _ = await Assert.That(ReplicaLogCodec.Decode(ReadOnlyMemory<byte>.Empty)).IsNull();

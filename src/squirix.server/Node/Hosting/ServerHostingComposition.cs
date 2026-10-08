@@ -22,6 +22,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Errors;
+using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Endpoint;
 using Squirix.Server.Node.MemoryPressure;
@@ -155,6 +156,7 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<ReplicaGroupRegistry>(),
             sp.GetRequiredService<ILogger<ReplicaLogCompactionService>>(),
             sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        AddReplicaExpirationSweep(services);
         _ = services.AddSingleton<IReplicaStatusSource>(static sp => new ReplicaGroupStatusSource(
             sp.GetRequiredService<ReplicaGroupRegistry>(),
             sp.GetRequiredService<TopologyOptions>(),
@@ -167,6 +169,16 @@ internal static class ServerHostingComposition
                 HealthStatus.Unhealthy,
                 ["ready"]));
     }
+
+    /// <summary>Registers the sweep that expires the owned keys no read touches, through committed tombstones.</summary>
+    /// <param name="services">DI service collection.</param>
+    private static void AddReplicaExpirationSweep(IServiceCollection services) =>
+        _ = services.AddHostedService(static sp => new ReplicaExpirationSweepService(
+            sp.GetRequiredService<ReplicaGroupCommitter>(),
+            sp.GetRequiredService<ILocalCacheSnapshotReader<object?>>(),
+            sp.GetRequiredService<INodeLocator>(),
+            sp.GetRequiredService<TopologyOptions>().NodeId,
+            sp.GetRequiredService<ILogger<ReplicaExpirationSweepService>>()));
 
     /// <summary>Returns the settings of the replica group logs: the idempotency window of the replication policy and the host clock.</summary>
     /// <param name="sp">The service provider.</param>

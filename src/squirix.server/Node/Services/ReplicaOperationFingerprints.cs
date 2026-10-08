@@ -16,6 +16,21 @@ namespace Squirix.Server.Node.Services;
 /// </remarks>
 internal static class ReplicaOperationFingerprints
 {
+    /// <summary>Computes the fingerprint of an expiration tombstone from the expired entry it removes.</summary>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <param name="version">Version of the expired entry.</param>
+    /// <param name="deadlineTicks">UTC ticks of the passed deadline of the expired entry.</param>
+    /// <returns>The SHA-256 fingerprint bytes.</returns>
+    /// <remarks>No client asks for a tombstone, so it has no client operation identifier: its identity is the expired entry itself.</remarks>
+    internal static byte[] Expire(string cacheName, string key, long version, long deadlineTicks)
+    {
+        Span<byte> expired = stackalloc byte[sizeof(long) * 2];
+        BinaryPrimitives.WriteInt64LittleEndian(expired, version);
+        BinaryPrimitives.WriteInt64LittleEndian(expired[sizeof(long)..], deadlineTicks);
+        return Compute(string.Empty, cacheName, key, ReplicaMutationKinds.Expire, expired);
+    }
+
     internal static byte[] Remove(string operationId, string cacheName, string key) => Compute(operationId, cacheName, key, ReplicaMutationKinds.Remove, []);
 
     internal static byte[] RemoveExpiration(string operationId, string cacheName, string key) =>

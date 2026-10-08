@@ -14,10 +14,10 @@ using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
-/// <summary>Integration evidence for the disabled leader-owned expiration path.</summary>
+/// <summary>Integration evidence for the leader-owned expiration path over the common majority pipeline.</summary>
 public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
 {
-    /// <summary>The common majority pipeline applies a tombstone before exposing the miss.</summary>
+    /// <summary>The expiry callers of one key share one tombstone commit, applied before any of them sees the miss.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task ExpiredFlowCommitsBeforeMiss(CancellationToken cancellationToken)
@@ -31,28 +31,31 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
         {
             BudgetTimeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch),
         };
-        await using var expiration = new ReplicaExpirationCoordinator(commit, true, 1);
         var expiresUtc = new DateTime(638900000000000000, DateTimeKind.Utc);
+        var operationId = ReplicaExpirationOperationId.Create("group-a", "default", "key-a", 1, expiresUtc);
+        var tombstone = new PreparedReplicaMutation(
+            new ReplicaOperationIdentity("group-a", ReplicaExpirationOperationId.OperationScope, operationId, new byte[] { 1 }),
+            1,
+            1,
+            new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 4));
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var expiration = new ReplicaExpirationCoordinator<string>(async (_, _) =>
+        {
+#pragma warning disable VSTHRD003 // The gate is a completion source this test owns and signals.
+            await started.Task.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
+            _ = await commit.CommitAsync(tombstone, TimeSpan.FromSeconds(2), CancellationToken.None).ConfigureAwait(false);
+            return null;
+        });
 
-        var miss = await expiration.CommitExpiredMissAsync(
-            new ReplicaExpirationRequest
-            {
-                GroupId = "group-a",
-                CacheName = "default",
-                Key = "key-a",
-                UtcNow = expiresUtc.AddTicks(1),
-                ReadRaw = _ => ValueTask.FromResult<ReplicaExpirationCandidate?>(new ReplicaExpirationCandidate(1, expiresUtc)),
-                PrepareTombstone = static (_, operationId) => new PreparedReplicaMutation(
-                    new ReplicaOperationIdentity("group-a", ReplicaExpirationOperationId.OperationScope, operationId, new byte[] { 1 }),
-                    1,
-                    1,
-                    new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 4)),
-                Timeout = TimeSpan.FromSeconds(2),
-                CancellationToken = cancellationToken,
-            });
+        var first = expiration.ExpireAsync("default", "key-a", cancellationToken);
+        var second = expiration.ExpireAsync("default", "key-a", cancellationToken);
+        started.SetResult();
+        var misses = await Task.WhenAll(first, second);
 
         trace.Add("miss");
-        _ = await Assert.That(miss).IsTrue();
+        _ = await Assert.That(misses[0]).IsNull();
+        _ = await Assert.That(misses[1]).IsNull();
         await SequenceAssert.EqualAsync(["local", "follower", "follower", "commit", "apply", "miss"], trace, StringComparer.Ordinal);
     }
 

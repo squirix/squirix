@@ -26,7 +26,13 @@ namespace Squirix.Server.Storage.Journaling.Compaction;
 /// </summary>
 internal static class JournalCompactor
 {
-    internal static async Task CompactAsync(PersistenceOptions options, Ledger manifestStore, ISnapshotReader snapshotReader, DateTime utcNow, CancellationToken cancellationToken)
+    internal static async Task CompactAsync(
+        PersistenceOptions options,
+        Ledger manifestStore,
+        ISnapshotReader snapshotReader,
+        DateTime utcNow,
+        DateTime? expiredAsOf,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(snapshotReader);
@@ -35,13 +41,14 @@ internal static class JournalCompactor
         var oldManifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var snapshotRef = oldManifest.LastSnapshot;
         var replayFromSegment = snapshotRef?.ReplayFromJournalSegment > 0 ? snapshotRef.ReplayFromJournalSegment : 1;
-        var (state, idempotencyState, lastSeq) = await BuildCompactionStateAsync(options, snapshotRef, replayFromSegment, snapshotReader, utcNow, cancellationToken).ConfigureAwait(false);
+        var (state, idempotencyState, lastSeq) =
+            await BuildCompactionStateAsync(options, snapshotRef, replayFromSegment, snapshotReader, expiredAsOf, cancellationToken).ConfigureAwait(false);
 
         var journalSegments = JournalReadPath.EnumerateSegments(options.DataDir, 1);
         var newFirstIdx = journalSegments.Length == 0 ? 1 : journalSegments[^1].Index + 1;
         var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.tmp");
         _ = FileEx.TryDeleteFile(tmpPath);
-        var writtenLastSeq = await WriteCompactedJournalAsync(tmpPath, state, idempotencyState, lastSeq, utcNow, cancellationToken).ConfigureAwait(false);
+        var writtenLastSeq = await WriteCompactedJournalAsync(tmpPath, state, idempotencyState, lastSeq, utcNow, expiredAsOf, cancellationToken).ConfigureAwait(false);
         await FinalizeCompactionAsync(options, manifestStore, oldManifest, newFirstIdx, writtenLastSeq, journalSegments, cancellationToken).ConfigureAwait(false);
     }
 
@@ -134,13 +141,19 @@ internal static class JournalCompactor
         _ = state.Remove(new CacheKey(record.Key.Namespace, record.Key.Key));
 
     private static async Task<(Dictionary<CacheKey, NodeCacheEntry<object?>> State, Dictionary<string, CompactedIdempotencyRecord> IdempotencyState, ulong LastSeq)>
-        BuildCompactionStateAsync(PersistenceOptions options, SnapshotRef? snapshotRef, int replayFromSegment, ISnapshotReader snapshotReader, DateTime utcNow, CancellationToken cancellationToken)
+        BuildCompactionStateAsync(
+            PersistenceOptions options,
+            SnapshotRef? snapshotRef,
+            int replayFromSegment,
+            ISnapshotReader snapshotReader,
+            DateTime? expiredAsOf,
+            CancellationToken cancellationToken)
     {
         var state = new Dictionary<CacheKey, NodeCacheEntry<object?>>();
         var idempotencyState = new Dictionary<string, CompactedIdempotencyRecord>(StringComparer.Ordinal);
         if (!string.IsNullOrWhiteSpace(snapshotRef?.Path) && File.Exists(snapshotRef.Path))
         {
-            var snapshot = await snapshotReader.LoadStrictAsync<object?>(snapshotRef.Path, utcNow, cancellationToken).ConfigureAwait(false);
+            var snapshot = await snapshotReader.LoadStrictAsync<object?>(snapshotRef.Path, expiredAsOf, cancellationToken).ConfigureAwait(false);
             for (var i = 0; i < snapshot.Entries.Count; i++)
             {
                 var (key, entry) = snapshot.Entries[i];
@@ -212,7 +225,7 @@ internal static class JournalCompactor
         _ = FileEx.TryDeleteFile(backupJournalPath);
     }
 
-    private static bool IsExpired(NodeCacheEntry<object?>? e, DateTime utcNow) => e is { ExpiresUtc: { } utc } && utc <= utcNow;
+    private static bool IsExpired(NodeCacheEntry<object?>? e, DateTime? expiredAsOf) => expiredAsOf is { } asOf && e is { ExpiresUtc: { } utc } && utc <= asOf;
 
     private static bool TryApplyCacheMutation(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state)
     {
@@ -299,6 +312,7 @@ internal static class JournalCompactor
         Dictionary<string, CompactedIdempotencyRecord> idempotencyState,
         ulong lastSeq,
         DateTime utcNow,
+        DateTime? expiredAsOf,
         CancellationToken cancellationToken)
     {
         var handle = File.OpenHandle(tmpPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read, FileOptions.Asynchronous | FileOptions.SequentialScan);
@@ -316,12 +330,12 @@ internal static class JournalCompactor
                     cancellationToken.ThrowIfCancellationRequested();
 
                 // A frame without a write time keeps its relative expiration; it is anchored at the compaction instant. A non-positive one is
-                // expired, as recovery treats it.
-                if (e.Expiration is { } relative && relative <= TimeSpan.Zero)
+                // expired, as recovery treats it. Without an expiry time, expiry is left to committed records and nothing is dropped.
+                if (expiredAsOf != null && e.Expiration is { } relative && relative <= TimeSpan.Zero)
                     continue;
 
                 var durable = JournalEntryExpirationMaterializer.ForDurableWrite(e, utcNow);
-                if (IsExpired(durable, utcNow))
+                if (IsExpired(durable, expiredAsOf))
                     continue;
 
                 var encode = JournalEntryPayload.PrepareEncode(durable);

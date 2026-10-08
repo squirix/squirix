@@ -19,10 +19,11 @@ internal static class ReplicaLogCodec
 {
     /// <summary>The canonical encoding version.</summary>
     /// <remarks>
-    /// Version 3 carries the outcome and the effect the leader decided: the resulting entry of an upserting mutation and its pinned
-    /// absolute deadline. Records of any other version are refused, so every node of a replica group must run the same encoding version.
+    /// Version 4 carries the outcome and the effect the leader decided: the resulting entry of an upserting mutation and its pinned
+    /// absolute deadline, or the passed deadline of an entry the leader expired. Records of any other version are refused, so every node
+    /// of a replica group must run the same encoding version.
     /// </remarks>
-    private const ushort Version = 3;
+    private const ushort Version = 4;
 
     /// <summary>Decodes canonical bytes back to a record.</summary>
     /// <param name="bytes">The canonical payload bytes.</param>

@@ -14,12 +14,20 @@ namespace Squirix.Server.Node.Services;
 [Immutable]
 internal sealed class LocalCacheSnapshotCapture<T> : ISnapshotEntryCapture
 {
+    private readonly CacheExpiryAuthority _expiry;
     private readonly ILocalCacheSnapshotReader<T> _reader;
 
-    internal LocalCacheSnapshotCapture(ILocalCacheSnapshotReader<T> reader)
+    /// <summary>Initializes a new instance of the <see cref="LocalCacheSnapshotCapture{T}" /> class.</summary>
+    /// <param name="reader">The owner cache reader.</param>
+    /// <param name="expiry">
+    /// Who decides expiry. Under <see cref="CacheExpiryAuthority.CommittedRecords" /> an entry past its deadline is captured, since only a
+    /// committed record removes it.
+    /// </param>
+    internal LocalCacheSnapshotCapture(ILocalCacheSnapshotReader<T> reader, CacheExpiryAuthority expiry = CacheExpiryAuthority.LocalClock)
     {
         ArgumentNullException.ThrowIfNull(reader);
         _reader = reader;
+        _expiry = expiry;
     }
 
     public async ValueTask CaptureEntriesAsync(List<(CacheKey Key, NodeCacheEntry<object?> Entry)> target, DateTime utcNow, CancellationToken cancellationToken)
@@ -32,7 +40,7 @@ internal sealed class LocalCacheSnapshotCapture<T> : ISnapshotEntryCapture
 
         await foreach (var (key, entry) in _reader.EnumerateLiveAsync(cancellationToken).ConfigureAwait(false))
         {
-            if (entry.ExpiresUtc is { } exp && exp <= utcNow)
+            if (_expiry == CacheExpiryAuthority.LocalClock && entry.ExpiresUtc is { } exp && exp <= utcNow)
                 continue;
 
             target.Add((key, ToSnapshotEntry(entry)));

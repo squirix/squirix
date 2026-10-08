@@ -7,6 +7,9 @@ namespace Squirix.Server.Node.Services;
 /// </remarks>
 internal static class ReplicaMutationKinds
 {
+    /// <summary>Removes a key whose deadline the leader found passed: the tombstone every replica applies before a read may miss.</summary>
+    internal const string Expire = "expire";
+
     /// <summary>Removes a key.</summary>
     internal const string Remove = "remove";
 

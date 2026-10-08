@@ -11,8 +11,10 @@ namespace Squirix.Server.Node.Services;
 
 /// <summary>Decides the outcome, the effect and the pinned deadline of each replicated mutation kind from one prepare-time read.</summary>
 /// <remarks>
-/// One function per kind: it takes the live entry the leader observed and the prepare time, and returns everything the record
-/// carries about the decision. Nothing after prepare recomputes any of it.
+/// One function per kind: it takes the entry the leader's storage holds and the prepare time, and returns everything the record carries
+/// about the decision. Nothing after prepare recomputes any of it. Storage keeps an entry past its deadline until a committed record removes
+/// it, so the leader decides expiry here, on its own clock: an entry whose deadline is at or before the prepare time is expired. A
+/// conditional mutation that finds it expired folds the expiry into its record, which then deletes the key; nothing else changes.
 /// </remarks>
 internal static class ReplicaMutationDecisions
 {
@@ -22,42 +24,71 @@ internal static class ReplicaMutationDecisions
     /// <returns>The decision.</returns>
     internal static ReplicaDecision DecideSet(NodeCacheEntry<object?> entry, DateTime now) => Upsert(entry.Value, entry.Version, entry.Tags, DeadlineTicks(entry, now));
 
-    /// <summary>Decides a conditional add: applied, writing the requested entry, when the key is absent; otherwise nothing changes.</summary>
-    /// <param name="current">The live entry the leader observed, or <see langword="null" /> when the key is absent.</param>
+    /// <summary>Decides a conditional add: applied, writing the requested entry, when the key is absent or expired; otherwise nothing changes.</summary>
+    /// <param name="current">The stored entry the leader observed, or <see langword="null" /> when the key is absent.</param>
     /// <param name="entry">The requested entry.</param>
     /// <param name="now">The prepare time.</param>
     /// <returns>The decision.</returns>
     internal static ReplicaDecision DecideTryAdd(NodeCacheEntry<object?>? current, NodeCacheEntry<object?> entry, DateTime now) =>
-        current == null ? DecideSet(entry, now) : Unchanged();
+        current == null || IsExpired(current, now) ? DecideSet(entry, now) : Unchanged();
 
-    /// <summary>Decides a value replacement: applied, writing the new value over the observed entry, when the key is live; otherwise nothing changes.</summary>
-    /// <param name="current">The live entry the leader observed, or <see langword="null" /> when the key is absent.</param>
+    /// <summary>Decides a value replacement: applied, writing the new value over the observed entry, when the key is live.</summary>
+    /// <param name="current">The stored entry the leader observed, or <see langword="null" /> when the key is absent.</param>
     /// <param name="value">The replacement value.</param>
-    /// <returns>The decision, which keeps the observed version, tags and deadline.</returns>
-    internal static ReplicaDecision DecideUpdate(NodeCacheEntry<object?>? current, object? value) =>
-        current == null ? Unchanged() : Upsert(value, current.Version, current.Tags, PinnedTicks(current.ExpiresUtc));
+    /// <param name="now">The prepare time.</param>
+    /// <returns>The decision, which keeps the observed version, tags and deadline; an expired key is deleted and nothing else changes.</returns>
+    internal static ReplicaDecision DecideUpdate(NodeCacheEntry<object?>? current, object? value, DateTime now) => current switch
+    {
+        null => Unchanged(),
+        _ when IsExpired(current, now) => Expired(current),
+        _ => Upsert(value, current.Version, current.Tags, PinnedTicks(current.ExpiresUtc)),
+    };
 
-    /// <summary>Decides an expiration refresh: applied, writing the observed entry under the new deadline, when the key is live; otherwise nothing changes.</summary>
-    /// <param name="current">The live entry the leader observed, or <see langword="null" /> when the key is absent.</param>
+    /// <summary>Decides an expiration refresh: applied, writing the observed entry under the new deadline, when the key is live.</summary>
+    /// <param name="current">The stored entry the leader observed, or <see langword="null" /> when the key is absent.</param>
     /// <param name="now">The prepare time.</param>
     /// <param name="expiration">The new expiration, measured from <paramref name="now" />.</param>
-    /// <returns>The decision.</returns>
-    internal static ReplicaDecision DecideTouch(NodeCacheEntry<object?>? current, DateTime now, TimeSpan expiration) =>
-        current == null ? Unchanged() : Upsert(current.Value, current.Version, current.Tags, PinnedTicks(ExpiresAt(now, expiration)));
+    /// <returns>The decision; an expired key is deleted and nothing else changes.</returns>
+    internal static ReplicaDecision DecideTouch(NodeCacheEntry<object?>? current, DateTime now, TimeSpan expiration) => current switch
+    {
+        null => Unchanged(),
+        _ when IsExpired(current, now) => Expired(current),
+        _ => Upsert(current.Value, current.Version, current.Tags, PinnedTicks(ExpiresAt(now, expiration))),
+    };
 
-    /// <summary>Decides an expiration removal: applied, writing the observed entry without a deadline, when the live entry has one; otherwise nothing changes.</summary>
-    /// <param name="current">The live entry the leader observed, or <see langword="null" /> when the key is absent.</param>
-    /// <returns>The decision.</returns>
-    internal static ReplicaDecision DecideRemoveExpiration(NodeCacheEntry<object?>? current) =>
-        current?.ExpiresUtc == null ? Unchanged() : Upsert(current.Value, current.Version, current.Tags, 0);
+    /// <summary>Decides an expiration removal: applied, writing the observed entry without a deadline, when the live entry has one.</summary>
+    /// <param name="current">The stored entry the leader observed, or <see langword="null" /> when the key is absent.</param>
+    /// <param name="now">The prepare time.</param>
+    /// <returns>The decision; an expired key is deleted and nothing else changes.</returns>
+    internal static ReplicaDecision DecideRemoveExpiration(NodeCacheEntry<object?>? current, DateTime now) => current switch
+    {
+        null or { ExpiresUtc: null } => Unchanged(),
+        _ when IsExpired(current, now) => Expired(current),
+        _ => Upsert(current.Value, current.Version, current.Tags, 0),
+    };
 
     /// <summary>Decides a remove: applied when the key is live, with the removed entry as the outcome; the effect deletes the key either way.</summary>
-    /// <param name="current">The live entry the leader observed, or <see langword="null" /> when the key is absent.</param>
+    /// <param name="current">The stored entry the leader observed, or <see langword="null" /> when the key is absent.</param>
+    /// <param name="now">The prepare time.</param>
     /// <returns>The decision.</returns>
-    internal static ReplicaDecision DecideRemove(NodeCacheEntry<object?>? current) => new(
-        [],
-        current == null ? ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty) : ReplicaOutcomeCodec.Encode(true, current.MapToProto().ToByteArray()),
-        0);
+    internal static ReplicaDecision DecideRemove(NodeCacheEntry<object?>? current, DateTime now)
+    {
+        var outcome = current == null || IsExpired(current, now) ? ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty)
+            : ReplicaOutcomeCodec.Encode(true, current.MapToProto().ToByteArray());
+        return new ReplicaDecision([], outcome, 0);
+    }
+
+    /// <summary>Decides an expiration tombstone: when the stored entry is expired, a record that deletes it and reports nothing applied.</summary>
+    /// <param name="current">The stored entry the leader observed, or <see langword="null" /> when the key is absent.</param>
+    /// <param name="now">The prepare time.</param>
+    /// <returns>The decision, or <see langword="null" /> when the key is absent or live and no tombstone is needed.</returns>
+    internal static ReplicaDecision? DecideExpire(NodeCacheEntry<object?>? current, DateTime now) =>
+        current != null && IsExpired(current, now) ? Expired(current) : null;
+
+    /// <summary>Returns the passed deadline of an expired entry as the UTC ticks an expiring record carries.</summary>
+    /// <param name="current">The expired entry.</param>
+    /// <returns>The deadline ticks, at least one, so the record always carries a deadline.</returns>
+    internal static long ExpiredTicks(NodeCacheEntry<object?> current) => Math.Max(1L, current.ExpiresUtc.GetValueOrDefault().Ticks);
 
     /// <summary>Returns the effective absolute deadline of an entry written at <paramref name="now" />.</summary>
     /// <param name="entry">The entry to write.</param>
@@ -79,7 +110,18 @@ internal static class ReplicaMutationDecisions
         return PinnedTicks(deadline);
     }
 
+    /// <summary>Decides the deletion of an expired entry: nothing applied, no payload, and the passed deadline the record carries.</summary>
+    /// <param name="current">The expired entry.</param>
+    /// <returns>The decision.</returns>
+    private static ReplicaDecision Expired(NodeCacheEntry<object?> current) => new([], ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty), ExpiredTicks(current));
+
     private static DateTime ExpiresAt(DateTime now, TimeSpan expiration) => now.SaturatedAdd(expiration);
+
+    /// <summary>Tells whether the leader decides an entry expired: its deadline is at or before the prepare time.</summary>
+    /// <param name="current">The stored entry.</param>
+    /// <param name="now">The prepare time.</param>
+    /// <returns><see langword="true" /> when the entry has a deadline at or before <paramref name="now" />.</returns>
+    private static bool IsExpired(NodeCacheEntry<object?> current, DateTime now) => current.ExpiresUtc is { } deadline && deadline.Ticks <= now.Ticks;
 
     /// <summary>Pins a deadline to whole milliseconds, the precision the journal and the snapshots store, so every copy of the entry agrees.</summary>
     /// <param name="expiresUtc">The deadline, or <see langword="null" /> for none.</param>
