@@ -96,6 +96,9 @@ internal sealed class ReplicaGroupState
         }
     }
 
+    /// <summary>Gets the signal published whenever the authority or the known leader of the group may have changed.</summary>
+    internal ReplicaRouteSignal RouteChanged { get; } = new();
+
     /// <summary>Gets the term the driver acts in: the term it follows, campaigns in, or leads.</summary>
     internal ulong Term
     {
@@ -159,10 +162,12 @@ internal sealed class ReplicaGroupState
                 var now = Clock.GetTimestamp();
                 _lastLeaderContact = now;
                 _lastElectionReset = now;
-                if (!string.IsNullOrEmpty(leaderId) && term >= _knownLeaderTerm)
+                if (!string.IsNullOrEmpty(leaderId) && term >= _knownLeaderTerm &&
+                    (term != _knownLeaderTerm || !string.Equals(leaderId, _knownLeader, StringComparison.Ordinal)))
                 {
                     _knownLeader = leaderId;
                     _knownLeaderTerm = term;
+                    RouteChanged.Publish();
                 }
             }
         }
@@ -281,12 +286,14 @@ internal sealed class ReplicaGroupState
             SetRoleLocked(ReplicaGroupRole.Follower);
             _term = term;
             _ = RaiseLocked(term);
-            if (!forgetLeader)
-                return;
+            if (forgetLeader)
+            {
+                _knownLeader = string.Empty;
+                _knownLeaderTerm = 0;
+                _lastLeaderContact = NoContact;
+            }
 
-            _knownLeader = string.Empty;
-            _knownLeaderTerm = 0;
-            _lastLeaderContact = NoContact;
+            RouteChanged.Publish();
         }
     }
 
@@ -312,6 +319,7 @@ internal sealed class ReplicaGroupState
             _knownLeader = string.Empty;
             _knownLeaderTerm = 0;
             _lastLeaderContact = NoContact;
+            RouteChanged.Publish();
             return true;
         }
     }
@@ -327,6 +335,7 @@ internal sealed class ReplicaGroupState
                 return false;
 
             _hasAuthority = true;
+            RouteChanged.Publish();
             return true;
         }
     }
@@ -359,6 +368,7 @@ internal sealed class ReplicaGroupState
                 return;
 
             SetRoleLocked(ReplicaGroupRole.Follower);
+            RouteChanged.Publish();
         }
     }
 
@@ -374,14 +384,20 @@ internal sealed class ReplicaGroupState
     /// <summary>Raises the highest observed term; a leader loses its authority at once to a term above its own.</summary>
     /// <param name="term">The term seen.</param>
     /// <returns><see langword="true" /> when the term is above the driver's term while a driver runs, so the driver must be woken.</returns>
-    /// <remarks>The driver still steps down and retires; the authority is gone before it even wakes, so no write is admitted meanwhile.</remarks>
+    /// <remarks>
+    /// The driver still steps down and retires; the authority is gone before it even wakes, so no write is admitted meanwhile. A revoked
+    /// authority is published as a route change.
+    /// </remarks>
     private bool RaiseLocked(ulong term)
     {
         if (term > _highestObservedTerm)
             _highestObservedTerm = term;
 
-        if (term > _term && _role == ReplicaGroupRole.Leader)
+        if (term > _term && _role == ReplicaGroupRole.Leader && _hasAuthority)
+        {
             _hasAuthority = false;
+            RouteChanged.Publish();
+        }
 
         return _driven && term > _term;
     }
