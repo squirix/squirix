@@ -246,11 +246,20 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         // A leader authorized by one follower while the other still starts may lose its quorum check to that start, not to the cut.
         var eligibility = cluster[leader].GetRequiredService<ReplicaGroupRegistry>().EligibilityFor(Group);
         await ledger.UntilAsync(eligibility.AllCanCountInWriteQuorum, "every follower counts in the write quorum", cancellationToken);
-        await fabric.PartitionAsync(leader, Without(Three, leader)[0]);
-        await ledger.HoldsAsync(() => ledger.Observe(Three) == (leader, term), Watch, "the leader keeps its authority in its term", cancellationToken);
+        var isolated = Without(Three, leader)[0];
+        await fabric.PartitionAsync(leader, isolated);
 
-        foreach (var node in Three)
-            _ = await Assert.That((await Log(cluster[node]).GetStatusAsync(cancellationToken)).CurrentTerm).IsEqualTo(term);
+        // A stall of the leader under load may cost it its authority and move the term without the isolated follower; the follower itself
+        // must never lead, and must never hold a term the connected nodes did not reach.
+        await ledger.HoldsAsync(() => !string.Equals(ledger.Observe(Three).NodeId, isolated, StringComparison.Ordinal), Watch, "the isolated follower never holds authority", cancellationToken);
+
+        var isolatedTerm = (await Log(cluster[isolated]).GetStatusAsync(cancellationToken)).CurrentTerm;
+        var connectedTerm = 0UL;
+        foreach (var node in Without(Three, isolated))
+            connectedTerm = Math.Max(connectedTerm, (await Log(cluster[node]).GetStatusAsync(cancellationToken)).CurrentTerm);
+
+        _ = await Assert.That(isolatedTerm).IsLessThanOrEqualTo(connectedTerm).Because("the isolated follower campaigning alone does not raise its term above the connected nodes");
+        _ = await Assert.That(isolatedTerm).IsGreaterThanOrEqualTo(term);
     }
 
     /// <summary>

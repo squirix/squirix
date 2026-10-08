@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -70,7 +71,7 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
     {
         using var hooks = new StallableFollowerLogFaultHooks();
         await using var registry = await OpenRegistryAsync(hooks, cancellationToken);
-        await using var committer = CreateCommitter(registry, TimeProvider.System);
+        await using var committer = CreateCommitter(registry, new FakeTimeProvider());
         await committer.CommitSetAsync(Guid.NewGuid().ToString("N"), "cache", "k1", Entry(), cancellationToken);
 
         hooks.StallNextMetaWrite();
@@ -91,7 +92,7 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
     {
         using var hooks = new StallableFollowerLogFaultHooks();
         await using var registry = await OpenRegistryAsync(hooks, cancellationToken);
-        await using var committer = CreateCommitter(registry, TimeProvider.System);
+        await using var committer = CreateCommitter(registry, new FakeTimeProvider());
         await committer.CommitSetAsync(Guid.NewGuid().ToString("N"), "cache", "k1", Entry(), cancellationToken);
 
         hooks.StallNextMetaWrite();
@@ -112,7 +113,7 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
     {
         using var hooks = new StallableFollowerLogFaultHooks();
         await using var registry = await OpenRegistryAsync(hooks, cancellationToken);
-        await using var committer = CreateCommitter(registry, TimeProvider.System);
+        await using var committer = CreateCommitter(registry, new FakeTimeProvider());
         var operationId = Guid.NewGuid().ToString("N");
         await committer.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken);
 
