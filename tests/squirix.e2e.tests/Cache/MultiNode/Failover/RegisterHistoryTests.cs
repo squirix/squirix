@@ -178,6 +178,22 @@ public sealed class RegisterHistoryTests : EndToEndTestBase
         _ = await Assert.That(history.Summary()).IsEqualTo("1 acknowledged and 1 failed writes, 3 successful and 1 failed reads");
     }
 
+    /// <summary>Only acknowledged writes and successful reads that started at or after the point in time are counted.</summary>
+    /// <returns>A task that represents the asynchronous test.</returns>
+    [Test]
+    public async Task CountsCallsStartedAfterPoint()
+    {
+        var history = new RegisterHistory();
+        history.RecordWrite(Write(1, 10, 20));
+        history.RecordWrite(Write(2, 30, 40));
+        history.RecordWrite(Write(3, 50, 60, false));
+        history.RecordRead(Read(29, 35, 1));
+        history.RecordRead(Read(30, 45, 2));
+        history.RecordFailedRead();
+
+        _ = await Assert.That(history.StartedAfter(30)).IsEqualTo((1, 1));
+    }
+
     private static RegisterRead Read(long start, long end, long observed) => new(Key, start, end, observed);
 
     private static RegisterWrite Write(long value, long start, long end, bool acked = true) => new(Key, value, start, end, acked);

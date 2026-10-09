@@ -1,10 +1,12 @@
 using System;
 using System.Net;
+using System.Net.Http;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Squirix.Server.TestKit;
@@ -76,6 +78,42 @@ public sealed class TestNodeHostShutdownTests
         }
     }
 
+    /// <summary>
+    /// An abrupt shutdown drops a call that is still running, as a killed process would, instead of answering it with the failure of a
+    /// disposed service.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AbruptShutdownDropsInFlightCalls(CancellationToken cancellationToken)
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var builder = WebApplication.CreateSlimBuilder();
+        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        _ = builder.Services.AddSingleton<DisposalProbe>();
+        var app = builder.Build();
+
+        // The handler answers once its service is disposed, as a call that reaches a torn-down node would.
+        app.Run(async context =>
+        {
+            var probe = context.RequestServices.GetRequiredService<DisposalProbe>();
+            entered.SetResult();
+            await probe.Disposed.WaitAsync(CancellationToken.None);
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        });
+        await app.StartAsync(cancellationToken);
+        Uri? address = null;
+        foreach (var url in app.Urls)
+            address ??= new Uri(url);
+
+        using var client = new HttpClient();
+        await using ITestNodeHost host = new TestNodeHost(app, address!, string.Empty);
+        var call = client.GetAsync(address, cancellationToken);
+        await entered.Task.WaitAsync(cancellationToken);
+
+        await host.AbruptShutdownAsync();
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(call);
+    }
+
     /// <summary>A failing app stop still disposes the app and the owned scope, and the stop failure surfaces to the caller.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -113,11 +151,13 @@ public sealed class TestNodeHostShutdownTests
 
     private sealed class DisposalProbe : IDisposable
     {
-        private int _disposed;
+        private readonly TaskCompletionSource _disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        internal bool IsDisposed => Volatile.Read(ref _disposed) == 1;
+        internal Task Disposed => _disposed.Task;
 
-        public void Dispose() => Volatile.Write(ref _disposed, 1);
+        internal bool IsDisposed => _disposed.Task.IsCompleted;
+
+        public void Dispose() => _ = _disposed.TrySetResult();
     }
 
     private sealed class FailingStopService : IHostedService

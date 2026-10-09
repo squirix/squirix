@@ -107,6 +107,24 @@ internal sealed class RegisterHistory
         return Check(writes, reads);
     }
 
+    /// <summary>Counts the acknowledged writes and the successful reads that started at or after a point in time.</summary>
+    /// <param name="timestamp">The point in time, in <see cref="System.Diagnostics.Stopwatch" /> ticks.</param>
+    /// <returns>The number of acknowledged writes and of successful reads that started at or after it.</returns>
+    internal (int AckedWrites, int Reads) StartedAfter(long timestamp)
+    {
+        var (writes, reads) = (0, 0);
+        lock (_gate)
+        {
+            foreach (ref readonly var write in CollectionsMarshal.AsSpan(_writes))
+                writes += write.Acked && write.Start >= timestamp ? 1 : 0;
+
+            foreach (ref readonly var read in CollectionsMarshal.AsSpan(_reads))
+                reads += read.Start >= timestamp ? 1 : 0;
+        }
+
+        return (writes, reads);
+    }
+
     /// <summary>Records a read that failed; it constrains nothing.</summary>
     internal void RecordFailedRead()
     {
