@@ -35,7 +35,8 @@ public sealed class ConditionalFailoverTests : EndToEndTestBase
 
     /// <summary>
     /// Workers run chains of conditional operations, each on a fresh key of the group, while its leader shuts down abruptly. A chain that
-    /// fails leaves its key ambiguous and is dropped; every chain that completes must see the results of one execution of each call.
+    /// fails leaves its key ambiguous and is dropped, and must fail with a retryable error; every chain that completes must see the results
+    /// of one execution of each call.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -170,6 +171,12 @@ public sealed class ConditionalFailoverTests : EndToEndTestBase
                 return string.Create(CultureInfo.InvariantCulture, $"{_completed.Count} completed and {Volatile.Read(ref _dropped)} dropped chains, {_violations.Count} violations");
         }
 
+        private static string Describe(Exception exception) =>
+            exception is RpcException rpc ? $"{nameof(RpcException)} {rpc.StatusCode} '{rpc.Status.Detail}'" : exception.GetType().Name;
+
+        private static bool IsRetryable(Exception exception) =>
+            exception is CommitOutcomeUnknownException or RpcException { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded };
+
         private static async ValueTask<bool> ServesAsync(ICache<long> cache, string key, CancellationToken cancellationToken)
         {
             try
@@ -227,6 +234,13 @@ public sealed class ConditionalFailoverTests : EndToEndTestBase
             }
             catch (Exception exception) when (exception is RpcException or CommitOutcomeUnknownException)
             {
+                // A leader change may break a chain, but only with a failure the client can act on by retrying; any other one is a violation.
+                if (!IsRetryable(exception))
+                {
+                    lock (_gate)
+                        _violations.Add($"key {key}: the chain broke with {Describe(exception)}, which the client cannot retry");
+                }
+
                 return false;
             }
         }
