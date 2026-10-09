@@ -262,7 +262,8 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
 
     /// <summary>
     /// Followers behind the leader that hold nothing of the group, answered by <see cref="ScriptedGateway" />. Batches with entries can be
-    /// held until their request is canceled, probes can fail with a fault no probe expects, and every call can fail as from a down follower.
+    /// held until their request is canceled; probes can be held until the test releases them, past their wall-clock probe timeout, or fail
+    /// with a fault no probe expects; and every call can fail as from a down follower.
     /// </summary>
     private sealed class HoldingGateway : IReplicaRpcGateway
     {
@@ -303,7 +304,7 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
             if (empty && HoldProbes)
             {
                 _ = _probesHeld.TrySetResult();
-                await _probesReleased.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                await new ValueTask(_probesReleased.Task).ConfigureAwait(false);
             }
 
             if (!empty && HoldEntries)
