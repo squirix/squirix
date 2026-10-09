@@ -309,6 +309,8 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         }
         finally
         {
+            // The held append waits only for this release; release it before stopping so a failed step cannot park the stop.
+            gateway.ReleaseFailure();
             await service.StopAsync(cancellationToken);
         }
 

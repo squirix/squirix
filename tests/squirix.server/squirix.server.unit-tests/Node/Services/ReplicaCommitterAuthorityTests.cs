@@ -122,9 +122,16 @@ public sealed class ReplicaCommitterAuthorityTests : ServerUnitTestBase
         gateway.HoldProbes = true;
 
         var write = committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken);
-        await gateway.ProbeHeld.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-        registry.StateFor(Group).ObserveHigherTerm(3UL);
-        gateway.ReleaseProbes();
+        try
+        {
+            await gateway.ProbeHeld.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            registry.StateFor(Group).ObserveHigherTerm(3UL);
+        }
+        finally
+        {
+            // The held probe waits only for this release, so a failed wait above must not leave it parked until the hang guard.
+            gateway.ReleaseProbes();
+        }
 
         var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(write.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
 
