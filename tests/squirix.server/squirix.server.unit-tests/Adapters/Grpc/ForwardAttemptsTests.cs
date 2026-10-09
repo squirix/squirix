@@ -146,8 +146,8 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         await using var pool = CreatePool(
             () => new SocketsHttpHandler { ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(stream) },
             new Uri("http://localhost:6500"),
-            TimeSpan.FromSeconds(2));
-        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(2), 1));
+            TimeSpan.FromSeconds(1));
+        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(1), 1));
 
         var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
 
