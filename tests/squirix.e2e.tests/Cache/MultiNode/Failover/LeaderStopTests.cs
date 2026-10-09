@@ -79,7 +79,8 @@ public sealed class LeaderStopTests : EndToEndTestBase
                 await cluster.RestartNodeAsync(former, cancellationToken);
                 var leader = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
 
-                // Stop the member that is neither the leader nor the rejoined node, so the majority needs the rejoined node.
+                // Stop the member that is neither the leader nor the rejoined node, so the majority needs the rejoined node; when the rejoined
+                // node leads again, stop either other member: the remaining majority still holds the rejoined node, now as its leader.
                 var follower = Array.Find(FailoverSteps.ThreeNodes, id => !string.Equals(id, leader.NodeId, StringComparison.Ordinal) && !string.Equals(id, former, StringComparison.Ordinal))
                                ?? FailoverSteps.Except(FailoverSteps.ThreeNodes, leader.NodeId)[0];
                 var majority = FailoverSteps.Except(FailoverSteps.ThreeNodes, follower);
