@@ -51,7 +51,7 @@ public sealed class NonMemberEntryFailoverTests : EndToEndTestBase
             {
                 var survivors = FailoverSteps.Except(Members, former);
                 var scene = new FailoverFault.Scene(cluster, probe, timeline, CacheName, Group, KeyOwnerHelper.FiveNode);
-                var run = await FailoverFault.RunAsync(scene, Entries, "entries", (former, $"leader {former} stops"), cancellationToken);
+                var run = await FailoverFault.RunAsync(scene, Entries, "entries", (former, $"leader {former} stops", null), cancellationToken);
                 _ = await Assert.That(run.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(timeline.Dump() + Eventually.Dump(run.Attempts));
                 var (leader, term) = await probe.WaitForStableLeaderAsync(Group, survivors, FailoverSteps.Bound, cancellationToken);
                 await FailoverSteps.ReadFinalAsync(run.Workload.History, run.Reader, run.Keys, cancellationToken);

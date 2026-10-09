@@ -35,13 +35,13 @@ internal static class FailoverFault
     /// <param name="scene">The cluster, the group and its keys, the leader probe whose ledger checks election safety throughout, and the timeline.</param>
     /// <param name="clientNodes">Nodes that run through the fault: the writer and the probe connect to the first, the reader to the second.</param>
     /// <param name="prefix">The prefix of the register and probe keys, distinct per fault.</param>
-    /// <param name="fault">The node that stops, and the fault for the timeline.</param>
+    /// <param name="fault">The node that stops, the fault for the timeline, and the stop, which completes once the node is down; <see langword="null" /> stops the node gracefully.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>What the fault recorded.</returns>
-    internal static async Task<FaultRun> RunAsync(Scene scene, string[] clientNodes, string prefix, (string NodeId, string What) fault, CancellationToken cancellationToken)
+    internal static async Task<FaultRun> RunAsync(Scene scene, string[] clientNodes, string prefix, (string NodeId, string What, Func<ValueTask>? Stop) fault, CancellationToken cancellationToken)
     {
-        var writer = await scene.Cluster.GetCacheAsync<long>(scene.CacheName, clientNodes[0], cancellationToken);
-        var reader = await scene.Cluster.GetCacheAsync<long>(scene.CacheName, clientNodes[1], cancellationToken);
+        var writer = await (await scene.Cluster.ConnectClientAsync(clientNodes[0], cancellationToken)).GetCacheAsync<long>(scene.CacheName, cancellationToken);
+        var reader = await (await scene.Cluster.ConnectClientAsync(clientNodes[1], cancellationToken)).GetCacheAsync<long>(scene.CacheName, cancellationToken);
         var keys = FailoverSteps.KeysOf(scene.Ring, scene.CacheName, scene.Group, prefix, 4);
         var probeKey = FailoverSteps.KeysOf(scene.Ring, scene.CacheName, scene.Group, prefix + "-probe", 1)[0];
         var registers = new RegisterWorkload(writer, reader, keys);
@@ -60,8 +60,10 @@ internal static class FailoverFault
 
             var started = Stopwatch.GetTimestamp();
             scene.Timeline.Mark(fault.What);
-            stopping = scene.Cluster.StopNodeAsync(fault.NodeId).AsTask();
+            var stop = fault.Stop ?? (() => scene.Cluster.StopNodeAsync(fault.NodeId));
+            stopping = stop().AsTask();
             await stopping;
+            var down = Stopwatch.GetTimestamp();
             scene.Timeline.Mark($"{fault.NodeId} is down");
 
             // The probe starts only once the node is down, so a stopped leader cannot acknowledge it in its own term.
@@ -73,7 +75,7 @@ internal static class FailoverFault
             recovered.SetResult();
             await running;
             await safety;
-            return new FaultRun(registers, keys, reader, read, elapsed, attempts, acked, stoppedWhileAcked);
+            return new FaultRun(registers, keys, reader, read, elapsed, attempts, acked, stoppedWhileAcked, down);
         }
         catch
         {
@@ -109,6 +111,7 @@ internal static class FailoverFault
     /// <param name="Attempts">The attempts of the probe.</param>
     /// <param name="Acked">The node holding authority over the group right after the probe succeeded, and its term.</param>
     /// <param name="StoppedWhileAcked">Whether the stopped node was still down right after the probe succeeded.</param>
+    /// <param name="Down">When the stopped node was down, in <see cref="Stopwatch" /> ticks.</param>
     [StructLayout(LayoutKind.Auto)]
     internal readonly record struct FaultRun(
         RegisterWorkload Workload,
@@ -118,5 +121,6 @@ internal static class FailoverFault
         TimeSpan Elapsed,
         List<EventualAttempt> Attempts,
         (string NodeId, ulong Term) Acked,
-        bool StoppedWhileAcked);
+        bool StoppedWhileAcked,
+        long Down);
 }

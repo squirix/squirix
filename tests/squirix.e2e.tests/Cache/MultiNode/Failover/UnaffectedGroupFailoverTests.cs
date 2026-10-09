@@ -144,7 +144,7 @@ public sealed class UnaffectedGroupFailoverTests : EndToEndTestBase
                 "the workload over the unaffected groups makes progress",
                 cancellationToken);
 
-            var run = await FailoverFault.RunAsync(scene, survivors, "affected", (victim, $"leader {victim} stops"), cancellationToken);
+            var run = await FailoverFault.RunAsync(scene, survivors, "affected", (victim, $"leader {victim} stops", null), cancellationToken);
             recovered.SetResult();
             await running;
             return (run, unaffected);

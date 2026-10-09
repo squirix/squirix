@@ -45,13 +45,13 @@ public sealed class FiveNodeLeaderStopTests : EndToEndTestBase
             try
             {
                 var fourSurvivors = FailoverSteps.Except(FailoverSteps.FiveNodes, first);
-                var one = await FailoverFault.RunAsync(scene, fourSurvivors, "first", (first, $"leader {first} stops"), cancellationToken);
+                var one = await FailoverFault.RunAsync(scene, fourSurvivors, "first", (first, $"leader {first} stops", null), cancellationToken);
                 _ = await Assert.That(one.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(timeline.Dump() + Eventually.Dump(one.Attempts));
                 var (second, secondTerm) = await probe.WaitForStableLeaderAsync(Group, fourSurvivors, FailoverSteps.Bound, cancellationToken);
                 var elected = timeline.TimestampOf(FailoverPhase.NewLeader) ?? long.MaxValue;
 
                 var threeSurvivors = FailoverSteps.Except(fourSurvivors, second);
-                var two = await FailoverFault.RunAsync(scene, threeSurvivors, "second", (second, $"leader {second} stops"), cancellationToken);
+                var two = await FailoverFault.RunAsync(scene, threeSurvivors, "second", (second, $"leader {second} stops", null), cancellationToken);
                 _ = await Assert.That(two.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(timeline.Dump() + Eventually.Dump(two.Attempts));
                 var (third, thirdTerm) = await probe.WaitForStableLeaderAsync(Group, threeSurvivors, FailoverSteps.Bound, cancellationToken);
                 var thirdElected = timeline.TimestampOf(FailoverPhase.NewLeader) ?? long.MaxValue;
