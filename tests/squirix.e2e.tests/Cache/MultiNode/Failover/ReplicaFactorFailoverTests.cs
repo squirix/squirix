@@ -37,7 +37,7 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
     public async Task RfTwoDoesNotFailOverAfterOneMemberStops(CancellationToken cancellationToken)
     {
         var timing = FailoverTiming.For(nameof(RfTwoDoesNotFailOverAfterOneMemberStops));
-        await using var cluster = await HostedCluster.StartTwoNodeAsync(Options(2, timing), nameof(RfTwoDoesNotFailOverAfterOneMemberStops), true, cancellationToken);
+        await using var cluster = await HostedCluster.StartTwoNodeAsync(Options(2), nameof(RfTwoDoesNotFailOverAfterOneMemberStops), true, cancellationToken);
         var client = await cluster.ConnectClientAsync("nodeA", cancellationToken);
         var cache = await client.GetCacheAsync<long>(CacheName, cancellationToken);
         var kept = KeyOwnerHelper.TwoNode.FindKeyOwnedBy(CacheName, "nodeA", "rf2-kept");
@@ -78,7 +78,7 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
     public async Task RfOneHasNoElectionPath(CancellationToken cancellationToken)
     {
         var timing = FailoverTiming.For(nameof(RfOneHasNoElectionPath));
-        await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(RfOneHasNoElectionPath), Options(1, timing), true, cancellationToken);
+        await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(RfOneHasNoElectionPath), Options(1), true, cancellationToken);
         var writer = await cluster.ConnectClientAsync("nodeB", cancellationToken);
         var reader = await cluster.ConnectClientAsync("nodeC", cancellationToken);
         var cache = await writer.GetCacheAsync<long>(CacheName, cancellationToken);
@@ -114,11 +114,7 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
     /// <returns><see langword="true" /> when the product refused the call.</returns>
     private static bool IsRefusal(Exception failure) => failure is RpcException { StatusCode: not StatusCode.Cancelled } or CommitOutcomeUnknownException;
 
-    private static MultiNodeStartOptions Options(int replicaCount, TestElectionTiming timing) => new()
-    {
-        ReplicaCount = replicaCount,
-        ElectionTiming = timing,
-    };
+    private static MultiNodeStartOptions Options(int replicaCount) => new() { ReplicaCount = replicaCount };
 
     /// <summary>Runs a call that must fail, and measures how long it took to fail.</summary>
     /// <typeparam name="TState">The type of the state the call reads.</typeparam>
