@@ -407,9 +407,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     /// <remarks>A new record evicts completed outcomes of any age; when every record is in flight it exceeds the capacity.</remarks>
     private void AdmitLocked(string operationId, in StoredRecord stored)
     {
-#pragma warning disable MA0160 // Intentional single-lookup TryGetValue: ContainsKey plus indexer would hash twice (see ZA0105).
-        if (!_records.TryGetValue(operationId, out _))
-#pragma warning restore MA0160
+        if (!_records.ContainsKey(operationId))
         {
             while (_records.Count >= _options.MaxInFlightRecords && TryEvictOldestCompletedLocked(null, default, 0))
                 _metrics.RecordEviction(_nodeId);
