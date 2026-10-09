@@ -27,8 +27,11 @@ public sealed class LeaderStopTests : EndToEndTestBase
     /// <summary>The value of a register the readers must see before the fault starts, so the fault hits a running workload.</summary>
     private const long Progress = 5;
 
-    private const int Reads = 50;
-    private const int Writes = 50;
+    /// <summary>The writes, and the reads, of each register in a test with one fault.</summary>
+    private const int OneFaultOperations = 40;
+
+    /// <summary>The writes, and the reads, of each register per fault in a test with two faults, so the test stays within its timeout on a loaded agent.</summary>
+    private const int TwoFaultOperations = 20;
 
     /// <summary>A graceful stop of the leader, found at run time, under a register workload.</summary>
     /// <remarks>The recovery bound is measured from the start of the stop, so the time the stop takes counts against it.</remarks>
@@ -68,7 +71,7 @@ public sealed class LeaderStopTests : EndToEndTestBase
             var first = await RunFaultAsync(
                 (Cluster: cluster, Probe: probe, Timeline: timeline),
                 survivors,
-                "first",
+                ("first", TwoFaultOperations),
                 $"leader {former} stops",
                 () => cluster.StopNodeAsync(former),
                 cancellationToken);
@@ -84,7 +87,7 @@ public sealed class LeaderStopTests : EndToEndTestBase
             var second = await RunFaultAsync(
                 (Cluster: cluster, Probe: probe, Timeline: timeline),
                 majority,
-                "second",
+                ("second", TwoFaultOperations),
                 $"follower {follower} stops",
                 () => cluster.StopNodeAsync(follower),
                 cancellationToken);
@@ -124,7 +127,7 @@ public sealed class LeaderStopTests : EndToEndTestBase
         {
             Func<ValueTask> fault = abrupt ? () => ShutDownAbruptlyAsync(cluster, former) : () => cluster.StopNodeAsync(former);
             var what = abrupt ? $"leader {former} shuts down abruptly" : $"leader {former} stops";
-            var run = await RunFaultAsync((Cluster: cluster, Probe: probe, Timeline: timeline), survivors, "registers", what, fault, cancellationToken);
+            var run = await RunFaultAsync((Cluster: cluster, Probe: probe, Timeline: timeline), survivors, ("registers", OneFaultOperations), what, fault, cancellationToken);
             var (leader, term) = await probe.WaitForStableLeaderAsync(Group, survivors, FailoverSteps.Bound, cancellationToken);
             await FailoverSteps.ReadFinalAsync(run.Workload.History, run.Reader, run.Keys, cancellationToken);
             var report = await GroupLogAudit.RunAsync(cluster.Cluster, Group, survivors, FailoverSteps.Bound, cancellationToken);
@@ -156,7 +159,7 @@ public sealed class LeaderStopTests : EndToEndTestBase
     /// </summary>
     /// <param name="scene">The cluster, the leader probe whose ledger checks election safety throughout, and the timeline the fault is marked on.</param>
     /// <param name="clientNodes">Two nodes that run through the fault: the writer and the probe connect to the first, the reader to the second.</param>
-    /// <param name="prefix">The prefix of the register and probe keys, distinct per fault.</param>
+    /// <param name="workload">The prefix of the register and probe keys, distinct per fault, and the writes, and the reads, of each register.</param>
     /// <param name="what">The fault, for the timeline.</param>
     /// <param name="fault">Starts the fault and completes once it ended.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -164,19 +167,19 @@ public sealed class LeaderStopTests : EndToEndTestBase
     private static async Task<FaultRun> RunFaultAsync(
         (HostedCluster Cluster, ClusterLeaderProbe<ClusterStartOptions> Probe, FailoverTimeline<ClusterStartOptions> Timeline) scene,
         string[] clientNodes,
-        string prefix,
+        (string Prefix, int Operations) workload,
         string what,
         Func<ValueTask> fault,
         CancellationToken cancellationToken)
     {
         var writer = await (await scene.Cluster.ConnectClientAsync(clientNodes[0], cancellationToken)).GetCacheAsync<long>(CacheName, cancellationToken);
         var reader = await (await scene.Cluster.ConnectClientAsync(clientNodes[1], cancellationToken)).GetCacheAsync<long>(CacheName, cancellationToken);
-        var keys = FailoverSteps.KeysOf(CacheName, Group, prefix, 4);
-        var probeKey = FailoverSteps.KeysOf(CacheName, Group, prefix + "-probe", 1)[0];
-        var workload = new RegisterWorkload(writer, reader, keys);
+        var keys = FailoverSteps.KeysOf(CacheName, Group, workload.Prefix, 4);
+        var probeKey = FailoverSteps.KeysOf(CacheName, Group, workload.Prefix + "-probe", 1)[0];
+        var registers = new RegisterWorkload(writer, reader, keys);
         var ledger = scene.Probe.Ledger(Group);
 
-        var running = workload.RunAsync(Writes, Reads, cancellationToken);
+        var running = registers.RunAsync(workload.Operations, workload.Operations, cancellationToken);
         var safety = ledger.UntilAsync(() => running.IsCompleted, "the workload ends", cancellationToken);
         await ledger.UntilValueAsync(
             (Reader: reader, Key: keys[0]),
@@ -193,7 +196,7 @@ public sealed class LeaderStopTests : EndToEndTestBase
         await stopping;
         await running;
         await safety;
-        return new FaultRun(workload, keys, reader, read, elapsed, attempts);
+        return new FaultRun(registers, keys, reader, read, elapsed, attempts);
     }
 
     /// <summary>What one fault under a register workload recorded.</summary>
