@@ -179,7 +179,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         _ = await Assert.That(elapsed).IsLessThan(TimeSpan.FromSeconds(10)).Because($"the keepalive must close the connection long before the 30 s attempt timeout, took {elapsed}");
         _ = await Assert.That(failure.StatusCode).IsNotEqualTo(StatusCode.DeadlineExceeded);
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsFalse().Because($"the request was written, got {failure.Status}");
-        _ = await Assert.That(stream.Written).IsGreaterThan(0L);
+        _ = await Assert.That(stream.RequestHeadersWritten).IsTrue().Because("a HEADERS frame after the connection preface proves the request itself was written");
     }
 
     /// <summary>
@@ -337,8 +337,17 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     /// <summary>A connection that takes every byte written to it and never answers, until it is disposed.</summary>
     private sealed class SilentStream : Stream
     {
+        private const int PrefaceLength = 24;
+        private const int FrameHeaderLength = 9;
+        private const byte HeadersFrameType = 0x1;
+
         private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly Lock _frameGate = new();
+        private readonly byte[] _frameHeader = new byte[FrameHeaderLength];
         private long _written;
+        private int _prefaceRemaining = PrefaceLength;
+        private int _frameHeaderFilled;
+        private int _payloadRemaining;
 
         public override bool CanRead => true;
 
@@ -356,6 +365,9 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
 
         /// <summary>Gets the number of bytes written to the connection.</summary>
         internal long Written => Interlocked.Read(ref _written);
+
+        /// <summary>Gets a value indicating whether an HTTP/2 HEADERS frame on a non-zero stream was written after the connection preface.</summary>
+        internal bool RequestHeadersWritten { get; private set; }
 
         public override void Flush()
         {
@@ -375,11 +387,11 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
 
         public override void SetLength(long value) => throw new NotSupportedException();
 
-        public override void Write(byte[] buffer, int offset, int count) => _ = Interlocked.Add(ref _written, count);
+        public override void Write(byte[] buffer, int offset, int count) => Record(buffer.AsSpan(offset, count));
 
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            _ = Interlocked.Add(ref _written, buffer.Length);
+            Record(buffer.Span);
             return ValueTask.CompletedTask;
         }
 
@@ -387,6 +399,46 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         {
             _ = _closed.TrySetResult();
             base.Dispose(disposing);
+        }
+
+        /// <summary>Counts the bytes and walks the HTTP/2 frames in them; writes may split or merge frames.</summary>
+        /// <param name="data">The bytes written.</param>
+        private void Record(ReadOnlySpan<byte> data)
+        {
+            _ = Interlocked.Add(ref _written, data.Length);
+            lock (_frameGate)
+            {
+                while (!data.IsEmpty)
+                {
+                    if (_prefaceRemaining > 0)
+                    {
+                        var skip = Math.Min(_prefaceRemaining, data.Length);
+                        _prefaceRemaining -= skip;
+                        data = data[skip..];
+                    }
+                    else if (_payloadRemaining > 0)
+                    {
+                        var skip = Math.Min(_payloadRemaining, data.Length);
+                        _payloadRemaining -= skip;
+                        data = data[skip..];
+                    }
+                    else
+                    {
+                        var take = Math.Min(FrameHeaderLength - _frameHeaderFilled, data.Length);
+                        data[..take].CopyTo(_frameHeader.AsSpan(_frameHeaderFilled));
+                        _frameHeaderFilled += take;
+                        data = data[take..];
+                        if (_frameHeaderFilled < FrameHeaderLength)
+                            continue;
+
+                        _frameHeaderFilled = 0;
+                        _payloadRemaining = (_frameHeader[0] << 16) | (_frameHeader[1] << 8) | _frameHeader[2];
+                        var streamId = ((_frameHeader[5] & 0x7F) << 24) | (_frameHeader[6] << 16) | (_frameHeader[7] << 8) | _frameHeader[8];
+                        if (_frameHeader[3] == HeadersFrameType && streamId != 0)
+                            RequestHeadersWritten = true;
+                    }
+                }
+            }
         }
     }
 }
