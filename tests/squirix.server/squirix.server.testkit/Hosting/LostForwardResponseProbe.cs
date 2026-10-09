@@ -14,7 +14,7 @@ namespace Squirix.Server.TestKit.Hosting;
 /// Simulates a lost response on the hop from an entry node to a key owner: the owner executes the forwarded mutation and records its outcome,
 /// but the entry node never receives the response and every further forward of that key from the entry node fails as unreachable.
 /// </summary>
-/// <remarks>Register the probe on the entry node only. Only <c language="csharp">SetEntry</c>, <c language="csharp">TryAddEntry</c> and <c language="csharp">GetOrAdd</c> forwards of armed keys are affected.</remarks>
+/// <remarks>Only <c language="csharp">SetEntry</c>, <c language="csharp">TryAddEntry</c> and <c language="csharp">GetOrAdd</c> forwards of armed keys are affected.</remarks>
 internal sealed class LostForwardResponseProbe
 {
     private readonly ConcurrentDictionary<string, KeyFault> _faults = new(StringComparer.Ordinal);
@@ -117,14 +117,29 @@ internal sealed class LostForwardResponseProbe
             _probe = probe;
         }
 
+        public override AsyncUnaryCall<GetEntryAsyncResponse> GetEntryAsync(GetEntryAsyncRequest request, CallOptions options) => _inner.GetEntryAsync(request, options);
+
+        public override AsyncUnaryCall<GetExpirationAsyncResponse> GetExpirationAsync(GetExpirationAsyncRequest request, CallOptions options) => _inner.GetExpirationAsync(request, options);
+
         public override AsyncUnaryCall<GetOrAddAsyncResponse> GetOrAddAsync(GetOrAddAsyncRequest request, CallOptions options) =>
             _probe.Forward(request.Key, () => _inner.GetOrAddAsync(request, options));
+
+        public override AsyncUnaryCall<GetValueAsyncResponse> GetValueAsync(GetValueAsyncRequest request, CallOptions options) => _inner.GetValueAsync(request, options);
+
+        public override AsyncUnaryCall<RemoveAsyncResponse> RemoveAsync(RemoveAsyncRequest request, CallOptions options) => _inner.RemoveAsync(request, options);
+
+        public override AsyncUnaryCall<RemoveExpirationAsyncResponse> RemoveExpirationAsync(RemoveExpirationAsyncRequest request, CallOptions options) =>
+            _inner.RemoveExpirationAsync(request, options);
 
         public override AsyncUnaryCall<SetAsyncResponse> SetEntryAsync(SetEntryAsyncRequest request, CallOptions options) =>
             _probe.Forward(request.Key, () => _inner.SetEntryAsync(request, options));
 
         public override AsyncUnaryCall<TryAddAsyncResponse> TryAddEntryAsync(TryAddEntryAsyncRequest request, CallOptions options) =>
             _probe.Forward(request.Key, () => _inner.TryAddEntryAsync(request, options));
+
+        public override AsyncUnaryCall<TouchAsyncResponse> TouchAsync(TouchAsyncRequest request, CallOptions options) => _inner.TouchAsync(request, options);
+
+        public override AsyncUnaryCall<UpdateAsyncResponse> UpdateAsync(UpdateAsyncRequest request, CallOptions options) => _inner.UpdateAsync(request, options);
     }
 
     private sealed class LossyPool : IServerClientPool
