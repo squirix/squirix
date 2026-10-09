@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.IO;
 using System.Net.Http;
@@ -153,6 +154,32 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsFalse();
         _ = await Assert.That(stream.Written).IsGreaterThan(0L).Because("the connection was established and written to before the attempt timed out");
+    }
+
+    /// <summary>
+    /// A forward written to a connection whose peer then goes silent, and failed by the keepalive pings closing that connection long before its
+    /// per-attempt timeout, stays ambiguous: the peer may have received it, so it is neither a timeout nor reported as unreachable.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task KeepAliveAbortStaysAmbiguous(CancellationToken cancellationToken)
+    {
+        await using var stream = new SilentStream();
+        await using var pool = CreatePool(
+            () => new SocketsHttpHandler { ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(stream) },
+            new Uri("http://localhost:6500"),
+            TimeSpan.FromSeconds(1));
+        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(30), 1));
+
+        var started = Stopwatch.GetTimestamp();
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
+        var elapsed = Stopwatch.GetElapsedTime(started);
+
+        // The delay, the ping timeout and the two heartbeat ticks of the handler add up to at most five seconds; the bound leaves slack for a loaded host.
+        _ = await Assert.That(elapsed).IsLessThan(TimeSpan.FromSeconds(10)).Because($"the keepalive must close the connection long before the 30 s attempt timeout, took {elapsed}");
+        _ = await Assert.That(failure.StatusCode).IsNotEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsFalse().Because($"the request was written, got {failure.Status}");
+        _ = await Assert.That(stream.Written).IsGreaterThan(0L);
     }
 
     /// <summary>
