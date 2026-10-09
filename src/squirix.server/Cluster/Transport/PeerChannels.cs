@@ -40,15 +40,19 @@ internal sealed class PeerChannels
     /// <remarks>
     /// The handler checks its connections once per second (a quarter of the shorter of the two bounds, but at least a second), so a ping goes
     /// out up to a tick after the delay and its timeout is noticed up to a tick after it expired: a silent connection is closed after
-    /// <see cref="KeepAlivePingDelay" /> plus <see cref="KeepAlivePingTimeout" /> plus up to two ticks, three to four seconds, against the
-    /// 3-second per-attempt timeout of a forward. A forward written before that ends as the attempt timeout or as the failure of the closed
-    /// connection, both ambiguous; the next one dials anew, fails at the dial bound and falls back to another member. An idle connection costs
-    /// one ping and its acknowledgement per second.
+    /// <see cref="KeepAlivePingDelay" /> plus <see cref="KeepAlivePingTimeout" /> plus up to two ticks, four to five seconds, so a forward
+    /// written to it meanwhile usually ends as the 3-second per-attempt timeout. Such a forward, and one failed by the closed connection, are
+    /// ambiguous; the first one after the connection is closed dials anew, fails at the dial bound and falls back to another member. An idle
+    /// connection costs one ping and its acknowledgement per second.
     /// </remarks>
     private static readonly TimeSpan KeepAlivePingDelay = TimeSpan.FromSeconds(1);
 
-    /// <summary>How long the handler waits for the acknowledgement of a ping before it closes the connection; the shortest timeout the handler accepts.</summary>
-    private static readonly TimeSpan KeepAlivePingTimeout = TimeSpan.FromSeconds(1);
+    /// <summary>How long the handler waits for the acknowledgement of a ping before it closes the connection.</summary>
+    /// <remarks>
+    /// Two seconds, not the one-second minimum: a ping that is answered late because the peer or this process paused (a garbage collection, a
+    /// starved thread pool) does not close a healthy connection, at the price of one more second before a dead one is found.
+    /// </remarks>
+    private static readonly TimeSpan KeepAlivePingTimeout = TimeSpan.FromSeconds(2);
 
     private PeerChannels(GrpcChannel forward, GrpcChannel lease)
     {
