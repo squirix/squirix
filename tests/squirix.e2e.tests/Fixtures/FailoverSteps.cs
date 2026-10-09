@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2ETests.Fixtures;
 
@@ -44,14 +45,19 @@ internal static class FailoverSteps
     /// <summary>The cluster options of a failover test: three replicas, automatic failover with quorum reads, and the pull request tier timing.</summary>
     /// <param name="testName">The test name, which seeds the election jitter.</param>
     /// <param name="nodeClock">An optional clock per node.</param>
+    /// <param name="fabric">An optional fabric the nodes dial each other through, which must outlive the cluster.</param>
     /// <returns>The options.</returns>
-    internal static MultiNodeStartOptions Options(string testName, Func<string, TimeProvider?>? nodeClock = null) => new()
+    internal static MultiNodeStartOptions Options(string testName, Func<string, TimeProvider?>? nodeClock = null, PartitionFabric? fabric = null)
     {
-        ReplicaCount = 3,
-        Failover = true,
-        ElectionTiming = FailoverTiming.For(testName),
-        NodeClock = nodeClock,
-    };
+        return new MultiNodeStartOptions
+        {
+            ReplicaCount = 3,
+            Failover = true,
+            ElectionTiming = FailoverTiming.For(testName),
+            NodeClock = nodeClock,
+            PartitionFabric = fabric,
+        };
+    }
 
     /// <summary>Reads every register once more after the workload, so an acknowledged write lost by the fault fails the history check.</summary>
     /// <param name="history">The history of the workload.</param>
