@@ -39,6 +39,9 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     /// <summary>Bounds every wait for an election and every client call; the timeouts below elect within seconds.</summary>
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(90);
 
+    /// <summary>Bounds the forward channel's keepalive detection of a silent peer: five seconds at worst, doubled for a loaded host.</summary>
+    private static readonly TimeSpan KeepAliveDetectionBound = TimeSpan.FromSeconds(10);
+
     private static readonly string[] Nodes = [OwnerId, "node-b", "node-c"];
 
     /// <summary>Four nodes, three replicas: the group of the owner is the owner, node-b and node-c, so node-d serves no part of it.</summary>
@@ -264,15 +267,17 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             fabric.HoldDirection(survivor, OwnerId);
         }
 
+        // The keepalive pings close the connection the entry node holds to the owner, which drops its open connection count. Without them the
+        // connection stays open until the pool's one-minute idle timeout closes it, past the bound.
+        await cluster.WaitUntilAsync(_ => entryPool.OpenConnections < openBefore, KeepAliveDetectionBound, cancellationToken);
+
         var leader = await LeaderAsync(cluster, survivors, cancellationToken);
         var follower = Array.Find(survivors, id => !string.Equals(id, leader, StringComparison.Ordinal))!;
         await cluster.WaitUntilAsync(nodes => Follows(nodes[follower], leader, out _), Bound, cancellationToken);
 
-        // The keepalive pings close the connection the entry node holds to the owner, which drops its open connection count; once they did, a
-        // write dials anew: it fails at the dial bound (one second) and takes the new leader, and at worst one more attempt follows the leader the
-        // entry node learns. The bound is the per-attempt timeout (three seconds) of such a failed attempt plus the dial bound, twice, plus
-        // slack for a loaded host.
-        await cluster.WaitUntilAsync(_ => entryPool.OpenConnections < openBefore, Bound, cancellationToken);
+        // With the dead connection gone, a write dials anew: it fails at the dial bound (one second) and takes the new leader, and at worst one
+        // more attempt follows the leader the entry node learns. The bound is the per-attempt timeout (three seconds) of such a failed attempt
+        // plus the dial bound, twice, plus slack for a loaded host.
         var outcomes = new List<string>();
         var started = Stopwatch.GetTimestamp();
         RpcException? refusal;
