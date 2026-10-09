@@ -26,10 +26,10 @@ internal sealed class TopologyOptions
 
     internal required string ClusterId { get; init; } = "cluster";
 
-    /// <summary>Gets a value indicating whether automatic failover may trigger leader election. Always disabled until failover activation.</summary>
+    /// <summary>Gets a value indicating whether automatic failover may trigger leader election (default false).</summary>
     internal bool AutomaticFailoverEnabled { get; init; }
 
-    /// <summary>Gets a value indicating whether quorum reads require majority confirmation. Always disabled until quorum-read activation.</summary>
+    /// <summary>Gets a value indicating whether quorum reads require majority confirmation (default false).</summary>
     internal bool QuorumReadsEnabled { get; init; }
 
     /// <summary>Gets the configuration generation of the cluster topology (must be greater than zero).</summary>

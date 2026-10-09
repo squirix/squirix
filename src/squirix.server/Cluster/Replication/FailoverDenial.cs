@@ -6,7 +6,7 @@ internal enum FailoverDenial
     /// <summary>The node is eligible to start an election.</summary>
     None = 0,
 
-    /// <summary>Automatic failover is not enabled, even after the proof matrix.</summary>
+    /// <summary>Automatic failover is not enabled: the opt-in switch is off.</summary>
     Disabled = 1,
 
     /// <summary>Single-node groups never elect.</summary>

@@ -38,9 +38,11 @@ Details: [bootstrap-client-failover.md](bootstrap-client-failover.md).
 - RF=2 is a synchronous mirror only: the majority is two, so losing either member stops RF=2 writes and no
   replacement is elected; RF=2 never promotes after peer loss
 - RF>=3 with persistence and mTLS survives single-node loss on the remaining majority; automatic failover and
-  quorum reads apply only to RF>=3 after the proof matrix (see [architecture/replication-consensus.md](architecture/replication-consensus.md))
-- Automatic failover is off in this release: the owner of each key leads its replica group. Leader election for RF>=3 is
-  implemented behind an internal switch that is not configurable yet; RF=1 and RF=2 never elect
+  quorum reads apply only to RF>=3 (see [architecture/replication-consensus.md](architecture/replication-consensus.md))
+- Automatic failover is off by default: the owner of each key leads its replica group. With `AutomaticFailoverEnabled`
+  and `QuorumReadsEnabled` on, which validation requires together, RF>=3 groups elect a new leader when the leader goes
+  silent and confirm every read with a majority (see [configuration.md](configuration.md#automatic-failover-and-quorum-reads));
+  RF=1 and RF=2 never elect
 - Multi-key operations are not transactions across owners
 - Memory pressure may reject growing writes before they are persisted
 - Journal disk quota may reject durable appends with `JOURNAL_DISK_QUOTA` before they are persisted

@@ -148,6 +148,8 @@ M:Squirix.Server.SquirixServerOptions::.ctor()
 M:Squirix.Server.SquirixServerOptions::TryValidate(System.Collections.Generic.IReadOnlyList<System.String>&)
 M:Squirix.Server.SquirixServerOptions::UsePersistence(System.String)
 M:Squirix.Server.SquirixServerOptions::Validate()
+P:Squirix.Server.SquirixServerOptions::AutomaticFailoverEnabled:System.Boolean.get
+P:Squirix.Server.SquirixServerOptions::AutomaticFailoverEnabled:System.Boolean.set
 P:Squirix.Server.SquirixServerOptions::Backpressure:Squirix.Server.SquirixServerBackpressureOptions.get
 P:Squirix.Server.SquirixServerOptions::Backpressure:Squirix.Server.SquirixServerBackpressureOptions.set
 P:Squirix.Server.SquirixServerOptions::ClusterId:System.String.get
@@ -164,6 +166,8 @@ P:Squirix.Server.SquirixServerOptions::Peers:System.Collections.Generic.IReadOnl
 P:Squirix.Server.SquirixServerOptions::Peers:System.Collections.Generic.IReadOnlyList<Squirix.Server.SquirixServerPeerOptions>.set
 P:Squirix.Server.SquirixServerOptions::PersistenceEnabled:System.Boolean.get
 P:Squirix.Server.SquirixServerOptions::PersistenceEnabled:System.Boolean.set
+P:Squirix.Server.SquirixServerOptions::QuorumReadsEnabled:System.Boolean.get
+P:Squirix.Server.SquirixServerOptions::QuorumReadsEnabled:System.Boolean.set
 P:Squirix.Server.SquirixServerOptions::ReplicaCount:System.Int32.get
 P:Squirix.Server.SquirixServerOptions::ReplicaCount:System.Int32.set
 P:Squirix.Server.SquirixServerOptions::ReplicationEnabled:System.Boolean.get

@@ -10,16 +10,48 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
-/// <summary>Automatic failover stays disabled until failover activation.</summary>
+/// <summary>Automatic failover defaults off and elects only on an explicit opt-in with three or more replicas.</summary>
 [Immutable]
 public sealed class FailoverActivationTests : ServerUnitTestBase
 {
-    /// <summary>Explicit post-proof opt-in enables RF=3 election; every other shape stays fenced.</summary>
+    /// <summary>The failover switch defaults off for any replica factor and no feature state enables it.</summary>
     [Test]
-    public async Task AutomaticFailoverEnablesAfterProofMatrix()
+    public async Task AutomaticFailoverDefaultsOff()
     {
         var uri = new Uri("https://localhost:6001");
-        var proof = new TopologyOptions(
+        var single = new TopologyOptions(new ServerPeer { NodeId = "node-a", Uri = uri })
+        {
+            ClusterId = "cluster",
+            NodeId = "node-a",
+            Uri = uri,
+        };
+        _ = await Assert.That(single.AutomaticFailoverEnabled).IsFalse();
+
+        var triple = new TopologyOptions(
+        [
+            new ServerPeer { NodeId = "node-a", Uri = uri },
+            new ServerPeer { NodeId = "node-b", Uri = uri },
+            new ServerPeer { NodeId = "node-c", Uri = uri },
+        ])
+        {
+            ClusterId = "cluster",
+            NodeId = "node-a",
+            Uri = uri,
+            ReplicaCount = 3,
+        };
+        _ = await Assert.That(triple.AutomaticFailoverEnabled).IsFalse();
+
+        _ = await Assert.That(FeatureState.Disabled).IsEqualTo(new FeatureState(false, false));
+        _ = await Assert.That(FeatureState.Foundation).IsEqualTo(new FeatureState(false, true));
+        _ = await Assert.That(FeatureState.Activated).IsEqualTo(new FeatureState(true, false));
+    }
+
+    /// <summary>The opt-in switch enables RF=3 election; every other shape stays fenced.</summary>
+    [Test]
+    public async Task OptInEnablesRfThreeElection()
+    {
+        var uri = new Uri("https://localhost:6001");
+        var enabled = new TopologyOptions(
         [
             new ServerPeer { NodeId = "node-a", Uri = uri },
             new ServerPeer { NodeId = "node-b", Uri = uri },
@@ -33,8 +65,8 @@ public sealed class FailoverActivationTests : ServerUnitTestBase
             AutomaticFailoverEnabled = true,
             QuorumReadsEnabled = true,
         };
-        _ = await Assert.That(proof.AutomaticFailoverEnabled).IsTrue();
-        _ = await Assert.That(proof.QuorumReadsEnabled).IsTrue();
+        _ = await Assert.That(enabled.AutomaticFailoverEnabled).IsTrue();
+        _ = await Assert.That(enabled.QuorumReadsEnabled).IsTrue();
 
         var eligible = FailoverActivationGate.CheckElection(3, true, true, true, 4, 4);
         _ = await Assert.That(eligible.Eligible).IsTrue();
@@ -63,37 +95,5 @@ public sealed class FailoverActivationTests : ServerUnitTestBase
         var deposed = FailoverActivationGate.CheckElection(3, true, true, true, 4, 5);
         _ = await Assert.That(deposed.Eligible).IsFalse();
         _ = await Assert.That(deposed.Denial).IsEqualTo(FailoverDenial.StaleTerm);
-    }
-
-    /// <summary>The internal failover switch defaults off for any replica factor and no feature state enables it.</summary>
-    [Test]
-    public async Task AutomaticFailoverRemainsDisabled()
-    {
-        var uri = new Uri("https://localhost:6001");
-        var single = new TopologyOptions(new ServerPeer { NodeId = "node-a", Uri = uri })
-        {
-            ClusterId = "cluster",
-            NodeId = "node-a",
-            Uri = uri,
-        };
-        _ = await Assert.That(single.AutomaticFailoverEnabled).IsFalse();
-
-        var triple = new TopologyOptions(
-        [
-            new ServerPeer { NodeId = "node-a", Uri = uri },
-            new ServerPeer { NodeId = "node-b", Uri = uri },
-            new ServerPeer { NodeId = "node-c", Uri = uri },
-        ])
-        {
-            ClusterId = "cluster",
-            NodeId = "node-a",
-            Uri = uri,
-            ReplicaCount = 3,
-        };
-        _ = await Assert.That(triple.AutomaticFailoverEnabled).IsFalse();
-
-        _ = await Assert.That(FeatureState.Disabled).IsEqualTo(new FeatureState(false, false));
-        _ = await Assert.That(FeatureState.Foundation).IsEqualTo(new FeatureState(false, true));
-        _ = await Assert.That(FeatureState.Activated).IsEqualTo(new FeatureState(true, false));
     }
 }

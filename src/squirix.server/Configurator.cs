@@ -74,6 +74,8 @@ public static class Configurator
         target.VirtualNodes = source.VirtualNodes;
         target.ReplicaCount = source.ReplicaCount;
         target.ConfigurationGeneration = source.ConfigurationGeneration;
+        target.AutomaticFailoverEnabled = source.AutomaticFailoverEnabled;
+        target.QuorumReadsEnabled = source.QuorumReadsEnabled;
         target.WaitForRecovery = source.WaitForRecovery;
         target.PersistenceEnabled = source.PersistenceEnabled;
         target.ReplicationEnabled = source.ReplicationEnabled;
@@ -321,28 +323,7 @@ public static class Configurator
     internal static TopologyOptions ToClusterConfig(SquirixServerOptions options)
     {
         options.Validate();
-
-        var peers = new ServerPeer[options.Peers.Count == 0 ? 1 : options.Peers.Count];
-        if (options.Peers.Count == 0)
-        {
-            peers[0] = new ServerPeer { NodeId = options.NodeId, Uri = options.Uri };
-        }
-        else
-        {
-            for (var i = 0; i < options.Peers.Count; i++)
-                peers[i] = new ServerPeer { NodeId = options.Peers[i].NodeId, Uri = options.Peers[i].Uri };
-        }
-
-        return new TopologyOptions(peers)
-        {
-            ClusterId = options.ClusterId,
-            NodeId = options.NodeId,
-            Uri = options.Uri,
-            VirtualNodes = options.VirtualNodes,
-            ReplicaCount = options.ReplicaCount,
-            ReplicationEnabled = options.ReplicationEnabled,
-            ConfigurationGeneration = options.ConfigurationGeneration,
-        };
+        return SquirixServerOptions.BuildTopology(options);
     }
 
     /// <summary>Aligns the local peer URI with the node URI after command-line overrides.</summary>

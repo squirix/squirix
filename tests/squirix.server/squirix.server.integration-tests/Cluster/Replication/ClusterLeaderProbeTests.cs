@@ -190,6 +190,7 @@ public sealed class ClusterLeaderProbeTests : NodeIntegrationTestBase
         UsePersistence = true,
         ExtraScope = scope,
         AutomaticFailoverEnabled = true,
+        QuorumReadsEnabled = true,
         ElectionTiming = Timing,
         PartitionFabric = fabric,
     };
@@ -200,6 +201,7 @@ public sealed class ClusterLeaderProbeTests : NodeIntegrationTestBase
         UsePersistence = true,
         ExtraScope = "probe-skew",
         AutomaticFailoverEnabled = true,
+        QuorumReadsEnabled = true,
         ElectionTiming = Timing,
         TimeProvider = new SkewedTimeProvider(offset),
     };

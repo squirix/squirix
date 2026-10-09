@@ -1,11 +1,11 @@
 namespace Squirix.Server.Cluster.Replication;
 
-/// <summary>Explicit post-proof activation gate for automatic failover and quorum reads.</summary>
+/// <summary>Activation gate for the opt-in automatic failover and quorum read switches.</summary>
 /// <remarks>
 /// Both switches stay disabled by default (<see cref="TopologyOptions.AutomaticFailoverEnabled" /> and
 /// <see cref="TopologyOptions.QuorumReadsEnabled" /> default to <see langword="false" />). Enabling is an
-/// explicit post-proof opt-in exercised by the failover and quorum-read proof-matrix tests; no public host
-/// surface exposes these switches. Automatic failover applies only to RF&gt;=3: RF=2 never promotes after
+/// explicit opt-in through the public server options, where validation requires both switches together
+/// and RF&gt;=3. Automatic failover applies only to RF&gt;=3: RF=2 never promotes after
 /// peer loss, RF=1 never elects, the minority fails closed, and a rejoined former leader must catch up
 /// before regaining eligibility.
 /// </remarks>
@@ -13,7 +13,7 @@ internal static class FailoverActivationGate
 {
     /// <summary>Checks whether the node may start an election under explicit failover activation.</summary>
     /// <param name="replicaCount">The configured replica factor, including the leader.</param>
-    /// <param name="failoverEnabled">The explicit post-proof failover switch.</param>
+    /// <param name="failoverEnabled">The opt-in automatic failover switch.</param>
     /// <param name="hasMajorityContact">Whether the node recently contacted a majority.</param>
     /// <param name="logCaughtUp">Whether the rejoining log reached the leader commit index.</param>
     /// <param name="currentTerm">The locally persisted current term.</param>
@@ -44,7 +44,7 @@ internal static class FailoverActivationGate
     /// A leader read under quorum reads runs this check last, once a majority confirmed its read index in the led term and memory applied
     /// it; no lease and no local timer stands in for that confirmation.
     /// </remarks>
-    /// <param name="quorumReadsEnabled">The explicit post-proof quorum-read switch.</param>
+    /// <param name="quorumReadsEnabled">The opt-in quorum read switch.</param>
     /// <param name="replicaCount">The configured replica factor, including the leader.</param>
     /// <param name="hasMajorityContact">Whether the leader recently contacted a majority.</param>
     /// <param name="isLeader">Whether this node considers itself the leader.</param>

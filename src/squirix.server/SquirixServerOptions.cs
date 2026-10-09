@@ -7,6 +7,18 @@ namespace Squirix.Server;
 /// <summary>Configures a Squirix node hosted by an ASP.NET Core application.</summary>
 public sealed class SquirixServerOptions
 {
+    /// <summary>
+    /// Gets or sets a value indicating whether the replica groups of this node elect a new leader when the current one goes silent.
+    /// Default is <see langword="false" />: the owner of each key leads its replica group in term one for the lifetime of the topology.
+    /// </summary>
+    /// <remarks>
+    /// Requires <see cref="ReplicaCount" /> of at least 3 and <see cref="QuorumReadsEnabled" />; <see cref="Validate()" /> refuses any other
+    /// combination. Every node of a cluster must use the same value: the value is an input of the topology fingerprint, so a node with a
+    /// different value refuses replication with its peers, and a data directory activated with one value refuses a start with the other.
+    /// The settings key is <c language="csharp">Squirix:Cluster:AutomaticFailoverEnabled</c>.
+    /// </remarks>
+    public bool AutomaticFailoverEnabled { get; set; }
+
     /// <summary>Gets or sets the node-level admission control (backpressure) options.</summary>
     /// <remarks>Must not be <see langword="null" />. Changes apply on the next host start.</remarks>
     public SquirixServerBackpressureOptions Backpressure { get; set; } = new();
@@ -40,6 +52,18 @@ public sealed class SquirixServerOptions
 
     /// <summary>Gets or sets a value indicating whether journal/snapshot persistence is enabled.</summary>
     public bool PersistenceEnabled { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a read of a replicated key is confirmed by a majority of its replica group before it is
+    /// served, so that it observes every write committed before it. Default is <see langword="false" />: a read is served from the local
+    /// state of the group owner.
+    /// </summary>
+    /// <remarks>
+    /// Requires <see cref="AutomaticFailoverEnabled" />, which requires it in turn: quorum reads are served by elected leaders only. Part of
+    /// the topology fingerprint like <see cref="AutomaticFailoverEnabled" />. The settings key is
+    /// <c language="csharp">Squirix:Cluster:QuorumReadsEnabled</c>.
+    /// </remarks>
+    public bool QuorumReadsEnabled { get; set; }
 
     /// <summary>
     /// Gets or sets the replica factor including the original owner.
@@ -86,34 +110,11 @@ public sealed class SquirixServerOptions
     /// <exception cref="ArgumentException">Thrown when a configuration value is invalid.</exception>
     public void Validate() => Validate(this);
 
-    private static bool TryValidateOptions(SquirixServerOptions options, out IReadOnlyList<string> errors)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-
-        var topology = BuildTopology(options);
-
-        if (!TopologyValidator.TryValidate(topology, options.PersistenceEnabled, options.DataDirectory, out errors))
-            return false;
-
-        var sectionFailure = ValidateSections(options);
-        if (sectionFailure != null)
-        {
-            errors = [sectionFailure];
-            return false;
-        }
-
-        // Public options path does not carry mTLS material and does not enforce the replication opt-in:
-        // the opt-in is a hosting activation concern evaluated by ReplicationActivationGuard at startup.
-        var activationFailures = new List<string>();
-        ReplicationActivationGuard.CollectFailures(activationFailures, options.ReplicaCount, options.PersistenceEnabled, null, true);
-        if (activationFailures.Count == 0)
-            return true;
-
-        errors = activationFailures;
-        return false;
-    }
-
-    private static TopologyOptions BuildTopology(SquirixServerOptions options)
+    /// <summary>Maps the options to the cluster topology the node host runs with, without validating them.</summary>
+    /// <param name="options">Server options.</param>
+    /// <returns>The cluster topology.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <see cref="Peers" /> or <see cref="Uri" /> is <see langword="null" />.</exception>
+    internal static TopologyOptions BuildTopology(SquirixServerOptions options)
     {
         var peerOptions = options.Peers;
         var uri = options.Uri;
@@ -141,8 +142,38 @@ public sealed class SquirixServerOptions
             Uri = uri,
             VirtualNodes = options.VirtualNodes,
             ReplicaCount = options.ReplicaCount,
+            ReplicationEnabled = options.ReplicationEnabled,
             ConfigurationGeneration = options.ConfigurationGeneration,
+            AutomaticFailoverEnabled = options.AutomaticFailoverEnabled,
+            QuorumReadsEnabled = options.QuorumReadsEnabled,
         };
+    }
+
+    private static bool TryValidateOptions(SquirixServerOptions options, out IReadOnlyList<string> errors)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        var topology = BuildTopology(options);
+
+        if (!TopologyValidator.TryValidate(topology, options.PersistenceEnabled, options.DataDirectory, out errors))
+            return false;
+
+        var sectionFailure = ValidateSections(options);
+        if (sectionFailure != null)
+        {
+            errors = [sectionFailure];
+            return false;
+        }
+
+        // Public options path does not carry mTLS material and does not enforce the replication opt-in:
+        // the opt-in is a hosting activation concern evaluated by ReplicationActivationGuard at startup.
+        var activationFailures = new List<string>();
+        ReplicationActivationGuard.CollectFailures(activationFailures, options.ReplicaCount, options.PersistenceEnabled, null, true);
+        if (activationFailures.Count == 0)
+            return true;
+
+        errors = activationFailures;
+        return false;
     }
 
     private static string? ValidateSections(SquirixServerOptions options)

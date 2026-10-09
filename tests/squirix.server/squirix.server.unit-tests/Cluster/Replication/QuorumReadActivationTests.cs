@@ -1,6 +1,4 @@
 using System;
-using System.IO;
-using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -12,7 +10,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
-/// <summary>Quorum reads stay disabled: reads are served locally without consulting a majority.</summary>
+/// <summary>Quorum reads default off: reads are served locally without consulting a majority until the switch is on.</summary>
 [Immutable]
 public sealed class QuorumReadActivationTests : ServerUnitTestBase
 {
@@ -25,12 +23,12 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
         _ = await Assert.That(rejected.Denial).IsEqualTo(LeaderAuthorityDenial.QuorumNotConfirmed);
     }
 
-    /// <summary>Explicit post-proof opt-in serves quorum reads only after verified quorum and applied index.</summary>
+    /// <summary>The opt-in switch serves quorum reads only after verified quorum and applied index.</summary>
     [Test]
-    public async Task QuorumReadsEnableAfterProofMatrix()
+    public async Task OptInServesConfirmedReads()
     {
         var uri = new Uri("https://localhost:6001");
-        var proof = new TopologyOptions(
+        var enabled = new TopologyOptions(
         [
             new ServerPeer { NodeId = "node-a", Uri = uri },
             new ServerPeer { NodeId = "node-b", Uri = uri },
@@ -44,7 +42,7 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
             AutomaticFailoverEnabled = true,
             QuorumReadsEnabled = true,
         };
-        _ = await Assert.That(proof.QuorumReadsEnabled).IsTrue();
+        _ = await Assert.That(enabled.QuorumReadsEnabled).IsTrue();
 
         var gated = FailoverActivationGate.CheckQuorumRead(false, 3, true, true, 6, 6, new LeaderReadState(true, 9, 9));
         _ = await Assert.That(gated.Allowed).IsFalse();
@@ -71,20 +69,5 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
         var deposed = FailoverActivationGate.CheckQuorumRead(true, 3, true, true, 6, 7, new LeaderReadState(true, 9, 9));
         _ = await Assert.That(deposed.Allowed).IsFalse();
         _ = await Assert.That(deposed.Denial).IsEqualTo(LeaderAuthorityDenial.StaleTerm);
-    }
-
-    /// <summary>Release hosting exposes no quorum-read or failover switches before the proof matrix.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ReleaseHostCannotEnableBeforeProofMatrix(CancellationToken cancellationToken)
-    {
-        var root = RepositoryPaths.FindRepositoryRoot();
-        var productHost = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "AspNetCoreExtensions.cs"), cancellationToken);
-        _ = await Assert.That(productHost).DoesNotContain("QuorumRead", StringComparison.Ordinal);
-        _ = await Assert.That(productHost).DoesNotContain("AutomaticFailover", StringComparison.Ordinal);
-
-        var optionsType = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "SquirixServerOptions.cs"), cancellationToken);
-        _ = await Assert.That(optionsType).DoesNotContain("QuorumRead", StringComparison.Ordinal);
-        _ = await Assert.That(optionsType).DoesNotContain("AutomaticFailover", StringComparison.Ordinal);
     }
 }

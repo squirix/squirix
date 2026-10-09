@@ -6,7 +6,8 @@ routing configuration.
 ## Guarantees (v0.1 preview)
 
 - Single-key reads and writes execute on the owning node.
-- Durability is per node. There is no replication or automatic failover.
+- With RF=1, durability is per node, with no replication or automatic failover. RF>1 replicates each write to its
+  replica group; RF>=3 can opt into [automatic failover and quorum reads](configuration.md#automatic-failover-and-quorum-reads).
 - With persistence on, a read never returns a value whose journal frame is not yet durable, and a failed fsync never
   leaves the value in memory.
 - Multi-key operations are not transactions across owners.

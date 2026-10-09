@@ -37,10 +37,12 @@ commit rule.
 
 ### Elected leadership behind the automatic failover switch
 
-Automatic failover is an internal topology switch. It is off by default and not configurable in this release; with it
-off, the owner of each group leads it statically in the term of its log, exactly as before. With it on, the groups of
-three or more replicas elect their leader. Groups of one or two replicas are unchanged: no election driver, no
-heartbeats, and RF=2 never elects a replacement.
+Automatic failover is the `AutomaticFailoverEnabled` server option
+([configuration](../configuration.md#automatic-failover-and-quorum-reads)). It is off by default; with it off, the
+owner of each group leads it statically in term one, exactly as before. With it on, the groups of three or more
+replicas elect their leader; validation requires `QuorumReadsEnabled` with it. Groups of one or two replicas never
+elect: validation refuses the switch for them, so they keep no election driver and no heartbeats, and RF=2 never
+elects a replacement.
 
 - **Election.** Each node runs one election driver per served group. A follower campaigns once neither a leader contact
   nor a granted vote happened for the election timeout plus a seeded jitter. It first runs a pre-vote for the next term,
@@ -77,7 +79,8 @@ answers `stale-owner` or `stale-term`; a refusal of either kind is only given be
 
 ### Quorum reads (ReadIndex equivalent)
 
-Quorum reads are an internal switch next to automatic failover and apply only to elected leaders. For each read of an
+Quorum reads are the `QuorumReadsEnabled` server option, which validation requires together with automatic failover;
+they apply only to elected leaders. For each read of an
 elected group with the switch on:
 
 1. Check that this node holds authority in the term of its running pipeline.
@@ -298,11 +301,11 @@ its deadline until a committed record removes it; RF=1 and foundation-only hosts
 ## Consequences
 
 - Product election code and local promotion stay off until this ADR merges and model evidence is green.
-- M8-09 may activate RF>1 mutations only after dependent storage/protocol milestones; quorum reads stay gated until
-  M8-12 after ReadIndex traces match the model.
+- RF>1 mutations replicate through the group log; quorum reads apply only to elected leaders and are enabled only
+  together with automatic failover.
 - RF=1 keeps single-owner behavior without elections.
 - RF=2 cannot elect a replacement after losing one member (majority is two).
-- RF≥3 may automatic-failover only after M8-12 proof matrix.
+- RF≥3 elects a replacement leader only with the `AutomaticFailoverEnabled` and `QuorumReadsEnabled` options on.
 
 ## Alternatives considered
 

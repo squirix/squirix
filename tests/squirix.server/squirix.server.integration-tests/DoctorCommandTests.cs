@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.IntegrationTests.Support;
@@ -216,6 +217,35 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         _ = await Assert.That(output).Contains(MismatchError, StringComparison.Ordinal);
     }
 
+    /// <summary>Verifies doctor expects the fingerprint of the configured failover switches and reports a stamp of the other mode as a mismatch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DoctorSeesFailoverSwitches(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-cmd-failover");
+        var settingsPath = await WriteSettingsAsync(dir, 3, cancellationToken, failover: true);
+        var dataDir = Path.Join(dir, "data");
+        _ = Directory.CreateDirectory(dataDir);
+        var options = await Configurator.LoadAsync(settingsPath, cancellationToken);
+        var mtls = MtlsOptionsResolver.ResolveFromEnvironment();
+        var expected = TopologyFingerprint.CreateFromTopology(Configurator.ToClusterConfig(options), mtls);
+        options.AutomaticFailoverEnabled = false;
+        options.QuorumReadsEnabled = false;
+        var stamped = TopologyFingerprint.CreateFromTopology(Configurator.ToClusterConfig(options), mtls);
+        var stampedBytes = new byte[stamped.Bytes.Length];
+        stamped.Bytes.CopyTo(stampedBytes);
+        await new ActivatedTopologyStampStore(dataDir).PublishAsync(
+            new ActivatedTopologyStamp { Generation = 5, Fingerprint = new ReadOnlyMemory<byte>(stampedBytes), ReplicaCount = 3 },
+            cancellationToken);
+
+        var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, cancellationToken);
+
+        _ = await Assert.That(exitCode).IsEqualTo(1);
+        _ = await Assert.That(output).Contains("topology stamp: fingerprint MISMATCH", StringComparison.Ordinal);
+        _ = await Assert.That(output).Contains(expected.ToString(), StringComparison.Ordinal);
+        _ = await Assert.That(output).Contains(stamped.ToString(), StringComparison.Ordinal);
+    }
+
     /// <summary>Verifies the host help lists the replication opt-in switch.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -238,6 +268,25 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         var (exitCode, output) = await RunHostAsync($"exec \"{await FindHostDllAsync()}\" run --settings \"{settingsPath}\"", cancellationToken);
         _ = await Assert.That(exitCode).IsNotEqualTo(0);
         _ = await Assert.That(output).Contains("replication opt-in", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Verifies validate-config refuses automatic failover without quorum reads and names the settings keys to set.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ValidateConfigRefusesHalfPair(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-validate-config-half-pair");
+        var settingsPath = Path.Join(dir, "Squirix.settings.json");
+        const string json =
+            "{\"Squirix\":{\"Cluster\":{\"ClusterId\":\"c1\",\"NodeId\":\"n1\",\"Uri\":\"https://localhost:6001\",\"ReplicaCount\":3,\"PersistenceEnabled\":true," +
+            "\"AutomaticFailoverEnabled\":true," +
+            "\"Peers\":[{\"NodeId\":\"n1\",\"Uri\":\"https://localhost:6001\"},{\"NodeId\":\"n2\",\"Uri\":\"https://localhost:6002\"},{\"NodeId\":\"n3\",\"Uri\":\"https://localhost:6003\"}]}}}";
+        await File.WriteAllTextAsync(settingsPath, json, cancellationToken);
+
+        var (exitCode, output) = await RunHostAsync($"exec \"{await FindHostDllAsync()}\" validate-config --settings \"{settingsPath}\"", cancellationToken);
+
+        _ = await Assert.That(exitCode).IsEqualTo(1);
+        _ = await Assert.That(output).Contains(TopologyValidator.AutomaticFailoverRequiresQuorumReads, StringComparison.Ordinal);
     }
 
     private static async Task<string> FindHostDllAsync()
@@ -342,7 +391,8 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         int replicaCount,
         CancellationToken cancellationToken,
         bool replicationEnabled = true,
-        bool withDataDirectory = true)
+        bool withDataDirectory = true,
+        bool failover = false)
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
@@ -351,9 +401,13 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         var persistence = replicaCount > 1 ? $",\"PersistenceEnabled\":true{dataDirectory}" : string.Empty;
         if (replicationEnabled && replicaCount > 1)
             persistence += ",\"ReplicationEnabled\":true";
-        var peers = replicaCount > 1 ? $",\"Peers\":[{{\"NodeId\":\"n1\",\"Uri\":\"{uriA.AbsoluteUri}\"}},{{\"NodeId\":\"n2\",\"Uri\":\"{uriB.AbsoluteUri}\"}}]" : string.Empty;
+
+        // Doctor binds nothing, so the third peer needs no held port; 6003 lies outside the integration test port region.
+        var third = replicaCount > 2 ? ",{\"NodeId\":\"n3\",\"Uri\":\"https://localhost:6003/\"}" : string.Empty;
+        var peers = replicaCount > 1 ? $",\"Peers\":[{{\"NodeId\":\"n1\",\"Uri\":\"{uriA.AbsoluteUri}\"}},{{\"NodeId\":\"n2\",\"Uri\":\"{uriB.AbsoluteUri}\"}}{third}]" : string.Empty;
+        var switches = failover ? ",\"AutomaticFailoverEnabled\":true,\"QuorumReadsEnabled\":true" : string.Empty;
         var json =
-            $"{{\"Squirix\":{{\"Cluster\":{{\"ClusterId\":\"doctor-c\",\"NodeId\":\"n1\",\"Uri\":\"{uriA.AbsoluteUri}\",\"ReplicaCount\":{replicaCount},\"ConfigurationGeneration\":5{persistence}{peers}}}}}}}";
+            $"{{\"Squirix\":{{\"Cluster\":{{\"ClusterId\":\"doctor-c\",\"NodeId\":\"n1\",\"Uri\":\"{uriA.AbsoluteUri}\",\"ReplicaCount\":{replicaCount},\"ConfigurationGeneration\":5{persistence}{peers}{switches}}}}}}}";
         var path = Path.Join(dir, "Squirix.settings.json");
         await File.WriteAllTextAsync(path, json, cancellationToken);
         return path;

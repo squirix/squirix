@@ -15,6 +15,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Adapters.Rest;
@@ -549,6 +550,11 @@ internal static class ServerHostingComposition
         KestrelConfiguration.EnsureHttpsTransport(cluster);
         var requiresInterNodeMtls = MtlsTopology.RequiresInterNodeMtls(cluster);
         var mtlsOptions = args.MtlsOptions ?? MtlsOptionsResolver.ResolveFromEnvironment();
+
+        // Refuse an invalid topology while the builder is configured, before the mapped host opens or writes any storage.
+        if (!TopologyValidator.TryValidate(cluster, out var topologyFailures))
+            throw new OptionsValidationException(Options.DefaultName, typeof(TopologyOptions), topologyFailures);
+
         ReplicationActivationGuard.ThrowIfDisallowed(cluster.ReplicaCount, persistenceEnabled, mtlsOptions, cluster.ReplicationEnabled);
 
         var certificate = KestrelConfiguration.ConfigureKestrel(builder, uri, cluster, mtlsOptions, args.Certificate, requiresInterNodeMtls);

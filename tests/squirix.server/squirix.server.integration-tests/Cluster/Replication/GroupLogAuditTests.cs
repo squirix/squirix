@@ -111,6 +111,7 @@ public sealed class GroupLogAuditTests : NodeIntegrationTestBase
         UsePersistence = true,
         ExtraScope = scope,
         AutomaticFailoverEnabled = true,
+        QuorumReadsEnabled = true,
         ElectionTiming = new TestElectionTiming(),
     };
 }

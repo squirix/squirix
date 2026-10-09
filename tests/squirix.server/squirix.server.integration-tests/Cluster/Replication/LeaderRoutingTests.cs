@@ -316,6 +316,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         CleanTestDir = true,
         ExtraScope = scope,
         AutomaticFailoverEnabled = failover,
+        QuorumReadsEnabled = failover,
         ServicesConfigure = services =>
         {
             _ = services.AddSingleton(new ElectionTimerOptions
@@ -343,6 +344,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         CleanTestDir = true,
         ExtraScope = scope,
         AutomaticFailoverEnabled = true,
+        QuorumReadsEnabled = true,
         PartitionFabric = fabric,
         ServicesConfigure = static services => _ = services.AddSingleton(static sp => new ElectionTimerOptions
         {

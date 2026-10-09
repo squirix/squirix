@@ -6,6 +6,10 @@ namespace Squirix.Server.Cluster;
 
 internal static class TopologyValidator
 {
+    internal const string AutomaticFailoverRequiresQuorumReads = "AutomaticFailoverEnabled requires QuorumReadsEnabled: a cluster that elects leaders fences its reads. Set both Squirix:Cluster:AutomaticFailoverEnabled and Squirix:Cluster:QuorumReadsEnabled, or neither.";
+    internal const string AutomaticFailoverRequiresThreeReplicas = "AutomaticFailoverEnabled requires ReplicaCount of at least 3: groups of one or two replicas never elect a leader.";
+    internal const string QuorumReadsRequireAutomaticFailover = "QuorumReadsEnabled requires AutomaticFailoverEnabled: quorum reads are served by elected leaders only. Set both Squirix:Cluster:AutomaticFailoverEnabled and Squirix:Cluster:QuorumReadsEnabled, or neither.";
+
     private const string ClusterIdRequired = "ClusterId is required.";
     private const string ClusterIdTooLong = "ClusterId cannot exceed 128 characters.";
     private const string ConfigurationGenerationMustBePositive = "ConfigurationGeneration must be greater than zero.";
@@ -62,6 +66,8 @@ internal static class TopologyValidator
             VirtualNodes = options.VirtualNodes,
             ReplicaCount = options.ReplicaCount,
             ConfigurationGeneration = options.ConfigurationGeneration,
+            AutomaticFailoverEnabled = options.AutomaticFailoverEnabled,
+            QuorumReadsEnabled = options.QuorumReadsEnabled,
             PersistenceEnabled = persistenceEnabled,
             DataDirectory = dataDirectory,
         };
@@ -106,6 +112,17 @@ internal static class TopologyValidator
                                                         !string.IsNullOrEmpty(value.Query) || !string.IsNullOrEmpty(value.Fragment);
 
     private static bool IsAbsoluteHttpsUri(Uri value) => value.IsAbsoluteUri && string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
+
+    private static void ValidateFailoverSwitches(List<string> failures, TopologyValidationArgs args)
+    {
+        // A switch that cannot deliver what it names is a configuration error, never a silently ignored flag.
+        if (args.AutomaticFailoverEnabled && args.ReplicaCount < 3)
+            failures.Add(AutomaticFailoverRequiresThreeReplicas);
+        if (args is { AutomaticFailoverEnabled: true, QuorumReadsEnabled: false })
+            failures.Add(AutomaticFailoverRequiresQuorumReads);
+        if (args is { QuorumReadsEnabled: true, AutomaticFailoverEnabled: false })
+            failures.Add(QuorumReadsRequireAutomaticFailover);
+    }
 
     private static void ValidateIdentifier(List<string> failures, string? value, string requiredMessage, string tooLongMessage)
     {
@@ -197,6 +214,7 @@ internal static class TopologyValidator
 
         ValidatePeers(failures, args.NodeId, args.NodeUri, readPeer, peers);
         ValidateReplicaSettings(failures, args.ReplicaCount, args.ConfigurationGeneration, CountDistinctPeerNodes(readPeer, peers));
+        ValidateFailoverSwitches(failures, args);
     }
 
     private static void ValidateUri(List<string> failures, Uri? value, string httpsRequiredMessage, string tooLongMessage, string hostRequiredMessage, string originRequiredMessage)
@@ -229,6 +247,8 @@ internal static class TopologyValidator
     [Immutable]
     private sealed class TopologyValidationArgs
     {
+        internal required bool AutomaticFailoverEnabled { get; init; }
+
         internal required string? ClusterId { get; init; }
 
         internal required ulong ConfigurationGeneration { get; init; }
@@ -240,6 +260,8 @@ internal static class TopologyValidator
         internal required Uri? NodeUri { get; init; }
 
         internal required bool PersistenceEnabled { get; init; }
+
+        internal required bool QuorumReadsEnabled { get; init; }
 
         internal required int ReplicaCount { get; init; }
 

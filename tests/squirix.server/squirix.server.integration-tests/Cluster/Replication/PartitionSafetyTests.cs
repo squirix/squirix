@@ -84,7 +84,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     public async Task MinorityCannotServeCurrentRead(CancellationToken cancellationToken)
     {
         await using var fabric = new PartitionFabric();
-        await using var cluster = await StartAsync(Three, Options("partition-minority-read", fabric, quorumReads: true), cancellationToken);
+        await using var cluster = await StartAsync(Three, Options("partition-minority-read", fabric), cancellationToken);
         var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group, Bound);
         var (former, formerTerm) = await ledger.LeaderAsync(Three, 0UL, "the group gets a leader", cancellationToken);
         var key = cluster[former].FindKeyOwnedBy(Scope, Group);
@@ -126,7 +126,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     public async Task MajorityLeaderServesQuorumRead(CancellationToken cancellationToken)
     {
         await using var fabric = new PartitionFabric();
-        await using var cluster = await StartAsync(Three, Options("partition-quorum-read", fabric, quorumReads: true), cancellationToken);
+        await using var cluster = await StartAsync(Three, Options("partition-quorum-read", fabric), cancellationToken);
         var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group, Bound);
         var (former, formerTerm) = await ledger.LeaderAsync(Three, 0UL, "the group gets a leader", cancellationToken);
         var key = cluster[former].FindKeyOwnedBy(Scope, Group);
@@ -337,13 +337,13 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     private static IFollowerLog Log(ITestNodeHost host) =>
         host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(Group, out var log) ? log : throw new InvalidOperationException($"The group log {Group} is not open.");
 
-    private static IntegrationStartOptions Options(string scope, PartitionFabric fabric, int replicaCount = 3, Action<IServiceCollection>? configure = null, bool quorumReads = false) => new()
+    private static IntegrationStartOptions Options(string scope, PartitionFabric fabric, int replicaCount = 3, Action<IServiceCollection>? configure = null) => new()
     {
         ReplicaCount = replicaCount,
         UsePersistence = true,
         ExtraScope = scope,
         AutomaticFailoverEnabled = true,
-        QuorumReadsEnabled = quorumReads,
+        QuorumReadsEnabled = true,
         PartitionFabric = fabric,
         ServicesConfigure = services =>
         {
