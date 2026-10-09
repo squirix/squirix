@@ -62,6 +62,30 @@ public sealed class RegisterWorkloadTests : EndToEndTestBase
         _ = await Assert.That(workload.History.Summary()).IsEqualTo("0 acknowledged and 0 failed writes, 0 successful and 0 failed reads");
     }
 
+    /// <summary>A workload bounded by a task runs until the task completes, then the given number of operations per writer and reader.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RunsUntilTaskThenTail(CancellationToken cancellationToken)
+    {
+        var until = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writer = new ICacheCreateExpectations<long>();
+        _ = writer.Setups.SetAsync(Arg.Any<string>(), Arg.Any<long>(), Arg.Any<CacheEntryOptions?>(), Arg.Any<CancellationToken>())
+                  .Callback((_, value, _, _) =>
+                  {
+                      if (value == 3L)
+                          until.SetResult();
+
+                      return Task.CompletedTask;
+                  });
+        var reader = new ICacheCreateExpectations<long>();
+        _ = reader.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnValue(Task.FromResult(new CacheValueResult<long>(false, 0L)));
+        var workload = new RegisterWorkload(writer.Instance(), reader.Instance(), Keys);
+
+        await workload.RunUntilAsync(until.Task, 2, cancellationToken);
+
+        _ = await Assert.That(workload.History.Summary()).StartsWith("5 acknowledged and 0 failed writes", StringComparison.Ordinal);
+    }
+
     /// <summary>A read that fails with any other exception ends the workload with that exception.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

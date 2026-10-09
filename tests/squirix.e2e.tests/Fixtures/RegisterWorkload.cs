@@ -55,20 +55,64 @@ internal sealed class RegisterWorkload
     {
         ArgumentOutOfRangeException.ThrowIfNegative(writesPerKey);
         ArgumentOutOfRangeException.ThrowIfNegative(readsPerKey);
+        return RunCoreAsync((writesPerKey, readsPerKey, null, 0), cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs the writers and readers of every key at once until a task completes, then lets each of them run a fixed number of further
+    /// operations, so the workload is known to cover the time after that task.
+    /// </summary>
+    /// <param name="until">The task; a writer or reader counts its further operations from the first one it starts after the task completed.</param>
+    /// <param name="after">The number of operations each writer and each reader runs once the task completed.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when every writer and reader has run its further operations.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="until" /> is <see langword="null" />.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="after" /> is negative.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
+    internal Task RunUntilAsync(Task until, int after, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(until);
+        ArgumentOutOfRangeException.ThrowIfNegative(after);
+        return RunCoreAsync((Writes: int.MaxValue, Reads: int.MaxValue, Until: until, After: after), cancellationToken);
+    }
+
+    /// <summary>Tells whether a writer or reader starts one more operation, and counts it when it runs after the stop task completed.</summary>
+    /// <param name="limit">The operation count, and the stop task with the number of operations after it.</param>
+    /// <param name="done">The number of operations run so far.</param>
+    /// <param name="tail">The number of operations run since the stop task completed.</param>
+    /// <returns><see langword="true" /> when the operation runs.</returns>
+    private static bool Continues((int Count, Task? Until, int After) limit, int done, ref int tail)
+    {
+        if (done >= limit.Count)
+            return false;
+
+        if (limit.Until is not { IsCompleted: true })
+            return true;
+
+        if (tail >= limit.After)
+            return false;
+
+        tail++;
+        return true;
+    }
+
+    private Task RunCoreAsync((int Writes, int Reads, Task? Until, int After) limit, CancellationToken cancellationToken)
+    {
         var calls = new Task[_keys.Length * 2];
         for (var i = 0; i < _keys.Length; i++)
         {
-            calls[2 * i] = WriteAsync(_keys[i], writesPerKey, cancellationToken);
-            calls[(2 * i) + 1] = ReadAsync(_keys[i], readsPerKey, cancellationToken);
+            calls[2 * i] = WriteAsync(_keys[i], (limit.Writes, limit.Until, limit.After), cancellationToken);
+            calls[(2 * i) + 1] = ReadAsync(_keys[i], (limit.Reads, limit.Until, limit.After), cancellationToken);
         }
 
         return Task.WhenAll(calls);
     }
 
-    private async Task ReadAsync(string key, int count, CancellationToken cancellationToken)
+    private async Task ReadAsync(string key, (int Count, Task? Until, int After) limit, CancellationToken cancellationToken)
     {
         await Task.Yield();
-        for (var i = 0; i < count; i++)
+        var tail = 0;
+        for (var i = 0; Continues(limit, i, ref tail); i++)
         {
             var start = Stopwatch.GetTimestamp();
             try
@@ -83,10 +127,12 @@ internal sealed class RegisterWorkload
         }
     }
 
-    private async Task WriteAsync(string key, int count, CancellationToken cancellationToken)
+    private async Task WriteAsync(string key, (int Count, Task? Until, int After) limit, CancellationToken cancellationToken)
     {
         await Task.Yield();
-        for (var value = 1L; value <= count; value++)
+        var tail = 0;
+        var done = 0;
+        for (var value = 1L; Continues(limit, done, ref tail); value++, done++)
         {
             var start = Stopwatch.GetTimestamp();
             var acked = false;
