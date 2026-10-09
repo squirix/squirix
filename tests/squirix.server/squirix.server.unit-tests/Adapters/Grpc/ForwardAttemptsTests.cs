@@ -185,6 +185,42 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         }
     }
 
+    /// <summary>
+    /// Only the forward channel pings its connections with HTTP/2 keepalive, whether or not a call is in flight, so a connection that went
+    /// silent is found before the next forward; the channel of replication and elections sends no pings.
+    /// </summary>
+    [Test]
+    public async Task OnlyForwardChannelPings()
+    {
+        var created = new List<SocketsHttpHandler>();
+        await using (CreatePool(
+            () =>
+            {
+                var handler = new SocketsHttpHandler { ConnectCallback = static (_, ct) => NeverConnectsAsync(ct) };
+                created.Add(handler);
+                return handler;
+            },
+            new Uri("https://localhost:6500"),
+            TimeSpan.FromMilliseconds(300)))
+        {
+            _ = await Assert.That(created.Count).IsEqualTo(2);
+            var pinging = 0;
+            foreach (var handler in created)
+            {
+                if (handler.KeepAlivePingDelay == Timeout.InfiniteTimeSpan)
+                    continue;
+
+                pinging++;
+                _ = await Assert.That(handler.KeepAlivePingDelay).IsEqualTo(TimeSpan.FromSeconds(1));
+                _ = await Assert.That(handler.KeepAlivePingTimeout).IsEqualTo(TimeSpan.FromSeconds(1));
+                _ = await Assert.That(handler.KeepAlivePingPolicy).IsEqualTo(HttpKeepAlivePingPolicy.Always);
+                _ = await Assert.That(handler.ConnectCallback?.Target).IsTypeOf<BoundedDial>();
+            }
+
+            _ = await Assert.That(pinging).IsEqualTo(1);
+        }
+    }
+
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 
