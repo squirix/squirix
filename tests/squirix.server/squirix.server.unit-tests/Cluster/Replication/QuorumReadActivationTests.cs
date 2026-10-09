@@ -23,12 +23,12 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
         _ = await Assert.That(rejected.Denial).IsEqualTo(LeaderAuthorityDenial.QuorumNotConfirmed);
     }
 
-    /// <summary>Explicit post-proof opt-in serves quorum reads only after verified quorum and applied index.</summary>
+    /// <summary>The opt-in switch serves quorum reads only after verified quorum and applied index.</summary>
     [Test]
-    public async Task QuorumReadsEnableAfterProofMatrix()
+    public async Task OptInServesConfirmedReads()
     {
         var uri = new Uri("https://localhost:6001");
-        var proof = new TopologyOptions(
+        var enabled = new TopologyOptions(
         [
             new ServerPeer { NodeId = "node-a", Uri = uri },
             new ServerPeer { NodeId = "node-b", Uri = uri },
@@ -42,7 +42,7 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
             AutomaticFailoverEnabled = true,
             QuorumReadsEnabled = true,
         };
-        _ = await Assert.That(proof.QuorumReadsEnabled).IsTrue();
+        _ = await Assert.That(enabled.QuorumReadsEnabled).IsTrue();
 
         var gated = FailoverActivationGate.CheckQuorumRead(false, 3, true, true, 6, 6, new LeaderReadState(true, 9, 9));
         _ = await Assert.That(gated.Allowed).IsFalse();
