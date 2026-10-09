@@ -19,6 +19,9 @@ on:
 env:
   # No project uses a workload; skip reading the workload manifests at every MSBuild start.
   MSBuildEnableWorkloadResolver: false
+  # Published packages get deterministic paths (/_/...) in their PDBs. Only the package workflows set it: coverage and NDepend in CI map
+  # sources by their real paths.
+  ContinuousIntegrationBuild: true
 
 jobs:
   pack-and-release:
