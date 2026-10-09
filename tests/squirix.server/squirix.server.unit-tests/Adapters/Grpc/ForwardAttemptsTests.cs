@@ -239,7 +239,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
 
                 pinging++;
                 _ = await Assert.That(handler.KeepAlivePingDelay).IsEqualTo(TimeSpan.FromSeconds(1));
-                _ = await Assert.That(handler.KeepAlivePingTimeout).IsEqualTo(TimeSpan.FromSeconds(1));
+                _ = await Assert.That(handler.KeepAlivePingTimeout).IsEqualTo(TimeSpan.FromSeconds(2));
                 _ = await Assert.That(handler.KeepAlivePingPolicy).IsEqualTo(HttpKeepAlivePingPolicy.Always);
                 _ = await Assert.That(handler.ConnectCallback?.Target).IsTypeOf<BoundedDial>();
             }
