@@ -8,6 +8,9 @@ namespace Squirix.Server.Cluster;
 [Immutable]
 internal sealed class TopologyOptions
 {
+    /// <summary>The default bound of the dial of a client forward, before any TLS handshake: well below the per-attempt timeout of a forwarded call.</summary>
+    internal static readonly TimeSpan DefaultInterNodeConnectTimeout = TimeSpan.FromMilliseconds(300);
+
     private readonly ServerPeer[] _peers;
 
     [SetsRequiredMembers]
@@ -34,6 +37,9 @@ internal sealed class TopologyOptions
 
     /// <summary>Gets the configuration generation of the cluster topology (must be greater than zero).</summary>
     internal ulong ConfigurationGeneration { get; init; } = 1;
+
+    /// <summary>Gets the longest time the dial of a client forward to a peer, before any TLS handshake, may take before it fails as a connect failure.</summary>
+    internal TimeSpan InterNodeConnectTimeout { get; init; } = DefaultInterNodeConnectTimeout;
 
     internal required string NodeId { get; init; } = "node";
 

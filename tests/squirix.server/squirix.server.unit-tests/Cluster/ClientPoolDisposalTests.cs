@@ -30,6 +30,9 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 {
     private const int DrainTimedOutEventId = 5003;
 
+    /// <summary>The handlers the pool creates per peer: one for the forward channel and one for the lease channel.</summary>
+    private const int HandlersPerPeer = 2;
+
     private const int LeaseCancelFailedEventId = 5006;
 
     private const int MaterialLeakedEventId = 5005;
@@ -107,7 +110,8 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
         // The released lease lets the call drain finish; the budget is already gone, so only the grace is left for the connection.
         _ = await Assert.That(disposing.IsCompleted).IsFalse();
-        tracked!.Exit();
+        for (var i = 0; i < HandlersPerPeer; i++)
+            tracked!.Exit();
         await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(log.Find(MaterialLeakedEventId)).IsNull();
@@ -333,7 +337,11 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         using var handler = new SocketsHttpHandler();
         handler.ConnectCallback = (_, token) => ConnectSignallingAsync(listener, connected, token);
         using var client = new HttpClient(handler, false);
-        var args = MtlsArgs(certificate, _ => handler, null);
+
+        // The factory supplies a fresh handler per channel: the observed one for the forward channel, a spare for the lease channel.
+        using var spare = new SocketsHttpHandler();
+        var supplied = new Queue<HttpMessageHandler>([handler, spare]);
+        var args = MtlsArgs(certificate, _ => supplied.Dequeue(), null);
         var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
 
         // The listener never answers, so the TLS handshake stays open until the pool aborts the connection.
@@ -364,7 +372,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
             await pool.DisposeAsync();
 
-            _ = await Assert.That(supplied.Count).IsEqualTo(2);
+            _ = await Assert.That(supplied.Count).IsEqualTo(2 * HandlersPerPeer);
             for (var i = 0; i < supplied.Count; i++)
                 _ = await Assert.That(supplied[i].Disposed).IsFalse();
         }
@@ -406,7 +414,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         await AdvanceUntilCompletedAsync(clock, disposing, cancellationToken);
 
         _ = await Assert.That(log.Find(MaterialLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
-        _ = await Assert.That(log.FindMessage(MaterialLeakedEventId)).Contains("1 connections were still open", StringComparison.Ordinal);
+        _ = await Assert.That(log.FindMessage(MaterialLeakedEventId)).Contains($"{HandlersPerPeer} connections were still open", StringComparison.Ordinal);
         DisposeAsLoader(certificate);
         _ = await Assert.That(certificate.IsReleased).IsFalse();
         _ = await Assert.That(certificate.NodeCertificate!.Handle).IsNotEqualTo(nint.Zero);
@@ -559,7 +567,8 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         _ = await Assert.That(certificate.IsReleased).IsFalse();
         _ = await Assert.That(pool.LateMaterialRelease.IsCompleted).IsFalse();
 
-        tracked!.Exit();
+        for (var i = 0; i < HandlersPerPeer; i++)
+            tracked!.Exit();
         await pool.LateMaterialRelease.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(certificate.IsReleased).IsTrue();
@@ -638,9 +647,13 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         await task.WaitAsync(TimeSpan.FromSeconds(1), TimeProvider.System, cancellationToken);
     }
 
-    private static async Task AssertAllDisposedAsync(List<TrackingHandler> created, int expectedCount)
+    /// <summary>Asserts that the pool created and disposed the handlers of both channels of every peer.</summary>
+    /// <param name="created">The handlers the pool created.</param>
+    /// <param name="peers">The number of peers.</param>
+    /// <returns>An asynchronous operation.</returns>
+    private static async Task AssertAllDisposedAsync(List<TrackingHandler> created, int peers)
     {
-        _ = await Assert.That(created.Count).IsEqualTo(expectedCount);
+        _ = await Assert.That(created.Count).IsEqualTo(peers * HandlersPerPeer);
         for (var i = 0; i < created.Count; i++)
             _ = await Assert.That(created[i].Disposed).IsTrue();
     }

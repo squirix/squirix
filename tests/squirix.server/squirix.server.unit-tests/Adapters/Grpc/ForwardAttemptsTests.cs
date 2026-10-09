@@ -1,16 +1,21 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.Metrics;
+using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
+using Squirix.Server.UnitTests.Adapters.Grpc.Replication;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
@@ -82,8 +87,100 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsFalse();
     }
 
+    /// <summary>
+    /// A forward whose every connect to the owner timed out, as towards a host that drops connection attempts, is reported as unreachable:
+    /// the connect timeout of the pool ends each attempt before its per-attempt timeout, and no attempt sent anything.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ConnectTimeoutIsUnreachable(CancellationToken cancellationToken)
+    {
+        await using var pool = CreatePool(
+            static () => new SocketsHttpHandler { ConnectCallback = static (_, ct) => NeverConnectsAsync(ct) },
+            new Uri("https://localhost:6500"),
+            TimeSpan.FromMilliseconds(50));
+        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(30)));
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
+
+        _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsTrue();
+        _ = await Assert.That(HasTimeoutCause(failure.Status.DebugException)).IsTrue();
+    }
+
+    /// <summary>
+    /// A forward that connected and then hit its per-attempt timeout may have reached the owner, so it ends as a timeout and never as unreachable,
+    /// even though the attempt was canceled like a slow connect would be.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AttemptTimeoutAfterConnectIsNot(CancellationToken cancellationToken)
+    {
+        await using var stream = new SilentStream();
+        await using var pool = CreatePool(
+            () => new SocketsHttpHandler { ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(stream) },
+            new Uri("http://localhost:6500"),
+            TimeSpan.FromSeconds(2));
+        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromMilliseconds(200), 1));
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
+
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsFalse();
+        _ = await Assert.That(stream.Written).IsGreaterThan(0L).Because("the connection was established and written to before the attempt timed out");
+    }
+
+    /// <summary>
+    /// The pool gives every peer two handlers with the same long connect bound, TLS handshake included; only the forward channel's bounds its
+    /// dial too, so replication and elections never get the short bound.
+    /// </summary>
+    [Test]
+    public async Task OnlyForwardChannelBoundsDial()
+    {
+        var created = new List<SocketsHttpHandler>();
+        await using (CreatePool(
+            () =>
+            {
+                var handler = new SocketsHttpHandler();
+                created.Add(handler);
+                return handler;
+            },
+            new Uri("https://localhost:6500"),
+            TimeSpan.FromMilliseconds(300)))
+        {
+            _ = await Assert.That(created.Count).IsEqualTo(2);
+            var bounded = 0;
+            foreach (var handler in created)
+            {
+                _ = await Assert.That(handler.ConnectTimeout).IsEqualTo(TimeSpan.FromSeconds(5));
+                bounded += handler.ConnectCallback?.Target is BoundedDial ? 1 : 0;
+            }
+
+            _ = await Assert.That(bounded).IsEqualTo(1);
+        }
+    }
+
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
+
+    private static bool HasTimeoutCause(Exception? failure)
+    {
+        for (var current = failure; current != null; current = current.InnerException)
+        {
+            if (current is TimeoutException)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Waits for a connect that never completes, as towards a host that drops connection attempts.</summary>
+    /// <param name="cancellationToken">The connect token; the connect timeout cancels it.</param>
+    /// <returns>A task that only ever fails with the cancellation.</returns>
+    private static async ValueTask<Stream> NeverConnectsAsync(CancellationToken cancellationToken)
+    {
+        var never = new TaskCompletionSource<Stream>(TaskCreationOptions.RunContinuationsAsynchronously);
+        return await never.Task.WaitAsync(cancellationToken);
+    }
 
     private static IBackpressureGate CreateGate()
     {
@@ -100,23 +197,107 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         return expectations.Instance();
     }
 
+    /// <summary>Creates a forwarder over a real pool whose owner policy is <paramref name="policy" />.</summary>
+    /// <param name="pool">The pool that reaches the owner.</param>
+    /// <param name="policy">The call policy of the owner.</param>
+    /// <returns>The forwarder.</returns>
+    private static OwnerRpcForwarder CreateForwarder(ServerClientPool pool, ServerCallPolicy policy)
+    {
+        var routed = new IServerClientPoolCreateExpectations();
+        _ = routed.Setups.ForNode(Arg.Any<string>()).ReturnValue(pool.ForNode(Owner));
+        _ = routed.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(policy);
+        return new OwnerRpcForwarder(routed.Instance(), CreateGate(), CreateClientIdResolver(), RingAgreements.Create());
+    }
+
     /// <summary>Creates a forwarder whose call policy makes up to three attempts without backoff.</summary>
     /// <param name="invoker">The invoker of the owner client.</param>
     /// <returns>The forwarder.</returns>
     private OwnerRpcForwarder CreateForwarder(CapturingCallInvoker invoker)
     {
-        var policy = CreatePolicy();
+        var policy = CreatePolicy(TimeSpan.FromSeconds(30));
         var pool = new IServerClientPoolCreateExpectations();
         _ = pool.Setups.ForNode(Arg.Any<string>()).ReturnValue(new SquirixCacheService.SquirixCacheServiceClient(invoker));
         _ = pool.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(policy);
         return new OwnerRpcForwarder(pool.Instance(), CreateGate(), CreateClientIdResolver(), RingAgreements.Create());
     }
 
-    private ServerCallPolicy CreatePolicy() => new(
+    /// <summary>Creates a pool with one owner reached through the handler <paramref name="createHandler" /> creates, which the pool owns.</summary>
+    /// <param name="createHandler">Creates the owned handler of the owner.</param>
+    /// <param name="uri">The address of the owner.</param>
+    /// <param name="connectTimeout">The connect timeout the pool sets on the forward handler.</param>
+    /// <returns>The pool.</returns>
+    private ServerClientPool CreatePool(Func<SocketsHttpHandler> createHandler, Uri uri, TimeSpan connectTimeout)
+    {
+        var args = new ServerClientPoolArgs
+        {
+            PolicyFactory = static _ => new IdleCallPolicy(),
+            OwnedHandlerFactory = (_, _, _) => createHandler(),
+            ForwardConnectTimeout = connectTimeout,
+        };
+        return new ServerClientPool([new ServerPeer { NodeId = Owner, Uri = uri }], args, new ServerClientPoolMetrics(_testMeter), NullLogger<ServerClientPool>.Instance);
+    }
+
+    private ServerCallPolicy CreatePolicy(TimeSpan perAttempt, int attempts = 3) => new(
         new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter)),
-        3,
+        attempts,
         64,
         Owner,
         TimeProvider.System,
-        new CallPolicyTimeouts(TimeSpan.FromSeconds(30), TimeSpan.Zero, TimeSpan.Zero));
+        new CallPolicyTimeouts(perAttempt, TimeSpan.Zero, TimeSpan.Zero));
+
+    /// <summary>A connection that takes every byte written to it and never answers, until it is disposed.</summary>
+    private sealed class SilentStream : Stream
+    {
+        private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private long _written;
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => true;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        /// <summary>Gets the number of bytes written to the connection.</summary>
+        internal long Written => Interlocked.Read(ref _written);
+
+        public override void Flush()
+        {
+        }
+
+        public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await _closed.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return 0;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => _ = Interlocked.Add(ref _written, count);
+
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            _ = Interlocked.Add(ref _written, buffer.Length);
+            return ValueTask.CompletedTask;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            _ = _closed.TrySetResult();
+            base.Dispose(disposing);
+        }
+    }
 }

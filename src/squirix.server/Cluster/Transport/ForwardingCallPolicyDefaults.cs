@@ -14,7 +14,12 @@ internal static class ForwardingCallPolicyDefaults
 {
     private const int MaxAttempts = 1;
 
-    private static readonly CallPolicyTimeouts Timeouts = new(TimeSpan.FromSeconds(3), TimeSpan.FromMilliseconds(60), TimeSpan.FromMilliseconds(600));
+    private const int PerAttemptTimeoutMilliseconds = 3000;
+
+    private static readonly CallPolicyTimeouts Timeouts = new(TimeSpan.FromMilliseconds(PerAttemptTimeoutMilliseconds), TimeSpan.FromMilliseconds(60), TimeSpan.FromMilliseconds(600));
+
+    /// <summary>Gets the longest time one forwarded call may take before it is canceled.</summary>
+    internal static TimeSpan TimeoutPerAttempt { get; } = TimeSpan.FromMilliseconds(PerAttemptTimeoutMilliseconds);
 
     /// <summary>Gets the per-owner forwarding permit count for an entry admission limit: half of it, and at least one.</summary>
     /// <param name="maxInFlight">Entry node maximum in-flight operations.</param>
@@ -29,4 +34,15 @@ internal static class ForwardingCallPolicyDefaults
     /// <returns>A single-attempt, non-queuing call policy.</returns>
     internal static ServerCallPolicy Create(ServerCallPolicyInstrumentation instrumentation, string peer, int maxInFlight, TimeProvider? timeProvider) =>
         new(instrumentation, MaxAttempts, MaxConcurrentPerPeer(maxInFlight), peer, timeProvider, Timeouts);
+
+    /// <summary>Checks the internode connect timeout against the forwarded call it bounds.</summary>
+    /// <param name="connectTimeout">The configured connect timeout.</param>
+    /// <returns>
+    /// <see langword="null" /> when the timeout is positive and below <see cref="TimeoutPerAttempt" />; otherwise the error. A connect that
+    /// outlasts the attempt ends as the attempt timeout, which is ambiguous, instead of as a connect failure another member may take over.
+    /// </returns>
+    internal static string? ValidateConnectTimeout(TimeSpan connectTimeout) =>
+        connectTimeout > TimeSpan.Zero && connectTimeout < TimeoutPerAttempt
+            ? null
+            : $"InterNodeConnectTimeout must be positive and below the {TimeoutPerAttempt:c} per-attempt timeout of a forwarded call (for example \"00:00:00.300\").";
 }
