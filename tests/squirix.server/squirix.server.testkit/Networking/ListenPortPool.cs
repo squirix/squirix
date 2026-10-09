@@ -69,6 +69,26 @@ public sealed class ListenPortPool : IDisposable
             ServerUnitTests.ReleasePort(uri.Port);
     }
 
+    /// <summary>Returns a primary port to whichever pool owns it once its node is gone; ignores foreign ports.</summary>
+    /// <param name="uri">The listen URI whose port to return.</param>
+    /// <remarks>Pool ranges are disjoint per process, so at most one pool matches, as for <see cref="ReleaseHeldPrimary" />.</remarks>
+    public static void ReturnPrimary(Uri uri)
+    {
+        ArgumentNullException.ThrowIfNull(uri);
+        if (EndToEndTests.Owns(uri.Port))
+            EndToEndTests.ReturnPort(uri.Port);
+        else if (EndToEndBenchmarks.Owns(uri.Port))
+            EndToEndBenchmarks.ReturnPort(uri.Port);
+        else if (IntegrationTests.Owns(uri.Port))
+            IntegrationTests.ReturnPort(uri.Port);
+        else if (SmokeTests.Owns(uri.Port))
+            SmokeTests.ReturnPort(uri.Port);
+        else if (ServerBenchmarks.Owns(uri.Port))
+            ServerBenchmarks.ReturnPort(uri.Port);
+        else if (ServerUnitTests.Owns(uri.Port))
+            ServerUnitTests.ReturnPort(uri.Port);
+    }
+
     /// <summary>Reserves the next free port from this pool.</summary>
     /// <returns>A loopback port number.</returns>
     public int AllocatePort() => _allocator.Allocate();
@@ -101,6 +121,10 @@ public sealed class ListenPortPool : IDisposable
     /// <summary>Releases a previously reserved port so the actual server can bind to it.</summary>
     /// <param name="port">The port number to release.</param>
     public void ReleasePort(int port) => _allocator.ReleasePort(port);
+
+    /// <summary>Returns a port whose user is gone, so the pool may hand it out again once it is free.</summary>
+    /// <param name="port">The port number to return.</param>
+    public void ReturnPort(int port) => _allocator.ReturnPort(port);
 
     /// <inheritdoc />
     public void Dispose()

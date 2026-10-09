@@ -37,8 +37,9 @@ public sealed class ClusterIdentity : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
+        // The identity outlives the nodes it served, so their internal ports go back to the pool.
         foreach (var held in _internalPorts.Values)
-            held.Dispose();
+            held.Return();
 
         // Peer handlers present the client certificates released below, so they go first.
         NodeHandlers.DisposeAll();

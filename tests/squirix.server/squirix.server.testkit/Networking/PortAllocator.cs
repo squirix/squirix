@@ -127,7 +127,7 @@ public sealed class PortAllocator : IDisposable
     /// <param name="port">The port number to release.</param>
     /// <remarks>
     /// The port is unbound, and the caller should bind it immediately to minimize the TOCTOU window.
-    /// The port stays reserved in-process until the allocator is disposed, so the pool will not hand it
+    /// The port stays reserved in-process until <see cref="ReturnPort" /> or disposal, so the pool will not hand it
     /// out again to a later caller. Some systems (macOS) keep a just-closed listener's port busy for a moment, so the
     /// call returns only once the port can be bound again, or after a bounded wait when it stays busy (then the real
     /// bind reports the failure). A port that is not held is ignored without waiting.
@@ -139,6 +139,25 @@ public sealed class PortAllocator : IDisposable
         listener.Stop();
         listener.Dispose();
         WaitUntilBindable(port);
+    }
+
+    /// <summary>Returns a port whose user is gone to the pool, so a later reservation may hand it out again.</summary>
+    /// <param name="port">The port to return; a hold on it is closed first. A port this allocator does not reserve is ignored.</param>
+    /// <remarks>
+    /// Reservations otherwise last until the allocator is disposed, and a test process draws every node's port from one fixed slice, so
+    /// ports of finished clusters must come back or a long run exhausts the slice. A returned port is reissued only after the bind probe
+    /// of a later reservation finds it free, so a listener or connection still lingering on it only makes that probe skip it.
+    /// </remarks>
+    public void ReturnPort(int port)
+    {
+        if (_heldPorts.TryRemove(port, out var listener))
+        {
+            listener.Stop();
+            listener.Dispose();
+        }
+
+        if (_allocatedPorts.TryRemove(port, out _))
+            _ = Reserved.TryRemove(port, out _);
     }
 
     /// <inheritdoc />
