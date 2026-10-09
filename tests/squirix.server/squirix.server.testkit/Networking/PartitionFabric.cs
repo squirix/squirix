@@ -15,11 +15,13 @@ namespace Squirix.Server.TestKit.Networking;
 /// <remarks>
 /// The proxy keyed <c language="csharp">(from, to)</c> carries the connections <c language="csharp">from</c> dials
 /// towards <c language="csharp">to</c>. Dispose the fabric after the cluster that dials through it, so node shutdown
-/// still finds its proxies.
+/// still finds its proxies. A black-holed node is never dialed: its dials hang until their connect is canceled, as
+/// towards a host that is down and drops connection attempts instead of refusing them.
 /// </remarks>
 [Mutable]
 public sealed class PartitionFabric : IAsyncDisposable
 {
+    private readonly HashSet<string> _blackHoled = [with(StringComparer.Ordinal)];
     private readonly Lock _gate = new();
     private readonly Dictionary<ProxyKey, TcpPartitionProxy> _proxies = [];
     private int _disposed;
@@ -49,7 +51,28 @@ public sealed class PartitionFabric : IAsyncDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(from);
         ArgumentException.ThrowIfNullOrWhiteSpace(to);
-        return (_, cancellationToken) => ConnectAsync(this[from, to].ListenEndPoint, cancellationToken);
+        return (_, cancellationToken) => IsBlackHoled(to) ? HangAsync(cancellationToken) : ConnectAsync(this[from, to].ListenEndPoint, cancellationToken);
+    }
+
+    /// <summary>Makes every new dial towards <paramref name="nodeId" /> hang until its connect is canceled, and resets the connections bridged to it.</summary>
+    /// <param name="nodeId">The node whose host stops answering.</param>
+    /// <returns>A task that completes once no connection towards the node is bridged; <see cref="HealAll" /> lifts the black hole.</returns>
+    /// <remarks>A dial that hangs never reaches a proxy, so no proxy counts it; the connect timeout of the dialing handler is what ends it.</remarks>
+    public Task BlackHoleAsync(string nodeId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        var partitions = new List<Task>();
+        lock (_gate)
+        {
+            _ = _blackHoled.Add(nodeId);
+            foreach (var (key, proxy) in _proxies)
+            {
+                if (string.Equals(key.To, nodeId, StringComparison.Ordinal))
+                    partitions.Add(proxy.PartitionAsync());
+            }
+        }
+
+        return Task.WhenAll(partitions);
     }
 
     /// <inheritdoc />
@@ -100,9 +123,12 @@ public sealed class PartitionFabric : IAsyncDisposable
         this[b, a].Heal();
     }
 
-    /// <summary>Heals every link of the fabric.</summary>
+    /// <summary>Heals every link of the fabric and lifts every black hole.</summary>
     public void HealAll()
     {
+        lock (_gate)
+            _blackHoled.Clear();
+
         foreach (var proxy in Snapshot())
             proxy.Heal();
     }
@@ -166,8 +192,23 @@ public sealed class PartitionFabric : IAsyncDisposable
         }
     }
 
+    /// <summary>Waits for a connect that never completes, as towards a host that drops connection attempts.</summary>
+    /// <param name="cancellationToken">The connect token; the connect timeout of the dialing handler cancels it.</param>
+    /// <returns>A task that only ever fails with the cancellation.</returns>
+    private static async ValueTask<Stream> HangAsync(CancellationToken cancellationToken)
+    {
+        var never = new TaskCompletionSource<Stream>(TaskCreationOptions.RunContinuationsAsynchronously);
+        return await never.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     private static InvalidOperationException UpstreamMismatch(ProxyKey key, TcpPartitionProxy existing, IPEndPoint requested) =>
         new($"The link {key.From} -> {key.To} already has a proxy in front of {existing.Upstream}, not {requested}.");
+
+    private bool IsBlackHoled(string nodeId)
+    {
+        lock (_gate)
+            return _blackHoled.Contains(nodeId);
+    }
 
     private TcpPartitionProxy[] Snapshot()
     {

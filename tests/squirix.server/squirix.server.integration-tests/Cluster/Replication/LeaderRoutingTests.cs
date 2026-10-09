@@ -8,6 +8,7 @@ using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
@@ -176,6 +177,61 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             deadline: DateTime.UtcNow.Add(Bound),
             cancellationToken: cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
+    }
+
+    /// <summary>
+    /// With four nodes and three replicas, the owner of a group leads it and its host goes down without refusing connections: every dial
+    /// towards it hangs. Once another member leads, a write sent to the node outside the group reaches the new leader, and no write waits out
+    /// the per-attempt timeout of a forward: the connect timeout ends each dial to the owner as a connect failure, so the entry node falls back
+    /// to another member instead of ending in an ambiguous timeout.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Timeout(120_000)]
+    public async Task BlackHoledOwnerReachesNewLeader(CancellationToken cancellationToken)
+    {
+        var topology = new ClusterNode[FourNodes.Length];
+        for (var i = 0; i < topology.Length; i++)
+            topology[i] = new ClusterNode(FourNodes[i], GetNextHttpUri());
+
+        await using var fabric = new PartitionFabric();
+        await using var cluster = await StartClusterAsync(topology, OwnerLeadsOptions("leader-routing-black-hole", fabric), cancellationToken);
+        _ = await Assert.That(await LeaderAsync(cluster, Nodes, cancellationToken)).IsEqualTo(OwnerId);
+        var key = KeyOwnedByOwner(cluster[EntryOutsideGroup]);
+        using var channel = CreateGrpcChannel(cluster[EntryOutsideGroup].Uri);
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var request = new SetEntryAsyncRequest
+        {
+            OperationId = RpcOperationIdentity.New(),
+            CacheName = CacheName,
+            Key = key,
+            Entry = new NodeCacheEntry<object?> { Value = "black-hole", Version = 1 }.MapToProto(),
+        };
+
+        await cluster.StopNodeAsync(OwnerId);
+        await fabric.BlackHoleAsync(OwnerId);
+        string[] survivors = [Nodes[1], Nodes[2]];
+        var leader = await LeaderAsync(cluster, survivors, cancellationToken);
+        var follower = Array.Find(survivors, id => !string.Equals(id, leader, StringComparison.Ordinal))!;
+        await cluster.WaitUntilAsync(nodes => Follows(nodes[follower], leader, out _), Bound, cancellationToken);
+
+        var outcomes = new List<string>();
+        var slowest = TimeSpan.Zero;
+        RpcException? refusal;
+        do
+        {
+            var started = Stopwatch.GetTimestamp();
+            refusal = await SetAsync(client, request, cancellationToken);
+            var elapsed = Stopwatch.GetElapsedTime(started);
+            slowest = elapsed > slowest ? elapsed : slowest;
+            outcomes.Add($"{(refusal == null ? "OK" : refusal.Status.Detail)} in {elapsed.TotalMilliseconds:F0} ms");
+        }
+        while (refusal is { StatusCode: StatusCode.Unavailable } && outcomes.Count < MaxWrites);
+
+        var writes = string.Join("; ", outcomes);
+        _ = await Assert.That(refusal).IsNull().Because($"the write through {EntryOutsideGroup} must reach the new leader {leader}; writes: {writes}");
+        _ = await Assert.That(slowest).IsLessThan(ForwardingCallPolicyDefaults.TimeoutPerAttempt).Because($"no write may wait out the forward timeout; writes: {writes}");
+        _ = await Assert.That((Table(cluster[EntryOutsideGroup]).TryGetLearnedLeader(OwnerId, out var learned), learned.NodeId)).IsEqualTo((true, leader));
     }
 
     /// <summary>Without automatic failover a write sent to another node is forwarded to the ring owner, as before leader routing.</summary>

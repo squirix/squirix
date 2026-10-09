@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
+using System.Net.Http;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -101,6 +102,34 @@ public sealed class PartitionFabricTests
         }
     }
 
+    /// <summary>
+    /// A black-holed node is never dialed: its bridged connections are reset and a dial towards it ends only by the connect timeout of the
+    /// dialing handler, without reaching its proxy; healing lifts the black hole, so the next dial reaches the proxy again.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token; bounds the waits only.</param>
+    [Test]
+    public async Task BlackHoleHangsDialsUntilTimeout(CancellationToken cancellationToken)
+    {
+        await using var echo = EchoUpstream.Start();
+        await using var fabric = await CreateTriangleAsync(echo.EndPoint, cancellationToken);
+        using var live = await ProxyTestSockets.ConnectAsync(fabric["a", "c"].ListenEndPoint, cancellationToken);
+        await fabric["a", "c"].WaitForConnectionAsync(1, cancellationToken);
+
+        await fabric.BlackHoleAsync("c");
+
+        _ = await Assert.That(fabric["a", "c"].ActiveConnections).IsEqualTo(0);
+        _ = await Assert.That(await ProxyTestSockets.IsClosedAsync(live, cancellationToken)).IsTrue();
+        var timedOut = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(DialAsync(fabric, "a", "c", cancellationToken));
+        _ = await Assert.That(timedOut.InnerException).IsTypeOf<TimeoutException>();
+        _ = await Assert.That(fabric["a", "c"].AcceptedConnections).IsEqualTo(1);
+
+        fabric.HealAll();
+
+        // The echo answers the request with its own bytes, which no HTTP response parses, so the dial fails once it was bridged.
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<HttpRequestException>(DialAsync(fabric, "a", "c", cancellationToken));
+        _ = await Assert.That(fabric["a", "c"].AcceptedConnections).IsEqualTo(2);
+    }
+
     /// <summary>Disposing the fabric disposes every proxy, so a link that was started is closed afterwards.</summary>
     /// <param name="cancellationToken">The test cancellation token; bounds the waits only.</param>
     [Test]
@@ -136,6 +165,20 @@ public sealed class PartitionFabricTests
         var other = new IPEndPoint(IPAddress.Loopback, echo.EndPoint.Port == 1 ? 2 : 1);
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(fabric, other, cancellationToken, static (f, o, ct) => _ = f.EnsureProxyAsync("a", "b", o, ct));
         _ = NodeExceptionAssert.For<KeyNotFoundException>().Throws(fabric, static f => _ = f["b", "a"]);
+    }
+
+    /// <summary>Sends one HTTP request from <paramref name="from" /> towards <paramref name="to" /> through the fabric.</summary>
+    /// <param name="fabric">The fabric.</param>
+    /// <param name="from">The dialing node.</param>
+    /// <param name="to">The dialed node.</param>
+    /// <param name="cancellationToken">The request token.</param>
+    /// <returns>A task that ends as the request does.</returns>
+    private static async Task DialAsync(PartitionFabric fabric, string from, string to, CancellationToken cancellationToken)
+    {
+        using var handler = new SocketsHttpHandler { ConnectCallback = fabric.CreateConnectCallback(from, to), ConnectTimeout = TimeSpan.FromMilliseconds(100) };
+        using var invoker = new HttpMessageInvoker(handler, false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri("http://localhost:6500/"));
+        using var response = await invoker.SendAsync(request, cancellationToken);
     }
 
     private static async Task<PartitionFabric> CreateTriangleAsync(IPEndPoint upstream, CancellationToken cancellationToken)
