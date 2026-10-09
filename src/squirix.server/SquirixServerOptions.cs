@@ -110,34 +110,11 @@ public sealed class SquirixServerOptions
     /// <exception cref="ArgumentException">Thrown when a configuration value is invalid.</exception>
     public void Validate() => Validate(this);
 
-    private static bool TryValidateOptions(SquirixServerOptions options, out IReadOnlyList<string> errors)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-
-        var topology = BuildTopology(options);
-
-        if (!TopologyValidator.TryValidate(topology, options.PersistenceEnabled, options.DataDirectory, out errors))
-            return false;
-
-        var sectionFailure = ValidateSections(options);
-        if (sectionFailure != null)
-        {
-            errors = [sectionFailure];
-            return false;
-        }
-
-        // Public options path does not carry mTLS material and does not enforce the replication opt-in:
-        // the opt-in is a hosting activation concern evaluated by ReplicationActivationGuard at startup.
-        var activationFailures = new List<string>();
-        ReplicationActivationGuard.CollectFailures(activationFailures, options.ReplicaCount, options.PersistenceEnabled, null, true);
-        if (activationFailures.Count == 0)
-            return true;
-
-        errors = activationFailures;
-        return false;
-    }
-
-    private static TopologyOptions BuildTopology(SquirixServerOptions options)
+    /// <summary>Maps the options to the cluster topology the node host runs with, without validating them.</summary>
+    /// <param name="options">Server options.</param>
+    /// <returns>The cluster topology.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <see cref="Peers" /> or <see cref="Uri" /> is <see langword="null" />.</exception>
+    internal static TopologyOptions BuildTopology(SquirixServerOptions options)
     {
         var peerOptions = options.Peers;
         var uri = options.Uri;
@@ -165,10 +142,38 @@ public sealed class SquirixServerOptions
             Uri = uri,
             VirtualNodes = options.VirtualNodes,
             ReplicaCount = options.ReplicaCount,
+            ReplicationEnabled = options.ReplicationEnabled,
             ConfigurationGeneration = options.ConfigurationGeneration,
             AutomaticFailoverEnabled = options.AutomaticFailoverEnabled,
             QuorumReadsEnabled = options.QuorumReadsEnabled,
         };
+    }
+
+    private static bool TryValidateOptions(SquirixServerOptions options, out IReadOnlyList<string> errors)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        var topology = BuildTopology(options);
+
+        if (!TopologyValidator.TryValidate(topology, options.PersistenceEnabled, options.DataDirectory, out errors))
+            return false;
+
+        var sectionFailure = ValidateSections(options);
+        if (sectionFailure != null)
+        {
+            errors = [sectionFailure];
+            return false;
+        }
+
+        // Public options path does not carry mTLS material and does not enforce the replication opt-in:
+        // the opt-in is a hosting activation concern evaluated by ReplicationActivationGuard at startup.
+        var activationFailures = new List<string>();
+        ReplicationActivationGuard.CollectFailures(activationFailures, options.ReplicaCount, options.PersistenceEnabled, null, true);
+        if (activationFailures.Count == 0)
+            return true;
+
+        errors = activationFailures;
+        return false;
     }
 
     private static string? ValidateSections(SquirixServerOptions options)
