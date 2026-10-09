@@ -174,8 +174,12 @@ public sealed class ConditionalFailoverTests : EndToEndTestBase
         private static string Describe(Exception exception) =>
             exception is RpcException rpc ? $"{nameof(RpcException)} {rpc.StatusCode} '{rpc.Status.Detail}'" : exception.GetType().Name;
 
+        /// <summary>Determines whether a failure has a status the client SDK itself retries, or reports a commit with an unknown outcome.</summary>
+        /// <param name="exception">The failure that broke a chain.</param>
+        /// <returns><see langword="true" /> when the client may retry the call; otherwise <see langword="false" />.</returns>
         private static bool IsRetryable(Exception exception) =>
-            exception is CommitOutcomeUnknownException or RpcException { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded };
+            exception is CommitOutcomeUnknownException
+                or RpcException { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.Internal or StatusCode.ResourceExhausted };
 
         private static async ValueTask<bool> ServesAsync(ICache<long> cache, string key, CancellationToken cancellationToken)
         {
