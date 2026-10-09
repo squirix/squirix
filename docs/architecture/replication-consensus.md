@@ -37,9 +37,10 @@ commit rule.
 
 ### Elected leadership behind the automatic failover switch
 
-Automatic failover is an internal topology switch. It is off by default and not configurable in this release; with it
-off, the owner of each group leads it statically in the term of its log, exactly as before. With it on, the groups of
-three or more replicas elect their leader. Groups of one or two replicas are unchanged: no election driver, no
+Automatic failover is the `AutomaticFailoverEnabled` server option
+([configuration](../configuration.md#automatic-failover-and-quorum-reads)). It is off by default; with it off, the
+owner of each group leads it statically in term one, exactly as before. With it on, the groups of three or more
+replicas elect their leader; validation requires `QuorumReadsEnabled` with it and a replica count of at least 3. Groups of one or two replicas are unchanged: no election driver, no
 heartbeats, and RF=2 never elects a replacement.
 
 - **Election.** Each node runs one election driver per served group. A follower campaigns once neither a leader contact
@@ -77,7 +78,8 @@ answers `stale-owner` or `stale-term`; a refusal of either kind is only given be
 
 ### Quorum reads (ReadIndex equivalent)
 
-Quorum reads are an internal switch next to automatic failover and apply only to elected leaders. For each read of an
+Quorum reads are the `QuorumReadsEnabled` server option, which validation requires together with automatic failover;
+they apply only to elected leaders. For each read of an
 elected group with the switch on:
 
 1. Check that this node holds authority in the term of its running pipeline.
