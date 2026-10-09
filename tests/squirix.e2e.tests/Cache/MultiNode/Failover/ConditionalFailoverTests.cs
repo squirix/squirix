@@ -237,7 +237,7 @@ public sealed class ConditionalFailoverTests : EndToEndTestBase
                     && Matches(key, "Get", new CacheValueResult<long>(true, 3L), await _cache.GetValueAsync(key, cancellationToken));
                 return true;
             }
-            catch (Exception exception) when (exception is RpcException or CommitOutcomeUnknownException)
+            catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
                 // A leader change may break a chain, but only with a failure the client can act on by retrying; any other one is a violation.
                 if (!IsRetryable(exception))
