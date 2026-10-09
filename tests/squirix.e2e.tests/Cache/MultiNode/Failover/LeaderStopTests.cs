@@ -47,6 +47,67 @@ public sealed class LeaderStopTests : EndToEndTestBase
     [ParallelLimiter<FailoverLimit>]
     public Task RfThreeLeaderStopRecovers(CancellationToken cancellationToken) => LeaderStopRecoversAsync(nameof(RfThreeLeaderStopRecovers), true, cancellationToken);
 
+    /// <summary>
+    /// After the leader stops and the majority recovers, the former leader rejoins; then a follower stops, so the new leader and the rejoined
+    /// node form the majority. Writes and reads continue through both faults, the second without a leader change.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Timeout(120_000)]
+    [ParallelLimiter<FailoverLimit>]
+    public async Task ReadAndWriteContinueOnRfThreeMajority(CancellationToken cancellationToken)
+    {
+        const string testName = nameof(ReadAndWriteContinueOnRfThreeMajority);
+        await using var cluster = await HostedCluster.StartThreeNodeAsync(testName, FailoverSteps.Options(testName), true, cancellationToken);
+        var probe = new ClusterLeaderProbe<ClusterStartOptions>(cluster.Cluster);
+        var (former, formerTerm) = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
+        var timeline = FailoverTimeline<ClusterStartOptions>.Start(cluster.Cluster, Group);
+        await using (timeline)
+        {
+            var survivors = FailoverSteps.Except(FailoverSteps.ThreeNodes, former);
+            var first = await RunFaultAsync(
+                (Cluster: cluster, Probe: probe, Timeline: timeline),
+                survivors,
+                "first",
+                $"leader {former} stops",
+                () => cluster.StopNodeAsync(former),
+                cancellationToken);
+            _ = await probe.WaitForStableLeaderAsync(Group, survivors, FailoverSteps.Bound, cancellationToken);
+
+            await cluster.RestartNodeAsync(former, cancellationToken);
+            var leader = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
+
+            // Stop the member that is neither the leader nor the rejoined node, so the majority needs the rejoined node.
+            var follower = Array.Find(FailoverSteps.ThreeNodes, id => !string.Equals(id, leader.NodeId, StringComparison.Ordinal) && !string.Equals(id, former, StringComparison.Ordinal))
+                           ?? FailoverSteps.Except(FailoverSteps.ThreeNodes, leader.NodeId)[0];
+            var majority = FailoverSteps.Except(FailoverSteps.ThreeNodes, follower);
+            var second = await RunFaultAsync(
+                (Cluster: cluster, Probe: probe, Timeline: timeline),
+                majority,
+                "second",
+                $"follower {follower} stops",
+                () => cluster.StopNodeAsync(follower),
+                cancellationToken);
+            var afterFollowerStop = probe.Ledger(Group).Observe();
+
+            await cluster.RestartNodeAsync(follower, cancellationToken);
+            _ = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
+            await FailoverSteps.ReadFinalAsync(first.Workload.History, second.Reader, first.Keys, cancellationToken);
+            await FailoverSteps.ReadFinalAsync(second.Workload.History, second.Reader, second.Keys, cancellationToken);
+            _ = await GroupLogAudit.RunAsync(cluster.Cluster, Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
+
+            var dump = timeline.Dump();
+            _ = await Assert.That(first.Read).IsEqualTo(new CacheValueResult<long>(true, 1L)).Because(dump);
+            _ = await Assert.That(first.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(dump + Eventually.Dump(first.Attempts));
+            _ = await Assert.That(second.Read).IsEqualTo(new CacheValueResult<long>(true, 1L)).Because(dump);
+            _ = await Assert.That(second.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(dump + Eventually.Dump(second.Attempts));
+            _ = await Assert.That(first.Workload.History.Check()).IsEmpty().Because(first.Workload.History.Summary());
+            _ = await Assert.That(second.Workload.History.Check()).IsEmpty().Because(second.Workload.History.Summary());
+            _ = await Assert.That(leader.Term).IsGreaterThan(formerTerm).Because(dump);
+            _ = await Assert.That(afterFollowerStop).IsEqualTo(leader).Because(dump);
+        }
+    }
+
     /// <summary>Stops the leader of the group under a register workload, then checks the recovery bound, the history, the ledger and the log audit.</summary>
     /// <param name="testName">The test name, which names the data directory and seeds the election jitter.</param>
     /// <param name="abrupt">Whether the leader shuts down without a graceful drain.</param>
