@@ -58,6 +58,7 @@ public sealed class ConditionalFailoverTests : EndToEndTestBase
 
         var running = Task.WhenAll(workers);
         _ = await Task.WhenAny(stream.Progressed, running).WaitAsync(FailoverSteps.Bound, TimeProvider.System, cancellationToken);
+        _ = await Assert.That(running.IsCompleted).IsFalse().Because("the leader must shut down while chains still run");
         await cluster.AbruptShutdownNodeAsync(former);
         await cluster.StopNodeAsync(former);
         await running;
