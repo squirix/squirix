@@ -29,7 +29,7 @@ public static class AspNetCoreExtensions
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        return ConfigureSquirixServerBuilderAsync(builder, configure, settingsPath, loadDiscoveredSettings, configureExtensions, cancellationToken);
+        return ConfigureSquirixServerBuilderAsync(builder, configure, settingsPath, loadDiscoveredSettings, configureExtensions, null, cancellationToken);
     }
 
     /// <summary>Opens node storage (topology stamp, manifest, journal startup repair, replica group logs) and maps Squirix gRPC, health, and metrics endpoints.</summary>
@@ -51,12 +51,22 @@ public static class AspNetCoreExtensions
         return ServerHostingComposition.MapServerAsync(app, cancellationToken);
     }
 
-    private static async Task<WebApplicationBuilder> ConfigureSquirixServerBuilderAsync(
+    /// <summary>Configures the builder exactly as <see cref="AddSquirixServerAsync" /> does, then applies optional composition overrides.</summary>
+    /// <param name="builder">The ASP.NET Core application builder.</param>
+    /// <param name="configure">Optional callback applied after settings are loaded.</param>
+    /// <param name="settingsPath">Optional settings file path.</param>
+    /// <param name="loadDiscoveredSettings">Whether to discover a settings file when no path is given.</param>
+    /// <param name="configureExtensions">Optional package extension configuration.</param>
+    /// <param name="configureComposition">Optional composition overrides applied last, for example cluster mTLS material in tests.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The supplied application builder.</returns>
+    internal static async Task<WebApplicationBuilder> ConfigureSquirixServerBuilderAsync(
         WebApplicationBuilder builder,
         Action<SquirixServerOptions>? configure,
         string? settingsPath,
         bool loadDiscoveredSettings,
         Action<ExtensionOptions>? configureExtensions,
+        Action<ICompositionArgs>? configureComposition,
         CancellationToken cancellationToken)
     {
         var options = await Configurator.CreateHostingOptionsAsync(configure, settingsPath, loadDiscoveredSettings, cancellationToken).ConfigureAwait(false);
@@ -72,6 +82,7 @@ public static class AspNetCoreExtensions
                 args.PersistenceOptions = persistenceOptions;
                 args.BackpressureOptions = options.Backpressure.ToAdmissionOptions();
                 args.Extensions = extensions;
+                configureComposition?.Invoke(args);
             },
             cancellationToken).ConfigureAwait(false);
         return builder;

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.IntegrationTests.Support;
@@ -269,6 +270,25 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         _ = await Assert.That(output).Contains("replication opt-in", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Verifies validate-config refuses automatic failover without quorum reads and names the settings keys to set.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ValidateConfigRefusesHalfPair(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-validate-config-half-pair");
+        var settingsPath = Path.Join(dir, "Squirix.settings.json");
+        const string json =
+            "{\"Squirix\":{\"Cluster\":{\"ClusterId\":\"c1\",\"NodeId\":\"n1\",\"Uri\":\"https://localhost:6001\",\"ReplicaCount\":3,\"PersistenceEnabled\":true," +
+            "\"AutomaticFailoverEnabled\":true," +
+            "\"Peers\":[{\"NodeId\":\"n1\",\"Uri\":\"https://localhost:6001\"},{\"NodeId\":\"n2\",\"Uri\":\"https://localhost:6002\"},{\"NodeId\":\"n3\",\"Uri\":\"https://localhost:6003\"}]}}}";
+        await File.WriteAllTextAsync(settingsPath, json, cancellationToken);
+
+        var (exitCode, output) = await RunHostAsync($"exec \"{await FindHostDllAsync()}\" validate-config --settings \"{settingsPath}\"", cancellationToken);
+
+        _ = await Assert.That(exitCode).IsEqualTo(1);
+        _ = await Assert.That(output).Contains(TopologyValidator.AutomaticFailoverRequiresQuorumReads, StringComparison.Ordinal);
+    }
+
     private static async Task<string> FindHostDllAsync()
     {
         var directory = AppContext.BaseDirectory;
@@ -381,12 +401,13 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         var persistence = replicaCount > 1 ? $",\"PersistenceEnabled\":true{dataDirectory}" : string.Empty;
         if (replicationEnabled && replicaCount > 1)
             persistence += ",\"ReplicationEnabled\":true";
-        var third = replicaCount > 2 ? $",{{\"NodeId\":\"n3\",\"Uri\":\"{GetNextHttpUri().AbsoluteUri}\"}}" : string.Empty;
+
+        // Doctor binds nothing, so the third peer needs no held port; 6003 lies outside the integration test port region.
+        var third = replicaCount > 2 ? ",{\"NodeId\":\"n3\",\"Uri\":\"https://localhost:6003/\"}" : string.Empty;
         var peers = replicaCount > 1 ? $",\"Peers\":[{{\"NodeId\":\"n1\",\"Uri\":\"{uriA.AbsoluteUri}\"}},{{\"NodeId\":\"n2\",\"Uri\":\"{uriB.AbsoluteUri}\"}}{third}]" : string.Empty;
-        if (failover)
-            peers += ",\"AutomaticFailoverEnabled\":true,\"QuorumReadsEnabled\":true";
+        var switches = failover ? ",\"AutomaticFailoverEnabled\":true,\"QuorumReadsEnabled\":true" : string.Empty;
         var json =
-            $"{{\"Squirix\":{{\"Cluster\":{{\"ClusterId\":\"doctor-c\",\"NodeId\":\"n1\",\"Uri\":\"{uriA.AbsoluteUri}\",\"ReplicaCount\":{replicaCount},\"ConfigurationGeneration\":5{persistence}{peers}}}}}}}";
+            $"{{\"Squirix\":{{\"Cluster\":{{\"ClusterId\":\"doctor-c\",\"NodeId\":\"n1\",\"Uri\":\"{uriA.AbsoluteUri}\",\"ReplicaCount\":{replicaCount},\"ConfigurationGeneration\":5{persistence}{peers}{switches}}}}}}}";
         var path = Path.Join(dir, "Squirix.settings.json");
         await File.WriteAllTextAsync(path, json, cancellationToken);
         return path;

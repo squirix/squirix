@@ -2,6 +2,9 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -9,6 +12,7 @@ using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Mtls;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -18,11 +22,6 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 /// <summary>Node startup coverage for ReplicaCount activation guards.</summary>
 public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
 {
-    /// <summary>Bounds every election wait; the timing below elects within seconds, the rest absorbs a loaded machine.</summary>
-    private static readonly TimeSpan ElectionBound = TimeSpan.FromSeconds(90);
-
-    private static readonly TestElectionTiming ElectionTiming = new() { JitterSeed = 11UL };
-
     /// <summary>A node started with automatic failover on and quorum reads off refuses to start and names the missing switch.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -38,48 +37,28 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     }
 
     /// <summary>
-    /// Three nodes configured through the server options with both switches on elect a new leader when the leader of a group stops; the
-    /// node configuration is the cluster configuration the hosting path maps from those options.
+    /// The public hosting path maps both switches from the server options into the node topology, and with them on registers one more
+    /// hosted service, the election service; the host is built but not started, so storage stays closed. The cluster mTLS material comes from the testkit instead of process environment variables; nothing else differs from
+    /// <see cref="AspNetCoreExtensions.AddSquirixServerAsync" />.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task PublicSwitchesElectLeader(CancellationToken cancellationToken)
+    public async Task HostPathRegistersElection(CancellationToken cancellationToken)
     {
-        ClusterNode[] nodes = [new("node-a", GetNextHttpUri()), new("node-b", GetNextHttpUri()), new("node-c", GetNextHttpUri())];
-        string[] ids = [nodes[0].NodeId, nodes[1].NodeId, nodes[2].NodeId];
-        var peers = new SquirixServerPeerOptions[nodes.Length];
-        for (var i = 0; i < nodes.Length; i++)
-            peers[i] = new SquirixServerPeerOptions { NodeId = nodes[i].NodeId, Uri = nodes[i].Uri };
-        var serverOptions = new SquirixServerOptions
-        {
-            NodeId = nodes[0].NodeId,
-            Uri = nodes[0].Uri,
-            Peers = peers,
-            ReplicaCount = 3,
-            ReplicationEnabled = true,
-            AutomaticFailoverEnabled = true,
-            QuorumReadsEnabled = true,
-        };
-        serverOptions.UsePersistence();
-        var topology = Configurator.ToClusterConfig(serverOptions);
-        var startOptions = new IntegrationStartOptions
-        {
-            ReplicaCount = topology.ReplicaCount,
-            UsePersistence = true,
-            ExtraScope = "public-switches",
-            AutomaticFailoverEnabled = topology.AutomaticFailoverEnabled,
-            QuorumReadsEnabled = topology.QuorumReadsEnabled,
-            ElectionTiming = ElectionTiming,
-        };
+        // The host is built but never started, so nothing binds these URIs and no listen port is held for them.
+        ClusterNode[] nodes =
+        [
+            new("node-a", new Uri("https://localhost:6001")),
+            new("node-b", new Uri("https://localhost:6002")),
+            new("node-c", new Uri("https://localhost:6003")),
+        ];
 
-        await using var cluster = await StartClusterAsync(nodes, startOptions, cancellationToken);
-        var probe = new ClusterLeaderProbe<IntegrationStartOptions>(cluster);
-        var (former, formerTerm) = await probe.WaitForStableLeaderAsync(ids[0], ids, ElectionBound, cancellationToken);
-        await cluster.StopNodeAsync(former);
-        var (next, nextTerm) = await probe.WaitForNewLeaderAsync(ids[0], formerTerm, ElectionBound, cancellationToken);
+        var (onTopology, onHosted) = await BuildHostAsync(nodes, true, cancellationToken);
+        var (offTopology, offHosted) = await BuildHostAsync(nodes, false, cancellationToken);
 
-        _ = await Assert.That(next).IsNotEqualTo(former);
-        _ = await Assert.That(nextTerm).IsGreaterThanOrEqualTo(2UL);
+        _ = await Assert.That((onTopology.AutomaticFailoverEnabled, onTopology.QuorumReadsEnabled)).IsEqualTo((true, true));
+        _ = await Assert.That((offTopology.AutomaticFailoverEnabled, offTopology.QuorumReadsEnabled)).IsEqualTo((false, false));
+        _ = await Assert.That(onHosted - offHosted).IsEqualTo(1);
     }
 
     /// <summary>RF=1 starts with planning services and network replication disabled.</summary>
@@ -175,5 +154,62 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
         var options = await Configurator.LoadAsync(path, cancellationToken);
         _ = await Assert.That(options.ReplicaCount).IsEqualTo(1);
         _ = await Assert.That(options.ConfigurationGeneration).IsEqualTo(7u);
+    }
+
+    /// <summary>Builds, without starting, a node of the given three-node topology through the public hosting path.</summary>
+    /// <param name="nodes">The topology.</param>
+    /// <param name="switches">The value of both failover switches.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The topology the built host resolves, and the number of hosted services the host registers.</returns>
+    private static async Task<(TopologyOptions Topology, int HostedServices)> BuildHostAsync(ClusterNode[] nodes, bool switches, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-failover-host-path");
+        var peers = new SquirixServerPeerOptions[nodes.Length];
+        for (var i = 0; i < nodes.Length; i++)
+            peers[i] = new SquirixServerPeerOptions { NodeId = nodes[i].NodeId, Uri = nodes[i].Uri };
+
+        var (identity, mtlsOptions, certificate) = await ClusterIdentity.ResolveForNodeAsync(
+            null,
+            new TopologyOptions([new ServerPeer { NodeId = nodes[0].NodeId, Uri = nodes[0].Uri }, new ServerPeer { NodeId = nodes[1].NodeId, Uri = nodes[1].Uri }])
+            {
+                NodeId = nodes[0].NodeId,
+                Uri = nodes[0].Uri,
+            },
+            cancellationToken);
+        using var identityScope = identity;
+        using var material = certificate;
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [], ApplicationName = "Squirix.Server" });
+
+        _ = await AspNetCoreExtensions.ConfigureSquirixServerBuilderAsync(
+            builder,
+            options =>
+            {
+                options.NodeId = nodes[0].NodeId;
+                options.Uri = nodes[0].Uri;
+                options.Peers = peers;
+                options.ReplicaCount = 3;
+                options.ReplicationEnabled = true;
+                options.AutomaticFailoverEnabled = switches;
+                options.QuorumReadsEnabled = switches;
+                options.UsePersistence(dir);
+            },
+            null,
+            false,
+            null,
+            args =>
+            {
+                args.MtlsOptions = mtlsOptions;
+                args.Certificate = certificate;
+            },
+            cancellationToken);
+        var hostedServices = 0;
+        foreach (var descriptor in builder.Services)
+        {
+            if (descriptor.ServiceType == typeof(IHostedService))
+                hostedServices++;
+        }
+
+        await using var app = builder.Build();
+        return (app.Services.GetRequiredService<TopologyOptions>(), hostedServices);
     }
 }
