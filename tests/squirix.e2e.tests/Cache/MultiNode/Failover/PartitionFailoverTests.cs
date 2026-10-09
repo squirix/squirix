@@ -76,6 +76,7 @@ public sealed class PartitionFailoverTests : EndToEndTestBase
 
             var dump = Eventually.Dump(cut.Attempts);
             _ = await Assert.That(IsRefusal(cut.Write)).IsTrue().Because($"the cut-off node must refuse the write, got {Describe(cut.Write)}");
+            _ = await Assert.That(cut.HeldAuthority).IsTrue().Because("the cut-off node must still believe it leads when the read is issued, or the read does not cover that window");
             _ = await Assert.That(IsRefusal(cut.Read)).IsTrue().Because($"the cut-off node must refuse the read, got {Describe(cut.Read)}");
             _ = await Assert.That(IsRefusal(cut.DeposedRead)).IsTrue().Because($"the deposed node must refuse the read, got {Describe(cut.DeposedRead)}");
             _ = await Assert.That(cut.ProbeRead).IsEqualTo(new CacheValueResult<long>(true, 1L)).Because(dump);
@@ -119,8 +120,13 @@ public sealed class PartitionFailoverTests : EndToEndTestBase
         var recovery = FailoverSteps.RecoverAsync(scene.Clients.Writer, scene.Singles.Probe, 1L, started, attempts, cancellationToken);
 
         // The cut-off node may still hold authority right after the cut, so it must refuse by itself: no quorum confirms its read or commits its write.
-        var write = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(scene.Clients.Isolated.SetAsync(scene.Singles.Lost, 99L, cancellationToken: cancellationToken));
-        var read = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(scene.Clients.Isolated.GetValueAsync(scene.Singles.Stale, cancellationToken));
+        // Both calls start before either is awaited, so the read is issued while the node can still believe it leads.
+        var (holder, _) = scene.Probe.Ledger(Group).Observe([scene.Former.NodeId]);
+        var writing = scene.Clients.Isolated.SetAsync(scene.Singles.Lost, 99L, cancellationToken: cancellationToken);
+        var reading = scene.Clients.Isolated.GetValueAsync(scene.Singles.Stale, cancellationToken);
+        var write = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(writing);
+        var read = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(reading);
+        var heldAuthority = string.Equals(holder, scene.Former.NodeId, StringComparison.Ordinal);
         var (probeRead, elapsed) = await recovery;
         var leader = await scene.Probe.WaitForNewLeaderAsync(Group, scene.Former.Term, FailoverSteps.Bound, cancellationToken);
 
@@ -132,7 +138,7 @@ public sealed class PartitionFailoverTests : EndToEndTestBase
             cancellationToken);
         var deposedRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(scene.Clients.Isolated.GetValueAsync(scene.Singles.Stale, cancellationToken));
         recovered.SetResult();
-        return new Cut(write, read, deposedRead, probeRead, elapsed, leader, attempts);
+        return new Cut(write, read, heldAuthority, deposedRead, probeRead, elapsed, leader, attempts);
     }
 
     /// <summary>
@@ -191,6 +197,7 @@ public sealed class PartitionFailoverTests : EndToEndTestBase
     /// <summary>What the cut recorded.</summary>
     /// <param name="Write">How the cut-off node refused the write.</param>
     /// <param name="Read">How the cut-off node refused the read right after the cut.</param>
+    /// <param name="HeldAuthority">Whether the cut-off node still held authority over the group when the read and the write were issued.</param>
     /// <param name="DeposedRead">How the cut-off node refused the read once the majority led.</param>
     /// <param name="ProbeRead">The value the recovery probe read back through the majority.</param>
     /// <param name="Elapsed">The time from the cut until the probe read its value back.</param>
@@ -200,6 +207,7 @@ public sealed class PartitionFailoverTests : EndToEndTestBase
     private readonly record struct Cut(
         Exception Write,
         Exception Read,
+        bool HeldAuthority,
         Exception DeposedRead,
         CacheValueResult<long> ProbeRead,
         TimeSpan Elapsed,
