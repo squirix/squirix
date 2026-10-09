@@ -38,11 +38,12 @@ internal sealed class PeerChannels
     /// written to it. It is the shortest delay the handler accepts.
     /// </summary>
     /// <remarks>
-    /// The handler checks its connections every half of the shorter of the two bounds, so a dead connection is closed after at most about
-    /// <see cref="KeepAlivePingDelay" /> plus <see cref="KeepAlivePingTimeout" /> plus that half: about two seconds, three at worst, against
-    /// the 3-second per-attempt timeout of a forward. A forward written in that window ends as the attempt timeout or as the failure of the
-    /// closed connection, both ambiguous; the next one dials anew, fails at the dial bound and falls back to another member. An idle
-    /// connection costs one ping and its acknowledgement per second.
+    /// The handler checks its connections once per second (a quarter of the shorter of the two bounds, but at least a second), so a ping goes
+    /// out up to a tick after the delay and its timeout is noticed up to a tick after it expired: a silent connection is closed after
+    /// <see cref="KeepAlivePingDelay" /> plus <see cref="KeepAlivePingTimeout" /> plus up to two ticks, three to four seconds, against the
+    /// 3-second per-attempt timeout of a forward. A forward written before that ends as the attempt timeout or as the failure of the closed
+    /// connection, both ambiguous; the next one dials anew, fails at the dial bound and falls back to another member. An idle connection costs
+    /// one ping and its acknowledgement per second.
     /// </remarks>
     private static readonly TimeSpan KeepAlivePingDelay = TimeSpan.FromSeconds(1);
 

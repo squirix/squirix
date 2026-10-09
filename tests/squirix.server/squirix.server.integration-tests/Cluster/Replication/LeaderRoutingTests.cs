@@ -8,6 +8,7 @@ using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
@@ -251,6 +252,9 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         await WarmUpAsync(client, KeyOwnedByOwner(cluster[EntryOutsideGroup], 1), cancellationToken);
 
+        var entryPool = ThrowHelper.Required(await Assert.That(cluster[EntryOutsideGroup].GetRequiredService<IServerClientPool>()).IsTypeOf<ServerClientPool>(), "The entry node must use the transport pool.");
+        var openBefore = entryPool.OpenConnections;
+
         // The owner's host dies: nothing it sends is delivered, nothing sent to it is answered, and no connection is reset.
         string[] survivors = [Nodes[1], Nodes[2]];
         fabric.BlackHoleSilently(OwnerId);
@@ -264,9 +268,11 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var follower = Array.Find(survivors, id => !string.Equals(id, leader, StringComparison.Ordinal))!;
         await cluster.WaitUntilAsync(nodes => Follows(nodes[follower], leader, out _), Bound, cancellationToken);
 
-        // The pings found the connection dead long before the election finished, so a write now dials anew: it fails at the dial bound
-        // (one second) and takes the new leader, and at worst one more attempt follows the leader the entry node learns. The bound is the
-        // per-attempt timeout (three seconds) of such a failed attempt plus the dial bound, twice, plus slack for a loaded host.
+        // The keepalive pings close the connection the entry node holds to the owner, which drops its open connection count; once they did, a
+        // write dials anew: it fails at the dial bound (one second) and takes the new leader, and at worst one more attempt follows the leader the
+        // entry node learns. The bound is the per-attempt timeout (three seconds) of such a failed attempt plus the dial bound, twice, plus
+        // slack for a loaded host.
+        await cluster.WaitUntilAsync(_ => entryPool.OpenConnections < openBefore, Bound, cancellationToken);
         var outcomes = new List<string>();
         var started = Stopwatch.GetTimestamp();
         RpcException? refusal;
