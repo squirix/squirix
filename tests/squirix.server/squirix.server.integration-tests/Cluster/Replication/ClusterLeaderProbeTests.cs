@@ -97,7 +97,10 @@ public sealed class ClusterLeaderProbeTests : NodeIntegrationTestBase
         _ = await Assert.That(failure.Message).Contains($"group {Group} keeps leader {leader}", StringComparison.Ordinal);
     }
 
-    /// <summary>A stopped leader is replaced, and the timeline records the loss, the later term, the new leader and convergence in order.</summary>
+    /// <summary>
+    /// A stopped leader is replaced, and the timeline records the loss, the later term, the new leader and convergence in order, at
+    /// timestamps of the system monotonic clock.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task StoppedLeaderTimelineIsOrdered(CancellationToken cancellationToken)
@@ -106,6 +109,7 @@ public sealed class ClusterLeaderProbeTests : NodeIntegrationTestBase
         var probe = new ClusterLeaderProbe<IntegrationStartOptions>(cluster);
         var (former, formerTerm) = await probe.WaitForStableLeaderAsync(Group, Three, Bound, cancellationToken);
 
+        var before = TimeProvider.System.GetTimestamp();
         var timeline = FailoverTimeline<IntegrationStartOptions>.Start(cluster, Group);
         await using (timeline)
         {
@@ -125,6 +129,7 @@ public sealed class ClusterLeaderProbeTests : NodeIntegrationTestBase
         _ = await Assert.That(timeline.Baseline).IsEqualTo((former, formerTerm)).Because(dump);
         _ = await Assert.That(timeline.NewLeader.Term).IsGreaterThan(formerTerm).Because(dump);
         _ = await Assert.That(lost <= elected && raised <= elected && elected <= converged).IsTrue().Because(dump);
+        _ = await Assert.That(timeline.TimestampOf(FailoverPhase.NewLeader) ?? 0L).IsBetween(before, TimeProvider.System.GetTimestamp()).Because(dump);
     }
 
     /// <summary>Nodes whose wall clocks run thirty seconds apart still elect one leader that every member follows.</summary>

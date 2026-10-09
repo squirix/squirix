@@ -30,6 +30,7 @@ internal sealed class FailoverTimeline<TOptions> : IAsyncDisposable
     private readonly Lock _gate = new();
     private readonly string _groupId;
     private readonly Dictionary<FailoverPhase, TimeSpan> _phases = [];
+    private readonly Dictionary<FailoverPhase, long> _timestamps = [];
     private readonly Task _sampling;
     private readonly long _started;
     private readonly CancellationTokenSource _stop = new();
@@ -147,6 +148,19 @@ internal sealed class FailoverTimeline<TOptions> : IAsyncDisposable
         return text.ToString();
     }
 
+    /// <summary>Gets when a phase was first seen, as a timestamp of the system monotonic clock; <see langword="null" /> until it is.</summary>
+    /// <param name="phase">The phase.</param>
+    /// <returns>The timestamp of the first sample that saw the phase, comparable with <see cref="TimeProvider.GetTimestamp" /> of the system clock.</returns>
+    /// <exception cref="InvalidOperationException">A sample failed and ended the sampling; the failure is the inner exception.</exception>
+    internal long? TimestampOf(FailoverPhase phase)
+    {
+        lock (_gate)
+        {
+            ThrowIfFaulted();
+            return _timestamps.TryGetValue(phase, out var at) ? at : null;
+        }
+    }
+
     /// <summary>Records an event of the test, such as the start of a fault, at the current time.</summary>
     /// <param name="what">What happened.</param>
     internal void Mark(string what)
@@ -189,7 +203,11 @@ internal sealed class FailoverTimeline<TOptions> : IAsyncDisposable
         return true;
     }
 
-    private void Record(FailoverPhase phase, TimeSpan at) => _ = _phases.TryAdd(phase, at);
+    private void Record(FailoverPhase phase, long now)
+    {
+        if (_phases.TryAdd(phase, TimeProvider.System.GetElapsedTime(_started, now)))
+            _timestamps.Add(phase, now);
+    }
 
     /// <summary>Throws the failure that ended the sampling; called under the gate.</summary>
     /// <exception cref="InvalidOperationException">A sample failed; the failure is the inner exception.</exception>
@@ -224,7 +242,7 @@ internal sealed class FailoverTimeline<TOptions> : IAsyncDisposable
 
     private void Sample()
     {
-        var at = TimeProvider.System.GetElapsedTime(_started);
+        var now = TimeProvider.System.GetTimestamp();
         var baselineHeld = false;
         var raised = false;
         var holder = AuthorityHolder();
@@ -242,19 +260,19 @@ internal sealed class FailoverTimeline<TOptions> : IAsyncDisposable
         {
             _samples++;
             if (!baselineHeld)
-                Record(FailoverPhase.LeaderLost, at);
+                Record(FailoverPhase.LeaderLost, now);
 
             if (raised)
-                Record(FailoverPhase.TermRaised, at);
+                Record(FailoverPhase.TermRaised, now);
 
             if (holder.Term > _baseline.Term && _newLeader.Term == 0UL)
             {
                 _newLeader = holder;
-                Record(FailoverPhase.NewLeader, at);
+                Record(FailoverPhase.NewLeader, now);
             }
 
             if (converged)
-                Record(FailoverPhase.Converged, at);
+                Record(FailoverPhase.Converged, now);
         }
     }
 }
