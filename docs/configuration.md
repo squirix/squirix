@@ -181,8 +181,8 @@ host accepts `--persist`; `--data-dir` requires `--persist`.
 `ReplicaCount`, `ConfigurationGeneration`, `AutomaticFailoverEnabled`, and `QuorumReadsEnabled` have no CLI flag; the
 standalone host reads them from `Squirix:Cluster:ReplicaCount`, `Squirix:Cluster:ConfigurationGeneration`,
 `Squirix:Cluster:AutomaticFailoverEnabled`, and `Squirix:Cluster:QuorumReadsEnabled`. The first RF>1 start records
-them in the [activated topology stamp](#activated-topology-stamp-topologystamp), and later RF>1 starts with a different
-value are refused.
+the replica count and the generation in the [activated topology stamp](#activated-topology-stamp-topologystamp), and
+the two switches through its topology fingerprint; later RF>1 starts with a different value are refused.
 
 Example:
 
@@ -225,7 +225,8 @@ Every node of a cluster must use the same values. Both switches are inputs of th
 configured differently refuses replication with its peers, and the
 [activated topology stamp](#activated-topology-stamp-topologystamp) refuses a start that changes them on an existing
 data directory. Turn them on when the cluster is created, on empty data directories. There is no CLI flag; the
-settings keys are `Squirix:Cluster:AutomaticFailoverEnabled` and `Squirix:Cluster:QuorumReadsEnabled`:
+settings keys are `Squirix:Cluster:AutomaticFailoverEnabled` and `Squirix:Cluster:QuorumReadsEnabled`. A fragment
+of the cluster section (identity and peers omitted):
 
 ```json
 {
@@ -709,8 +710,10 @@ hosting ignores:
 - `Persistence DataDir is required.`
 - `ReplicaCount greater than 1 requires the replication opt-in. Enable Squirix:Cluster:ReplicationEnabled (or pass --enable-replication).`
 - `AutomaticFailoverEnabled requires ReplicaCount of at least 3: groups of one or two replicas never elect a leader.`
-- `AutomaticFailoverEnabled requires QuorumReadsEnabled: a cluster that elects leaders fences its reads.`
-- `QuorumReadsEnabled requires AutomaticFailoverEnabled: quorum reads are served by elected leaders only.`
+- `AutomaticFailoverEnabled requires QuorumReadsEnabled: a cluster that elects leaders fences its reads. Set both
+  Squirix:Cluster:AutomaticFailoverEnabled and Squirix:Cluster:QuorumReadsEnabled, or neither.`
+- `QuorumReadsEnabled requires AutomaticFailoverEnabled: quorum reads are served by elected leaders only. Set both
+  Squirix:Cluster:AutomaticFailoverEnabled and Squirix:Cluster:QuorumReadsEnabled, or neither.`
 - `Persistence JournalMaxSegmentMb must be at least 9: a journal segment must hold the largest journal frame.`
 - `MemoryPressure HighPressureThresholdPercent must be less than CriticalPressureThresholdPercent.`
 - `MemoryPressure MaxEstimatedCacheBytes must be positive when set.`

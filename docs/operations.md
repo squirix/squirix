@@ -17,7 +17,8 @@ dotnet test squirix.slnx --configuration Release --no-build
 
 - **Preview stability** — API, wire format, and on-disk layouts may change during 0.x
 - **Performance** — characteristics are not final; do not benchmark against mature cache products yet
-- **No replication or automatic failover** — durability is per node
+- **Automatic failover is opt-in** — RF=1 durability is per node; RF>=3 elects a new leader only with
+  [automatic failover and quorum reads](configuration.md#automatic-failover-and-quorum-reads) on
 - **Static topology** — peers are configured explicitly; dynamic membership is future work
 - **Single-key operations** — cross-key or multi-node atomicity is out of scope for v0.1
 - **Narrow client API** — basic KV + expiration; no batch, scan, watch, counters, or tag invalidation yet

@@ -3,7 +3,8 @@
 By default, squirix server nodes run as an in-memory cache without writing journal, manifest, or snapshot files. Enable
 persistence explicitly when a node should survive restarts with local durability.
 
-Durability is **per node** — there is no replication or automatic failover in v0.1.
+With RF=1, durability is **per node**: no replication and no automatic failover. For RF>1 replication and the RF>=3
+[automatic failover and quorum reads](configuration.md#automatic-failover-and-quorum-reads), see [configuration.md](configuration.md).
 
 ## Enable persistence
 
