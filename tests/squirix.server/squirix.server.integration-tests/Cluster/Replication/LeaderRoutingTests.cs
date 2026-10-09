@@ -8,6 +8,7 @@ using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
@@ -37,6 +38,9 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
 
     /// <summary>Bounds every wait for an election and every client call; the timeouts below elect within seconds.</summary>
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(90);
+
+    /// <summary>Bounds the forward channel's keepalive detection of a silent peer: five seconds at worst, doubled for a loaded host.</summary>
+    private static readonly TimeSpan KeepAliveDetectionBound = TimeSpan.FromSeconds(10);
 
     private static readonly string[] Nodes = [OwnerId, "node-b", "node-c"];
 
@@ -229,14 +233,15 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     }
 
     /// <summary>
-    /// Pins today's behaviour for an owner that goes silent on a connection the entry node already holds, with no reset: the forward sits on
-    /// the dead connection until its per-attempt timeout and ends as an ambiguous timeout, with no fallback to another member, and the owner
-    /// receives nothing, so nothing can apply twice. Detecting a silent connection early is not covered yet.
+    /// With four nodes and three replicas, the host of the owner of a group goes silent without resetting the connection the entry node outside
+    /// the group already holds to it. The keepalive pings of the forward channel find that connection dead, so once another member leads, a
+    /// write sent to the entry node dials the owner anew, fails at the dial bound and falls back to the new leader, instead of waiting out
+    /// its per-attempt timeout on the dead connection.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Timeout(120_000)]
-    public async Task SilentOwnerStaysAmbiguous(CancellationToken cancellationToken)
+    public async Task SilentOwnerReachesNewLeader(CancellationToken cancellationToken)
     {
         var topology = new ClusterNode[FourNodes.Length];
         for (var i = 0; i < topology.Length; i++)
@@ -249,15 +254,48 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         using var channel = CreateGrpcChannel(cluster[EntryOutsideGroup].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         await WarmUpAsync(client, KeyOwnedByOwner(cluster[EntryOutsideGroup], 1), cancellationToken);
-        var link = fabric[EntryOutsideGroup, OwnerId];
 
+        var entryPool = ThrowHelper.Required(await Assert.That(cluster[EntryOutsideGroup].GetRequiredService<IServerClientPool>()).IsTypeOf<ServerClientPool>(), "The entry node must use the transport pool.");
+        var openBefore = entryPool.OpenConnections;
+
+        // The owner's host dies: nothing it sends is delivered, nothing sent to it is answered, and no connection is reset.
+        string[] survivors = [Nodes[1], Nodes[2]];
         fabric.BlackHoleSilently(OwnerId);
-        var sent = link.BytesForwarded(ProxyDirection.ClientToUpstream);
-        var refusal = await SetAsync(client, Write(key, "silent"), cancellationToken);
+        foreach (var survivor in survivors)
+        {
+            fabric.HoldDirection(OwnerId, survivor);
+            fabric.HoldDirection(survivor, OwnerId);
+        }
 
-        _ = await Assert.That(refusal?.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded).Because($"the forward must time out on the silent connection, not end as '{refusal?.Status}'");
-        _ = await Assert.That(link.BytesForwarded(ProxyDirection.ClientToUpstream)).IsEqualTo(sent).Because("the silent owner must receive nothing");
-        _ = await Assert.That(Table(cluster[EntryOutsideGroup]).TryGetLearnedLeader(OwnerId, out _)).IsFalse().Because("an ambiguous timeout must not fall back");
+        // The keepalive pings close the connection the entry node holds to the owner, which drops its open connection count. Without them the
+        // connection stays open until the pool's one-minute idle timeout closes it, past the bound.
+        await cluster.WaitUntilAsync(_ => entryPool.OpenConnections < openBefore, KeepAliveDetectionBound, cancellationToken);
+
+        var leader = await LeaderAsync(cluster, survivors, cancellationToken);
+        var follower = Array.Find(survivors, id => !string.Equals(id, leader, StringComparison.Ordinal))!;
+        await cluster.WaitUntilAsync(nodes => Follows(nodes[follower], leader, out _), Bound, cancellationToken);
+
+        // With the dead connection gone, a write dials anew: it fails at the dial bound (one second) and takes the new leader, and at worst one
+        // more attempt follows the leader the entry node learns. The bound is the per-attempt timeout (three seconds) of such a failed attempt
+        // plus the dial bound, twice, plus slack for a loaded host.
+        // Every attempt resends the same write, as a client retry does, so a refused attempt that reached a node is not applied twice.
+        var write = Write(key, "silent");
+        var outcomes = new List<string>();
+        var started = Stopwatch.GetTimestamp();
+        RpcException? refusal;
+        do
+        {
+            var attempt = Stopwatch.GetTimestamp();
+            refusal = await SetAsync(client, write, cancellationToken);
+            outcomes.Add($"{(refusal == null ? "OK" : refusal.Status.Detail)} in {Stopwatch.GetElapsedTime(attempt).TotalMilliseconds:F0} ms");
+        }
+        while (refusal is { StatusCode: StatusCode.Unavailable } && outcomes.Count < MaxWrites);
+
+        var elapsed = Stopwatch.GetElapsedTime(started);
+        var writes = string.Join("; ", outcomes);
+        _ = await Assert.That(refusal).IsNull().Because($"the write through {EntryOutsideGroup} must reach the new leader {leader}; writes: {writes}");
+        _ = await Assert.That(elapsed).IsLessThanOrEqualTo(TimeSpan.FromSeconds(15)).Because($"writes: {writes}");
+        _ = await Assert.That((Table(cluster[EntryOutsideGroup]).TryGetLearnedLeader(OwnerId, out var learned), learned.NodeId)).IsEqualTo((true, leader));
         fabric.HealAll();
     }
 

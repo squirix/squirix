@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.IO;
 using System.Net.Http;
@@ -145,14 +146,40 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         await using var pool = CreatePool(
             () => new SocketsHttpHandler { ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(stream) },
             new Uri("http://localhost:6500"),
-            TimeSpan.FromSeconds(2));
-        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(2), 1));
+            TimeSpan.FromSeconds(1));
+        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(1), 1));
 
         var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsFalse();
         _ = await Assert.That(stream.Written).IsGreaterThan(0L).Because("the connection was established and written to before the attempt timed out");
+    }
+
+    /// <summary>
+    /// A forward written to a connection whose peer then goes silent, and failed by the keepalive pings closing that connection long before its
+    /// per-attempt timeout, stays ambiguous: the peer may have received it, so it is neither a timeout nor reported as unreachable.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task KeepAliveAbortStaysAmbiguous(CancellationToken cancellationToken)
+    {
+        await using var stream = new SilentStream();
+        await using var pool = CreatePool(
+            () => new SocketsHttpHandler { ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(stream) },
+            new Uri("http://localhost:6500"),
+            TimeSpan.FromSeconds(1));
+        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(30), 1));
+
+        var started = Stopwatch.GetTimestamp();
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
+        var elapsed = Stopwatch.GetElapsedTime(started);
+
+        // The delay, the ping timeout and the two heartbeat ticks of the handler add up to at most five seconds (the delay of one, the ping timeout of two and two ticks of one); the bound doubles it for slack for a loaded host.
+        _ = await Assert.That(elapsed).IsLessThan(TimeSpan.FromSeconds(10)).Because($"the keepalive must close the connection long before the 30 s attempt timeout, took {elapsed}");
+        _ = await Assert.That(failure.StatusCode).IsNotEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsFalse().Because($"the request was written, got {failure.Status}");
+        _ = await Assert.That(stream.RequestHeadersWritten).IsTrue().Because("a HEADERS frame after the connection preface proves the request itself was written");
     }
 
     /// <summary>
@@ -182,6 +209,42 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
             }
 
             _ = await Assert.That(bounded).IsEqualTo(1);
+        }
+    }
+
+    /// <summary>
+    /// Only the forward channel pings its connections with HTTP/2 keepalive, whether or not a call is in flight, so a connection that went
+    /// silent is found before the next forward; the channel of replication and elections sends no pings.
+    /// </summary>
+    [Test]
+    public async Task OnlyForwardChannelPings()
+    {
+        var created = new List<SocketsHttpHandler>();
+        await using (CreatePool(
+            () =>
+            {
+                var handler = new SocketsHttpHandler { ConnectCallback = static (_, ct) => NeverConnectsAsync(ct) };
+                created.Add(handler);
+                return handler;
+            },
+            new Uri("https://localhost:6500"),
+            TimeSpan.FromMilliseconds(300)))
+        {
+            _ = await Assert.That(created.Count).IsEqualTo(2);
+            var pinging = 0;
+            foreach (var handler in created)
+            {
+                if (handler.KeepAlivePingDelay == Timeout.InfiniteTimeSpan)
+                    continue;
+
+                pinging++;
+                _ = await Assert.That(handler.KeepAlivePingDelay).IsEqualTo(TimeSpan.FromSeconds(1));
+                _ = await Assert.That(handler.KeepAlivePingTimeout).IsEqualTo(TimeSpan.FromSeconds(2));
+                _ = await Assert.That(handler.KeepAlivePingPolicy).IsEqualTo(HttpKeepAlivePingPolicy.Always);
+                _ = await Assert.That(handler.ConnectCallback?.Target).IsTypeOf<BoundedDial>();
+            }
+
+            _ = await Assert.That(pinging).IsEqualTo(1);
         }
     }
 
@@ -274,8 +337,17 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     /// <summary>A connection that takes every byte written to it and never answers, until it is disposed.</summary>
     private sealed class SilentStream : Stream
     {
+        private const int PrefaceLength = 24;
+        private const int FrameHeaderLength = 9;
+        private const byte HeadersFrameType = 0x1;
+
         private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly Lock _frameGate = new();
+        private readonly byte[] _frameHeader = new byte[FrameHeaderLength];
         private long _written;
+        private int _prefaceRemaining = PrefaceLength;
+        private int _frameHeaderFilled;
+        private int _payloadRemaining;
 
         public override bool CanRead => true;
 
@@ -293,6 +365,9 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
 
         /// <summary>Gets the number of bytes written to the connection.</summary>
         internal long Written => Interlocked.Read(ref _written);
+
+        /// <summary>Gets a value indicating whether an HTTP/2 HEADERS frame on a non-zero stream was written after the connection preface.</summary>
+        internal bool RequestHeadersWritten { get; private set; }
 
         public override void Flush()
         {
@@ -312,11 +387,11 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
 
         public override void SetLength(long value) => throw new NotSupportedException();
 
-        public override void Write(byte[] buffer, int offset, int count) => _ = Interlocked.Add(ref _written, count);
+        public override void Write(byte[] buffer, int offset, int count) => Record(buffer.AsSpan(offset, count));
 
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            _ = Interlocked.Add(ref _written, buffer.Length);
+            Record(buffer.Span);
             return ValueTask.CompletedTask;
         }
 
@@ -324,6 +399,46 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         {
             _ = _closed.TrySetResult();
             base.Dispose(disposing);
+        }
+
+        /// <summary>Counts the bytes and walks the HTTP/2 frames in them; writes may split or merge frames.</summary>
+        /// <param name="data">The bytes written.</param>
+        private void Record(ReadOnlySpan<byte> data)
+        {
+            _ = Interlocked.Add(ref _written, data.Length);
+            lock (_frameGate)
+            {
+                while (!data.IsEmpty)
+                {
+                    if (_prefaceRemaining > 0)
+                    {
+                        var skip = Math.Min(_prefaceRemaining, data.Length);
+                        _prefaceRemaining -= skip;
+                        data = data[skip..];
+                    }
+                    else if (_payloadRemaining > 0)
+                    {
+                        var skip = Math.Min(_payloadRemaining, data.Length);
+                        _payloadRemaining -= skip;
+                        data = data[skip..];
+                    }
+                    else
+                    {
+                        var take = Math.Min(FrameHeaderLength - _frameHeaderFilled, data.Length);
+                        data[..take].CopyTo(_frameHeader.AsSpan(_frameHeaderFilled));
+                        _frameHeaderFilled += take;
+                        data = data[take..];
+                        if (_frameHeaderFilled < FrameHeaderLength)
+                            continue;
+
+                        _frameHeaderFilled = 0;
+                        _payloadRemaining = (_frameHeader[0] << 16) | (_frameHeader[1] << 8) | _frameHeader[2];
+                        var streamId = ((_frameHeader[5] & 0x7F) << 24) | (_frameHeader[6] << 16) | (_frameHeader[7] << 8) | _frameHeader[8];
+                        if (_frameHeader[3] == HeadersFrameType && streamId != 0)
+                            RequestHeadersWritten = true;
+                    }
+                }
+            }
         }
     }
 }

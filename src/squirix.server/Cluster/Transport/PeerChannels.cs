@@ -17,6 +17,12 @@ namespace Squirix.Server.Cluster.Transport;
 /// elections and probes never get the short dial bound: they retry on their own schedule.
 /// </para>
 /// <para>
+/// The forward channel also pings its connections with HTTP/2 keepalive (<see cref="KeepAlivePingDelay" />), so a peer whose host went silent
+/// without closing the connection is detected while the connection is idle and the next forward dials anew instead of waiting out its
+/// per-attempt timeout on the dead one. The lease channel sends no pings. A factory-supplied handler that sets its own keepalive keeps it, and
+/// with it its own detection time.
+/// </para>
+/// <para>
 /// Both channels get their own handler, created the same way: from the peer handler factory under mTLS when it supplies one, else owned by the
 /// pool. Both count their connections in the pool's tracked connections.
 /// </para>
@@ -26,6 +32,28 @@ internal sealed class PeerChannels
 {
     /// <summary>Bounds a connect of either channel, TLS handshake included, so a peer that accepts but never answers cannot hold a connection open.</summary>
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// How long a connection of the forward channel may receive nothing before the handler pings the peer, whether or not a call is in flight
+    /// (<see cref="HttpKeepAlivePingPolicy.Always" />), so a connection that went silent is found while it is idle, before the next forward is
+    /// written to it. It is the shortest delay the handler accepts.
+    /// </summary>
+    /// <remarks>
+    /// The handler checks its connections once per second (a quarter of the shorter of the two bounds, but at least a second), so a ping goes
+    /// out up to a tick after the delay and its timeout is noticed up to a tick after it expired: a silent connection is closed after
+    /// <see cref="KeepAlivePingDelay" /> plus <see cref="KeepAlivePingTimeout" /> plus up to two ticks, four to five seconds, so a forward
+    /// written to it meanwhile usually ends as the 3-second per-attempt timeout. Such a forward, and one failed by the closed connection, are
+    /// ambiguous; the first one after the connection is closed dials anew, fails at the dial bound and falls back to another member. An idle
+    /// connection costs one ping and its acknowledgement per second.
+    /// </remarks>
+    private static readonly TimeSpan KeepAlivePingDelay = TimeSpan.FromSeconds(1);
+
+    /// <summary>How long the handler waits for the acknowledgement of a ping before it closes the connection.</summary>
+    /// <remarks>
+    /// Two seconds, not the one-second minimum: a ping that is answered late because the peer or this process paused (a garbage collection, a
+    /// starved thread pool) does not close a healthy connection, at the price of one more second before a dead one is found.
+    /// </remarks>
+    private static readonly TimeSpan KeepAlivePingTimeout = TimeSpan.FromSeconds(2);
 
     private PeerChannels(GrpcChannel forward, GrpcChannel lease)
     {
@@ -74,7 +102,10 @@ internal sealed class PeerChannels
     /// <summary>Bounds the connect of the sockets handler a peer handler sends through.</summary>
     /// <param name="peerHandler">The peer handler; one that is not, or does not wrap, a <see cref="SocketsHttpHandler" /> keeps its connect as it is.</param>
     /// <param name="owned">Whether the pool created the handler; a factory-supplied handler keeps a finite connect timeout it chose itself.</param>
-    /// <param name="dialTimeout">The bound of the dial alone, before any TLS handshake (<see cref="BoundedDial" />); <see langword="null" /> for none.</param>
+    /// <param name="dialTimeout">
+    /// The bound of the dial alone, before any TLS handshake (<see cref="BoundedDial" />); <see langword="null" /> for none. Only the forward
+    /// channel has one, and only it pings with keepalive; a factory-supplied handler that sets its own keepalive delay keeps its keepalive.
+    /// </param>
     private static void BoundConnect(HttpMessageHandler peerHandler, bool owned, TimeSpan? dialTimeout)
     {
         var current = peerHandler;
@@ -87,8 +118,16 @@ internal sealed class PeerChannels
         if (owned || socketsHandler.ConnectTimeout == Timeout.InfiniteTimeSpan)
             socketsHandler.ConnectTimeout = ConnectTimeout;
 
-        if (dialTimeout is { } dial)
-            BoundedDial.Apply(socketsHandler, dial);
+        if (dialTimeout is not { } dial)
+            return;
+
+        BoundedDial.Apply(socketsHandler, dial);
+        if (owned || socketsHandler.KeepAlivePingDelay == Timeout.InfiniteTimeSpan)
+        {
+            socketsHandler.KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always;
+            socketsHandler.KeepAlivePingDelay = KeepAlivePingDelay;
+            socketsHandler.KeepAlivePingTimeout = KeepAlivePingTimeout;
+        }
     }
 
     private static GrpcChannelOptions CreateChannelOptions(string nodeId, ServerClientPoolArgs args, TrackedConnections connections, TimeSpan? dialTimeout)
