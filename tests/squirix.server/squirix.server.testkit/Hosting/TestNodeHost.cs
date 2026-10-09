@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Transport;
@@ -61,6 +62,9 @@ internal sealed class TestNodeHost : ITestNodeHost
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
+        // A killed process answers nothing: drop the listeners and open connections first, so no call reaches a disposed service and
+        // returns its failure.
+        await SuppressObjectDisposedAsync(AbortServerAsync()).ConfigureAwait(false);
         await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
         DisposeScope();
 
@@ -103,6 +107,9 @@ internal sealed class TestNodeHost : ITestNodeHost
             DisposeScope();
         }
     }
+
+    /// <summary>Stops the server without draining: a cancelled token makes it abort every open connection at once.</summary>
+    private ValueTask AbortServerAsync() => new(_app.Services.GetRequiredService<IServer>().StopAsync(new CancellationToken(true)));
 
     private void DisposeScope()
     {
