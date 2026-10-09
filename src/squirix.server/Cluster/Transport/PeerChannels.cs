@@ -19,7 +19,8 @@ namespace Squirix.Server.Cluster.Transport;
 /// <para>
 /// The forward channel also pings its connections with HTTP/2 keepalive (<see cref="KeepAlivePingDelay" />), so a peer whose host went silent
 /// without closing the connection is detected while the connection is idle and the next forward dials anew instead of waiting out its
-/// per-attempt timeout on the dead one. The lease channel sends no pings.
+/// per-attempt timeout on the dead one. The lease channel sends no pings. A factory-supplied handler that sets its own keepalive keeps it, and
+/// with it its own detection time.
 /// </para>
 /// <para>
 /// Both channels get their own handler, created the same way: from the peer handler factory under mTLS when it supplies one, else owned by the

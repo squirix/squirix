@@ -278,13 +278,15 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         // With the dead connection gone, a write dials anew: it fails at the dial bound (one second) and takes the new leader, and at worst one
         // more attempt follows the leader the entry node learns. The bound is the per-attempt timeout (three seconds) of such a failed attempt
         // plus the dial bound, twice, plus slack for a loaded host.
+        // Every attempt resends the same write, as a client retry does, so a refused attempt that reached a node is not applied twice.
+        var write = Write(key, "silent");
         var outcomes = new List<string>();
         var started = Stopwatch.GetTimestamp();
         RpcException? refusal;
         do
         {
             var attempt = Stopwatch.GetTimestamp();
-            refusal = await SetAsync(client, Write(key, "silent"), cancellationToken);
+            refusal = await SetAsync(client, write, cancellationToken);
             outcomes.Add($"{(refusal == null ? "OK" : refusal.Status.Detail)} in {Stopwatch.GetElapsedTime(attempt).TotalMilliseconds:F0} ms");
         }
         while (refusal is { StatusCode: StatusCode.Unavailable } && outcomes.Count < MaxWrites);
