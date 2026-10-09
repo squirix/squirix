@@ -18,14 +18,17 @@ public sealed class ExpiryFailoverTests : EndToEndTestBase
 {
     private const string CacheName = "expiry-failover";
 
-    /// <summary>The only node on the system wall clock; the other two run thirty seconds behind.</summary>
+    /// <summary>The only node on the system wall clock; the other two run an hour behind.</summary>
     private const string SystemClockNode = "nodeA";
 
-    private static readonly SkewedTimeProvider Behind = new(TimeSpan.FromSeconds(-30));
+    private static readonly SkewedTimeProvider Behind = new(TimeSpan.FromHours(-1));
+
+    private static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(2);
 
     /// <summary>
     /// A group led by the system-clock node writes an entry with a two-second lifetime; once a read through the SDK finds it expired, the
-    /// leader stops, and reads through both survivors, one of which now leads thirty seconds behind, still find it absent.
+    /// leader stops, and reads through both survivors, one of which now leads an hour behind, still find it absent. By the clock of the new
+    /// leader the entry has not yet expired when it is read.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -42,7 +45,8 @@ public sealed class ExpiryFailoverTests : EndToEndTestBase
         var first = await (await cluster.ConnectClientAsync(survivors[0], cancellationToken)).GetCacheAsync<string>(CacheName, cancellationToken);
         var second = await (await cluster.ConnectClientAsync(survivors[1], cancellationToken)).GetCacheAsync<string>(CacheName, cancellationToken);
         var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy(CacheName, group, "expiry");
-        await first.SetAsync(key, "ephemeral", Expiry.In(TimeSpan.FromSeconds(2)), cancellationToken);
+        var written = TimeProvider.System.GetUtcNow();
+        await first.SetAsync(key, "ephemeral", Expiry.In(Lifetime), cancellationToken);
 
         // Waits for real time to pass the deadline: the read on the leader decides the expiry and commits it.
         await probe.Ledger(group).UntilValueAsync(
@@ -58,8 +62,10 @@ public sealed class ExpiryFailoverTests : EndToEndTestBase
         var throughFirst = await Eventually.SucceedsAsync((Cache: first, Key: key), static (s, token) => s.Cache.GetValueAsync(s.Key, token), FailoverSteps.Bound, attempts, cancellationToken);
         var throughSecond = await Eventually.SucceedsAsync((Cache: second, Key: key), static (s, token) => s.Cache.GetValueAsync(s.Key, token), FailoverSteps.Bound, attempts, cancellationToken);
         var leaderClock = cluster.Cluster[leader].GetRequiredService<TimeProvider>();
+        var leaderNow = leaderClock.GetUtcNow();
 
         _ = await Assert.That(leaderClock).IsSameReferenceAs(Behind);
+        _ = await Assert.That(written + Lifetime).IsGreaterThan(leaderNow).Because("By the clock of the new leader the entry must still be live, or the reads prove nothing.");
         _ = await Assert.That(term).IsGreaterThan(formerTerm);
         _ = await Assert.That(throughFirst.Found).IsFalse().Because(Eventually.Dump(attempts));
         _ = await Assert.That(throughSecond.Found).IsFalse().Because(Eventually.Dump(attempts));
