@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2ETests.Fixtures;
@@ -46,8 +47,9 @@ internal static class FailoverSteps
     /// <param name="testName">The test name, which seeds the election jitter.</param>
     /// <param name="nodeClock">An optional clock per node.</param>
     /// <param name="fabric">An optional fabric the nodes dial each other through, which must outlive the cluster.</param>
+    /// <param name="services">An optional hook that registers additional services on a node, receiving the node identifier.</param>
     /// <returns>The options.</returns>
-    internal static MultiNodeStartOptions Options(string testName, Func<string, TimeProvider?>? nodeClock = null, PartitionFabric? fabric = null)
+    internal static MultiNodeStartOptions Options(string testName, Func<string, TimeProvider?>? nodeClock = null, PartitionFabric? fabric = null, Action<string, IServiceCollection>? services = null)
     {
         return new MultiNodeStartOptions
         {
@@ -56,6 +58,7 @@ internal static class FailoverSteps
             ElectionTiming = FailoverTiming.For(testName),
             NodeClock = nodeClock,
             PartitionFabric = fabric,
+            ServicesConfigure = services,
         };
     }
 
