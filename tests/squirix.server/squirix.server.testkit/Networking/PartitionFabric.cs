@@ -75,6 +75,29 @@ public sealed class PartitionFabric : IAsyncDisposable
         return Task.WhenAll(partitions);
     }
 
+    /// <summary>
+    /// Makes every new dial towards <paramref name="nodeId" /> hang until its connect is canceled, and holds both directions of the connections
+    /// already bridged to it: they stay open and silent, as towards a host that went down without resetting them.
+    /// </summary>
+    /// <param name="nodeId">The node whose host stops answering.</param>
+    /// <remarks><see cref="HealAll" /> lifts the black hole and releases what was held.</remarks>
+    public void BlackHoleSilently(string nodeId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        lock (_gate)
+        {
+            _ = _blackHoled.Add(nodeId);
+            foreach (var (key, proxy) in _proxies)
+            {
+                if (!string.Equals(key.To, nodeId, StringComparison.Ordinal))
+                    continue;
+
+                proxy.Hold(ProxyDirection.ClientToUpstream);
+                proxy.Hold(ProxyDirection.UpstreamToClient);
+            }
+        }
+    }
+
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {

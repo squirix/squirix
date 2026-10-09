@@ -130,6 +130,34 @@ public sealed class PartitionFabricTests
         _ = await Assert.That(fabric["a", "c"].AcceptedConnections).IsEqualTo(2);
     }
 
+    /// <summary>
+    /// A silent black hole keeps the connections bridged to the node open but holds both of their directions, while a new dial towards it
+    /// ends only by the connect timeout; healing releases the held directions.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token; bounds the waits only.</param>
+    [Test]
+    public async Task SilentBlackHoleHoldsLiveLinks(CancellationToken cancellationToken)
+    {
+        await using var echo = EchoUpstream.Start();
+        await using var fabric = await CreateTriangleAsync(echo.EndPoint, cancellationToken);
+        using var live = await ProxyTestSockets.ConnectAsync(fabric["a", "c"].ListenEndPoint, cancellationToken);
+        await fabric["a", "c"].WaitForConnectionAsync(1, cancellationToken);
+
+        fabric.BlackHoleSilently("c");
+
+        _ = await Assert.That(fabric["a", "c"].ActiveConnections).IsEqualTo(1);
+        _ = await Assert.That(fabric["a", "c"].IsHeld(ProxyDirection.ClientToUpstream)).IsTrue();
+        _ = await Assert.That(fabric["a", "c"].IsHeld(ProxyDirection.UpstreamToClient)).IsTrue();
+        _ = await Assert.That(fabric["a", "b"].IsHeld(ProxyDirection.ClientToUpstream)).IsFalse();
+        var timedOut = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(DialAsync(fabric, "a", "c", cancellationToken));
+        _ = await Assert.That(timedOut.InnerException).IsTypeOf<TimeoutException>();
+
+        fabric.HealAll();
+
+        _ = await Assert.That(fabric["a", "c"].IsHeld(ProxyDirection.ClientToUpstream)).IsFalse();
+        _ = await Assert.That(fabric["a", "c"].IsHeld(ProxyDirection.UpstreamToClient)).IsFalse();
+    }
+
     /// <summary>Disposing the fabric disposes every proxy, so a link that was started is closed afterwards.</summary>
     /// <param name="cancellationToken">The test cancellation token; bounds the waits only.</param>
     [Test]

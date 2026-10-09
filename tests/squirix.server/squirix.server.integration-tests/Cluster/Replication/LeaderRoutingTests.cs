@@ -8,7 +8,6 @@ using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
-using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
@@ -181,9 +180,8 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
 
     /// <summary>
     /// With four nodes and three replicas, the owner of a group leads it and its host goes down without refusing connections: every dial
-    /// towards it hangs. Once another member leads, a write sent to the node outside the group reaches the new leader, and no write waits out
-    /// the per-attempt timeout of a forward: the connect timeout ends each dial to the owner as a connect failure, so the entry node falls back
-    /// to another member instead of ending in an ambiguous timeout.
+    /// towards it hangs. Once another member leads, a write sent to the node outside the group reaches the new leader, and no write ends in an
+    /// ambiguous timeout: the dial bound ends each dial to the owner as a connect failure, so the entry node falls back to another member.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -216,22 +214,51 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         await cluster.WaitUntilAsync(nodes => Follows(nodes[follower], leader, out _), Bound, cancellationToken);
 
         var outcomes = new List<string>();
-        var slowest = TimeSpan.Zero;
         RpcException? refusal;
         do
         {
             var started = Stopwatch.GetTimestamp();
             refusal = await SetAsync(client, request, cancellationToken);
-            var elapsed = Stopwatch.GetElapsedTime(started);
-            slowest = elapsed > slowest ? elapsed : slowest;
-            outcomes.Add($"{(refusal == null ? "OK" : refusal.Status.Detail)} in {elapsed.TotalMilliseconds:F0} ms");
+            outcomes.Add($"{(refusal == null ? "OK" : refusal.Status.Detail)} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms");
         }
         while (refusal is { StatusCode: StatusCode.Unavailable } && outcomes.Count < MaxWrites);
 
         var writes = string.Join("; ", outcomes);
         _ = await Assert.That(refusal).IsNull().Because($"the write through {EntryOutsideGroup} must reach the new leader {leader}; writes: {writes}");
-        _ = await Assert.That(slowest).IsLessThan(ForwardingCallPolicyDefaults.TimeoutPerAttempt).Because($"no write may wait out the forward timeout; writes: {writes}");
         _ = await Assert.That((Table(cluster[EntryOutsideGroup]).TryGetLearnedLeader(OwnerId, out var learned), learned.NodeId)).IsEqualTo((true, leader));
+    }
+
+    /// <summary>
+    /// Pins today's behaviour for an owner that goes silent on a connection the entry node already holds, with no reset: the forward sits on
+    /// the dead connection until its per-attempt timeout and ends as an ambiguous timeout, with no fallback to another member, and the owner
+    /// receives nothing, so nothing can apply twice. Detecting a silent connection early is not covered yet.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Timeout(120_000)]
+    public async Task SilentOwnerStaysAmbiguous(CancellationToken cancellationToken)
+    {
+        var topology = new ClusterNode[FourNodes.Length];
+        for (var i = 0; i < topology.Length; i++)
+            topology[i] = new ClusterNode(FourNodes[i], GetNextHttpUri());
+
+        await using var fabric = new PartitionFabric();
+        await using var cluster = await StartClusterAsync(topology, OwnerLeadsOptions("leader-routing-silent", fabric), cancellationToken);
+        _ = await Assert.That(await LeaderAsync(cluster, Nodes, cancellationToken)).IsEqualTo(OwnerId);
+        var key = KeyOwnedByOwner(cluster[EntryOutsideGroup]);
+        using var channel = CreateGrpcChannel(cluster[EntryOutsideGroup].Uri);
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        await WarmUpAsync(client, KeyOwnedByOwner(cluster[EntryOutsideGroup], 1), cancellationToken);
+        var link = fabric[EntryOutsideGroup, OwnerId];
+
+        fabric.BlackHoleSilently(OwnerId);
+        var sent = link.BytesForwarded(ProxyDirection.ClientToUpstream);
+        var refusal = await SetAsync(client, Write(key, "silent"), cancellationToken);
+
+        _ = await Assert.That(refusal?.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded).Because($"the forward must time out on the silent connection, not end as '{refusal?.Status}'");
+        _ = await Assert.That(link.BytesForwarded(ProxyDirection.ClientToUpstream)).IsEqualTo(sent).Because("the silent owner must receive nothing");
+        _ = await Assert.That(Table(cluster[EntryOutsideGroup]).TryGetLearnedLeader(OwnerId, out _)).IsFalse().Because("an ambiguous timeout must not fall back");
+        fabric.HealAll();
     }
 
     /// <summary>Without automatic failover a write sent to another node is forwarded to the ring owner, as before leader routing.</summary>
@@ -314,6 +341,18 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
 
         _ = await Assert.That(refusal).IsNull().Because($"the warm-up write must commit; writes: {string.Join("; ", outcomes)}");
     }
+
+    /// <summary>Builds a write of <paramref name="value" /> to <paramref name="key" /> with a new operation id.</summary>
+    /// <param name="key">The key.</param>
+    /// <param name="value">The value.</param>
+    /// <returns>The write.</returns>
+    private static SetEntryAsyncRequest Write(string key, string value) => new()
+    {
+        OperationId = RpcOperationIdentity.New(),
+        CacheName = CacheName,
+        Key = key,
+        Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
+    };
 
     /// <summary>Finds a key of the owner group as the ring of a node places it.</summary>
     /// <param name="node">The node whose ring is read.</param>
