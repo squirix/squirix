@@ -258,8 +258,10 @@ same node fail the same way at once for one more bound, instead of each waiting 
   with several addresses uses it up sooner.
 - On high-latency or WAN links, raise it toward 2 seconds; a value close to 3 seconds leaves no time for another member
   to take the call.
-- It covers new connections only. A forward on a connection that is already open waits for the per-attempt timeout when
-  the peer stops answering without closing it.
+- It covers new connections only. Connections to other nodes that carry forwards are checked with HTTP/2 keepalive
+  pings (one per second of silence, closed when unanswered for one second), so a peer that stops answering without
+  closing the connection is found within a few seconds and the next forward connects anew. A forward already written
+  to such a connection still ends as an ambiguous timeout or failure.
 - A live node accepts the connection at once; the TLS handshake that follows keeps a longer bound, so a loaded node is
   not cut off. The setting applies to client forwards only: replication and election traffic between nodes keeps its
   own longer bounds.
