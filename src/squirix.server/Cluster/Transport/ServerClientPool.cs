@@ -77,7 +77,7 @@ internal sealed class ServerClientPool : IServerClientPool
         _logger = logger;
         _metrics = metrics;
         _shutdownBudget = ResolveShutdownBudget(args);
-        _forwardConnectTimeout = args.ForwardConnectTimeout ?? TopologyOptions.DefaultInterNodeConnectTimeout;
+        _forwardConnectTimeout = args.ForwardConnectTimeout ?? TopologyOptions.DefaultForwardConnectTimeout;
         _timeProvider = args.TimeProvider ?? TimeProvider.System;
         _materialHold = RetainMaterial(args);
         _nodeIds = RegisterPeers(peers, args);
@@ -204,7 +204,7 @@ internal sealed class ServerClientPool : IServerClientPool
         for (var i = 0; i < _nodeIds.Length; i++)
         {
             var nodeId = _nodeIds[i];
-            var failure = Isolated.Run(_channels[nodeId], static channels => channels.Close());
+            var failure = _channels[nodeId].Close();
             if (failure == null)
                 _metrics.AddDisposal();
             else
@@ -333,7 +333,7 @@ internal sealed class ServerClientPool : IServerClientPool
     private void ReleaseOnFailure()
     {
         foreach (var channels in _channels.Values)
-            _ = Isolated.Run(channels, static created => created.Close());
+            _ = channels.Close();
 
         _materialHold?.Dispose();
         _closing.Dispose();

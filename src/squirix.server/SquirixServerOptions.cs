@@ -43,16 +43,17 @@ public sealed class SquirixServerOptions
 
     /// <summary>
     /// Gets or sets the longest time a client call forwarded to a cluster peer may wait for its connection to the peer to be established,
-    /// before any TLS handshake. Default is 300 milliseconds ("00:00:00.300" in settings); must be positive and below the three-second
+    /// before any TLS handshake. Default is one second ("00:00:01" in settings); must be at least 10 milliseconds and below the three-second
     /// per-attempt timeout of a forwarded call.
     /// </summary>
     /// <remarks>
     /// It applies to client forwards only; replication and election traffic keeps its own longer bounds. A host that is down or drops
     /// connection attempts never completes the connection, so the forward fails as unreachable, having sent nothing, instead of ending in an
     /// ambiguous timeout. A live peer completes it at once; the TLS handshake that follows keeps a longer bound, so a loaded peer is not cut
-    /// off. Changes apply on the next host start.
+    /// off. Name resolution and every resolved address count against the bound, and it applies to new connections only. Changes apply on the
+    /// next host start.
     /// </remarks>
-    public TimeSpan InterNodeConnectTimeout { get; set; } = TopologyOptions.DefaultInterNodeConnectTimeout;
+    public TimeSpan ForwardConnectTimeout { get; set; } = TopologyOptions.DefaultForwardConnectTimeout;
 
     /// <summary>Gets or sets the node journal options, including journal group commit.</summary>
     /// <remarks>Must not be <see langword="null" />. Requires persistence for group commit. Changes apply on the next host start.</remarks>
@@ -160,7 +161,7 @@ public sealed class SquirixServerOptions
             ConfigurationGeneration = options.ConfigurationGeneration,
             AutomaticFailoverEnabled = options.AutomaticFailoverEnabled,
             QuorumReadsEnabled = options.QuorumReadsEnabled,
-            InterNodeConnectTimeout = options.InterNodeConnectTimeout,
+            ForwardConnectTimeout = options.ForwardConnectTimeout,
         };
     }
 
@@ -219,7 +220,7 @@ public sealed class SquirixServerOptions
 
         return options.Journal.GroupCommitMaxWait > TimeSpan.Zero && !options.PersistenceEnabled
             ? "Journal GroupCommitMaxWait greater than zero requires persistence. Set PersistenceEnabled."
-            : ForwardingCallPolicyDefaults.ValidateConnectTimeout(options.InterNodeConnectTimeout);
+            : ForwardingCallPolicyDefaults.ValidateConnectTimeout(options.ForwardConnectTimeout);
     }
 
     private static void Validate(SquirixServerOptions options)

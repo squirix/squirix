@@ -158,8 +158,8 @@ P:Squirix.Server.SquirixServerOptions::ConfigurationGeneration:System.UInt64.get
 P:Squirix.Server.SquirixServerOptions::ConfigurationGeneration:System.UInt64.set
 P:Squirix.Server.SquirixServerOptions::DataDirectory:System.String.get
 P:Squirix.Server.SquirixServerOptions::DataDirectory:System.String.set
-P:Squirix.Server.SquirixServerOptions::InterNodeConnectTimeout:System.TimeSpan.get
-P:Squirix.Server.SquirixServerOptions::InterNodeConnectTimeout:System.TimeSpan.set
+P:Squirix.Server.SquirixServerOptions::ForwardConnectTimeout:System.TimeSpan.get
+P:Squirix.Server.SquirixServerOptions::ForwardConnectTimeout:System.TimeSpan.set
 P:Squirix.Server.SquirixServerOptions::Journal:Squirix.Server.SquirixServerJournalOptions.get
 P:Squirix.Server.SquirixServerOptions::Journal:Squirix.Server.SquirixServerJournalOptions.set
 P:Squirix.Server.SquirixServerOptions::NodeId:System.String.get

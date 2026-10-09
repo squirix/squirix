@@ -11,7 +11,7 @@ internal sealed class ServerClientPoolArgs
     internal MtlsCertificate? Certificate { get; init; }
 
     /// <summary>
-    /// Gets the longest time the dial of a forward channel, before any TLS handshake, may take; <see cref="TopologyOptions.DefaultInterNodeConnectTimeout" />
+    /// Gets the longest time the dial of a forward channel, before any TLS handshake, may take; <see cref="TopologyOptions.DefaultForwardConnectTimeout" />
     /// when <see langword="null" />. The lease channel gets no dial bound; both keep a long bound of the whole connect.
     /// </summary>
     internal TimeSpan? ForwardConnectTimeout { get; init; }

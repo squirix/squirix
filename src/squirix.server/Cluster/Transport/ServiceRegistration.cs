@@ -42,7 +42,7 @@ internal static class ServiceRegistration
                             maxInFlight,
                             sp.GetService<TimeProvider>())),
                         PeerHandlerFactory = peerHandlerFactory,
-                        ForwardConnectTimeout = cluster.InterNodeConnectTimeout,
+                        ForwardConnectTimeout = cluster.ForwardConnectTimeout,
                         Interceptor = sp.GetRequiredService<ClientInterceptor>(),
                         MtlsOptions = mtlsOptions,
                         Certificate = certificate,

@@ -1,10 +1,10 @@
 using System;
 using System.IO;
 using System.Net.Http;
-using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster.Transport;
 
@@ -21,63 +21,64 @@ namespace Squirix.Server.Cluster.Transport;
 /// <see cref="HttpRequestError.ConnectionError" />, which a gRPC client reports as unavailable with that cause. A cancellation of the connect
 /// itself passes through unchanged.
 /// </para>
+/// <para>
+/// The sockets handler keeps one pending HTTP/2 connection per endpoint, so requests that wait for it would each pay a full dial bound in
+/// turn. For one dial bound after a dial timed out, every new dial of the handler fails at once the same way instead of dialing, so all of
+/// them fail promptly; a dial that connects ends that window. One instance serves one handler, which dials one peer.
+/// </para>
 /// </remarks>
-[Immutable]
+[ThreadSafe]
 internal sealed class BoundedDial
 {
     private const string TimedOut = "The connection to the peer was not established within the dial timeout; nothing was sent.";
 
-    private readonly Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>>? _inner;
+    private const string TimedOutRecently = "A dial to the peer timed out less than one dial timeout ago, so this one was not attempted; nothing was sent.";
+
+    private readonly Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>> _inner;
     private readonly TimeSpan _timeout;
 
-    private BoundedDial(Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>>? inner, TimeSpan timeout)
+    /// <summary>The timestamp of the last dial that timed out; zero when none did or a later dial connected.</summary>
+    private long _timedOutAt;
+
+    private BoundedDial(Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>> inner, TimeSpan timeout)
     {
         _inner = inner;
         _timeout = timeout;
     }
 
+    /// <summary>Gets the shortest dial bound accepted.</summary>
+    internal static TimeSpan MinTimeout { get; } = TimeSpan.FromMilliseconds(10);
+
     /// <summary>Bounds the dial of <paramref name="handler" /> by <paramref name="timeout" />, keeping its connect callback as the dial.</summary>
     /// <param name="handler">A handler that has not started.</param>
     /// <param name="timeout">The dial timeout.</param>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout" /> is zero, negative, or infinite.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout" /> is below <see cref="MinTimeout" />.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="handler" /> has no connect callback: the pool dials, and tracks, every connection through one.</exception>
     internal static void Apply(SocketsHttpHandler handler, TimeSpan timeout)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
-        handler.ConnectCallback = new BoundedDial(handler.ConnectCallback, timeout).ConnectAsync;
-    }
-
-    /// <summary>Opens a TCP connection to the endpoint of <paramref name="context" />, as the sockets handler does without a connect callback.</summary>
-    /// <param name="context">The connection context.</param>
-    /// <param name="cancellationToken">The dial token.</param>
-    /// <returns>The connected stream.</returns>
-    private static async ValueTask<Stream> DialAsync(SocketsHttpConnectionContext context, CancellationToken cancellationToken)
-    {
-        Socket? socket = new(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-        try
-        {
-            await socket.ConnectAsync(context.DnsEndPoint, cancellationToken).ConfigureAwait(false);
-            var stream = new NetworkStream(socket, true);
-            socket = null;
-            return stream;
-        }
-        finally
-        {
-            socket?.Dispose();
-        }
+        ArgumentNullException.ThrowIfNull(handler);
+        ArgumentOutOfRangeException.ThrowIfLessThan(timeout, MinTimeout);
+        var inner = ThrowHelper.Required(handler.ConnectCallback, "A bounded dial needs the connect callback that tracks the connection; the handler has none.");
+        handler.ConnectCallback = new BoundedDial(inner, timeout).ConnectAsync;
     }
 
     private async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext context, CancellationToken cancellationToken)
     {
+        var timedOutAt = Interlocked.Read(ref _timedOutAt);
+        if (timedOutAt != 0 && TimeProvider.System.GetElapsedTime(timedOutAt) < _timeout)
+            throw new IOException(TimedOutRecently, new TimeoutException(TimedOutRecently));
+
         using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         bounded.CancelAfter(_timeout);
         try
         {
-            return _inner == null
-                ? await DialAsync(context, bounded.Token).ConfigureAwait(false)
-                : await _inner(context, bounded.Token).ConfigureAwait(false);
+            var stream = await _inner(context, bounded.Token).ConfigureAwait(false);
+            _ = Interlocked.Exchange(ref _timedOutAt, 0);
+            return stream;
         }
         catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested && bounded.IsCancellationRequested)
         {
+            _ = Interlocked.Exchange(ref _timedOutAt, TimeProvider.System.GetTimestamp());
             throw new IOException(TimedOut, new TimeoutException(TimedOut, exception));
         }
     }

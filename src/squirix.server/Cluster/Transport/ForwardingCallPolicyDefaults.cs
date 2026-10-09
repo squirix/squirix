@@ -35,14 +35,15 @@ internal static class ForwardingCallPolicyDefaults
     internal static ServerCallPolicy Create(ServerCallPolicyInstrumentation instrumentation, string peer, int maxInFlight, TimeProvider? timeProvider) =>
         new(instrumentation, MaxAttempts, MaxConcurrentPerPeer(maxInFlight), peer, timeProvider, Timeouts);
 
-    /// <summary>Checks the internode connect timeout against the forwarded call it bounds.</summary>
-    /// <param name="connectTimeout">The configured connect timeout.</param>
+    /// <summary>Checks the forward connect timeout against the forwarded call it bounds.</summary>
+    /// <param name="connectTimeout">The configured forward connect timeout.</param>
     /// <returns>
-    /// <see langword="null" /> when the timeout is positive and below <see cref="TimeoutPerAttempt" />; otherwise the error. A connect that
-    /// outlasts the attempt ends as the attempt timeout, which is ambiguous, instead of as a connect failure another member may take over.
+    /// <see langword="null" /> when the timeout is at least <see cref="BoundedDial.MinTimeout" /> and below <see cref="TimeoutPerAttempt" />;
+    /// otherwise the error. A connect that outlasts the attempt ends as the attempt timeout, which is ambiguous, instead of as a connect
+    /// failure another member may take over.
     /// </returns>
     internal static string? ValidateConnectTimeout(TimeSpan connectTimeout) =>
-        connectTimeout > TimeSpan.Zero && connectTimeout < TimeoutPerAttempt
+        connectTimeout >= BoundedDial.MinTimeout && connectTimeout < TimeoutPerAttempt
             ? null
-            : $"InterNodeConnectTimeout must be positive and below the {TimeoutPerAttempt:c} per-attempt timeout of a forwarded call (for example \"00:00:00.300\").";
+            : $"ForwardConnectTimeout must be at least {BoundedDial.MinTimeout:c} and below the {TimeoutPerAttempt:c} per-attempt timeout of a forwarded call (for example \"00:00:01\").";
 }

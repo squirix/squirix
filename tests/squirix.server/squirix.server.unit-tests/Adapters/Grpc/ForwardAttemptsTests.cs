@@ -108,19 +108,45 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     }
 
     /// <summary>
+    /// Concurrent forwards to an owner whose host drops connection attempts all fail as unreachable well within their per-attempt timeout: they
+    /// wait for one pending connection, and once its dial timed out, the next dials fail at once instead of each waiting a full dial bound.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ConcurrentForwardsAreUnreachable(CancellationToken cancellationToken)
+    {
+        const int Forwards = 20;
+        await using var pool = CreatePool(
+            static () => new SocketsHttpHandler { ConnectCallback = static (_, ct) => NeverConnectsAsync(ct) },
+            new Uri("https://localhost:6500"),
+            TimeSpan.FromMilliseconds(200));
+        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(3), 1));
+
+        var calls = new Task<GetValueAsyncResponse>[Forwards];
+        for (var i = 0; i < Forwards; i++)
+            calls[i] = forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken);
+
+        for (var i = 0; i < Forwards; i++)
+        {
+            var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(calls[i]);
+            _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsTrue().Because($"forward {i} must fail as unreachable, not as {failure.Status}");
+        }
+    }
+
+    /// <summary>
     /// A forward that connected and then hit its per-attempt timeout may have reached the owner, so it ends as a timeout and never as unreachable,
     /// even though the attempt was canceled like a slow connect would be.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task AttemptTimeoutAfterConnectIsNot(CancellationToken cancellationToken)
+    public async Task TimeoutAfterConnectIsAmbiguous(CancellationToken cancellationToken)
     {
         await using var stream = new SilentStream();
         await using var pool = CreatePool(
             () => new SocketsHttpHandler { ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(stream) },
             new Uri("http://localhost:6500"),
             TimeSpan.FromSeconds(2));
-        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromMilliseconds(200), 1));
+        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(2), 1));
 
         var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
 
@@ -140,7 +166,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         await using (CreatePool(
             () =>
             {
-                var handler = new SocketsHttpHandler();
+                var handler = new SocketsHttpHandler { ConnectCallback = static (_, ct) => NeverConnectsAsync(ct) };
                 created.Add(handler);
                 return handler;
             },
