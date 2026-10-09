@@ -155,7 +155,10 @@ public sealed class ReplicaCommitterStaticTermTests : ServerUnitTestBase
         _ = await Assert.That(gateway.Appends.Count).IsEqualTo(sent);
     }
 
-    /// <summary>Followers that hold the leader log, whose probes can be held until the test releases them.</summary>
+    /// <summary>
+    /// Followers that hold the leader log, whose probes are held until the test releases them. A held probe ignores the cancellation of
+    /// its wall-clock probe timeout, so a slow step of the test under load cannot turn the held answer into an unreachable follower.
+    /// </summary>
     private sealed class ProbeHoldingGateway : IReplicaRpcGateway
     {
         private readonly ScriptedGateway _followers = new();
@@ -169,7 +172,7 @@ public sealed class ReplicaCommitterStaticTermTests : ServerUnitTestBase
             if (batch.Records.Count == 0)
             {
                 _ = _probeHeld.TrySetResult();
-                await _released.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                await new ValueTask(_released.Task).ConfigureAwait(false);
             }
 
             return await _followers.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
