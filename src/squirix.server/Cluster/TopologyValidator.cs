@@ -6,9 +6,9 @@ namespace Squirix.Server.Cluster;
 
 internal static class TopologyValidator
 {
-    internal const string AutomaticFailoverRequiresQuorumReads = "AutomaticFailoverEnabled requires QuorumReadsEnabled: a cluster that elects leaders fences its reads.";
+    internal const string AutomaticFailoverRequiresQuorumReads = "AutomaticFailoverEnabled requires QuorumReadsEnabled: a cluster that elects leaders fences its reads. Set both Squirix:Cluster:AutomaticFailoverEnabled and Squirix:Cluster:QuorumReadsEnabled, or neither.";
     internal const string AutomaticFailoverRequiresThreeReplicas = "AutomaticFailoverEnabled requires ReplicaCount of at least 3: groups of one or two replicas never elect a leader.";
-    internal const string QuorumReadsRequireAutomaticFailover = "QuorumReadsEnabled requires AutomaticFailoverEnabled: quorum reads are served by elected leaders only.";
+    internal const string QuorumReadsRequireAutomaticFailover = "QuorumReadsEnabled requires AutomaticFailoverEnabled: quorum reads are served by elected leaders only. Set both Squirix:Cluster:AutomaticFailoverEnabled and Squirix:Cluster:QuorumReadsEnabled, or neither.";
 
     private const string ClusterIdRequired = "ClusterId is required.";
     private const string ClusterIdTooLong = "ClusterId cannot exceed 128 characters.";
