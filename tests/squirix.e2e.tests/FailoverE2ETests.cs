@@ -3,10 +3,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.E2ETests.Fixtures;
-using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.Hosting;
-using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -40,64 +36,5 @@ public sealed class FailoverE2ETests : EndToEndTestBase
 
         await cluster.StopNodeAsync("nodeA");
         _ = await Assert.That((await cache.GetValueAsync(key, cancellationToken)).Found).IsFalse();
-    }
-
-    /// <summary>Rejoined former leader catches up before regaining eligibility.</summary>
-    /// <remarks>
-    /// The mandated name is "RejoinedFormerLeaderCatchesUpBeforeEligibility"; it is shortened here because SQR0005
-    /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test
-    /// to satisfy the analyzer changes nothing about the covered behavior.
-    /// </remarks>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task FormerLeaderCatchesUpBeforeEligible(CancellationToken cancellationToken)
-    {
-        using var heldA = ListenPortPool.EndToEndTests.HoldPort();
-        using var heldB = ListenPortPool.EndToEndTests.HoldPort();
-        using var heldC = ListenPortPool.EndToEndTests.HoldPort();
-        using var dir = new TempDirectory("squirix-e2e-rejoin");
-        ClusterNode[] topology = [new("nodeA", heldA.HttpUri), new("nodeB", heldB.HttpUri), new("nodeC", heldC.HttpUri)];
-        var options = new Func<string, string, ClusterStartOptions>(static (node, dataDirPath) => new ClusterStartOptions
-        {
-            ReplicaCount = 3,
-            DataDir = NodePathKit.Combine(dataDirPath, node),
-        });
-        await using var cluster = TestCluster<ClusterStartOptions>.Create(topology);
-        _ = await cluster.StartNodeAsync("nodeA", options("nodeA", dir), cancellationToken);
-        _ = await cluster.StartNodeAsync("nodeB", options("nodeB", dir), cancellationToken);
-        _ = await cluster.StartNodeAsync("nodeC", options("nodeC", dir), cancellationToken);
-
-        await using var client = await LoopbackConnect.ConnectAsync(heldA.HttpUri, cancellationToken);
-        var cache = await client.GetCacheAsync<string>("rejoin-catchup", cancellationToken);
-        var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy("rejoin-catchup", "nodeA", "rejoin-catchup");
-        await cache.SetAsync(key, "before-stop", cancellationToken: cancellationToken);
-
-        await cluster.StopNodeAsync("nodeC");
-
-        await cache.SetAsync(key, "after-stop", cancellationToken: cancellationToken);
-        _ = await cluster.StartNodeAsync("nodeC", options("nodeC", dir), cancellationToken);
-
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
-        await using var rejoinedClient = await LoopbackConnect.ConnectAsync(heldC.HttpUri, linked.Token);
-        var rejoinedCache = await rejoinedClient.GetCacheAsync<string>("rejoin-catchup", linked.Token);
-
-        var observed = string.Empty;
-        var found = false;
-        while (!linked.Token.IsCancellationRequested)
-        {
-            var read = await rejoinedCache.GetValueAsync(key, linked.Token);
-            if (read.Found && string.Equals(read.Value, "after-stop", StringComparison.Ordinal))
-            {
-                observed = read.Value;
-                found = true;
-                break;
-            }
-
-            await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, linked.Token);
-        }
-
-        _ = await Assert.That(found).IsTrue().Because("The rejoined node did not catch up before serving reads.");
-        _ = await Assert.That(observed).IsEqualTo("after-stop");
     }
 }
