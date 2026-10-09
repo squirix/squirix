@@ -309,6 +309,8 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         }
         finally
         {
+            // The held append waits only for this release; release it before stopping so a failed step cannot park the stop.
+            gateway.ReleaseFailure();
             await service.StopAsync(cancellationToken);
         }
 
@@ -426,7 +428,7 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
             if (batch.Records.Count == 0 || !string.Equals(Interlocked.CompareExchange(ref _failNode, null, nodeId), nodeId, StringComparison.Ordinal))
                 return await _routing.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
 
-            await _release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await new ValueTask(_release.Task).ConfigureAwait(false);
             throw new IOException($"Injected transport failure to {nodeId}.");
         }
 
