@@ -39,8 +39,8 @@ public sealed class LeaderRestartTests : EndToEndTestBase
         await cache.SetAsync(key, 1L, cancellationToken: cancellationToken);
 
         await cluster.StopNodeAsync(former);
-        var elected = await probe.WaitForNewLeaderAsync(Group, formerTerm, FailoverSteps.Bound, cancellationToken);
-        _ = await probe.WaitForStableLeaderAsync(Group, survivors, FailoverSteps.Bound, cancellationToken);
+        var (_, electedTerm) = await probe.WaitForNewLeaderAsync(Group, formerTerm, FailoverSteps.Bound, cancellationToken);
+        var stable = await probe.WaitForStableLeaderAsync(Group, survivors, FailoverSteps.Bound, cancellationToken);
         await Eventually.SucceedsAsync((Cache: cache, Key: key), static (s, token) => s.Cache.SetAsync(s.Key, 2L, cancellationToken: token), FailoverSteps.Bound, attempts, cancellationToken);
 
         await cluster.RestartNodeAsync(former, cancellationToken);
@@ -51,8 +51,9 @@ public sealed class LeaderRestartTests : EndToEndTestBase
         var formerCache = await (await cluster.ConnectClientAsync(former, cancellationToken)).GetCacheAsync<long>(CacheName, cancellationToken);
         var read = await Eventually.SucceedsAsync((Cache: formerCache, Key: key), static (s, token) => s.Cache.GetValueAsync(s.Key, token), FailoverSteps.Bound, attempts, cancellationToken);
 
-        _ = await Assert.That(elected.Term).IsGreaterThan(formerTerm);
-        _ = await Assert.That(rejoined).IsEqualTo(elected);
+        _ = await Assert.That(electedTerm).IsGreaterThan(formerTerm);
+        _ = await Assert.That(stable.Term).IsGreaterThanOrEqualTo(electedTerm);
+        _ = await Assert.That(rejoined).IsEqualTo(stable);
         _ = await Assert.That(formerAuthority).IsEqualTo(0UL);
         _ = await Assert.That(report.ClientEntries).IsGreaterThanOrEqualTo(2);
         _ = await Assert.That(read).IsEqualTo(new CacheValueResult<long>(true, 2L)).Because(Eventually.Dump(attempts));
