@@ -316,6 +316,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         CleanTestDir = true,
         ExtraScope = scope,
         AutomaticFailoverEnabled = failover,
+        QuorumReadsEnabled = failover,
         ServicesConfigure = services =>
         {
             _ = services.AddSingleton(new ElectionTimerOptions

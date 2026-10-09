@@ -186,6 +186,7 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
         CleanTestDir = clean,
         ExtraScope = scope,
         AutomaticFailoverEnabled = true,
+        QuorumReadsEnabled = true,
         ServicesConfigure = static services => services.AddSingleton(new ElectionTimerOptions
         {
             ElectionTimeout = TimeSpan.FromSeconds(4),

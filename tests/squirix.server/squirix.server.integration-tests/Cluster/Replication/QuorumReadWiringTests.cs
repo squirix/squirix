@@ -55,7 +55,7 @@ public sealed class QuorumReadWiringTests : NodeIntegrationTestBase
         _ = await Assert.That(refused.StatusCode is StatusCode.Unavailable or StatusCode.FailedPrecondition).IsTrue();
     }
 
-    /// <summary>With quorum reads but no failover, the owner leads its group statically and its resolved pipeline reads locally, even cut off.</summary>
+    /// <summary>With both switches off, the owner leads its group statically and its resolved pipeline reads locally, even cut off.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task StaticLeaderReadsUnfenced(CancellationToken cancellationToken)
@@ -80,7 +80,7 @@ public sealed class QuorumReadWiringTests : NodeIntegrationTestBase
         UsePersistence = true,
         ExtraScope = scope,
         AutomaticFailoverEnabled = failover,
-        QuorumReadsEnabled = true,
+        QuorumReadsEnabled = failover,
         PartitionFabric = fabric,
         ServicesConfigure = static services => _ = services.AddSingleton(Timing),
     };

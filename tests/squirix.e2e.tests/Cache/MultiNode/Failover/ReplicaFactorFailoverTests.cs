@@ -13,8 +13,8 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 
 /// <summary>
-/// Groups of fewer than three replicas have no election path even with automatic failover on: losing a member never raises a term, the
-/// calls the loss blocks are refused within the operation deadline, and the rest of the cluster keeps serving.
+/// Groups of fewer than three replicas have no election path, and validation refuses automatic failover for them: losing a member never
+/// raises a term, the calls the loss blocks are refused within the operation deadline, and the rest of the cluster keeps serving.
 /// </summary>
 public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
 {
@@ -117,7 +117,6 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
     private static MultiNodeStartOptions Options(int replicaCount, TestElectionTiming timing) => new()
     {
         ReplicaCount = replicaCount,
-        Failover = true,
         ElectionTiming = timing,
     };
 
