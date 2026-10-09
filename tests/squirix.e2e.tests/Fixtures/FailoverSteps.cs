@@ -72,7 +72,7 @@ internal static class FailoverSteps
 
     /// <summary>
     /// Writes a value and reads it back through a surviving member until both succeed, and measures the time from the start of the fault;
-    /// an unknown commit outcome or an Unknown status is retried, since writing the same value again is idempotent.
+    /// an unknown commit outcome is retried, since writing the same value again is idempotent.
     /// </summary>
     /// <param name="cache">The cache to write through; its node must survive the fault.</param>
     /// <param name="key">The probe key, written by nothing else.</param>
@@ -101,12 +101,6 @@ internal static class FailoverSteps
                 catch (CommitOutcomeUnknownException exception)
                 {
                     throw new RpcException(new Status(StatusCode.Unavailable, "The commit outcome of the probe write is unknown; writing it again is idempotent.", exception));
-                }
-                catch (RpcException exception) when (exception.StatusCode == StatusCode.Unknown)
-                {
-                    // An in-process node shut down abruptly still answers the calls it already accepted, with Unknown, while its services are
-                    // disposed; a killed process would drop the connection instead.
-                    throw new RpcException(new Status(StatusCode.Unavailable, "A node answered Unknown while it shut down; writing the probe again is idempotent.", exception));
                 }
 
                 return await s.Cache.GetValueAsync(s.Key, token);
