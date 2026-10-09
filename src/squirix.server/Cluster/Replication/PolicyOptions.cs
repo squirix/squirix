@@ -5,8 +5,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// <summary>Static replication policy constants that participate in topology identity.</summary>
 internal static class PolicyOptions
 {
-    /// <summary>Canonical fingerprint format version for preview.8 topology identity.</summary>
-    internal const int CanonicalFormatVersion = 1;
+    /// <summary>Canonical fingerprint format version; version 2 hashes the automatic failover and quorum read switches.</summary>
+    internal const int CanonicalFormatVersion = 2;
 
     /// <summary>Closed replication message payload size limit in bytes (fingerprint input).</summary>
     internal const int ClosedMessageMaxBytes = 16 * 1024 * 1024;

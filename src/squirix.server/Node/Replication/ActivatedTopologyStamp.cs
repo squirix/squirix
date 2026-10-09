@@ -48,7 +48,7 @@ internal sealed class ActivatedTopologyStamp
         AppendChange(changes, "topology fingerprint", Convert.ToHexString(Fingerprint.Span), Convert.ToHexString(configured.Fingerprint.Span));
         _ = changes.Append(
             " while generation and replica count match, so the cluster id, virtual nodes, peers (including internode addresses), " +
-            "minimum cluster package version, or replication policy constants differ");
+            "minimum cluster package version, replication policy constants, or the automatic failover and quorum read switches differ");
         return changes.ToString();
     }
 

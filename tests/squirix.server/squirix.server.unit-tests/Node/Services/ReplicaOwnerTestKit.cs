@@ -228,6 +228,27 @@ internal static class ReplicaOwnerTestKit
     internal static async Task SeedTailAsync(string dir, ulong currentTerm, ILogicalNamespacedCache<object?> decisionCache, CancellationToken cancellationToken, params string[] keys)
     {
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await AppendTailAsync(registry, currentTerm, decisionCache, cancellationToken, keys);
+    }
+
+    /// <summary>
+    /// Appends conditional adds of the given keys to the owned group log of an open registry without committing them, each decided
+    /// against <paramref name="decisionCache" />, then raises the log's current term.
+    /// </summary>
+    /// <param name="registry">The open registry of the owner.</param>
+    /// <param name="currentTerm">Current term of the log after the tail; above one, the tail is of an older term.</param>
+    /// <param name="decisionCache">The memory the leader read when it decided the adds: a key it holds makes its add decide false.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <param name="keys">Keys of the uncommitted conditional adds, in log order.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="InvalidOperationException">The owned group log is not open or refused the tail.</exception>
+    internal static async Task AppendTailAsync(
+        ReplicaGroupRegistry registry,
+        ulong currentTerm,
+        ILogicalNamespacedCache<object?> decisionCache,
+        CancellationToken cancellationToken,
+        params string[] keys)
+    {
         if (!registry.TryGetLog("n1", out var log))
             throw new InvalidOperationException("The owned group log is not open.");
 

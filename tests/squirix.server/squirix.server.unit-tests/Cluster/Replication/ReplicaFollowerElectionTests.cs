@@ -221,12 +221,67 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         _ = await Assert.That(state.ElectionResetTimestamp()).IsNotNull();
     }
 
+    /// <summary>A follower whose log adopted the fingerprint of one failover mode refuses every replication call of the other mode, unchanged.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OtherFailoverModeIsTopologyMismatch(CancellationToken cancellationToken)
+    {
+        var elected = ModeFingerprint(true);
+        var unelected = ModeFingerprint(false);
+        using var dir = new TempDirectory("squirix-follower-election-mode");
+        await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), elected, cancellationToken);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var ballot = new ElectionVoteRequest("n3", 5UL, 0UL, 0UL);
+        var before = await follower.GetStatusAsync(GroupId, cancellationToken);
+
+        var append = await follower.AppendAsync(GroupId, unelected, 1UL, new FollowerBatch([], "n2", 3UL, 0UL, 0UL, 0UL), cancellationToken);
+        var preVote = await follower.PreVoteAsync(GroupId, unelected, 1UL, ballot, cancellationToken);
+        var vote = await follower.RequestVoteAsync(GroupId, unelected, 1UL, ballot, cancellationToken);
+        var commit = await follower.AdvanceCommitAsync(GroupId, unelected, 1UL, 0UL, 3UL, cancellationToken);
+        var snapshot = new GroupSnapshot(GroupId, unelected, 1UL, 1UL, 1UL, 1UL, [], DateTime.UnixEpoch);
+        var install = await follower.InstallSnapshotAsync(GroupId, unelected, 1UL, snapshot, 3UL, cancellationToken);
+        var status = await follower.GetStatusAsync(GroupId, cancellationToken);
+
+        _ = await Assert.That(unelected.AsSpan().SequenceEqual(elected)).IsFalse();
+        _ = await Assert.That((append.Success, append.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.TopologyMismatch));
+        _ = await Assert.That((preVote.Granted, preVote.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.TopologyMismatch));
+        _ = await Assert.That((vote.Granted, vote.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.TopologyMismatch));
+        _ = await Assert.That((commit.Success, commit.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.TopologyMismatch));
+        _ = await Assert.That((install.Success, install.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.TopologyMismatch));
+        _ = await Assert.That((status?.CurrentTerm, status?.VotedFor, status?.LastLogIndex)).IsEqualTo((before?.CurrentTerm, before?.VotedFor, before?.LastLogIndex));
+        _ = await Assert.That(status?.CurrentTerm).IsEqualTo(0UL);
+        _ = await Assert.That(registry.StateFor(GroupId).ReadRoute().HasLeader).IsFalse();
+    }
+
+    private static byte[] ModeFingerprint(bool elected)
+    {
+        ServerPeer[] peers =
+        [
+            new() { NodeId = "n1", Uri = new Uri("https://127.0.0.1:6001") },
+            new() { NodeId = "n2", Uri = new Uri("https://127.0.0.1:6002") },
+            new() { NodeId = "n3", Uri = new Uri("https://127.0.0.1:6003") },
+        ];
+        var topology = new TopologyOptions(peers)
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = peers[0].Uri,
+            ReplicaCount = 3,
+            AutomaticFailoverEnabled = elected,
+            QuorumReadsEnabled = elected,
+        };
+        return [.. TopologyFingerprint.CreateFromTopology(topology, new MtlsOptions()).Bytes];
+    }
+
     private static ReplicaMembership RingMembers(ReplicaGroupRegistry registry) =>
         new(new ReplicaGroupLocator(new PhysicalNodeRing(["n1", "n2", "n3"]), 3), registry.GroupIds);
 
-    private static async Task<ReplicaGroupRegistry> OpenRegistryAsync(TempDirectory dir, TimeProvider time, CancellationToken cancellationToken)
+    private static Task<ReplicaGroupRegistry> OpenRegistryAsync(TempDirectory dir, TimeProvider time, CancellationToken cancellationToken) =>
+        OpenRegistryAsync(dir, time, Fingerprint, cancellationToken);
+
+    private static async Task<ReplicaGroupRegistry> OpenRegistryAsync(TempDirectory dir, TimeProvider time, ReadOnlyMemory<byte> fingerprint, CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(dir, [GroupId], 3, Fingerprint, 1UL, NullLoggerFactory.Instance)
+        var registry = new ReplicaGroupRegistry(dir, [GroupId], 3, fingerprint, 1UL, NullLoggerFactory.Instance)
         {
             Election = new ElectionTimerOptions { JitterSeed = 1UL },
             ElectionClock = time,

@@ -13,8 +13,8 @@ internal static class ReplicaGroupCommitterVerification
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>
         /// The verification state: <see cref="ReplicaVerification.Pending" /> while some follower is not yet verified or an uncommitted
-        /// tail is not yet committed; <see cref="ReplicaVerification.Blocked" /> while the log is not ready or its uncommitted tail holds
-        /// no entry of the current term.
+        /// tail is not yet committed; <see cref="ReplicaVerification.Blocked" /> while the log is not ready, its uncommitted tail holds
+        /// no entry of the current term, or a static leader's log moved past term one.
         /// </returns>
         /// <remarks>
         /// Followers are probed without holding the commit gate, so a dead or slow peer never delays writes; a follower that lacks entries,
@@ -42,8 +42,19 @@ internal static class ReplicaGroupCommitterVerification
             committer.ThrowIfDisposed();
 
             // A retirement may have run while the probe was out: the snapshot then belongs to a leadership that is over.
-            return committer.Election != null && !ReferenceEquals(committer.Tenure, tenure) ? ReplicaVerification.Blocked
-                : await committer.AdmitVerifiedAsync(log, snapshot, cancellationToken).ConfigureAwait(false);
+            if (committer.Election != null && !ReferenceEquals(committer.Tenure, tenure))
+                return ReplicaVerification.Blocked;
+
+            try
+            {
+                return await committer.AdmitVerifiedAsync(log, snapshot, cancellationToken).ConfigureAwait(false);
+            }
+            catch (StaticLeaderTermExceededException)
+            {
+                // An election raised the log past term one while the probe was out: the static start refused before any append, and the
+                // next probe reports the blocked group.
+                return ReplicaVerification.Blocked;
+            }
         }
 
         /// <summary>Admits the followers verified outside the gate and commits what the verified slots now cover.</summary>

@@ -48,6 +48,8 @@ public sealed class ConfigurationGenerationTests : ServerUnitTestBase
                 VirtualNodes = 128,
                 MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
                 QuorumAckMode = PolicyOptions.QuorumAckMode,
+                AutomaticFailoverEnabled = false,
+                QuorumReadsEnabled = false,
             });
         var right = TopologyFingerprint.Compute(
             new FingerprintInputs
@@ -60,6 +62,8 @@ public sealed class ConfigurationGenerationTests : ServerUnitTestBase
                 VirtualNodes = 128,
                 MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
                 QuorumAckMode = PolicyOptions.QuorumAckMode,
+                AutomaticFailoverEnabled = false,
+                QuorumReadsEnabled = false,
             });
 
         _ = await Assert.That(left.Equals(right)).IsFalse();

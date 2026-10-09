@@ -12,6 +12,9 @@ namespace Squirix.Server.Cluster.Replication;
 [Immutable]
 internal sealed class FingerprintInputs
 {
+    /// <summary>Gets a value indicating whether replica groups elect their leaders.</summary>
+    internal required bool AutomaticFailoverEnabled { get; init; }
+
     /// <summary>Gets the cluster identifier.</summary>
     internal required string ClusterId { get; init; }
 
@@ -29,6 +32,9 @@ internal sealed class FingerprintInputs
 
     /// <summary>Gets the quorum acknowledgement mode token.</summary>
     internal required string QuorumAckMode { get; init; }
+
+    /// <summary>Gets a value indicating whether reads of replicated keys are confirmed by a group majority.</summary>
+    internal required bool QuorumReadsEnabled { get; init; }
 
     /// <summary>Gets the configured replica factor.</summary>
     internal required int ReplicaCount { get; init; }
