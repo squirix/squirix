@@ -1,6 +1,7 @@
 is_global = true
 
-# Roslynator: enable analyzers that ship disabled-by-default (RCS0001–RCS00xx formatting, etc.).
+# Roslynator: enable the RCS1xxx analyzers that ship disabled by default. The formatting rules (RCS0xxx) live in
+# Roslynator.Formatting.Analyzers, which this solution does not reference; StyleCopNext checks formatting.
 roslynator_analyzers.enabled_by_default = true
 
 # Source-generated files (System.Text.Json, gRPC, etc.) are not on disk; EditorConfig does not apply (dotnet/roslyn#47384).
