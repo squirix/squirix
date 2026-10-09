@@ -114,11 +114,7 @@ internal static class ServerHostingComposition
         var activation = new ReplicaGroupActivation([.. TopologyFingerprint.CreateFromTopology(cluster, mtlsOptions).Bytes]);
         _ = services.AddSingleton(activation);
 
-        var peerIds = new string[cluster.Peers.Count];
-        for (var i = 0; i < peerIds.Length; i++)
-            peerIds[i] = cluster.Peers[i].NodeId;
-
-        _ = services.AddSingleton(sp => CreateReplicaGroupRegistry(sp, cluster, persistence.DataDir, peerIds, activation));
+        _ = services.AddSingleton(sp => CreateReplicaGroupRegistry(sp, cluster, persistence.DataDir, activation));
 
         _ = services.AddSingleton<IReplicaMembership>(static sp => new ReplicaMembership(
             sp.GetRequiredService<IReplicaGroupLocator>(),
@@ -175,22 +171,28 @@ internal static class ServerHostingComposition
     /// <param name="sp">The service provider.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
     /// <param name="dataDir">Exclusive node data directory.</param>
-    /// <param name="peerIds">The identifiers of every configured node.</param>
     /// <param name="activation">The activated topology fingerprint.</param>
     /// <returns>The registry; its logs open in <see cref="OpenStorageAsync" />.</returns>
-    private static ReplicaGroupRegistry CreateReplicaGroupRegistry(IServiceProvider sp, TopologyOptions cluster, string dataDir, string[] peerIds, ReplicaGroupActivation activation) => new(
-        dataDir,
-        ReplicaGroupMembership.GroupsServedBy(sp.GetRequiredService<IReplicaGroupLocator>(), peerIds, cluster.NodeId),
-        cluster.ReplicaCount,
-        activation.Fingerprint.AsMemory(),
-        cluster.ConfigurationGeneration,
-        sp.GetRequiredService<ILoggerFactory>(),
-        ReplicaGroupLogOptions(sp))
+    private static ReplicaGroupRegistry CreateReplicaGroupRegistry(IServiceProvider sp, TopologyOptions cluster, string dataDir, ReplicaGroupActivation activation)
     {
-        Election = sp.GetService<ElectionTimerOptions>() ?? new ElectionTimerOptions(),
-        ElectionClock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
-        QuorumReads = cluster.QuorumReadsEnabled && LeadsByElection(cluster),
-    };
+        var peerIds = new string[cluster.Peers.Count];
+        for (var i = 0; i < peerIds.Length; i++)
+            peerIds[i] = cluster.Peers[i].NodeId;
+
+        return new ReplicaGroupRegistry(
+            dataDir,
+            ReplicaGroupMembership.GroupsServedBy(sp.GetRequiredService<IReplicaGroupLocator>(), peerIds, cluster.NodeId),
+            cluster.ReplicaCount,
+            activation.Fingerprint.AsMemory(),
+            cluster.ConfigurationGeneration,
+            sp.GetRequiredService<ILoggerFactory>(),
+            ReplicaGroupLogOptions(sp))
+        {
+            Election = sp.GetService<ElectionTimerOptions>() ?? new ElectionTimerOptions(),
+            ElectionClock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
+            QuorumReads = cluster.QuorumReadsEnabled && LeadsByElection(cluster),
+        };
+    }
 
     /// <summary>Registers the appliers of every served group, which the committers of the led groups and the apply loops of the others drive.</summary>
     /// <param name="services">DI service collection.</param>
