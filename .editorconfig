@@ -358,7 +358,7 @@ dotnet_diagnostic.S2743.severity = error # static fields should not be used in g
 dotnet_diagnostic.S2757.severity = error # non-existent operators like "=+" should not be used
 dotnet_diagnostic.S2761.severity = error # doubled prefix operators "!!" and "~~" should not be used
 dotnet_diagnostic.S2925.severity = error # "Thread.Sleep" should not be used in tests
-dotnet_diagnostic.S2971.severity = error # lINQ expressions should be simplified
+dotnet_diagnostic.S2971.severity = none # lINQ expressions should be simplified (LINQ is banned in the solution, so the rule never fires)
 dotnet_diagnostic.S2995.severity = error # "Object.ReferenceEquals" should not be used for value types
 dotnet_diagnostic.S2996.severity = error # "ThreadStatic" fields should not be initialized
 dotnet_diagnostic.S2997.severity = error # "IDisposables" created in a "using" statement should not be returned
