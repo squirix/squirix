@@ -72,8 +72,11 @@ public sealed class NonMemberEntryFailoverTests : EndToEndTestBase
                 _ = await Assert.That(report.ClientEntries).IsGreaterThan(0);
                 foreach (var entry in Entries)
                 {
-                    _ = await Assert.That(probe.TryGetLearnedLeader(entry, Group, out var learned)).IsTrue().Because($"{entry} must have learned the new leader; {dump}");
-                    _ = await Assert.That(learned.NodeId).IsEqualTo(leader).Because($"{entry} must route to the new leader; {dump}");
+                    // An entry node learns a leader only from a hint or a fallback; one that was never refused routes to the ring owner by default
+                    // and learns nothing when that owner leads, so that route is the only other outcome that reaches the new leader.
+                    var learnedLeader = probe.TryGetLearnedLeader(entry, Group, out var learned);
+                    var routes = learnedLeader ? string.Equals(learned.NodeId, leader, StringComparison.Ordinal) : string.Equals(leader, Group, StringComparison.Ordinal);
+                    _ = await Assert.That(routes).IsTrue().Because($"{entry} must route to the new leader {leader}, learned {(learnedLeader ? learned.NodeId : "nothing")}; {dump}");
                 }
             }
             catch (Exception exception) when (exception is not AssertionException)
