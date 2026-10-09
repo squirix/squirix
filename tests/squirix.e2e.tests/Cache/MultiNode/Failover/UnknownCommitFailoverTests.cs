@@ -30,8 +30,9 @@ public sealed class UnknownCommitFailoverTests : EndToEndTestBase
     private static readonly TimeSpan CallDeadline = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// The leader appends a TryAdd but cannot replicate it, and shuts down abruptly with the client still waiting. The client sends the same
-    /// TryAdd again through a survivor: it is added once, a further send returns the same answer, and the committed log holds it once.
+    /// The leader appends a TryAdd that only one follower receives and shuts down abruptly with the client still waiting; the new leader commits the
+    /// entry of the previous term. The client sends the same TryAdd again through a survivor: it replays the first outcome, a further
+    /// send returns the same answer, and the committed log holds it once.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A task that represents the asynchronous test.</returns>
@@ -50,17 +51,21 @@ public sealed class UnknownCommitFailoverTests : EndToEndTestBase
         var mutation = WireMutation.AddIfAbsent(CacheName, key, Value);
         var appended = await GroupLogReads.LastIndexAsync(cluster.Cluster, former, Group, cancellationToken);
 
-        // The leader cannot replicate, so the write stays uncommitted, and the client waits for an answer the leader never gives.
-        foreach (var follower in survivors)
-            fabric.HoldDirection(former, follower);
+        // The first follower receives the append but its acknowledgements never reach the leader, and the leader cannot reach the second follower,
+        // so the write stays uncommitted for the leader and the client, while the first follower alone holds the entry of the previous term.
+        var holder = survivors[0];
+        fabric.HoldDirection(holder, former);
+        fabric.HoldDirection(former, survivors[1]);
 
         await using var viaLeader = WireClient.Connect(cluster.GetUri(former));
         var first = viaLeader.SendAsync(mutation, CallDeadline, cancellationToken);
         await probe.Ledger(Group).UntilValueAsync(
-            (cluster.Cluster, Node: former, Before: appended),
+            (cluster.Cluster, Node: holder, Before: appended),
             static async (s, token) => await GroupLogReads.LastIndexAsync(s.Cluster, s.Node, Group, token) > s.Before,
-            "the leader appended the write",
+            "a follower holds the appended write while the leader cannot learn it committed",
             cancellationToken);
+        var held = await GroupLogReads.LastIndexAsync(cluster.Cluster, holder, Group, cancellationToken);
+        _ = await Assert.That(held).IsGreaterThan(appended).Because("the entry must reach a follower before the leader dies, or the retry is a plain first execution");
         await cluster.AbruptShutdownNodeAsync(former);
         await cluster.StopNodeAsync(former);
         var unknown = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(first);
