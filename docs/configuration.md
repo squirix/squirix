@@ -102,21 +102,22 @@ Example fragment:
 `Squirix:Cluster` is loaded by `Configurator` (`TryLoadFromFileAsync`, `LoadFromFileAsync`) for the
 standalone host, `AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()`.
 
-| Field                      | Type   | Default                                | Validation                                                                                                                                                                            |
-| -------------------------- | ------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NodeId`                   | string | loader fallback                        | Required, non-empty, maximum 128 characters                                                                                                                                           |
-| `ClusterId`                | string | loader fallback                        | Required, non-empty, maximum 128 characters                                                                                                                                           |
-| `Uri`                      | URI    | loader fallback                        | Absolute `https` origin URI (max 2048); rejects `http://`; no credentials, path, query, or fragment                                                                                   |
-| `VirtualNodes`             | int    | `128`                                  | `> 0` and `<= 16384`                                                                                                                                                                  |
-| `ReplicaCount`             | int    | `1`                                    | `1..5`, at most the peer count; RF>1 needs persistence, cluster mTLS, and `ReplicationEnabled`; see the [topology stamp](#activated-topology-stamp-topologystamp)                     |
-| `ConfigurationGeneration`  | ulong  | `1`                                    | `> 0`; recorded in the [activated topology stamp](#activated-topology-stamp-topologystamp) on the first RF>1 start                                                                    |
-| `AutomaticFailoverEnabled` | bool   | `false`                                | Elects a new group leader when the leader goes silent; requires `ReplicaCount` of at least 3 and `QuorumReadsEnabled`; see [automatic failover](#automatic-failover-and-quorum-reads) |
-| `QuorumReadsEnabled`       | bool   | `false`                                | Confirms each read with a majority of its replica group; requires `AutomaticFailoverEnabled`; see [automatic failover](#automatic-failover-and-quorum-reads)                          |
-| `Peers`                    | array  | runtime local-peer fallback when empty | When non-empty: must include local `NodeId`; peer ids and URIs must be unique; local peer `Uri` must match `Uri`; maximum 1024 peers                                                  |
-| `Peers[].NodeId`           | string | none                                   | Required, non-empty, maximum 128 characters                                                                                                                                           |
-| `Peers[].Uri`              | URI    | none                                   | Same validation as `Uri`                                                                                                                                                              |
-| `Backpressure`             | object | see below                              | Optional; keys and validation are listed in [Backpressure](#backpressure)                                                                                                             |
-| `Journal`                  | object | see below                              | Optional; keys and validation are listed in [Journal](#journal)                                                                                                                       |
+| Field                      | Type     | Default                                | Validation                                                                                                                                                                            |
+| -------------------------- | -------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NodeId`                   | string   | loader fallback                        | Required, non-empty, maximum 128 characters                                                                                                                                           |
+| `ClusterId`                | string   | loader fallback                        | Required, non-empty, maximum 128 characters                                                                                                                                           |
+| `Uri`                      | URI      | loader fallback                        | Absolute `https` origin URI (max 2048); rejects `http://`; no credentials, path, query, or fragment                                                                                   |
+| `VirtualNodes`             | int      | `128`                                  | `> 0` and `<= 16384`                                                                                                                                                                  |
+| `ReplicaCount`             | int      | `1`                                    | `1..5`, at most the peer count; RF>1 needs persistence, cluster mTLS, and `ReplicationEnabled`; see the [topology stamp](#activated-topology-stamp-topologystamp)                     |
+| `ConfigurationGeneration`  | ulong    | `1`                                    | `> 0`; recorded in the [activated topology stamp](#activated-topology-stamp-topologystamp) on the first RF>1 start                                                                    |
+| `ForwardConnectTimeout`    | TimeSpan | `00:00:01`                             | `>= 00:00:00.010` and below `00:00:03`, the per-attempt timeout of a forwarded call; see [forward connect timeout](#forward-connect-timeout-forwardconnecttimeout)                    |
+| `AutomaticFailoverEnabled` | bool     | `false`                                | Elects a new group leader when the leader goes silent; requires `ReplicaCount` of at least 3 and `QuorumReadsEnabled`; see [automatic failover](#automatic-failover-and-quorum-reads) |
+| `QuorumReadsEnabled`       | bool     | `false`                                | Confirms each read with a majority of its replica group; requires `AutomaticFailoverEnabled`; see [automatic failover](#automatic-failover-and-quorum-reads)                          |
+| `Peers`                    | array    | runtime local-peer fallback when empty | When non-empty: must include local `NodeId`; peer ids and URIs must be unique; local peer `Uri` must match `Uri`; maximum 1024 peers                                                  |
+| `Peers[].NodeId`           | string   | none                                   | Required, non-empty, maximum 128 characters                                                                                                                                           |
+| `Peers[].Uri`              | URI      | none                                   | Same validation as `Uri`                                                                                                                                                              |
+| `Backpressure`             | object   | see below                              | Optional; keys and validation are listed in [Backpressure](#backpressure)                                                                                                             |
+| `Journal`                  | object   | see below                              | Optional; keys and validation are listed in [Journal](#journal)                                                                                                                       |
 
 CLI validation:
 
@@ -157,23 +158,24 @@ so gRPC clients and operational routes (`/health`, `/metrics`) share one TLS por
 Configure these through `await builder.AddSquirixServerAsync(...)`, `SquirixServer.StartAsync(...)`, or the `Squirix:Cluster`
 section in settings (mapped into the same options model).
 
-| Field                      | Type    | Default                  | Validation                                                                                                                                                                            |
-| -------------------------- | ------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ClusterId`                | string  | `cluster`                | Non-empty; validated with topology                                                                                                                                                    |
-| `NodeId`                   | string  | `node`                   | Non-empty; validated with topology                                                                                                                                                    |
-| `Uri`                      | `Uri`   | `https://localhost:5001` | Absolute HTTPS URI                                                                                                                                                                    |
-| `Peers`                    | peers   | empty (local added)      | `SquirixServerPeerOptions` `NodeId` / `Uri` topology rules                                                                                                                            |
-| `VirtualNodes`             | int     | `128`                    | `1..16384`                                                                                                                                                                            |
-| `ReplicaCount`             | int     | `1`                      | `1..5`, at most the peer count; RF>1 needs persistence, cluster mTLS, and `ReplicationEnabled`; see the [topology stamp](#activated-topology-stamp-topologystamp)                     |
-| `ConfigurationGeneration`  | ulong   | `1`                      | `> 0`; recorded in the [activated topology stamp](#activated-topology-stamp-topologystamp) on the first RF>1 start                                                                    |
-| `AutomaticFailoverEnabled` | bool    | `false`                  | Elects a new group leader when the leader goes silent; requires `ReplicaCount` of at least 3 and `QuorumReadsEnabled`; see [automatic failover](#automatic-failover-and-quorum-reads) |
-| `QuorumReadsEnabled`       | bool    | `false`                  | Confirms each read with a majority of its replica group; requires `AutomaticFailoverEnabled`; see [automatic failover](#automatic-failover-and-quorum-reads)                          |
-| `Backpressure`             | options | see below                | `SquirixServerBackpressureOptions`; see [Backpressure](#backpressure)                                                                                                                 |
-| `Journal`                  | options | see below                | `SquirixServerJournalOptions`; see [Journal](#journal)                                                                                                                                |
-| `PersistenceEnabled`       | bool    | `false`                  | Any boolean                                                                                                                                                                           |
-| `ReplicationEnabled`       | bool    | `false`                  | Opt-in for RF>1 replication; RF>1 without it refuses startup                                                                                                                          |
-| `WaitForRecovery`          | bool    | `true`                   | Any boolean; applies when persistence is enabled                                                                                                                                      |
-| `DataDirectory`            | string? | `null`                   | Optional path when persistence is enabled; requires `UsePersistence()`                                                                                                                |
+| Field                      | Type     | Default                  | Validation                                                                                                                                                                            |
+| -------------------------- | -------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ClusterId`                | string   | `cluster`                | Non-empty; validated with topology                                                                                                                                                    |
+| `NodeId`                   | string   | `node`                   | Non-empty; validated with topology                                                                                                                                                    |
+| `Uri`                      | `Uri`    | `https://localhost:5001` | Absolute HTTPS URI                                                                                                                                                                    |
+| `Peers`                    | peers    | empty (local added)      | `SquirixServerPeerOptions` `NodeId` / `Uri` topology rules                                                                                                                            |
+| `VirtualNodes`             | int      | `128`                    | `1..16384`                                                                                                                                                                            |
+| `ReplicaCount`             | int      | `1`                      | `1..5`, at most the peer count; RF>1 needs persistence, cluster mTLS, and `ReplicationEnabled`; see the [topology stamp](#activated-topology-stamp-topologystamp)                     |
+| `ConfigurationGeneration`  | ulong    | `1`                      | `> 0`; recorded in the [activated topology stamp](#activated-topology-stamp-topologystamp) on the first RF>1 start                                                                    |
+| `ForwardConnectTimeout`    | TimeSpan | `00:00:01`               | `>= 00:00:00.010` and below `00:00:03`, the per-attempt timeout of a forwarded call; see [forward connect timeout](#forward-connect-timeout-forwardconnecttimeout)                    |
+| `AutomaticFailoverEnabled` | bool     | `false`                  | Elects a new group leader when the leader goes silent; requires `ReplicaCount` of at least 3 and `QuorumReadsEnabled`; see [automatic failover](#automatic-failover-and-quorum-reads) |
+| `QuorumReadsEnabled`       | bool     | `false`                  | Confirms each read with a majority of its replica group; requires `AutomaticFailoverEnabled`; see [automatic failover](#automatic-failover-and-quorum-reads)                          |
+| `Backpressure`             | options  | see below                | `SquirixServerBackpressureOptions`; see [Backpressure](#backpressure)                                                                                                                 |
+| `Journal`                  | options  | see below                | `SquirixServerJournalOptions`; see [Journal](#journal)                                                                                                                                |
+| `PersistenceEnabled`       | bool     | `false`                  | Any boolean                                                                                                                                                                           |
+| `ReplicationEnabled`       | bool     | `false`                  | Opt-in for RF>1 replication; RF>1 without it refuses startup                                                                                                                          |
+| `WaitForRecovery`          | bool     | `true`                   | Any boolean; applies when persistence is enabled                                                                                                                                      |
+| `DataDirectory`            | string?  | `null`                   | Optional path when persistence is enabled; requires `UsePersistence()`                                                                                                                |
 
 Call `options.UsePersistence()` (or `options.UsePersistence("./data")`) to enable journal/snapshot persistence. The standalone
 host accepts `--persist`; `--data-dir` requires `--persist`.
@@ -241,6 +243,26 @@ of the cluster section (identity and peers omitted):
     }
 }
 ```
+
+### Forward connect timeout (`ForwardConnectTimeout`)
+
+`ForwardConnectTimeout` bounds how long a client call this node forwards to another cluster node waits for a new
+connection to that node to be established, before any TLS handshake. The default is one second; the settings key is
+`Squirix:Cluster:ForwardConnectTimeout` (for example `"00:00:01"`). It must be at least 10 milliseconds and below the
+3-second per-attempt timeout of a forwarded call, so a node whose host is down or drops connection attempts fails the
+connect before the call times out. A connect that fails sends nothing to the peer, so the forward fails as unavailable
+with the detail `owner_unreachable` instead of an ambiguous timeout. After a connect timed out, further forwards to the
+same node fail the same way at once for one more bound, instead of each waiting for it in turn.
+
+- Name resolution and the attempts on every resolved address count against the bound, so a slow resolver or a peer name
+  with several addresses uses it up sooner.
+- On high-latency or WAN links, raise it toward 2 seconds; a value close to 3 seconds leaves no time for another member
+  to take the call.
+- It covers new connections only. A forward on a connection that is already open waits for the per-attempt timeout when
+  the peer stops answering without closing it.
+- A live node accepts the connection at once; the TLS handshake that follows keeps a longer bound, so a loaded node is
+  not cut off. The setting applies to client forwards only: replication and election traffic between nodes keeps its
+  own longer bounds.
 
 ### Activated topology stamp (`topology.stamp`)
 

@@ -8,7 +8,7 @@ namespace Squirix.Server.TestKit.Networking;
 /// The pool owns the underlying reservation; this handle only proves that the port was
 /// taken through <see cref="ListenPortPool.HoldPort" /> or <see cref="ListenPortPool.HoldPorts" />
 /// rather than probed. Releasing (or disposing) unbinds the hold so the real server can bind;
-/// the port stays reserved in-process and is never reissued.
+/// the port stays reserved in-process until <see cref="Return" /> hands it back to the pool.
 /// </remarks>
 public sealed class HeldPort : IDisposable
 {
@@ -37,6 +37,13 @@ public sealed class HeldPort : IDisposable
 
     /// <summary>Releases the hold so the real server can bind the port. Safe to call multiple times.</summary>
     public void Dispose() => ReleaseHold();
+
+    /// <summary>Returns the port to the pool once its user is gone, so a later reservation may reuse it.</summary>
+    public void Return()
+    {
+        _ = Interlocked.Exchange(ref _released, 1);
+        _pool.ReturnPort(Port);
+    }
 
     private void ReleaseHold()
     {

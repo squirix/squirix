@@ -331,10 +331,10 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
 
         _nodes.Clear();
 
-        // A topology entry that never started still holds the listen port reserved for it; node startup
-        // releases the hold before binding, so this is a no-op for every entry that ever started.
+        // Every node is down, so each listen port goes back to its pool, held or not: a test process draws all of them from one fixed
+        // slice. A port a node still holds only fails the bind probe of its next reservation.
         for (var i = 0; i < _topology.Length; i++)
-            ListenPortPool.ReleaseHeldPrimary(_topology[i].Uri);
+            ListenPortPool.ReturnPrimary(_topology[i].Uri);
 
         _identity?.Dispose();
         DataDir?.Dispose();

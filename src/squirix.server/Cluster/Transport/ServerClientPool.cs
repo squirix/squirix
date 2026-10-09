@@ -8,10 +8,8 @@ using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core.Interceptors;
-using Grpc.Net.Client;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
-using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -21,10 +19,16 @@ namespace Squirix.Server.Cluster.Transport;
 
 /// <summary>Holds gRPC clients per peer and an execution policy per peer.</summary>
 /// <remarks>
+/// <para>
+/// Every peer has two channels (<see cref="PeerChannels" />): forwarded client calls go through one whose dial is bounded by the forward
+/// connect timeout, every leased call through one without that bound.
+/// </para>
+/// <para>
 /// Disposal runs in a fixed order under one shutdown budget: new leases are refused and in-flight calls cancelled and awaited, then the channels
 /// and their handlers are disposed, then every tracked connection (an open TLS handshake included) is awaited, and only then is the pool's hold on
 /// the mTLS material released. A connection that outlives the budget keeps the material loaded until the connection ends, which is logged, rather than freeing the node
 /// certificate under a handshake that still reads it.
+/// </para>
 /// </remarks>
 [Mutable]
 internal sealed class ServerClientPool : IServerClientPool
@@ -42,13 +46,16 @@ internal sealed class ServerClientPool : IServerClientPool
     /// <summary>In-flight calls that lease a channel outside the peer policies; drained before the channels are disposed.</summary>
     private readonly QuiescenceGate _calls = new();
 
-    private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, PeerChannels> _channels = new(StringComparer.Ordinal);
 
     /// <summary>Cancels every leased call once disposal starts.</summary>
     private readonly CancellationTokenSource _closing = new();
 
     /// <summary>Open connections of the pool's handlers, owned or factory-supplied, each from its connect attempt until its stream is disposed; drained before the material is released.</summary>
     private readonly TrackedConnections _connections = new();
+
+    /// <summary>Bounds the dial of a forward channel, before any TLS handshake.</summary>
+    private readonly TimeSpan _forwardConnectTimeout;
 
     private readonly ILogger<ServerClientPool> _logger;
 
@@ -70,6 +77,7 @@ internal sealed class ServerClientPool : IServerClientPool
         _logger = logger;
         _metrics = metrics;
         _shutdownBudget = ResolveShutdownBudget(args);
+        _forwardConnectTimeout = args.ForwardConnectTimeout ?? TopologyOptions.DefaultForwardConnectTimeout;
         _timeProvider = args.TimeProvider ?? TimeProvider.System;
         _materialHold = RetainMaterial(args);
         _nodeIds = RegisterPeers(peers, args);
@@ -104,7 +112,7 @@ internal sealed class ServerClientPool : IServerClientPool
 
     public ServerChannelLease LeaseChannel(string nodeId, CancellationToken cancellationToken)
     {
-        var channel = _channels[nodeId];
+        var channel = _channels[nodeId].Lease;
         if (!_calls.TryEnter())
             throw new ObjectDisposedException(nameof(ServerClientPool), "The server client pool is disposing and leases no channel.");
 
@@ -140,60 +148,6 @@ internal sealed class ServerClientPool : IServerClientPool
             throw new InvalidOperationException("The peer handler factory returned a handler that already belongs to a pool; it must create a fresh handler per call.");
 
         socketsHandler.ConnectCallback = new TrackingConnectCallback(connections, inner).ConnectAsync;
-    }
-
-    private static GrpcChannelOptions CreateChannelOptions(
-        string nodeId,
-        bool interNodeMtlsEnabled,
-        MtlsCertificate? certificate,
-        Func<string, HttpMessageHandler>? peerHandlerFactory,
-        Func<MtlsCertificate?, string, TrackedConnections, HttpMessageHandler> ownedHandlerFactory,
-        TrackedConnections connections)
-    {
-        HttpMessageHandler? ownedHandler = null;
-        try
-        {
-            HttpMessageHandler peerHandler;
-            if (interNodeMtlsEnabled)
-            {
-                if (certificate is not { Enabled: true })
-                    throw new InvalidOperationException("Cluster mTLS material must be loaded for internode transport.");
-
-                var factoryHandler = peerHandlerFactory?.Invoke(nodeId);
-                if (factoryHandler != null)
-                {
-                    TrackFactoryConnections(factoryHandler, connections);
-                    peerHandler = factoryHandler;
-                }
-                else
-                {
-                    ownedHandler = ownedHandlerFactory.Invoke(certificate, nodeId, connections);
-                    peerHandler = ownedHandler;
-                }
-            }
-            else
-            {
-                ownedHandler = ownedHandlerFactory.Invoke(null, nodeId, connections);
-                peerHandler = ownedHandler;
-            }
-
-            var options = new GrpcChannelOptions
-            {
-                HttpHandler = peerHandler,
-
-                // The channel disposes the handler the pool created; a peerHandlerFactory handler stays owned by the factory's caller. The
-                // certificates an owned handler presents stay loaded through the pool's material hold until its connections are gone.
-                DisposeHttpClient = ownedHandler != null,
-                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
-                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
-            };
-            ownedHandler = null;
-            return options;
-        }
-        finally
-        {
-            ownedHandler?.Dispose();
-        }
     }
 
     /// <summary>Takes a hold on the mTLS material when it is enabled.</summary>
@@ -250,7 +204,7 @@ internal sealed class ServerClientPool : IServerClientPool
         for (var i = 0; i < _nodeIds.Length; i++)
         {
             var nodeId = _nodeIds[i];
-            var failure = Isolated.Run(_channels[nodeId], static channel => channel.Dispose());
+            var failure = _channels[nodeId].Close();
             if (failure == null)
                 _metrics.AddDisposal();
             else
@@ -338,16 +292,14 @@ internal sealed class ServerClientPool : IServerClientPool
     {
         var mtlsOptions = args.MtlsOptions ?? new MtlsOptions();
         var address = ClusterPeerChannelAddress.Resolve(peer, mtlsOptions, args.InterNodeMtlsEnabled);
-        var ownedHandlerFactory = args.OwnedHandlerFactory ?? ServerGrpcEndpoints.CreateOwnedHandler;
-        var options = CreateChannelOptions(peer.NodeId, args.InterNodeMtlsEnabled, args.Certificate, args.PeerHandlerFactory, ownedHandlerFactory, _connections);
-        var channel = GrpcChannel.ForAddress(address, options);
-        var invoker = channel.CreateCallInvoker();
+        var channels = PeerChannels.Create(peer.NodeId, address, args, _connections, _forwardConnectTimeout);
+        var invoker = channels.Forward.CreateCallInvoker();
         if (args.InternalOwnerInterceptor != null)
             invoker = invoker.Intercept(args.InternalOwnerInterceptor);
         if (args.Interceptor != null)
             invoker = invoker.Intercept(args.Interceptor);
 
-        _channels[peer.NodeId] = channel;
+        _channels[peer.NodeId] = channels;
         _cacheClients[peer.NodeId] = new SquirixCacheService.SquirixCacheServiceClient(invoker);
         _policies[peer.NodeId] = args.PolicyFactory.Invoke(peer.NodeId);
     }
@@ -380,8 +332,8 @@ internal sealed class ServerClientPool : IServerClientPool
     /// <summary>Disposes the created channels, the material hold and the closing source after a failed construction.</summary>
     private void ReleaseOnFailure()
     {
-        foreach (var channel in _channels.Values)
-            _ = Isolated.Run(channel, static created => created.Dispose());
+        foreach (var channels in _channels.Values)
+            _ = channels.Close();
 
         _materialHold?.Dispose();
         _closing.Dispose();
@@ -400,11 +352,9 @@ internal sealed class ServerClientPool : IServerClientPool
     }
 
     /// <summary>Validates and configures gRPC transport endpoints for server-to-server transport.</summary>
+    /// <remarks>The pool sets the connect timeout of every handler created here, so a peer that accepts but never answers cannot hold a connection open.</remarks>
     internal static class ServerGrpcEndpoints
     {
-        /// <summary>Bounds a connect attempt, TLS handshake included, so a peer that accepts but never answers cannot hold a connection open past shutdown.</summary>
-        private static readonly TimeSpan InterNodeConnectTimeout = TimeSpan.FromSeconds(5);
-
         private static readonly List<SslApplicationProtocol> Http2PreferredProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11];
 
         /// <summary>Creates the handler a pool owns for one peer: mTLS when <paramref name="certificate" /> is supplied, plain HTTPS otherwise.</summary>
@@ -435,7 +385,6 @@ internal sealed class ServerClientPool : IServerClientPool
             {
                 UseProxy = false,
                 EnableMultipleHttp2Connections = true,
-                ConnectTimeout = InterNodeConnectTimeout,
                 ConnectCallback = (context, cancellationToken) => TrackedConnectionStream.ConnectAsync(connections, context, cancellationToken),
                 SslOptions = new SslClientAuthenticationOptions
                 {
@@ -453,7 +402,6 @@ internal sealed class ServerClientPool : IServerClientPool
         private static SocketsHttpHandler CreateChannelHandler(TrackedConnections connections) => new()
         {
             EnableMultipleHttp2Connections = true,
-            ConnectTimeout = InterNodeConnectTimeout,
             ConnectCallback = (context, cancellationToken) => TrackedConnectionStream.ConnectAsync(connections, context, cancellationToken),
         };
 

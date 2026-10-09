@@ -80,6 +80,7 @@ public static class Configurator
         target.PersistenceEnabled = source.PersistenceEnabled;
         target.ReplicationEnabled = source.ReplicationEnabled;
         target.DataDirectory = source.DataDirectory;
+        target.ForwardConnectTimeout = source.ForwardConnectTimeout;
         ArgumentNullException.ThrowIfNull(source.Backpressure);
         target.Backpressure = new SquirixServerBackpressureOptions
         {

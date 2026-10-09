@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -70,6 +71,22 @@ public sealed class PortAllocatorReleaseTests
 
         BindExclusively(port);
         BindExclusively(port);
+    }
+
+    /// <summary>A returned port leaves the in-process reservation, so another allocator may reserve it again.</summary>
+    [Test]
+    public async Task ReturnedPortIsReservedAgain()
+    {
+        var (start, end) = ConsumerPortSlicer.Slice(HostPortRegion.ServerUnitTests);
+        using var allocator = new PortAllocator(start, end);
+        var port = allocator.ReserveOne();
+        allocator.ReleasePort(port);
+        using var single = new PortAllocator(port, port);
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(single, static s => _ = s.ReserveOne(1));
+
+        allocator.ReturnPort(port);
+
+        _ = await Assert.That(single.ReserveOne(1)).IsEqualTo(port);
     }
 
     private static void BindExclusively(int port)
