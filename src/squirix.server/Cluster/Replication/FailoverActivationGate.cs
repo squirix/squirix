@@ -4,8 +4,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// <remarks>
 /// Both switches stay disabled by default (<see cref="TopologyOptions.AutomaticFailoverEnabled" /> and
 /// <see cref="TopologyOptions.QuorumReadsEnabled" /> default to <see langword="false" />). Enabling is an
-/// explicit post-proof opt-in exercised by the failover and quorum-read proof-matrix tests; no public host
-/// surface exposes these switches. Automatic failover applies only to RF&gt;=3: RF=2 never promotes after
+/// explicit opt-in through the public server options, where validation requires both switches together
+/// and RF&gt;=3. Automatic failover applies only to RF&gt;=3: RF=2 never promotes after
 /// peer loss, RF=1 never elects, the minority fails closed, and a rejoined former leader must catch up
 /// before regaining eligibility.
 /// </remarks>

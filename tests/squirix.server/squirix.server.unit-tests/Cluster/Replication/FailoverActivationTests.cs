@@ -10,7 +10,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
-/// <summary>Automatic failover stays disabled until failover activation.</summary>
+/// <summary>Automatic failover defaults off and elects only on an explicit opt-in with three or more replicas.</summary>
 [Immutable]
 public sealed class FailoverActivationTests : ServerUnitTestBase
 {

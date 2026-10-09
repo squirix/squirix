@@ -74,6 +74,8 @@ public static class Configurator
         target.VirtualNodes = source.VirtualNodes;
         target.ReplicaCount = source.ReplicaCount;
         target.ConfigurationGeneration = source.ConfigurationGeneration;
+        target.AutomaticFailoverEnabled = source.AutomaticFailoverEnabled;
+        target.QuorumReadsEnabled = source.QuorumReadsEnabled;
         target.WaitForRecovery = source.WaitForRecovery;
         target.PersistenceEnabled = source.PersistenceEnabled;
         target.ReplicationEnabled = source.ReplicationEnabled;
@@ -342,6 +344,8 @@ public static class Configurator
             ReplicaCount = options.ReplicaCount,
             ReplicationEnabled = options.ReplicationEnabled,
             ConfigurationGeneration = options.ConfigurationGeneration,
+            AutomaticFailoverEnabled = options.AutomaticFailoverEnabled,
+            QuorumReadsEnabled = options.QuorumReadsEnabled,
         };
     }
 
