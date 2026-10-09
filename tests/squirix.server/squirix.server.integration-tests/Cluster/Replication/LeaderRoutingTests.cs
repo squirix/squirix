@@ -29,7 +29,10 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     private const string EntryOutsideGroup = "node-d";
     private const string OwnerId = "node-a";
 
-    /// <summary>The most writes the client sends once the owner stopped: each failed one waits for a new leader before the next.</summary>
+    /// <summary>
+    /// The most writes the client sends once the owner stopped, where each failed one waits for a new leader before the next, and the most
+    /// times a warm-up write is sent.
+    /// </summary>
     private const int MaxWrites = 5;
 
     /// <summary>Bounds every wait for an election and every client call; the timeouts below elect within seconds.</summary>
@@ -62,6 +65,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var key = KeyOwnedByOwner(cluster[entry]);
         using var channel = CreateGrpcChannel(cluster[entry].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        await WarmUpAsync(client, KeyOwnedByOwner(cluster[entry], 1), cancellationToken);
         var request = new SetEntryAsyncRequest
         {
             OperationId = RpcOperationIdentity.New(),
@@ -95,11 +99,12 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             nodes => Follows(nodes[follower], leader, out term) && Follows(nodes[entry], leader, out _),
             Bound,
             cancellationToken);
-        probe.Arm(entry, OwnerId, new LeaderRoute(follower, term));
-
         var key = KeyOwnedByOwner(cluster[entry]);
         using var channel = CreateGrpcChannel(cluster[entry].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        await WarmUpAsync(client, KeyOwnedByOwner(cluster[entry], 1), cancellationToken);
+        probe.Arm(entry, OwnerId, new LeaderRoute(follower, term));
+
         var request = new SetEntryAsyncRequest
         {
             OperationId = RpcOperationIdentity.New(),
@@ -185,6 +190,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var key = KeyOwnedByOwner(entry);
         using var channel = CreateGrpcChannel(entry.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        await WarmUpAsync(client, KeyOwnedByOwner(entry, 1), cancellationToken);
         var request = new SetEntryAsyncRequest
         {
             OperationId = RpcOperationIdentity.New(),
@@ -219,22 +225,63 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         }
     }
 
+    /// <summary>
+    /// Commits a write of another key of the owner group through the entry node, sending it again with the same operation id while its
+    /// forward times out, as the client library retries.
+    /// </summary>
+    /// <remarks>
+    /// A forward is sent once under a fixed per-attempt timeout. The first one from a node pays the mTLS handshake to its target and the
+    /// first commit of the leader, which under load can outlast that timeout; the write under test then finds both warm.
+    /// </remarks>
+    /// <param name="client">The client of the entry node.</param>
+    /// <param name="key">A key of the owner group the write under test does not use.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    private static async Task WarmUpAsync(SquirixCacheService.SquirixCacheServiceClient client, string key, CancellationToken cancellationToken)
+    {
+        var request = new SetEntryAsyncRequest
+        {
+            OperationId = RpcOperationIdentity.New(),
+            CacheName = CacheName,
+            Key = key,
+            Entry = new NodeCacheEntry<object?> { Value = "warm", Version = 1 }.MapToProto(),
+        };
+
+        var outcomes = new List<string>();
+        RpcException? refusal;
+        do
+        {
+            refusal = await SetAsync(client, request, cancellationToken);
+            outcomes.Add(refusal == null ? "OK" : refusal.Status.Detail);
+        }
+        while (refusal is { StatusCode: StatusCode.DeadlineExceeded } && outcomes.Count < MaxWrites);
+
+        _ = await Assert.That(refusal).IsNull().Because($"the warm-up write must commit; writes: {string.Join("; ", outcomes)}");
+    }
+
     /// <summary>Finds a key of the owner group as the ring of a node places it.</summary>
     /// <param name="node">The node whose ring is read.</param>
+    /// <param name="ordinal">How many keys of the owner group to skip, so that two writes use distinct keys.</param>
     /// <returns>The key.</returns>
-    /// <exception cref="InvalidOperationException">No key of the first thousand belongs to the owner.</exception>
-    private static string KeyOwnedByOwner(ITestNodeHost node)
+    /// <exception cref="InvalidOperationException">The first thousand keys hold too few of the owner.</exception>
+    private static string KeyOwnedByOwner(ITestNodeHost node, int ordinal = 0)
     {
         var ownership = node.GetRequiredService<INodeOwnershipResolver>();
         _ = ServerCacheName.TryParsePublic(CacheName, out var canonical);
+        var skipped = 0;
         for (var i = 0; i < 1000; i++)
         {
             var key = "routed-" + i.ToString(CultureInfo.InvariantCulture);
-            if (string.Equals(ownership.GetOwner(canonical!, key), OwnerId, StringComparison.Ordinal))
+            if (!string.Equals(ownership.GetOwner(canonical!, key), OwnerId, StringComparison.Ordinal))
+                continue;
+
+            if (skipped == ordinal)
                 return key;
+
+            skipped++;
         }
 
-        throw new InvalidOperationException($"No key of the first thousand belongs to {OwnerId}.");
+        throw new InvalidOperationException($"The first thousand keys hold too few of {OwnerId}.");
     }
 
     /// <summary>Waits until one of the given nodes has authority over the owner group, and returns the one of the highest term.</summary>
