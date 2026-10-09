@@ -189,6 +189,28 @@ public sealed class ClusterLeaderProbeTests : NodeIntegrationTestBase
         _ = await Assert.That(probe.Ledger(Group).Terms).IsEqualTo(0);
     }
 
+    /// <summary>
+    /// With four nodes and three replicas, the probe tells the members of a group from the node outside it, and reads the leader that node
+    /// learned from a hint.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ProbeTellsNonMemberFromMembers(CancellationToken cancellationToken)
+    {
+        const string outside = "node-d";
+        ClusterNode[] topology = [new(Three[0], GetNextHttpUri()), new(Three[1], GetNextHttpUri()), new(Three[2], GetNextHttpUri()), new(outside, GetNextHttpUri())];
+        await using var cluster = await StartClusterAsync(topology, Options("probe-non-member"), cancellationToken);
+        var probe = new ClusterLeaderProbe<IntegrationStartOptions>(cluster);
+        var (leader, term) = await probe.WaitForStableLeaderAsync(Group, Three, Bound, cancellationToken);
+
+        var before = probe.TryGetLearnedLeader(outside, Group, out _);
+        cluster[outside].GetRequiredService<IGroupLeaderTable>().Learn(Group, new LeaderRoute(leader, term));
+        var after = probe.TryGetLearnedLeader(outside, Group, out var learned);
+
+        _ = await Assert.That((probe.Serves(Three[0], Group), probe.Serves(Three[1], Group), probe.Serves(Three[2], Group), probe.Serves(outside, Group))).IsEqualTo((true, true, true, false));
+        _ = await Assert.That((before, after, learned)).IsEqualTo((false, true, (leader, term)));
+    }
+
     private static IntegrationStartOptions Options(string scope, PartitionFabric? fabric = null) => new()
     {
         ReplicaCount = 3,
