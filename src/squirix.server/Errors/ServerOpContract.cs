@@ -18,6 +18,9 @@ internal static class ServerOpContract
 
     internal const string NoWriteMajorityDetail = "Replica group has no verified write majority; nothing was written.";
 
+    /// <summary>The stable detail of the refusal of a forward whose connection to the target node could not be established by any of its attempts.</summary>
+    internal const string OwnerUnreachableDetail = "owner_unreachable";
+
     /// <summary>The stable detail of the refusal of a leader read whose confirmed read index memory did not apply in time.</summary>
     internal const string ReadIndexUnappliedDetail = "read_index_unapplied";
 

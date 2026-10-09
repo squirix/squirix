@@ -316,7 +316,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
     }
 
     private static ReplicaGroupCommitters ElectedSet(ReplicaGroupRegistry registry, ScriptedGateway gateway) =>
-        new(groupId => Elected(registry, groupId, gateway), new ReplicaLeaderTable(registry, "n1"), "n1", Owners(), TimeProvider.System);
+        new(groupId => Elected(registry, groupId, gateway), new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")), "n1", Owners(), TimeProvider.System);
 
     private static async Task<List<ReplicaLogRecord>> NoopsAsync(IFollowerLog log, CancellationToken cancellationToken)
     {

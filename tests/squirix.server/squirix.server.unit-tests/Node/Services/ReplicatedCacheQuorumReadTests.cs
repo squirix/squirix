@@ -188,7 +188,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
     private static ReplicaGroupCommitters Lead(ReplicaGroupRegistry registry, ScriptedGateway gateway, StubCache cache, ReplicaGroupApplier? applier = null) =>
         new(
             groupId => CreateElectedCommitter(registry, groupId, gateway, cache, applier ?? new ReplicaGroupApplier(cache, NullLogger.Instance, groupId, "n1")),
-            new ReplicaLeaderTable(registry, "n1"),
+            new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")),
             "n1",
             Owners(),
             TimeProvider.System);

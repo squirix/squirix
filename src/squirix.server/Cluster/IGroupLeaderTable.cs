@@ -18,6 +18,15 @@ internal interface IGroupLeaderTable
     /// <returns><see langword="true" /> when this node leads the group and its leader-term entry is committed.</returns>
     bool HasLocalAuthority(string groupId, out ulong term);
 
+    /// <summary>Keeps the leader a peer named for a group this node does not serve, so later calls of that group go to it first.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="hint">The leader a stale refusal named, or the member that served a call; its term is zero when unknown.</param>
+    /// <remarks>
+    /// One hint is kept per group; a hint of a lower term than the kept one is ignored. A hint for a served group, or naming a node outside the
+    /// replica set of the group, is ignored: a served group follows its election state alone. A table without elections keeps no hint.
+    /// </remarks>
+    void Learn(string groupId, in LeaderRoute hint);
+
     /// <summary>Reads, in one consistent view, what this node knows of the leader of a group.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <returns>
@@ -28,10 +37,11 @@ internal interface IGroupLeaderTable
 
     /// <summary>Stops reporting a route that answered as stale, and any known leader of its term or below, until a higher term is known.</summary>
     /// <param name="groupId">Replica group identifier.</param>
-    /// <param name="route">The route that answered as stale.</param>
+    /// <param name="route">The route that answered as stale, or could not be reached.</param>
     /// <remarks>
     /// Of several refutations the one of the highest term is kept. Authority of this node is never refuted: the election state alone
-    /// revokes it.
+    /// revokes it. For a group this node does not serve, it forgets the learned leader when that names the same node in the term of the
+    /// route or below.
     /// </remarks>
     void Refute(string groupId, in LeaderRoute route);
 
@@ -44,6 +54,12 @@ internal interface IGroupLeaderTable
     /// already answered as stale; such a caller sees no known leader instead.
     /// </remarks>
     bool TryGetLeader(string groupId, out LeaderRoute route);
+
+    /// <summary>Reads the leader learned for a group this node does not serve.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="route">The learned leader; <see langword="default" /> when none is kept.</param>
+    /// <returns><see langword="true" /> when a leader is kept for the group.</returns>
+    bool TryGetLearnedLeader(string groupId, out LeaderRoute route);
 
     /// <summary>Waits until a leader of a group is known, or <paramref name="timeout" /> elapses.</summary>
     /// <param name="groupId">Replica group identifier.</param>

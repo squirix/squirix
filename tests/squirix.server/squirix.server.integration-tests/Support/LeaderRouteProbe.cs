@@ -135,6 +135,8 @@ internal sealed class LeaderRouteProbe
 
         public bool HasLocalAuthority(string groupId, out ulong term) => _inner.HasLocalAuthority(groupId, out term);
 
+        public void Learn(string groupId, in LeaderRoute hint) => _inner.Learn(groupId, in hint);
+
         public GroupLeaderView Read(string groupId) => _inner.Read(groupId);
 
         public void Refute(string groupId, in LeaderRoute route)
@@ -145,6 +147,8 @@ internal sealed class LeaderRouteProbe
         }
 
         public bool TryGetLeader(string groupId, out LeaderRoute route) => _probe.TryGetPinned(_node, groupId, out route) || _inner.TryGetLeader(groupId, out route);
+
+        public bool TryGetLearnedLeader(string groupId, out LeaderRoute route) => _inner.TryGetLearnedLeader(groupId, out route);
 
         public ValueTask<bool> WaitForLeaderAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken) =>
             _inner.WaitForLeaderAsync(groupId, timeout, cancellationToken);

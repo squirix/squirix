@@ -11,27 +11,33 @@ namespace Squirix.Server.Cluster.Replication;
 /// <remarks>
 /// The election state is the only source of authority and of the known leader: the table keeps no copy that could lag behind a step-down,
 /// so authority disappears from it at the moment the state revokes it. The table only remembers, per served group, the refuted route of
-/// the highest term, and hides every known leader of that term or below until the state reports a leader of a higher term; that memory
-/// is process-local and never durable.
+/// the highest term, and hides every known leader of that term or below until the state reports a leader of a higher term; and, per group
+/// it does not serve, the leader of the highest term a member named. That memory is process-local, bounded by the groups of the ring, and
+/// never durable.
 /// </remarks>
 [ThreadSafe]
 internal sealed class ReplicaLeaderTable : IGroupLeaderTable
 {
+    private readonly ConcurrentDictionary<string, LeaderRoute> _learned = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, LeaderRoute> _refuted = new(StringComparer.Ordinal);
     private readonly ReplicaGroupRegistry _registry;
+    private readonly IReplicaGroupLocator _replicaGroups;
     private readonly string _selfId;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaLeaderTable" /> class.</summary>
     /// <param name="registry">The registry holding the election state of every served group.</param>
     /// <param name="selfId">The identifier of this node, the leader of the groups it has authority in.</param>
+    /// <param name="replicaGroups">Resolves the replica set of a group; a learned leader must belong to it.</param>
     /// <exception cref="ArgumentOutOfRangeException">The election options of the registry hold an unbounded wait for a leader.</exception>
-    internal ReplicaLeaderTable(ReplicaGroupRegistry registry, string selfId)
+    internal ReplicaLeaderTable(ReplicaGroupRegistry registry, string selfId, IReplicaGroupLocator replicaGroups)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentException.ThrowIfNullOrWhiteSpace(selfId);
+        ArgumentNullException.ThrowIfNull(replicaGroups);
         ElectionTimerOptions.EnsureValidLeaderWait(registry.Election);
         _registry = registry;
         _selfId = selfId;
+        _replicaGroups = replicaGroups;
     }
 
     /// <inheritdoc />
@@ -46,6 +52,26 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
             term = view.Term;
 
         return view.HasAuthority;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The replica set decides whether this node serves the group, so a hint is ignored for a served group before the registry opens too. A
+    /// member learned in term zero, because it served a fallback, gives way to any hint of a higher term, even one that is already stale; such a
+    /// hint answers stale in its turn and is then forgotten.
+    /// </remarks>
+    public void Learn(string groupId, in LeaderRoute hint)
+    {
+        if (string.IsNullOrEmpty(hint.NodeId) || string.Equals(hint.NodeId, _selfId, StringComparison.Ordinal))
+            return;
+
+        var members = new string[_replicaGroups.ReplicaCount];
+        _replicaGroups.GetReplicaGroup(groupId, members);
+        if (Array.IndexOf(members, _selfId) >= 0 || Array.IndexOf(members, hint.NodeId) < 0)
+            return;
+
+        // The hint of the higher term is kept, so a late hint of an older leader cannot replace a newer one.
+        _ = _learned.AddOrUpdate(groupId, static (_, added) => added, static (_, kept, added) => added.Term >= kept.Term ? added : kept, hint);
     }
 
     /// <inheritdoc />
@@ -72,8 +98,14 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
     /// <inheritdoc />
     public void Refute(string groupId, in LeaderRoute route)
     {
-        if (string.IsNullOrEmpty(route.NodeId) || !_registry.TryGetState(groupId, out _))
+        if (string.IsNullOrEmpty(route.NodeId))
             return;
+
+        if (!_registry.TryGetState(groupId, out _))
+        {
+            Forget(groupId, in route);
+            return;
+        }
 
         // The refutation of the higher term is kept, so a late refutation of an older route cannot bring back a newer stale one.
         _ = _refuted.AddOrUpdate(groupId, static (_, added) => added, static (_, kept, added) => added.Term >= kept.Term ? added : kept, route);
@@ -86,6 +118,9 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
         route = view.Known;
         return view.HasLeader;
     }
+
+    /// <inheritdoc />
+    public bool TryGetLearnedLeader(string groupId, out LeaderRoute route) => _learned.TryGetValue(groupId, out route);
 
     /// <inheritdoc />
     /// <remarks>The wait runs on the election clock of the group and ends as soon as its state publishes a route change that names a leader.</remarks>
@@ -115,5 +150,14 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
             if (!await state.RouteChanged.WaitAsync(version, remaining, clock, cancellationToken).ConfigureAwait(false))
                 return TryGetLeader(groupId, out _);
         }
+    }
+
+    /// <summary>Forgets the learned leader of a group when it names the node of a route that failed, in the term of the route or below.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="route">The route that answered as stale or could not be reached.</param>
+    private void Forget(string groupId, in LeaderRoute route)
+    {
+        if (_learned.TryGetValue(groupId, out var learned) && string.Equals(learned.NodeId, route.NodeId, StringComparison.Ordinal) && learned.Term <= route.Term)
+            _ = _learned.TryRemove(new KeyValuePair<string, LeaderRoute>(groupId, learned));
     }
 }

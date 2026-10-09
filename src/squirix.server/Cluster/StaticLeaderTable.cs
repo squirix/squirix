@@ -8,7 +8,7 @@ namespace Squirix.Server.Cluster;
 /// <summary>The leader table of a node whose groups no election leads: the ring owner of every group leads it, always in term one.</summary>
 /// <remarks>
 /// It reproduces static ownership exactly: this node has authority over its own group only, every other group routes to its owner, no
-/// route is ever refuted, and a leader is always known, so nothing waits.
+/// route is ever refuted or learned, and a leader is always known, so nothing waits.
 /// </remarks>
 [Immutable]
 internal sealed class StaticLeaderTable : IGroupLeaderTable
@@ -35,6 +35,12 @@ internal sealed class StaticLeaderTable : IGroupLeaderTable
     }
 
     /// <inheritdoc />
+    /// <remarks>The ring owner always leads statically, so nothing is learned.</remarks>
+    public void Learn(string groupId, in LeaderRoute hint)
+    {
+    }
+
+    /// <inheritdoc />
     public GroupLeaderView Read(string groupId) =>
         new(true, IsOwn(groupId), false, StaticTerm, StaticTerm, new LeaderRoute(groupId, StaticTerm));
 
@@ -48,6 +54,13 @@ internal sealed class StaticLeaderTable : IGroupLeaderTable
     {
         route = new LeaderRoute(groupId, StaticTerm);
         return true;
+    }
+
+    /// <inheritdoc />
+    public bool TryGetLearnedLeader(string groupId, out LeaderRoute route)
+    {
+        route = default;
+        return false;
     }
 
     /// <inheritdoc />

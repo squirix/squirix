@@ -71,22 +71,53 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         _ = await Assert.That(invoker.Requests.Count).IsEqualTo(1);
     }
 
-    /// <summary>Connection failures of the hop surface as a retryable Unavailable that names the owner.</summary>
+    /// <summary>
+    /// A hop that failed to connect, as a raw failure or as the client status that carries it, surfaces as the retryable unreachable failure
+    /// raised on this node; a transport failure that may follow a sent request stays an ordinary Unavailable.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task ConnectionFailureMapsToUnavailable(CancellationToken cancellationToken)
     {
-        var refused = CreateForwarder(new CapturingCallInvoker(failure: static () => new HttpRequestException("connection refused")));
+        var refused = CreateForwarder(new CapturingCallInvoker(failure: static () => new HttpRequestException(HttpRequestError.ConnectionError, "connection refused")));
+        var started = CreateForwarder(new CapturingCallInvoker(
+            failure: static () => new RpcException(new Status(StatusCode.Unavailable, "start failed", new HttpRequestException(HttpRequestError.ConnectionError, "refused")))));
         var reset = CreateForwarder(new CapturingCallInvoker(failure: static () => new IOException("connection reset")));
         var request = new GetValueAsyncRequest { CacheName = "c", Key = "k" };
 
         var refusedFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(refused.GetValueAsync(Owner, request, cancellationToken));
+        var startedFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(started.GetValueAsync(Owner, request, cancellationToken));
         var resetFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(reset.GetValueAsync(Owner, request, cancellationToken));
 
         _ = await Assert.That(refusedFailure.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(refusedFailure.Status.Detail).IsEqualTo("Key owner 'node-b' is unreachable.");
+        _ = await Assert.That(refusedFailure.Status.Detail).IsEqualTo(ServerOpContract.OwnerUnreachableDetail);
+        _ = await Assert.That(OwnerUnreachableFailure.IsLocal(refusedFailure) && OwnerUnreachableFailure.IsLocal(startedFailure)).IsTrue();
         _ = await Assert.That(resetFailure.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(resetFailure.Status.Detail).IsEqualTo("Key owner 'node-b' is unreachable.");
+        _ = await Assert.That(resetFailure.Status.Detail).IsEqualTo("The connection to key owner 'node-b' failed after the call may have reached it.");
+        _ = await Assert.That(OwnerUnreachableFailure.IsLocal(resetFailure)).IsFalse();
+    }
+
+    /// <summary>
+    /// A failure the owner sent with the unreachable detail, or a client failure after the call started, is relayed and never taken for a
+    /// failed connect of this node.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RelayedUnreachableIsNotLocal(CancellationToken cancellationToken)
+    {
+        var relayed = CreateForwarder(new CapturingCallInvoker(
+            failure: static () => new RpcException(new Status(StatusCode.Unavailable, ServerOpContract.OwnerUnreachableDetail))));
+        var broken = CreateForwarder(new CapturingCallInvoker(
+            failure: static () => new RpcException(new Status(StatusCode.Unavailable, "start failed", new HttpRequestException(HttpRequestError.ResponseEnded, "ended")))));
+        var request = new GetValueAsyncRequest { CacheName = "c", Key = "k" };
+
+        var relayedFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(relayed.GetValueAsync(Owner, request, cancellationToken));
+        var brokenFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(broken.GetValueAsync(Owner, request, cancellationToken));
+
+        _ = await Assert.That(relayedFailure.Status.Detail).IsEqualTo(ServerOpContract.OwnerUnreachableDetail);
+        _ = await Assert.That(OwnerUnreachableFailure.IsLocal(relayedFailure)).IsFalse();
+        _ = await Assert.That(brokenFailure.Status.Detail).IsEqualTo("start failed");
+        _ = await Assert.That(OwnerUnreachableFailure.IsLocal(brokenFailure)).IsFalse();
     }
 
     /// <summary>Every RPC reaches the owner as the same request instance on the matching method.</summary>

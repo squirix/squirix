@@ -144,6 +144,9 @@ internal sealed class OwnerRpcForwarder
         if (!decision.IsAccepted)
             throw ServerOpContract.TooManyRequests(decision.RejectReason ?? "unknown");
 
+        // The call policy may make several attempts and rethrows only the last failure, so every attempt is recorded: a forward is reported as
+        // unreachable only when no attempt connected.
+        var attempts = new ConnectAttempts();
         using (lease)
         {
             try
@@ -151,8 +154,8 @@ internal sealed class OwnerRpcForwarder
                 // A concurrent pool disposal can dispose the policy between the lookups and the execution; both surface as the pool-disposed failure.
                 var client = _pool.ForNode(owner);
                 return await _pool.PolicyFor(owner).ExecuteAsync(
-                    (Client: client, Request: request, Call: call),
-                    static (s, ct) => new ValueTask<TResponse>(s.Call(s.Client, s.Request, ct)),
+                    (Client: client, Request: request, Call: call, Attempts: attempts),
+                    static (s, ct) => new ValueTask<TResponse>(s.Attempts.RunAsync(s.Call, s.Client, s.Request, ct)),
                     cancellationToken).ConfigureAwait(false);
             }
             catch (ObjectDisposedException)
@@ -161,6 +164,10 @@ internal sealed class OwnerRpcForwarder
             }
             catch (RpcException ex)
             {
+                // Only a failure of this client carries its cause; a status the owner sent never does. A failed connect sent nothing.
+                if (ex.StatusCode == StatusCode.Unavailable && attempts.NoneConnected && OwnerUnreachableFailure.IsConnectFailure(ex.Status.DebugException))
+                    throw OwnerUnreachableFailure.Create(ex.Status.DebugException!);
+
                 // The owner refused because its ring differs from this node: fence this node too, then relay the refusal with its trailers.
                 if (RingMismatchFailure.IsMismatch(ex))
                     _ringAgreement.ReportOutboundMismatch(owner);
@@ -169,7 +176,46 @@ internal sealed class OwnerRpcForwarder
             }
             catch (Exception ex) when (ex is HttpRequestException or IOException)
             {
-                throw new RpcException(new Status(StatusCode.Unavailable, $"Key owner '{owner}' is unreachable."));
+                // Any other transport failure may follow a request the owner already received, so it is not reported as unreachable.
+                throw attempts.NoneConnected && OwnerUnreachableFailure.IsConnectFailure(ex)
+                    ? OwnerUnreachableFailure.Create(ex)
+                    : new RpcException(new Status(StatusCode.Unavailable, $"The connection to key owner '{owner}' failed after the call may have reached it."));
+            }
+        }
+    }
+
+    /// <summary>Records whether any attempt of one forward failed other than by failing to connect, so the request may have reached the target.</summary>
+    /// <remarks>The call policy runs the attempts one after another; the flag only ever goes from unset to set.</remarks>
+    [ThreadSafe]
+    private sealed class ConnectAttempts
+    {
+        private int _connected;
+
+        /// <summary>Gets a value indicating whether every failed attempt so far failed to connect, so none of them sent the request.</summary>
+        internal bool NoneConnected => Volatile.Read(ref _connected) == 0;
+
+        /// <summary>Runs one attempt and records a failure that may follow a sent request.</summary>
+        /// <typeparam name="TRequest">The request type.</typeparam>
+        /// <typeparam name="TResponse">The response type.</typeparam>
+        /// <param name="call">Starts the call.</param>
+        /// <param name="client">The client of the target.</param>
+        /// <param name="request">The request.</param>
+        /// <param name="cancellationToken">The attempt cancellation token.</param>
+        /// <returns>The response.</returns>
+        internal async Task<TResponse> RunAsync<TRequest, TResponse>(
+            Func<SquirixCacheService.SquirixCacheServiceClient, TRequest, CancellationToken, Task<TResponse>> call,
+            SquirixCacheService.SquirixCacheServiceClient client,
+            TRequest request,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                return await call(client, request, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!OwnerUnreachableFailure.IsConnectFailure(ex is RpcException rpc ? rpc.Status.DebugException : ex))
+            {
+                Volatile.Write(ref _connected, 1);
+                throw;
             }
         }
     }
