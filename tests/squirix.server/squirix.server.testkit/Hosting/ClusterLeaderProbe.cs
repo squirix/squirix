@@ -89,6 +89,24 @@ internal sealed class ClusterLeaderProbe<TOptions>
         }
     }
 
+    /// <summary>Tells whether a running node is a member of a group: whether it holds election state for it.</summary>
+    /// <param name="nodeId">The node.</param>
+    /// <param name="groupId">The replica group.</param>
+    /// <returns><see langword="true" /> when the node runs and serves the group; <see langword="false" /> for a node outside the group, or one that does not run.</returns>
+    internal bool Serves(string nodeId, string groupId) => LeaderTableReads.TryRead(_cluster, nodeId, groupId, out _);
+
+    /// <summary>Reads the leader a running node outside a group learned for it, from the leader a peer named.</summary>
+    /// <param name="nodeId">The node.</param>
+    /// <param name="groupId">The replica group.</param>
+    /// <param name="leader">The learned leader and its term; the node identifier is empty when none is kept.</param>
+    /// <returns><see langword="true" /> when the node runs and keeps a learned leader for the group.</returns>
+    internal bool TryGetLearnedLeader(string nodeId, string groupId, out (string NodeId, ulong Term) leader)
+    {
+        var known = LeaderTableReads.TryGetLearned(_cluster, nodeId, groupId, out var route);
+        leader = known ? (route.NodeId, route.Term) : (string.Empty, 0UL);
+        return known;
+    }
+
     /// <summary>Waits until a running node holds authority over a group in a term above the given one.</summary>
     /// <param name="groupId">The replica group.</param>
     /// <param name="aboveTerm">The term the new leader must exceed.</param>

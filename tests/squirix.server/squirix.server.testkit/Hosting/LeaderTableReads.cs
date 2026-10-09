@@ -32,6 +32,32 @@ internal static class LeaderTableReads
         }
     }
 
+    /// <summary>Reads the leader a running node learned for a group it does not serve.</summary>
+    /// <typeparam name="TOptions">Node startup options type of the cluster.</typeparam>
+    /// <param name="cluster">The cluster.</param>
+    /// <param name="nodeId">The node.</param>
+    /// <param name="groupId">The replica group.</param>
+    /// <param name="route">The learned leader; <see langword="default" /> when the node does not run, is stopping, or keeps none.</param>
+    /// <returns><see langword="true" /> when the node runs and keeps a learned leader for the group.</returns>
+    internal static bool TryGetLearned<TOptions>(TestCluster<TOptions> cluster, string nodeId, string groupId, out LeaderRoute route)
+        where TOptions : ClusterStartOptions
+    {
+        route = default;
+        if (!cluster.TryGetNode(nodeId, out var node))
+            return false;
+
+        try
+        {
+            return node.GetRequiredService<IGroupLeaderTable>().TryGetLearnedLeader(groupId, out route);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The node is stopping: its services are disposed while this read runs.
+            route = default;
+            return false;
+        }
+    }
+
     /// <summary>Reads what a running node knows of the leader of a group.</summary>
     /// <typeparam name="TOptions">Node startup options type of the cluster.</typeparam>
     /// <param name="cluster">The cluster.</param>

@@ -16,6 +16,9 @@ internal static class FailoverSteps
     /// <summary>The nodes of the three-node cluster; with three replicas each of them is a member of every group.</summary>
     internal static readonly string[] ThreeNodes = ["nodeA", "nodeB", "nodeC"];
 
+    /// <summary>The nodes of the five-node cluster, in the order that defines the members of a group: an owner and the nodes after it, wrapping around.</summary>
+    internal static readonly string[] FiveNodes = ["nodeA", "nodeB", "nodeC", "nodeD", "nodeE"];
+
     /// <summary>The longest wait of a step the test does not measure: a stable leader before the fault, convergence and a quiet group after it.</summary>
     internal static readonly TimeSpan Bound = TimeSpan.FromSeconds(60);
 
@@ -28,32 +31,62 @@ internal static class FailoverSteps
     /// <returns>The other members, in order.</returns>
     internal static string[] Except(string[] members, string nodeId) => Array.FindAll(members, id => !string.Equals(id, nodeId, StringComparison.Ordinal));
 
+    /// <summary>Gets the members of the group an owner heads: the owner and the next nodes of the ring, wrapping around.</summary>
+    /// <param name="nodes">The nodes of the cluster, in ring order.</param>
+    /// <param name="ownerId">The owner, which names the group.</param>
+    /// <param name="replicaCount">The replica factor, which is the size of the group.</param>
+    /// <returns>The members, the owner first.</returns>
+    internal static string[] MembersOf(string[] nodes, string ownerId, int replicaCount)
+    {
+        var members = new string[replicaCount];
+        var start = Array.IndexOf(nodes, ownerId);
+        for (var i = 0; i < replicaCount; i++)
+            members[i] = nodes[(start + i) % nodes.Length];
+
+        return members;
+    }
+
     /// <summary>Finds register keys of one group: keys whose owner, and so whose group, is the given node.</summary>
     /// <param name="cacheName">The cache name.</param>
     /// <param name="groupId">The group, named after its owner.</param>
     /// <param name="prefix">The key prefix.</param>
     /// <param name="count">The number of keys.</param>
     /// <returns>Distinct keys of the group.</returns>
-    internal static string[] KeysOf(string cacheName, string groupId, string prefix, int count)
+    internal static string[] KeysOf(string cacheName, string groupId, string prefix, int count) => KeysOf(KeyOwnerHelper.ThreeNode, cacheName, groupId, prefix, count);
+
+    /// <summary>Finds register keys of one group on the ring of a given cluster.</summary>
+    /// <param name="ring">The key ring of the cluster.</param>
+    /// <param name="cacheName">The cache name.</param>
+    /// <param name="groupId">The group, named after its owner.</param>
+    /// <param name="prefix">The key prefix.</param>
+    /// <param name="count">The number of keys.</param>
+    /// <returns>Distinct keys of the group.</returns>
+    internal static string[] KeysOf(KeyOwnerHelper ring, string cacheName, string groupId, string prefix, int count)
     {
         var keys = new string[count];
         for (var i = 0; i < count; i++)
-            keys[i] = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy(cacheName, groupId, string.Create(CultureInfo.InvariantCulture, $"{prefix}-{i}-"));
+            keys[i] = ring.FindKeyOwnedBy(cacheName, groupId, string.Create(CultureInfo.InvariantCulture, $"{prefix}-{i}-"));
 
         return keys;
     }
 
-    /// <summary>The cluster options of a failover test: three replicas, automatic failover with quorum reads, and the pull request tier timing.</summary>
+    /// <summary>The cluster options of a failover test: the given number of replicas, automatic failover with quorum reads, and the pull request tier timing.</summary>
     /// <param name="testName">The test name, which seeds the election jitter.</param>
     /// <param name="nodeClock">An optional clock per node.</param>
     /// <param name="fabric">An optional fabric the nodes dial each other through, which must outlive the cluster.</param>
     /// <param name="services">An optional hook that registers additional services on a node, receiving the node identifier.</param>
+    /// <param name="replicaCount">The replica factor.</param>
     /// <returns>The options.</returns>
-    internal static MultiNodeStartOptions Options(string testName, Func<string, TimeProvider?>? nodeClock = null, PartitionFabric? fabric = null, Action<string, IServiceCollection>? services = null)
+    internal static MultiNodeStartOptions Options(
+        string testName,
+        Func<string, TimeProvider?>? nodeClock = null,
+        PartitionFabric? fabric = null,
+        Action<string, IServiceCollection>? services = null,
+        int replicaCount = 3)
     {
         return new MultiNodeStartOptions
         {
-            ReplicaCount = 3,
+            ReplicaCount = replicaCount,
             Failover = true,
             ElectionTiming = FailoverTiming.For(testName),
             NodeClock = nodeClock,
