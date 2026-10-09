@@ -240,7 +240,7 @@ public sealed class ReplicaCommitterAuthorityTests : ServerUnitTestBase
             if (batch.Records.Count == 0 && HoldProbes)
             {
                 _ = _probeHeld.TrySetResult();
-                await _released.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                await new ValueTask(_released.Task).ConfigureAwait(false);
             }
 
             if (batch.Records.Count > 0 && HoldEntries)
