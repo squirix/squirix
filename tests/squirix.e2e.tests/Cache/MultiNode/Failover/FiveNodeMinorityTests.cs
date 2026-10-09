@@ -196,12 +196,25 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
         var followerWriting = caches.Follower.SetAsync(singles.LostByFollower, 98L, cancellationToken: cancellationToken);
         var leaderReading = caches.Leader.GetValueAsync(singles.Stale, cancellationToken);
         var followerReading = caches.Follower.GetValueAsync(singles.Stale, cancellationToken);
-        var leaderWrite = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(leaderWriting);
-        var followerWrite = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(followerWriting);
-        var leaderRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(leaderReading);
-        var followerRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(followerReading);
+        Exception leaderWrite, followerWrite, leaderRead, followerRead;
+        (CacheValueResult<long> Read, TimeSpan Elapsed) probed;
+        try
+        {
+            leaderWrite = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(leaderWriting);
+            followerWrite = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(followerWriting);
+            leaderRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(leaderReading);
+            followerRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(followerReading);
+            probed = await recovery;
+        }
+        catch
+        {
+            // Waits for every call started above, so none outlives the cluster; the first failure is the one rethrown.
+            await Task.WhenAll(recovery, leaderWriting, followerWriting, leaderReading, followerReading).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            throw;
+        }
+
+        var (probeRead, elapsed) = probed;
         var heldAuthority = string.Equals(holder, scene.Former.NodeId, StringComparison.Ordinal);
-        var (probeRead, elapsed) = await recovery;
         var leader = await scene.Probe.WaitForNewLeaderAsync(Group, scene.Former.Term, FailoverSteps.Bound, cancellationToken);
 
         await Eventually.SucceedsAsync(
