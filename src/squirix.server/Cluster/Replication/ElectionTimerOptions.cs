@@ -45,7 +45,7 @@ internal sealed class ElectionTimerOptions
     /// <summary>Gets the largest random delay added to <see cref="ElectionTimeout" /> each time a follower arms its election.</summary>
     internal TimeSpan MaxJitter { get; init; } = TimeSpan.FromSeconds(1);
 
-    /// <summary>Gets the longest wait for one pre-vote or vote reply; an unanswered voter counts as a refusal.</summary>
+    /// <summary>Gets the longest wait for one pre-vote or vote reply; an unanswered voter counts as a refusal, and a round ends earlier once its outcome is decided.</summary>
     internal TimeSpan VoteRpcTimeout { get; init; } = TimeSpan.FromMilliseconds(250);
 
     /// <summary>Checks that the wait for a leader of the options is bounded: positive and at most <see cref="MaxLeaderWaitTimeout" />.</summary>
