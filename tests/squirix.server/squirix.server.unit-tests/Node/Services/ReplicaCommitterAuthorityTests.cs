@@ -274,15 +274,10 @@ public sealed class ReplicaCommitterAuthorityTests : ServerUnitTestBase
             if (batch.Records.Count == 0 && HoldProbes && (HeldNode == null || string.Equals(HeldNode, nodeId, StringComparison.Ordinal)))
             {
                 _ = _probeHeld.TrySetResult();
-                try
-                {
-                    await _released.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    HeldProbeCanceled = true;
-                    throw;
-                }
+
+                // The held probe ends only by the release, so a stalled runner cannot end it at the probe timeout.
+                await using var registration = cancellationToken.Register(() => HeldProbeCanceled = true);
+                await _released.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
             }
 
             if (batch.Records.Count > 0 && HoldEntries)
