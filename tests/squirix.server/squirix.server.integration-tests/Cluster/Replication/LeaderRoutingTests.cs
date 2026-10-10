@@ -630,20 +630,14 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>An asynchronous operation.</returns>
     /// <exception cref="TimeoutException">The follower did not catch up within <see cref="Bound" />.</exception>
-    private static async Task AwaitCaughtUpAsync(ITestNodeHost leader, ITestNodeHost follower, CancellationToken cancellationToken)
+    private static Task AwaitCaughtUpAsync(ITestNodeHost leader, ITestNodeHost follower, CancellationToken cancellationToken)
     {
-        var from = leader.GetRequiredService<ReplicaGroupRegistry>();
-        var to = follower.GetRequiredService<ReplicaGroupRegistry>();
-        _ = from.TryGetLog(OwnerId, out var leaderLog);
-        _ = to.TryGetLog(OwnerId, out var followerLog);
-        var started = Stopwatch.GetTimestamp();
-        while ((await followerLog!.GetStatusAsync(cancellationToken)).LastLogIndex < (await leaderLog!.GetStatusAsync(cancellationToken)).LastLogIndex)
-        {
-            if (Stopwatch.GetElapsedTime(started) > Bound)
-                throw new TimeoutException("The third node did not catch up with the leader.");
-
-            await Task.Delay(TimeSpan.FromMilliseconds(25), TimeProvider.System, cancellationToken);
-        }
+        _ = leader.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(OwnerId, out var leaderLog);
+        _ = follower.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(OwnerId, out var followerLog);
+        return (Leader: leaderLog!, Follower: followerLog!).WaitUntilValueAsync(
+            static async (logs, token) => (await logs.Follower.GetStatusAsync(token)).LastLogIndex >= (await logs.Leader.GetStatusAsync(token)).LastLogIndex,
+            Bound,
+            cancellationToken);
     }
 
     /// <summary>Checks that the pinned seed of the entry node draws only long jitters, so it does not campaign during the silent-leader test.</summary>
