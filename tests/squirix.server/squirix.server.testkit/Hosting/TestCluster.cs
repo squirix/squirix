@@ -39,6 +39,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     private readonly ClusterIdentity? _identity;
 
     private readonly ConcurrentDictionary<string, TOptions?> _lastOptions = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, NodeStopPhases> _lastStops = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, ITestNodeHost> _nodes = new(StringComparer.Ordinal);
     private readonly ServerPeer[] _peers;
     private readonly Func<ClusterNode, ClusterNode[], TOptions?, CancellationToken, ValueTask<ITestNodeHost>> _startNode;
@@ -118,6 +119,11 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
         await StopNodeAsync(nodeId).ConfigureAwait(false);
         return await StartNodeAsync(nodeId, effectiveOptions, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>Gets the phases of the last stop of a node through <see cref="StopNodeAsync" /> or <see cref="RestartNodeAsync" />.</summary>
+    /// <param name="nodeId">Node identifier.</param>
+    /// <returns>The phases, or <see langword="null" /> when the node was not stopped through the cluster.</returns>
+    public NodeStopPhases? LastStopOf(string nodeId) => _lastStops.TryGetValue(nodeId, out var phases) ? phases : null;
 
     /// <summary>Starts every topology entry in order, rolling the whole cluster back on any failure.</summary>
     /// <param name="factory">Optional per-node startup options keyed by node identifier.</param>
@@ -253,13 +259,17 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     public async ValueTask StopNodeAsync(string nodeId)
     {
         Task? stopTask = null;
+        ITestNodeHost? stopping = null;
         lock (_stopLock)
         {
             // DisposeAsync performs a graceful shutdown for a still-running node (see ITestNodeHost), so this
             // is equivalent to ShutdownAsync while staying a call CA2000 recognizes as disposal. The stop is
             // registered so a concurrent cluster DisposeAsync waits for it before releasing shared resources.
             if (_nodes.TryRemove(nodeId, out var node))
+            {
+                stopping = node;
                 _stoppingNodes[nodeId] = stopTask = node.DisposeAsync().AsTask();
+            }
         }
 
         if (stopTask != null)
@@ -270,6 +280,9 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             }
             finally
             {
+                if (stopping?.LastStop is { } phases)
+                    _lastStops[nodeId] = phases;
+
                 lock (_stopLock)
                     _ = _stoppingNodes.Remove(nodeId);
             }

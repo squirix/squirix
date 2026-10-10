@@ -247,6 +247,8 @@ public sealed class TestClusterTests
 
         public bool HasInterNodeMtlsListener => false;
 
+        public NodeStopPhases? LastStop => null;
+
         public bool PersistenceEnabled => false;
 
         public IServiceProvider Services { get; } = new EmptyServiceProvider();

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
@@ -27,8 +28,10 @@ internal sealed class TestNodeHost : ITestNodeHost
     private readonly string _dataDir;
     private readonly bool _persistenceEnabled;
     private readonly IDisposable? _scope;
+    private readonly InFlightRequestTracker? _tracker;
     private readonly Uri _uri;
     private int _disposed;
+    private NodeStopPhases? _lastStop;
     private int _scopeDisposed;
 
     /// <summary>Initializes a new instance of the <see cref="TestNodeHost" /> class.</summary>
@@ -44,7 +47,10 @@ internal sealed class TestNodeHost : ITestNodeHost
         _dataDir = dataDir;
         _persistenceEnabled = persistenceEnabled;
         _scope = scope;
+        _tracker = app.Services.GetService<InFlightRequestTracker>();
     }
+
+    NodeStopPhases? ITestNodeHost.LastStop => Volatile.Read(ref _lastStop);
 
     string ITestNodeHost.DataDir => _dataDir;
 
@@ -62,15 +68,23 @@ internal sealed class TestNodeHost : ITestNodeHost
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
+        var started = Stopwatch.GetTimestamp();
+        _tracker?.BeginStop(started);
+
         // A killed process answers nothing: drop the listeners and open connections first, so no call reaches a disposed service and
         // returns its failure.
         await SuppressObjectDisposedAsync(AbortServerAsync()).ConfigureAwait(false);
+        var hostStopMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        var disposeStarted = Stopwatch.GetTimestamp();
         await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
+        var disposeMs = Stopwatch.GetElapsedTime(disposeStarted).TotalMilliseconds;
         DisposeScope();
 
         // Abrupt dispose can leave Windows handles on man-current / journal segments draining briefly.
         // Offline compact and restart paths open those files immediately; wait until they are shareable.
+        var releaseStarted = Stopwatch.GetTimestamp();
         await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
+        Publish(started, hostStopMs, disposeMs, Stopwatch.GetElapsedTime(releaseStarted).TotalMilliseconds);
     }
 
     /// <summary>Asynchronously disposes the underlying <see cref="WebApplication" /> and releases resources.</summary>
@@ -96,16 +110,37 @@ internal sealed class TestNodeHost : ITestNodeHost
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
+        var started = Stopwatch.GetTimestamp();
+        _tracker?.BeginStop(started);
+        var hostStopMs = 0.0;
         try
         {
-            await SuppressObjectDisposedAsync(StopAppAsync()).ConfigureAwait(false);
+            try
+            {
+                await SuppressObjectDisposedAsync(StopAppAsync()).ConfigureAwait(false);
+            }
+            finally
+            {
+                hostStopMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            }
         }
         finally
         {
+            var disposeStarted = Stopwatch.GetTimestamp();
             await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
+            var disposeMs = Stopwatch.GetElapsedTime(disposeStarted).TotalMilliseconds;
+            var releaseStarted = Stopwatch.GetTimestamp();
             await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
+            var releaseMs = Stopwatch.GetElapsedTime(releaseStarted).TotalMilliseconds;
             DisposeScope();
+            Publish(started, hostStopMs, disposeMs, releaseMs);
         }
+    }
+
+    private void Publish(long started, double hostStopMs, double disposeMs, double releaseMs)
+    {
+        var (inFlight, lastFinishedMs) = _tracker?.Snapshot() ?? (0, null);
+        Volatile.Write(ref _lastStop, new NodeStopPhases(hostStopMs, disposeMs, releaseMs, Stopwatch.GetElapsedTime(started).TotalMilliseconds, inFlight, lastFinishedMs));
     }
 
     /// <summary>Stops the server without draining: a cancelled token makes it abort every open connection at once.</summary>
