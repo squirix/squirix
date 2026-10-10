@@ -1942,10 +1942,12 @@ jobs:
             -   name: Run Selected Resiliency Stress Checks
                 run: dotnet run --file ./tools/internal/sqr-resiliency-repeat.cs -- -Iterations 5 -Configuration Release -NoBuild
 
+            # The failover stress tests write their timing evidence (JSON) into this folder; the artifact step below uploads it.
             -   name: Run E2E Stress Suite
                 shell: bash
                 env:
                     SQUIRIX_STRESS_SCALE: "0.5"
+                    SQUIRIX_EVIDENCE_DIR: ${{ runner.temp }}/failover-evidence
                 run: |
                     set -o pipefail
                     dotnet test --project tests/squirix.e2e.tests/Squirix.E2ETests.csproj \
@@ -1958,3 +1960,12 @@ jobs:
                       echo "E2E stress filter matched zero tests. Failing the build." >&2
                       exit 1
                     fi
+
+            -   name: Upload Failover Timing Evidence
+                if: always()
+                uses: actions/upload-artifact@v7
+                with:
+                    name: failover-timing-evidence
+                    retention-days: 30
+                    path: ${{ runner.temp }}/failover-evidence/*.json
+                    if-no-files-found: warn
