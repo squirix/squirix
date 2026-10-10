@@ -12,6 +12,12 @@ namespace Squirix.E2ETests.Fixtures;
 /// <param name="TermRaisedMs">The time from the start of the stop until a node saw a higher term, or <see langword="null" /> when the timeline did not see it.</param>
 /// <param name="NewLeaderMs">The time from the start of the stop until a node held authority in a higher term, or <see langword="null" /> when the timeline did not see it.</param>
 /// <param name="ConvergedMs">The time from the start of the stop until every survivor followed the new leader, or <see langword="null" /> when the timeline did not see it.</param>
+/// <param name="StopHostMs">The part of the stop spent stopping the web server and the hosted services, or <see langword="null" /> when the host did not report it.</param>
+/// <param name="StopDisposeMs">The part of the stop spent disposing the application, or <see langword="null" /> when the host did not report it.</param>
+/// <param name="StopPersistenceReleaseMs">The part of the stop spent waiting until the journal files were released, or <see langword="null" /> when the host did not report it.</param>
+/// <param name="StopTotalMs">The time the host measured for the whole stop, or <see langword="null" /> when the host did not report it.</param>
+/// <param name="StopInFlightRequests">The number of requests the stopping node was serving when the stop began, or <see langword="null" /> when the host did not report it.</param>
+/// <param name="StopLastRequestFinishedMs">The time from the start of the stop until the last request on the stopping node finished, or <see langword="null" /> when none finished afterwards.</param>
 internal sealed record FailoverSample(
     int Iteration,
     string StoppedLeader,
@@ -23,4 +29,10 @@ internal sealed record FailoverSample(
     double? LeaderLostMs,
     double? TermRaisedMs,
     double? NewLeaderMs,
-    double? ConvergedMs);
+    double? ConvergedMs,
+    double? StopHostMs = null,
+    double? StopDisposeMs = null,
+    double? StopPersistenceReleaseMs = null,
+    double? StopTotalMs = null,
+    int? StopInFlightRequests = null,
+    double? StopLastRequestFinishedMs = null);

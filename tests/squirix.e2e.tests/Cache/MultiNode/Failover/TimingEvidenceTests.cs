@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit.Benchmarks;
@@ -55,5 +56,24 @@ public sealed class TimingEvidenceTests : EndToEndTestBase
         _ = await Assert.That(evidence.SinceDownP50Ms).IsEqualTo(914.0);
         _ = await Assert.That(evidence.SinceDownP95Ms).IsEqualTo(928.0);
         _ = await Assert.That(evidence.Samples.Length).IsEqualTo(30);
+    }
+
+    /// <summary>The breakdown of a stop survives the evidence file; a stop without one keeps the fields empty.</summary>
+    /// <returns>A task that represents the asynchronous test.</returns>
+    [Test]
+    public async Task EvidenceRoundTripsStopPhases()
+    {
+        var withPhases = new FailoverSample(1, "nodeA", "nodeB", 2UL, 1000.0, 100.0, 900.0, null, null, null, null, 90.0, 4.0, 2.5, 97.0, 3, 88.0);
+        var without = new FailoverSample(2, "nodeA", "nodeB", 2UL, 1000.0, 100.0, 900.0, null, null, null, null);
+        var evidence = FailoverEvidence.Build("test", new TestElectionTiming(), [withPhases, without], true);
+
+        var json = JsonSerializer.Serialize(evidence, FailoverEvidenceJsonContext.Default.FailoverTimingEvidence);
+        var read = JsonSerializer.Deserialize(json, FailoverEvidenceJsonContext.Default.FailoverTimingEvidence);
+
+        _ = await Assert.That(json).Contains("\"stopHostMs\": 90");
+        _ = await Assert.That(json).Contains("\"stopInFlightRequests\": 3");
+        _ = await Assert.That(read!.Samples[0]).IsEqualTo(withPhases);
+        _ = await Assert.That(read.Samples[1]).IsEqualTo(without);
+        _ = await Assert.That(read.Samples[1].StopTotalMs).IsNull();
     }
 }
