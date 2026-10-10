@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
-using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
@@ -27,13 +26,8 @@ public sealed class QuorumReadWiringTests : NodeIntegrationTestBase
 
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(90);
 
-    private static readonly ElectionTimerOptions Timing = new()
-    {
-        ElectionTimeout = TimeSpan.FromSeconds(2),
-        HeartbeatInterval = TimeSpan.FromMilliseconds(200),
-        MaxJitter = TimeSpan.FromSeconds(2),
-        VoteRpcTimeout = TimeSpan.FromSeconds(1),
-    };
+    /// <summary>The election timing of every node; each node draws its own jitter seed, so two candidates do not keep splitting the vote.</summary>
+    private static readonly TestElectionTiming Timing = new() { MaxJitter = TimeSpan.FromSeconds(2) };
 
     private static readonly string[] Three = [Owner, "node-b", "node-c"];
 
@@ -82,7 +76,7 @@ public sealed class QuorumReadWiringTests : NodeIntegrationTestBase
         AutomaticFailoverEnabled = failover,
         QuorumReadsEnabled = failover,
         PartitionFabric = fabric,
-        ServicesConfigure = static services => _ = services.AddSingleton(Timing),
+        ElectionTiming = Timing,
     };
 
     private ValueTask<TestCluster<IntegrationStartOptions>> StartAsync(IntegrationStartOptions options, CancellationToken cancellationToken)
