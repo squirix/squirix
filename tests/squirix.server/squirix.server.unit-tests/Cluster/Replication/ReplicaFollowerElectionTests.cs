@@ -253,6 +253,45 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         _ = await Assert.That(registry.StateFor(GroupId).ReadRoute().HasLeader).IsFalse();
     }
 
+    /// <summary>A cancellation that lands after the term step became durable does not undo the vote: it is granted and the election state learns the term.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancelAfterTermStepFinishesVote(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-election-cancel-step");
+        var hooks = new CancelOnMetaWritten();
+        await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), Fingerprint, new FollowerLogOptions { FaultHooks = hooks }, cancellationToken);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        using var caller = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        hooks.Arm(caller);
+
+        var vote = await follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 5UL, 0UL, 0UL), caller.Token);
+        var status = await follower.GetStatusAsync(GroupId, cancellationToken);
+
+        _ = await Assert.That(caller.IsCancellationRequested).IsTrue();
+        _ = await Assert.That((vote.Granted, vote.CurrentTerm)).IsEqualTo((true, 5UL));
+        _ = await Assert.That((status?.CurrentTerm, status?.VotedFor)).IsEqualTo((5UL, "n3"));
+        _ = await Assert.That(registry.StateFor(GroupId).HighestObservedTerm).IsEqualTo(5UL);
+    }
+
+    /// <summary>A cancellation before the term step throws and leaves nothing durable.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancelBeforeTermStepLeavesNothing(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-election-cancel-before");
+        await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        using var caller = new CancellationTokenSource();
+        await caller.CancelAsync();
+
+        var vote = follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 5UL, 0UL, 0UL), caller.Token);
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(vote);
+        var status = await follower.GetStatusAsync(GroupId, cancellationToken);
+        _ = await Assert.That((status?.CurrentTerm, status?.VotedFor)).IsEqualTo((0UL, string.Empty));
+    }
+
     private static byte[] ModeFingerprint(bool elected)
     {
         ServerPeer[] peers =
@@ -279,14 +318,49 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
     private static Task<ReplicaGroupRegistry> OpenRegistryAsync(TempDirectory dir, TimeProvider time, CancellationToken cancellationToken) =>
         OpenRegistryAsync(dir, time, Fingerprint, cancellationToken);
 
-    private static async Task<ReplicaGroupRegistry> OpenRegistryAsync(TempDirectory dir, TimeProvider time, ReadOnlyMemory<byte> fingerprint, CancellationToken cancellationToken)
+    private static Task<ReplicaGroupRegistry> OpenRegistryAsync(TempDirectory dir, TimeProvider time, ReadOnlyMemory<byte> fingerprint, CancellationToken cancellationToken) =>
+        OpenRegistryAsync(dir, time, fingerprint, null, cancellationToken);
+
+    private static async Task<ReplicaGroupRegistry> OpenRegistryAsync(
+        TempDirectory dir,
+        TimeProvider time,
+        ReadOnlyMemory<byte> fingerprint,
+        FollowerLogOptions? options,
+        CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(dir, [GroupId], 3, fingerprint, 1UL, NullLoggerFactory.Instance)
+        var registry = new ReplicaGroupRegistry(dir, [GroupId], 3, fingerprint, 1UL, NullLoggerFactory.Instance, options)
         {
             Election = new ElectionTimerOptions { JitterSeed = 1UL },
             ElectionClock = time,
         };
         await registry.OpenAsync(cancellationToken);
         return registry;
+    }
+
+    /// <summary>Cancels a caller token when the next metadata write reaches the file, which is after the write of the term step began.</summary>
+    [ThreadSafe]
+    private sealed class CancelOnMetaWritten : IFollowerLogFaultHooks
+    {
+        private CancellationTokenSource? _armed;
+
+        public void OnBeforeMemoryApply()
+        {
+        }
+
+        public void OnCommitAdvanced()
+        {
+        }
+
+        public void OnFlushed()
+        {
+        }
+
+        public void OnFrameWritten()
+        {
+        }
+
+        public void OnMetaWritten() => Interlocked.Exchange(ref _armed, null)?.Cancel();
+
+        internal void Arm(CancellationTokenSource source) => Volatile.Write(ref _armed, source);
     }
 }
