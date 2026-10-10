@@ -142,14 +142,23 @@ internal sealed class TestNodeHost : ITestNodeHost
         }
         finally
         {
-            var disposeStarted = Stopwatch.GetTimestamp();
-            await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
-            var disposeMs = Stopwatch.GetElapsedTime(disposeStarted).TotalMilliseconds;
-            var releaseStarted = Stopwatch.GetTimestamp();
-            await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
-            var releaseMs = Stopwatch.GetElapsedTime(releaseStarted).TotalMilliseconds;
-            DisposeScope();
-            Publish(started, hostStopMs, disposeMs, releaseMs);
+            var disposeMs = 0.0;
+            var releaseMs = 0.0;
+            try
+            {
+                var disposeStarted = Stopwatch.GetTimestamp();
+                await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
+                disposeMs = Stopwatch.GetElapsedTime(disposeStarted).TotalMilliseconds;
+                var releaseStarted = Stopwatch.GetTimestamp();
+                await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
+                releaseMs = Stopwatch.GetElapsedTime(releaseStarted).TotalMilliseconds;
+                DisposeScope();
+            }
+            finally
+            {
+                // A cleanup that throws still leaves the phases measured so far.
+                Publish(started, hostStopMs, disposeMs, releaseMs);
+            }
         }
     }
 
