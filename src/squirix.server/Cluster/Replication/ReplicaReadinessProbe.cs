@@ -146,28 +146,6 @@ internal static class ReplicaReadinessProbe
         return candidates;
     }
 
-    /// <summary>Returns how many probe answers from the log of a follower complete a write majority together with the slots that already count.</summary>
-    /// <param name="eligibility">Participation gates of the owned group.</param>
-    /// <param name="leaderReplicaIndex">Zero-based slot of the leader.</param>
-    /// <returns>
-    /// The answers still needed, or <see cref="int.MaxValue" /> when the slots that count already form a majority, so the probes of the
-    /// remaining followers are all awaited.
-    /// </returns>
-    internal static int AnswersForMajority(ReplicaEligibility eligibility, int leaderReplicaIndex)
-    {
-        ArgumentNullException.ThrowIfNull(eligibility);
-        var counting = eligibility.CanCountInWriteQuorum(leaderReplicaIndex) ? 1 : 0;
-        var slots = new ReplicaSlots(leaderReplicaIndex);
-        for (var i = 0; i < eligibility.ReplicaCount; i++)
-        {
-            if (slots.IsFollower(i) && eligibility.CanCountInWriteQuorum(i))
-                counting++;
-        }
-
-        var needed = (eligibility.ReplicaCount / 2) + 1 - counting;
-        return needed <= 0 ? int.MaxValue : needed;
-    }
-
     /// <summary>Probes the selected follower slots in parallel.</summary>
     /// <param name="gateway">Follower replication RPCs.</param>
     /// <param name="candidates">Per-slot flags selecting the slots to probe; the leader slot is never selected.</param>

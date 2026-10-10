@@ -21,7 +21,17 @@ internal static class ReplicaGroupCommitterVerification
         /// the uncommitted tail included, is caught up afterwards by the readiness service through its sender. Only when some follower answered does the gate get taken to start the coordinator (which
         /// recovers the tail), re-check that the leader tail did not move, admit the verified slots, and commit what they now cover.
         /// </remarks>
-        internal async Task<ReplicaVerification> VerifyReplicasAsync(CancellationToken cancellationToken)
+        internal Task<ReplicaVerification> VerifyReplicasAsync(CancellationToken cancellationToken) => committer.VerifyReplicasAsync(false, cancellationToken);
+
+        /// <summary>Verifies non-ready replica slots against the leader log, optionally ending the follower probing once a majority answered.</summary>
+        /// <param name="untilMajority">
+        /// Whether to give up the probes of silent followers once enough followers answered from their logs to form a majority with the
+        /// slots that count; otherwise every follower is awaited, a silent one for its whole probe timeout.
+        /// </param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The verification state, as for <see cref="VerifyReplicasAsync(ReplicaGroupCommitter, CancellationToken)" />.</returns>
+        /// <remarks>A quick pass lets a newly elected leader admit the followers that answer without waiting for one that is dead.</remarks>
+        internal async Task<ReplicaVerification> VerifyReplicasAsync(bool untilMajority, CancellationToken cancellationToken)
         {
             committer.ThrowIfDisposed();
             await committer.WaitForLocalRecoveryAsync(cancellationToken).ConfigureAwait(false);
@@ -34,7 +44,7 @@ internal static class ReplicaGroupCommitterVerification
             if (committer.Election != null && tenure == null)
                 return ReplicaVerification.Blocked;
 
-            var snapshot = await committer.Probe.ProbeAsync(log, tenure?.Term ?? 0UL, cancellationToken).ConfigureAwait(false);
+            var snapshot = await committer.Probe.ProbeAsync(log, tenure?.Term ?? 0UL, untilMajority, cancellationToken).ConfigureAwait(false);
             if (snapshot.Verdict is { } verdict)
                 return verdict;
 

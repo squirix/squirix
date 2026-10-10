@@ -43,6 +43,26 @@ internal sealed class ReplicaEligibility
         return true;
     }
 
+    /// <summary>Returns how many probe answers from the log of a follower complete a write majority together with the slots that already count.</summary>
+    /// <param name="leaderReplicaIndex">Zero-based slot of the leader.</param>
+    /// <returns>
+    /// The answers still needed, or <see cref="int.MaxValue" /> when the slots that count already form a majority, so the probes of the
+    /// remaining followers are all awaited.
+    /// </returns>
+    internal int AnswersForMajority(int leaderReplicaIndex)
+    {
+        var counting = CanCountInWriteQuorum(leaderReplicaIndex) ? 1 : 0;
+        var slots = new ReplicaSlots(leaderReplicaIndex);
+        for (var i = 0; i < ReplicaCount; i++)
+        {
+            if (slots.IsFollower(i) && CanCountInWriteQuorum(i))
+                counting++;
+        }
+
+        var needed = (ReplicaCount / 2) + 1 - counting;
+        return needed <= 0 ? int.MaxValue : needed;
+    }
+
     /// <summary>Returns whether a majority of the slots may count in the write quorum.</summary>
     /// <returns><see langword="true" /> when more than half of the slots are verified ready.</returns>
     internal bool HasWriteMajority()

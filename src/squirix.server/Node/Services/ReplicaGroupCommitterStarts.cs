@@ -63,7 +63,7 @@ internal static class ReplicaGroupCommitterStarts
                 ReplicaReadinessProbe.UnverifyFollowers(eligibility, leaderIndex);
 
             ReplicaReadinessProbe.MarkLeaderReady(eligibility, leaderIndex, in status, committer.Topology.Fingerprint, committer.Topology.Generation);
-            var answersNeeded = tenure is { Authorized: false } ? ReplicaReadinessProbe.AnswersForMajority(eligibility, leaderIndex) : int.MaxValue;
+            var answersNeeded = tenure is { Authorized: false } ? eligibility.AnswersForMajority(leaderIndex) : int.MaxValue;
             var results = eligibility.CanCountInWriteQuorum(leaderIndex)
                 ? await ReplicaReadinessProbe.ProbeAllAsync(committer.Gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility, leaderIndex), members, header, status, new ReplicaProbeBudget(ReplicaVerificationProbe.ProbeTimeout, answersNeeded), cancellationToken).ConfigureAwait(false)
                 : [];

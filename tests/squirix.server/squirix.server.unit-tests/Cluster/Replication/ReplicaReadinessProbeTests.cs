@@ -140,12 +140,12 @@ public sealed class ReplicaReadinessProbeTests
         var eligibility = new ReplicaEligibility(3);
         var leader = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready);
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, 0, in leader, Fingerprint, 1);
-        var onlyLeader = ReplicaReadinessProbe.AnswersForMajority(eligibility, 0);
+        var onlyLeader = eligibility.AnswersForMajority(0);
 
         ReplicaReadinessProbe.ApplyAll(eligibility, 0, [default, new(ReplicaProbeKind.Accepted, 3), default], in leader, Fingerprint, 1, null);
 
         _ = await Assert.That(onlyLeader).IsEqualTo(1);
-        _ = await Assert.That(ReplicaReadinessProbe.AnswersForMajority(eligibility, 0)).IsEqualTo(int.MaxValue);
+        _ = await Assert.That(eligibility.AnswersForMajority(0)).IsEqualTo(int.MaxValue);
     }
 
     private static Task<ReplicaProbeResult[]> ProbeAsync(ScriptedFollowers followers, bool[] candidates, int answersNeeded, CancellationToken cancellationToken)
