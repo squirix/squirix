@@ -83,7 +83,7 @@ such a follower add a probe timeout to the promotion of the new leader.
 An entry node routes each single-key call to the leader of the key's group and reroutes at most once when the target
 answers `stale-owner` or `stale-term`; a refusal of either kind is only given before anything was appended. A member
 stops routing to a leader it has not heard from for one election timeout and waits for the next one; a follower without
-a live leader answers `Unavailable` (no leader) instead of a stale-owner hint to it.
+a live leader answers `Unavailable` (no leader) instead of a stale-owner hint that names the silent leader.
 
 ### Quorum reads (ReadIndex equivalent)
 
