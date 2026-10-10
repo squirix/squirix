@@ -348,7 +348,7 @@ internal sealed class ReplicaGroupState
     /// <param name="term">The led term.</param>
     /// <remarks>
     /// A promotion that starts the leadership probes the followers before any heartbeat, and it holds that probe until a majority
-    /// answered from its log or every follower answered or timed out; the grace then restarts when the heartbeats can, so the leader is
+    /// answered from their logs or every follower answered or timed out; the grace then restarts when the heartbeats can, so the leader is
     /// not deposed for followers it could not ask. A leader without authority serves nothing, so the longer tenure admits nothing; a
     /// leader already authorized keeps its grace.
     /// </remarks>

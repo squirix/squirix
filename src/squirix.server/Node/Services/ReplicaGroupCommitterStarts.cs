@@ -23,10 +23,10 @@ internal static class ReplicaGroupCommitterStarts
         /// </returns>
         /// <exception cref="StaticLeaderTermExceededException">A static leader whose log moved past term one; nothing was written.</exception>
         /// <remarks>
-        /// Runs under the commit gate, after the coordinator of the previous start is retired. The first start of an elected leadership
-        /// stops probing once enough followers answered from their logs to form a majority with the slots that count, so a silent follower
-        /// does not hold the gate for its whole probe timeout; the readiness loop admits the answering followers. Every other start
-        /// awaits every probe.
+        /// Runs under the commit gate, after the coordinator of the previous start is retired. Every start while an elected leadership
+        /// is not yet authorized, a retry after a fault included, stops probing once enough followers answered from their logs to form a
+        /// majority with the slots that count, so a silent follower does not hold the gate for its whole probe timeout; the readiness loop
+        /// admits the answering followers. Every other start awaits every probe.
         /// </remarks>
         internal async Task<(ReplicaGroupCommitPipeline Pipeline, ReplicaMutationFactory Factory, FollowerLogTail Read, ulong Term, ReplicaEligibility Eligibility, ReplicaProbeResult[] Results)>
             LaunchAsync(IFollowerLog log, ReplicaLeaderTenure? tenure, bool replacing, CancellationToken cancellationToken)
