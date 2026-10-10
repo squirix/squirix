@@ -23,6 +23,8 @@ public sealed class ReplicaReadinessProbeTests
 
     private static readonly byte[] Fingerprint = [9, 8, 7];
 
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
     private static readonly TimeSpan NeverTimeout = TimeSpan.FromHours(1);
 
     /// <summary>The leader's own slot is verified from its durable log even while that log carries an uncommitted tail.</summary>
@@ -72,7 +74,8 @@ public sealed class ReplicaReadinessProbeTests
 
         var results = await ProbeAsync(followers, [false, true, true], 1, CancellationToken.None);
 
-        _ = await Assert.That((results[0].Kind, results[1].Kind, results[2].Kind)).IsEqualTo((ReplicaProbeKind.Unreachable, ReplicaProbeKind.LogMismatch, ReplicaProbeKind.Unreachable));
+        _ = await Assert.That((results[0].Kind, results[1].Kind, results[2].Kind))
+                        .IsEqualTo((ReplicaProbeKind.Unreachable, ReplicaProbeKind.LogMismatch, ReplicaProbeKind.Unreachable));
         _ = await Assert.That(silent.Task.IsCanceled).IsTrue();
     }
 
@@ -148,6 +151,123 @@ public sealed class ReplicaReadinessProbeTests
         _ = await Assert.That(eligibility.AnswersForMajority(0)).IsEqualTo(int.MaxValue);
     }
 
+    /// <summary>A majority of two replicas needs one follower answer beside the leader.</summary>
+    /// <returns>An asynchronous operation.</returns>
+    [Test]
+    public async Task TwoReplicasNeedOneAnswer()
+    {
+        var eligibility = ReadyLeader(2);
+
+        _ = await Assert.That(eligibility.AnswersForMajority(0)).IsEqualTo(1);
+    }
+
+    /// <summary>A majority of five replicas needs two follower answers beside the leader.</summary>
+    /// <returns>An asynchronous operation.</returns>
+    [Test]
+    public async Task FiveReplicasNeedTwoAnswers()
+    {
+        var eligibility = ReadyLeader(5);
+
+        _ = await Assert.That(eligibility.AnswersForMajority(0)).IsEqualTo(2);
+    }
+
+    /// <summary>A single replica is a majority by itself, so no answer is awaited.</summary>
+    /// <returns>An asynchronous operation.</returns>
+    [Test]
+    public async Task SingleReplicaNeedsNoAnswer()
+    {
+        var eligibility = ReadyLeader(1);
+
+        _ = await Assert.That(eligibility.AnswersForMajority(0)).IsEqualTo(int.MaxValue);
+    }
+
+    /// <summary>A leader slot that does not count in the quorum leaves one more answer to wait for.</summary>
+    /// <returns>An asynchronous operation.</returns>
+    [Test]
+    public async Task UncountedLeaderNeedsOneMoreAnswer()
+    {
+        var counted = ReadyLeader(3);
+        var uncounted = new ReplicaEligibility(3);
+
+        _ = await Assert.That((counted.AnswersForMajority(0), uncounted.AnswersForMajority(0))).IsEqualTo((1, 2));
+    }
+
+    /// <summary>A probe that faults cancels the others and rethrows.</summary>
+    /// <returns>An asynchronous operation.</returns>
+    [Test]
+    public async Task FaultedProbeCancelsOthersAndRethrows()
+    {
+        var followers = new ScriptedFollowers();
+        followers.Throw("n2");
+        var silent = followers.Hang("n3");
+
+        var probing = ProbeAsync(followers, [false, true, true], 2, CancellationToken.None);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(probing);
+        _ = await Assert.That(silent.Task.IsCanceled).IsTrue();
+    }
+
+    /// <summary>With no limit on the answers every follower is awaited and every verdict returned.</summary>
+    /// <returns>An asynchronous operation.</returns>
+    [Test]
+    public async Task UnlimitedBudgetReturnsEveryVerdict()
+    {
+        var followers = new ScriptedFollowers();
+        followers.Answer("n2", new FollowerLogAppendResult(true, string.Empty, 1, 3));
+        followers.Answer("n3", new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, 1, 2));
+
+        var results = await ProbeAsync(followers, [false, true, true], int.MaxValue, CancellationToken.None);
+
+        _ = await Assert.That((results[1].Kind, results[2].Kind)).IsEqualTo((ReplicaProbeKind.Accepted, ReplicaProbeKind.LogMismatch));
+    }
+
+    /// <summary>A budget below one answer is refused, as it would give up every probe at once.</summary>
+    /// <returns>An asynchronous operation.</returns>
+    [Test]
+    public async Task BudgetBelowOneAnswerIsRefused()
+    {
+        var followers = new ScriptedFollowers();
+        _ = followers.Hang("n2");
+
+        var refused = await NodeAsyncAssert.ThrowsAsync<ArgumentOutOfRangeException>(ProbeAsync(followers, [false, true, false], 0, CancellationToken.None));
+
+        _ = await Assert.That(refused.ParamName).IsEqualTo("budget.AnswersNeeded");
+    }
+
+    /// <summary>A follower given up at the launch of an elected leadership records no contact, so it cannot form a majority with the leader.</summary>
+    /// <returns>An asynchronous operation.</returns>
+    [Test]
+    public async Task GivenUpProbeRecordsNoContact()
+    {
+        var time = new FakeTimeProvider();
+        var options = new ElectionTimerOptions { ElectionTimeout = TimeSpan.FromMilliseconds(500), JitterSeed = 5UL };
+        var state = new ReplicaGroupState(5, options, time);
+        state.SetElectionDriven(true);
+        _ = state.BecomeLeader(2UL);
+        time.Advance(options.ElectionTimeout);
+        var followers = new ScriptedFollowers();
+        followers.Answer("n2", new FollowerLogAppendResult(true, string.Empty, 1, 3));
+        _ = followers.Hang("n3");
+        _ = followers.Hang("n4");
+        _ = followers.Hang("n5");
+
+        var results = await ProbeAsync(followers, [false, true, true, true, true], 1, CancellationToken.None);
+        ReplicaReadinessProbe.RecordContacts(state, results, 2UL);
+        var givenUp = state.HasQuorumContact(0, options.ElectionTimeout);
+        state.RecordFollowerContact(2, 2UL);
+
+        _ = await Assert.That(givenUp).IsFalse();
+        _ = await Assert.That(state.HasQuorumContact(0, options.ElectionTimeout)).IsTrue();
+    }
+
+    private static ReplicaEligibility ReadyLeader(int replicaCount)
+    {
+        var eligibility = new ReplicaEligibility(replicaCount);
+        var leader = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready);
+        ReplicaReadinessProbe.MarkLeaderReady(eligibility, 0, in leader, Fingerprint, 1);
+        return eligibility;
+    }
+
     private static Task<ReplicaProbeResult[]> ProbeAsync(ScriptedFollowers followers, bool[] candidates, int answersNeeded, CancellationToken cancellationToken)
     {
         var leader = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready);
@@ -156,7 +276,11 @@ public sealed class ReplicaReadinessProbeTests
         for (var i = 0; i < members.Length; i++)
             members[i] = string.Create(CultureInfo.InvariantCulture, $"n{i + 1}");
 
-        return ReplicaReadinessProbe.ProbeAllAsync(followers.Gateway, candidates, members, header, leader, new ReplicaProbeBudget(NeverTimeout, answersNeeded), cancellationToken);
+        var budget = new ReplicaProbeBudget(NeverTimeout, answersNeeded);
+        var probing = ReplicaReadinessProbe.ProbeAllAsync(followers.Gateway, candidates, members, header, leader, budget, cancellationToken);
+
+        // A regression that waits for a silent follower must fail the test instead of hanging it.
+        return probing.WaitAsync(HangGuard, TimeProvider.System, CancellationToken.None);
     }
 
     /// <summary>Answers each follower probe as scripted: at once, with a transport fault, or never until completed or canceled.</summary>
@@ -164,6 +288,7 @@ public sealed class ReplicaReadinessProbeTests
     {
         private readonly FollowerLogAppendResult?[] _answers = new FollowerLogAppendResult?[8];
         private readonly bool[] _faulty = new bool[8];
+        private readonly bool[] _thrown = new bool[8];
         private readonly TaskCompletionSource<FollowerLogAppendResult>?[] _hanging = new TaskCompletionSource<FollowerLogAppendResult>?[8];
 
         internal ScriptedFollowers()
@@ -180,6 +305,8 @@ public sealed class ReplicaReadinessProbeTests
 
         internal void Fail(string nodeId) => _faulty[SlotOf(nodeId)] = true;
 
+        internal void Throw(string nodeId) => _thrown[SlotOf(nodeId)] = true;
+
         internal TaskCompletionSource<FollowerLogAppendResult> Hang(string nodeId)
         {
             var source = new TaskCompletionSource<FollowerLogAppendResult>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -194,6 +321,9 @@ public sealed class ReplicaReadinessProbeTests
             var slot = SlotOf(nodeId);
             if (_answers[slot] is { } answer)
                 return Task.FromResult(answer);
+
+            if (_thrown[slot])
+                return Task.FromException<FollowerLogAppendResult>(new NotSupportedException("Follower fault."));
 
             if (_faulty[slot])
                 return Task.FromException<FollowerLogAppendResult>(new IOException("Follower unreachable."));

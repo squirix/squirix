@@ -155,6 +155,7 @@ internal static class ReplicaReadinessProbe
     /// <param name="budget">Per-probe timeout and the answers after which the probes still pending are given up.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Per-slot outcomes; unselected and given-up slots carry the default unreachable verdict.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="budget" /> asks for fewer than one answer.</exception>
     /// <remarks>No probe outlives the call: the ones given up are canceled and awaited.</remarks>
     internal static async Task<ReplicaProbeResult[]> ProbeAllAsync(
         IReplicaRpcGateway gateway,
@@ -167,6 +168,7 @@ internal static class ReplicaReadinessProbe
     {
         ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(members);
+        ArgumentOutOfRangeException.ThrowIfLessThan(budget.AnswersNeeded, 1);
         var results = new ReplicaProbeResult[candidates.Length];
         var slots = new List<int>(candidates.Length);
         var probes = new List<Task<ReplicaProbeResult>>(candidates.Length);
@@ -261,7 +263,10 @@ internal static class ReplicaReadinessProbe
     /// <param name="leader">Leader log status naming the entry the follower must hold.</param>
     /// <param name="timeout">Per-probe budget.</param>
     /// <param name="cancellationToken">Cancellation token; its cancellation propagates.</param>
-    /// <param name="giveUp">Token linked to <paramref name="cancellationToken" /> that also ends the probe when its outcome is no longer needed; the probe is then reported as unreachable.</param>
+    /// <param name="giveUp">
+    /// Token linked to <paramref name="cancellationToken" /> that also ends the probe when its outcome is no longer needed;
+    /// the probe is then reported as unreachable.
+    /// </param>
     /// <returns>The probe outcome; transport failures, timeouts and given-up probes are reported as <see cref="ReplicaProbeKind.Unreachable" />.</returns>
     private static Task<ReplicaProbeResult> ProbeAsync(
         IReplicaRpcGateway gateway,
