@@ -49,6 +49,18 @@ internal sealed class LeaderRouteProbe
         }
     }
 
+    /// <summary>Records the writes the entry node forwards for a group, without pinning any route.</summary>
+    /// <param name="entry">The entry node.</param>
+    /// <param name="group">The group.</param>
+    internal void Record(string entry, string group)
+    {
+        lock (_gate)
+        {
+            (_entry, _group, _pinned, _refuted) = (entry, group, default, true);
+            _forwards.Clear();
+        }
+    }
+
     /// <summary>Gets the writes the entry node forwarded since it was armed, in order.</summary>
     /// <returns>The targets and operation ids.</returns>
     internal (string Target, string OperationId)[] Forwards()

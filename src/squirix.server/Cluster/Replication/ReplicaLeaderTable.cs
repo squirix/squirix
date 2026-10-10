@@ -13,7 +13,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// so authority disappears from it at the moment the state revokes it. The table only remembers, per served group, the refuted route of
 /// the highest term, and hides every known leader of that term or below until the state reports a leader of a higher term; and, per group
 /// it does not serve, the leader of the highest term a member named. That memory is process-local, bounded by the groups of the ring, and
-/// never durable.
+/// never durable. A follower names its leader only while it heard from it within one election timeout, so a leader gone silent is no
+/// route and waiters are woken when a contact revives it.
 /// </remarks>
 [ThreadSafe]
 internal sealed class ReplicaLeaderTable : IGroupLeaderTable

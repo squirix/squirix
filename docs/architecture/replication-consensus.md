@@ -55,7 +55,8 @@ elects a replacement.
 - **Term one.** Term one belongs to the owner of a group: a node whose own group log never moved past term one leads it in
   term one at start, without votes, and no vote is ever granted for term one. The first election is for term two.
 - **Leader contact.** A member refuses a pre-vote with `leader-contact` while it heard from a live leader within one
-  election timeout, so a node cut off from the leader alone keeps campaigning in vain instead of deposing it.
+  election timeout, so a node cut off from the leader alone keeps campaigning in vain instead of deposing it. The same
+  rule decides whether a follower names its leader: one it has not heard from for an election timeout is no longer named.
 - **Authority.** A winner appends a `leader-noop` record in its term, under the operation scope `squirix:leader-term`,
   before it probes any follower. The start stops probing once enough followers answered from their logs to form a
   majority with the leader, so a follower that never answers does not hold it for the probe timeout. It gains authority
@@ -80,7 +81,9 @@ leader, then one election round, which a follower that is gone does not prolong 
 such a follower add a probe timeout to the promotion of the new leader.
 
 An entry node routes each single-key call to the leader of the key's group and reroutes at most once when the target
-answers `stale-owner` or `stale-term`; a refusal of either kind is only given before anything was appended.
+answers `stale-owner` or `stale-term`; a refusal of either kind is only given before anything was appended. A member
+stops routing to a leader it has not heard from for one election timeout and waits for the next one; a follower without
+a live leader answers `Unavailable` (no leader) instead of a stale-owner hint that names the silent leader.
 
 ### Quorum reads (ReadIndex equivalent)
 

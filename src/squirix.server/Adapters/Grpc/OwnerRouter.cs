@@ -16,7 +16,8 @@ namespace Squirix.Server.Adapters.Grpc;
 /// <remarks>
 /// The group of a key is named by its ring owner. Its leader comes from the leader table: with a static table the ring owner always leads,
 /// so the call runs locally or is forwarded once to the owner, and every refusal is relayed. With an election-led table the router waits
-/// for a leader within the deadline, and when the chosen route answers as stale (nothing was appended), refutes it and reroutes once with
+/// for a leader within the deadline (a member stops routing to a leader it has not heard from for one election timeout and waits for the
+/// next one), and when the chosen route answers as stale (nothing was appended), refutes it and reroutes once with
 /// the same request, so with the same operation id: at most two logical attempts. A second stale answer ends the operation as
 /// <see cref="ServerOpContract.LeaderChanged" />. For a group this node does not serve, a forward none of whose attempts connected to its target
 /// takes the single reroute to the leader learned for the group or to the next member in slot order, and the leader a

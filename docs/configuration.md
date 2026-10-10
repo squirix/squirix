@@ -244,6 +244,9 @@ of the cluster section (identity and peers omitted):
 }
 ```
 
+A member stops routing to a leader it has not heard from for one election timeout and waits for the next one; a follower
+without a live leader answers `Unavailable` (no leader) instead of a stale-owner hint that names the silent leader.
+
 ### Forward connect timeout (`ForwardConnectTimeout`)
 
 `ForwardConnectTimeout` bounds how long a client call this node forwards to another cluster node waits for a new
