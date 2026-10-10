@@ -12,9 +12,9 @@ namespace Squirix.Server.Cluster.Replication;
 /// <summary>One pre-vote or vote round of a candidate: every other member asked at once, each reply bounded by the vote timeout.</summary>
 /// <remarks>
 /// The round ends once its outcome is decided: a majority granted, a majority can no longer be reached, or a reply reported a term above
-/// the candidate's. Calls still unanswered are canceled and awaited, so no reply arrives after the round ended, a canceled call reports no term, and a silent member adds
-/// no vote timeout to a decided round. An unreachable or slow voter is no vote, never a grant and never an observed term. The candidate
-/// counts for itself.
+/// the candidate's. Calls still unanswered are canceled and awaited, so no reply arrives after the round ended, a canceled call reports
+/// no term, and a silent member adds no vote timeout to a decided round. An unreachable or slow voter is no vote, never a grant and
+/// never an observed term. The candidate counts for itself.
 /// </remarks>
 internal sealed class ReplicaVoteRound
 {
@@ -43,8 +43,8 @@ internal sealed class ReplicaVoteRound
     /// <param name="last">The last entry of the candidate log.</param>
     /// <param name="cancellationToken">Cancellation token; its cancellation ends the round by throwing.</param>
     /// <returns>
-    /// The grants, this node included, and the highest term a refusal reported among the replies received before the round ended. A vote counts only when it is granted with a reply term
-    /// equal to the candidate term; a pre-vote counts when it is granted.
+    /// The grants, this node included, and the highest term a refusal reported among the replies received before the round ended. A vote
+    /// counts only when it is granted with a reply term equal to the candidate term; a pre-vote counts when it is granted.
     /// </returns>
     /// <remarks>No call outlives the round: the ones still unanswered once the outcome is decided are canceled and awaited.</remarks>
     internal async Task<(int Granted, ulong Highest)> RunAsync(
