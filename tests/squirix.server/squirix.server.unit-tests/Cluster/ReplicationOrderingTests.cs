@@ -78,8 +78,8 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
     public void CompleteFinalIndexAppendThrows()
     {
         using var sequencer = new ReplicaLogIndexSequencer(ulong.MaxValue - 1);
-        var state = (sequencer, index: ulong.MaxValue);
-        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static s => s.sequencer.Complete(s.index));
+        var state = (Sequencer: sequencer, Index: ulong.MaxValue);
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static s => s.Sequencer.Complete(s.Index));
     }
 
     /// <summary>Completion for a foreign index is refused without touching the next index.</summary>
@@ -87,8 +87,8 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
     public void CompleteForeignIndexThrows()
     {
         using var sequencer = new ReplicaLogIndexSequencer(7);
-        var state = (sequencer, index: 999UL);
-        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static s => s.sequencer.Complete(s.index));
+        var state = (Sequencer: sequencer, Index: 999UL);
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static s => s.Sequencer.Complete(s.Index));
     }
 
     /// <summary>Concurrent mutations receive distinct increasing indexes.</summary>

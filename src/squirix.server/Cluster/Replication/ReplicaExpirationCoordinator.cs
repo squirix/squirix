@@ -136,7 +136,10 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
     }
 
     private Task<TEntry?> StartOnPoolAsync(string cacheName, string key) => Task.Factory.StartNew(
-        () => RunAsync(cacheName, key),
+        static state => state is PoolRun run
+            ? run.Coordinator.RunAsync(run.CacheName, run.Key)
+            : throw new InvalidOperationException("The expiry run was started without its state."),
+        new PoolRun(this, cacheName, key),
         CancellationToken.None,
         TaskCreationOptions.DenyChildAttach,
         TaskScheduler.Default).Unwrap();
@@ -155,4 +158,7 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
             _drain.Exit();
         }
     }
+
+    [Immutable]
+    private sealed record PoolRun(ReplicaExpirationCoordinator<TEntry> Coordinator, string CacheName, string Key);
 }

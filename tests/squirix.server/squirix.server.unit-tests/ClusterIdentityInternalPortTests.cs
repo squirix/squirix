@@ -132,8 +132,8 @@ public sealed class ClusterIdentityInternalPortTests
         identity.Dispose();
 
         var ex = NodeExceptionAssert.For<ObjectDisposedException>().Throws(
-            (identity, primaries: new[] { primaryA.HttpUri, primaryB.HttpUri }),
-            static state => _ = CreateTwoNodePeers(state.identity, state.primaries));
+            (Identity: identity, Primaries: new[] { primaryA.HttpUri, primaryB.HttpUri }),
+            static state => _ = CreateTwoNodePeers(state.Identity, state.Primaries));
 
         _ = await Assert.That(ex.ObjectName).Contains(nameof(ClusterIdentity), StringComparison.Ordinal);
     }

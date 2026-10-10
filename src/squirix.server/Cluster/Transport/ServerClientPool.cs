@@ -332,7 +332,7 @@ internal sealed class ServerClientPool : IServerClientPool
     /// <summary>Disposes the created channels, the material hold and the closing source after a failed construction.</summary>
     private void ReleaseOnFailure()
     {
-        foreach (var channels in _channels.Values)
+        foreach (var (_, channels) in _channels)
             _ = channels.Close();
 
         _materialHold?.Dispose();

@@ -613,6 +613,7 @@ dotnet_diagnostic.ZA0901.severity = none # Seal class for JIT devirtualization (
 [{tests,benchmarks}/**]
 dotnet_diagnostic.SA1615.severity = none # Element return value should be documented (async tests/benchmarks return Task; boilerplate <returns> is redundant)
 dotnet_diagnostic.CA1001.severity = none # test/benchmark-class disposables are released by TUnit [After] hooks or BenchmarkDotNet [GlobalCleanup], not IDisposable
+dotnet_diagnostic.ZA1402.severity = none # a closure passed to StartNew/Register keeps a test or benchmark scenario readable; the state overload is for production hot paths
 
 [tests/**]
 dotnet_diagnostic.S1075.severity = none # S1075 (hardcoded URI) is test data, not prod concern
@@ -623,6 +624,7 @@ dotnet_diagnostic.CA2007.severity = none # no SynchronizationContext in tests; C
 dotnet_diagnostic.MA0004.severity = none # Meziantou twin of CA2007; same rationale
 dotnet_diagnostic.MA0137.severity = none # test method names are stable identifiers (filters, test lists); Async suffix would churn them
 dotnet_diagnostic.ZA0302.severity = none # tests may use plain arrays for clarity over ArrayPool
+dotnet_diagnostic.ZA0110.severity = none # test helpers keep or enumerate their params arrays; the span form saves nothing there
 
 [tests/squirix.server/squirix.server.testkit/**]
 dotnet_diagnostic.MA0182.severity = none # internal testkit members are consumed through InternalsVisibleTo; MA0182 only sees same-assembly usages

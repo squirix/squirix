@@ -204,7 +204,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
 
         public async ValueTask DisposeAsync()
         {
-            foreach (var log in Values)
+            foreach (var (_, log) in this)
                 await log.DisposeAsync();
         }
     }
