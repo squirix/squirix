@@ -246,6 +246,9 @@ of the cluster section (identity and peers omitted):
 
 ### Forward connect timeout (`ForwardConnectTimeout`)
 
+A member stops routing to a leader it has not heard from for one election timeout and waits for the next one; a follower
+without a live leader answers `Unavailable` (no leader) instead of a stale-owner hint to it.
+
 `ForwardConnectTimeout` bounds how long a client call this node forwards to another cluster node waits for a new
 connection to that node to be established, before any TLS handshake. The default is one second; the settings key is
 `Squirix:Cluster:ForwardConnectTimeout` (for example `"00:00:01"`). It must be at least 10 milliseconds and below the
