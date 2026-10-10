@@ -109,6 +109,10 @@ internal sealed class ReplicaGroupState
         }
     }
 
+    /// <summary>Gets a value indicating whether the last leader contact is recent enough that this node still refuses a pre-vote on its behalf.</summary>
+    /// <remarks>Read under <see cref="_sync" />.</remarks>
+    private bool HasLiveLeaderContactLocked => _lastLeaderContact != NoContact && Clock.GetElapsedTime(_lastLeaderContact) < Options.ElectionTimeout;
+
     /// <summary>Gets the monotonic timestamp from which the follower election timeout runs: the last leader contact or granted vote.</summary>
     /// <returns>The timestamp, or <see langword="null" /> when neither happened yet.</returns>
     internal long? ElectionResetTimestamp()
@@ -159,29 +163,12 @@ internal sealed class ReplicaGroupState
             wake = RaiseLocked(term);
             if (_role != ReplicaGroupRole.Leader || term > _term)
             {
+                // A contact from a leader that went silent makes its route visible again, so the waiters for a leader are woken.
+                var revived = _knownLeader.Length != 0 && !HasLiveLeaderContactLocked;
                 var now = Clock.GetTimestamp();
-                var silent = !HasLiveLeaderContactLocked(now);
-                var publish = silent && _knownLeader.Length != 0;
                 _lastLeaderContact = now;
                 _lastElectionReset = now;
-                if (string.IsNullOrEmpty(leaderId))
-                {
-                    if (term > _knownLeaderTerm && _knownLeader.Length != 0)
-                    {
-                        // A newer term without a named leader deposes the known one, so its route does not look fresh.
-                        publish = true;
-                        _knownLeader = string.Empty;
-                        _knownLeaderTerm = term;
-                    }
-                }
-                else if (term >= _knownLeaderTerm && (term != _knownLeaderTerm || !string.Equals(leaderId, _knownLeader, StringComparison.Ordinal)))
-                {
-                    _knownLeader = leaderId;
-                    _knownLeaderTerm = term;
-                    publish = true;
-                }
-
-                if (publish)
+                if (FollowLeaderLocked(leaderId, term) || revived)
                     RouteChanged.Publish();
             }
         }
@@ -245,7 +232,7 @@ internal sealed class ReplicaGroupState
             // The leader's own slot never records a contact: only its followers answer it. The lock is reentrant.
             var contact = _role == ReplicaGroupRole.Leader
                 ? HasQuorumContact(-1, Options.ElectionTimeout)
-                : HasLiveLeaderContactLocked(Clock.GetTimestamp());
+                : HasLiveLeaderContactLocked;
             return (_role, _hasAuthority, contact, _highestObservedTerm);
         }
     }
@@ -261,7 +248,7 @@ internal sealed class ReplicaGroupState
     {
         lock (_sync)
         {
-            var known = _role == ReplicaGroupRole.Follower && _knownLeader.Length != 0 && HasLiveLeaderContactLocked(Clock.GetTimestamp())
+            var known = _role == ReplicaGroupRole.Follower && _knownLeader.Length != 0 && HasLiveLeaderContactLocked
                 ? new LeaderRoute(_knownLeader, _knownLeaderTerm)
                 : default;
             return new GroupLeaderView(true, _hasAuthority, _role == ReplicaGroupRole.Leader && !_hasAuthority, _term, _highestObservedTerm, known);
@@ -394,12 +381,31 @@ internal sealed class ReplicaGroupState
         }
     }
 
-    /// <summary>Tells whether a leader contact is recent enough that this node still refuses a pre-vote on its behalf.</summary>
-    /// <param name="now">The monotonic timestamp to measure the age of the contact against.</param>
-    /// <returns><see langword="true" /> when the last leader contact is younger than the election timeout.</returns>
+    /// <summary>Follows the leader a contact names, or forgets the known one when the contact carries a newer term without a name.</summary>
+    /// <param name="leaderId">The leader the contact names, or <see langword="null" /> when it names none.</param>
+    /// <param name="term">The term of the contact.</param>
+    /// <returns><see langword="true" /> when the known leader changed.</returns>
     /// <remarks>Called under <see cref="_sync" />.</remarks>
-    private bool HasLiveLeaderContactLocked(long now) =>
-        _lastLeaderContact != NoContact && Clock.GetElapsedTime(_lastLeaderContact, now) < Options.ElectionTimeout;
+    private bool FollowLeaderLocked(string? leaderId, ulong term)
+    {
+        if (string.IsNullOrEmpty(leaderId))
+        {
+            // A newer term without a named leader deposes the known one, so its route does not look fresh.
+            if (term <= _knownLeaderTerm || _knownLeader.Length == 0)
+                return false;
+
+            _knownLeader = string.Empty;
+            _knownLeaderTerm = term;
+            return true;
+        }
+
+        if (term < _knownLeaderTerm || (term == _knownLeaderTerm && string.Equals(leaderId, _knownLeader, StringComparison.Ordinal)))
+            return false;
+
+        _knownLeader = leaderId;
+        _knownLeaderTerm = term;
+        return true;
+    }
 
     /// <summary>Moves this node to a role without authority; authority comes only with <see cref="GrantAuthority" />.</summary>
     /// <param name="role">The new role.</param>
