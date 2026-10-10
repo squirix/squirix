@@ -30,8 +30,8 @@ internal interface IGroupLeaderTable
     /// <summary>Reads, in one consistent view, what this node knows of the leader of a group.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <returns>
-    /// The view; its known leader is this node while it has authority, otherwise the leader it last accepted contact from unless that
-    /// route was refuted. <see langword="default" /> (unserved) for a group this node holds no election state for.
+    /// The view; its known leader is this node while it has authority, otherwise the leader it last accepted contact from within one
+    /// election timeout, unless that route was refuted. <see langword="default" /> (unserved) for a group this node holds no election state for.
     /// </returns>
     GroupLeaderView Read(string groupId);
 
@@ -51,7 +51,8 @@ internal interface IGroupLeaderTable
     /// <returns><see langword="true" /> when a leader is known.</returns>
     /// <remarks>
     /// Refuted routes are hidden here as in <see cref="Read" />, so no caller, the stale-owner refusal of a write included, names a route that
-    /// already answered as stale; such a caller sees no known leader instead.
+    /// already answered as stale; such a caller sees no known leader instead. A leader not heard from for one election timeout is hidden the
+    /// same way until a contact revives it.
     /// </remarks>
     bool TryGetLeader(string groupId, out LeaderRoute route);
 
