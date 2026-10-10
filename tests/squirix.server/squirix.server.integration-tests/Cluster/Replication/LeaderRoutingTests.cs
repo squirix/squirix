@@ -1,7 +1,9 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -311,7 +313,9 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     /// <summary>
     /// A follower whose leader stopped stops naming it once it heard nothing from it for an election timeout, even though no election can
     /// finish and the follower itself will not campaign for a long time: a write entering through it waits for the next leader instead of
-    /// dialing the stopped one, and commits there once a leader is elected.
+    /// dialing the stopped one. The test pins the path where the third node, caught up with the stopped leader, wins the next election; the
+    /// parked write is released when that node is named, may be refused by it until its authority is committed, and is sent again once it
+    /// has authority.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -335,6 +339,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         using var channel = CreateGrpcChannel(cluster[SilentEntry].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         await WarmUpAsync(client, KeyOwnedByOwner(cluster[SilentEntry], 1), cancellationToken);
+        await AwaitCaughtUpAsync(cluster[leader], cluster[third], cancellationToken);
 
         // The entry node and the third node cannot reach each other, so no election can finish while the leader is gone.
         fabric.HoldDirection(SilentEntry, third);
@@ -351,15 +356,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var pending = SetAsync(client, write, cancellationToken);
         fabric.ReleaseDirection(SilentEntry, third);
         fabric.ReleaseDirection(third, SilentEntry);
-        var outcomes = new List<string>();
-        var refusal = await pending;
-        outcomes.Add(refusal == null ? "OK" : refusal.Status.Detail);
-        while (refusal is { StatusCode: StatusCode.Unavailable } && outcomes.Count < MaxWrites)
-        {
-            refusal = await SetAsync(client, write, cancellationToken);
-            outcomes.Add(refusal == null ? "OK" : refusal.Status.Detail);
-        }
-
+        var (refusal, outcomes) = await ResendAsync(cluster, client, write, await pending, [SilentEntry, third], cancellationToken);
         var writes = string.Join("; ", outcomes);
         _ = await Assert.That(refusal).IsNull().Because($"the write through {SilentEntry} must reach the new leader; writes: {writes}");
         _ = await Assert.That(outcomes.Contains(ServerOpContract.OwnerUnreachableDetail)).IsFalse().Because($"writes: {writes}");
@@ -576,10 +573,78 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         PartitionFabric = fabric,
         ServicesConfigure = services =>
         {
-            _ = services.AddSingleton(static sp => SilentNodeTiming(sp.GetRequiredService<TopologyOptions>().NodeId));
+            _ = services.AddSingleton(static sp =>
+            {
+                var nodeId = sp.GetRequiredService<TopologyOptions>().NodeId;
+                var entry = string.Equals(nodeId, SilentEntry, StringComparison.Ordinal);
+                var election = TimeSpan.FromSeconds(string.Equals(nodeId, OwnerId, StringComparison.Ordinal) ? 1 : 4);
+                return new ElectionTimerOptions
+                {
+                    ElectionTimeout = entry ? TimeSpan.FromSeconds(2) : election,
+                    HeartbeatInterval = TimeSpan.FromMilliseconds(250),
+                    MaxJitter = entry ? SilentMaxJitter : TimeSpan.FromSeconds(1),
+                    VoteRpcTimeout = TimeSpan.FromSeconds(2),
+                    LeaderWaitTimeoutOverride = entry ? TimeSpan.FromSeconds(30) : null,
+                    JitterSeed = entry ? SilentJitterSeed : BinaryPrimitives.ReadUInt64LittleEndian(RandomNumberGenerator.GetBytes(sizeof(ulong))),
+                };
+            });
             probe.Register(services);
         },
     };
+
+    /// <summary>
+    /// Waits for a parked write and sends it again with the same operation id while it is refused as unavailable, each time after a survivor
+    /// has authority over the owner group.
+    /// </summary>
+    /// <param name="cluster">The cluster.</param>
+    /// <param name="client">The client of the entry node.</param>
+    /// <param name="write">The write.</param>
+    /// <param name="first">The refusal of the write already sent, or <see langword="null" /> when it succeeded.</param>
+    /// <param name="survivors">The running nodes that may lead.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The last refusal, or <see langword="null" /> when the write succeeded, and the outcome of every send.</returns>
+    private static async Task<(RpcException? Refusal, List<string> Outcomes)> ResendAsync(
+        TestCluster<IntegrationStartOptions> cluster,
+        SquirixCacheService.SquirixCacheServiceClient client,
+        SetEntryAsyncRequest write,
+        RpcException? first,
+        string[] survivors,
+        CancellationToken cancellationToken)
+    {
+        var outcomes = new List<string>();
+        var refusal = first;
+        outcomes.Add(refusal == null ? "OK" : refusal.Status.Detail);
+        while (refusal is { StatusCode: StatusCode.Unavailable } && outcomes.Count < MaxWrites)
+        {
+            _ = await LeaderAsync(cluster, survivors, cancellationToken);
+            refusal = await SetAsync(client, write, cancellationToken);
+            outcomes.Add(refusal == null ? "OK" : refusal.Status.Detail);
+        }
+
+        return (refusal, outcomes);
+    }
+
+    /// <summary>Waits until a follower holds every entry the leader holds in the owner group log.</summary>
+    /// <param name="leader">The leader.</param>
+    /// <param name="follower">The follower.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="TimeoutException">The follower did not catch up within <see cref="Bound" />.</exception>
+    private static async Task AwaitCaughtUpAsync(ITestNodeHost leader, ITestNodeHost follower, CancellationToken cancellationToken)
+    {
+        var from = leader.GetRequiredService<ReplicaGroupRegistry>();
+        var to = follower.GetRequiredService<ReplicaGroupRegistry>();
+        _ = from.TryGetLog(OwnerId, out var leaderLog);
+        _ = to.TryGetLog(OwnerId, out var followerLog);
+        var started = Stopwatch.GetTimestamp();
+        while ((await followerLog!.GetStatusAsync(cancellationToken)).LastLogIndex < (await leaderLog!.GetStatusAsync(cancellationToken)).LastLogIndex)
+        {
+            if (Stopwatch.GetElapsedTime(started) > Bound)
+                throw new TimeoutException("The third node did not catch up with the leader.");
+
+            await Task.Delay(TimeSpan.FromMilliseconds(25), TimeProvider.System, cancellationToken);
+        }
+    }
 
     /// <summary>Checks that the pinned seed of the entry node draws only long jitters, so it does not campaign during the silent-leader test.</summary>
     /// <returns>An asynchronous operation.</returns>
@@ -588,31 +653,6 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var jitter = new ElectionJitter(SilentJitterSeed, OwnerId);
         for (var i = 0; i < 16; i++)
             _ = await Assert.That(jitter.Next(SilentMaxJitter)).IsGreaterThanOrEqualTo(TimeSpan.FromSeconds(20));
-    }
-
-    private static ElectionTimerOptions SilentNodeTiming(string nodeId)
-    {
-        if (string.Equals(nodeId, SilentEntry, StringComparison.Ordinal))
-        {
-            return new ElectionTimerOptions
-            {
-                ElectionTimeout = TimeSpan.FromSeconds(2),
-                HeartbeatInterval = TimeSpan.FromMilliseconds(250),
-                MaxJitter = SilentMaxJitter,
-                VoteRpcTimeout = TimeSpan.FromSeconds(2),
-                LeaderWaitTimeoutOverride = TimeSpan.FromSeconds(30),
-                JitterSeed = SilentJitterSeed,
-            };
-        }
-
-        var owner = string.Equals(nodeId, OwnerId, StringComparison.Ordinal);
-        return new ElectionTimerOptions
-        {
-            ElectionTimeout = TimeSpan.FromSeconds(owner ? 1 : 4),
-            HeartbeatInterval = TimeSpan.FromMilliseconds(250),
-            MaxJitter = TimeSpan.FromSeconds(1),
-            VoteRpcTimeout = TimeSpan.FromSeconds(2),
-        };
     }
 
     /// <summary>Tells whether a node follows the leader of the owner group.</summary>
