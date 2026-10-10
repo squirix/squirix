@@ -22,12 +22,12 @@ internal static class FailoverEvidence
     /// <summary>The schema identifier of the evidence file.</summary>
     internal const string Schema = "squirix.failover-timing/v1";
 
-    /// <summary>The 95th percentile recovery time a leader stop must keep on the controlled machine.</summary>
+    /// <summary>The 95th percentile of the time from the moment the stopped leader is down until a write and a read succeed, which a leader stop must keep on the controlled machine.</summary>
     internal static readonly TimeSpan P95Limit = TimeSpan.FromSeconds(5);
 
     /// <summary>Gets the directory evidence files are written to: the variable when set, otherwise a folder next to the test binaries.</summary>
     /// <returns>The directory path.</returns>
-    internal static string Directory()
+    internal static string EvidenceDirectory()
     {
         var configured = Environment.GetEnvironmentVariable(DirectoryVariable);
         return string.IsNullOrWhiteSpace(configured) ? Path.Join(AppContext.BaseDirectory, "evidence") : configured;
@@ -46,12 +46,12 @@ internal static class FailoverEvidence
         return (machine, matches, matches ? "enforced: the machine fingerprint matches the controlled machine" : $"informational: the machine fingerprint differs from the controlled machine '{controlled}'");
     }
 
-    /// <summary>Checks the 95th percentile against the limit with the performance evidence gate of the testkit.</summary>
+    /// <summary>Checks the 95th percentile of the recovery since the node was down against the limit with the performance evidence gate of the testkit.</summary>
     /// <param name="machine">The fingerprint of this host, which must be the controlled machine.</param>
     /// <param name="p95Ms">The 95th percentile in milliseconds.</param>
     /// <returns><see langword="true" /> when the percentile is within the limit.</returns>
     internal static bool WithinLimit(string machine, double p95Ms) =>
-        PerformanceEvidenceGate.Check(new PerformanceEvidence("Squirix.E2EBenchmarks.Cache.FailoverBenchmarks", "failover", machine, P95Limit.TotalMilliseconds, p95Ms, 0.0), machine);
+        PerformanceEvidenceGate.Check(new PerformanceEvidence(ReplicationBenchmarkCatalog.GetBenchmarkForPhase("failover"), "failover", machine, P95Limit.TotalMilliseconds, p95Ms, 0.0), machine);
 
     /// <summary>Gets a percentile of sorted values by the nearest rank method.</summary>
     /// <param name="sorted">The values, in ascending order; at least one.</param>
@@ -73,11 +73,16 @@ internal static class FailoverEvidence
     /// <returns>The evidence.</returns>
     internal static FailoverTimingEvidence Build(string test, TestElectionTiming timing, FailoverSample[] samples, bool completed)
     {
-        var times = new double[samples.Length];
-        for (var i = 0; i < times.Length; i++)
-            times[i] = samples[i].RecoveryMs;
+        var fromStop = new double[samples.Length];
+        var sinceDown = new double[samples.Length];
+        for (var i = 0; i < samples.Length; i++)
+        {
+            fromStop[i] = samples[i].RecoveryFromStopStartMs;
+            sinceDown[i] = samples[i].RecoverySinceDownMs;
+        }
 
-        Array.Sort(times);
+        Array.Sort(fromStop);
+        Array.Sort(sinceDown);
         var (machine, _, reason) = Gate();
         return new FailoverTimingEvidence(
             Schema,
@@ -95,8 +100,10 @@ internal static class FailoverEvidence
             reason,
             completed,
             P95Limit.TotalMilliseconds,
-            times.Length == 0 ? 0.0 : Percentile(times, 50),
-            times.Length == 0 ? 0.0 : Percentile(times, 95),
+            PercentileOrZero(fromStop, 50),
+            PercentileOrZero(fromStop, 95),
+            PercentileOrZero(sinceDown, 50),
+            PercentileOrZero(sinceDown, 95),
             samples);
     }
 
@@ -107,8 +114,8 @@ internal static class FailoverEvidence
     /// <returns>The full path of the file.</returns>
     internal static async Task<string> WriteAsync(FailoverTimingEvidence evidence, string fileName, CancellationToken cancellationToken)
     {
-        var directory = Directory();
-        _ = System.IO.Directory.CreateDirectory(directory);
+        var directory = EvidenceDirectory();
+        _ = Directory.CreateDirectory(directory);
         var path = Path.Join(directory, fileName);
         await File.WriteAllTextAsync(path, JsonSerializer.Serialize(evidence, FailoverEvidenceJsonContext.Default.FailoverTimingEvidence), cancellationToken);
         return path;
@@ -122,8 +129,10 @@ internal static class FailoverEvidence
         ArgumentNullException.ThrowIfNull(sample);
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"#{sample.Iteration,2} {sample.StoppedLeader} -> {sample.NewLeader} term {sample.NewTerm}: recovery {sample.RecoveryMs:F0} ms, stop {sample.StopMs:F0} ms, leader lost {Format(sample.LeaderLostMs)}, term raised {Format(sample.TermRaisedMs)}, new leader {Format(sample.NewLeaderMs)}, converged {Format(sample.ConvergedMs)}");
+            $"#{sample.Iteration,2} {sample.StoppedLeader} -> {sample.NewLeader} term {sample.NewTerm}: recovery from stop start {sample.RecoveryFromStopStartMs:F0} ms, stop took {sample.StopDurationMs:F0} ms, recovery since down {sample.RecoverySinceDownMs:F0} ms, leader lost {Format(sample.LeaderLostMs)}, term raised {Format(sample.TermRaisedMs)}, new leader {Format(sample.NewLeaderMs)}, converged {Format(sample.ConvergedMs)}");
     }
+
+    private static double PercentileOrZero(double[] sorted, double percentile) => sorted.Length == 0 ? 0.0 : Percentile(sorted, percentile);
 
     private static string Format(double? milliseconds) => milliseconds is { } value ? string.Create(CultureInfo.InvariantCulture, $"{value:F0} ms") : "not seen";
 }

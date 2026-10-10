@@ -36,13 +36,15 @@ public sealed class FaultScheduleTests : EndToEndTestBase
     /// <summary>The writes, and the reads, each register runs after the recovery probe of a step succeeded.</summary>
     private const int TailOperations = 10;
 
-    /// <summary>The time between two operations of one writer or reader, which keeps the writes of a whole schedule far below fifty thousand.</summary>
+    /// <summary>The time between two operations of one writer or reader, which keeps every register history small: the history check compares calls pairwise, so its cost grows with the history.</summary>
     private static readonly TimeSpan Pace = TimeSpan.FromMilliseconds(25);
 
     /// <summary>
     /// Runs the schedule on a cluster with the given number of replicas, one node per replica, and checks the invariants after every step and
     /// at the end. The seed comes from the <c language="csharp">SQUIRIX_FAULT_SEED</c> variable when set, otherwise from the test case name;
-    /// it is in the output and in every failure.
+    /// it is in the output and in every failure. A seed fixes the kinds of the steps; the victims also depend on which node led the group when a
+    /// step was chosen, so the same seed can strike other nodes in another run. The anchor, which is never faulted, is a node other than the
+    /// initial leader, so the first fault strikes that leader and every run records at least one leader fault.
     /// </summary>
     /// <param name="replicas">The replica factor, which is also the number of nodes.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -67,28 +69,34 @@ public sealed class FaultScheduleTests : EndToEndTestBase
             ? await HostedCluster.StartThreeNodeAsync(testName, options, true, cancellationToken)
             : await HostedCluster.StartFiveNodeAsync(testName, options, true, cancellationToken);
         var probe = new ClusterLeaderProbe<ClusterStartOptions>(cluster.Cluster);
-        _ = await probe.WaitForStableLeaderAsync(Group, nodes, FailoverSteps.Bound, cancellationToken);
+        var (initialLeader, _) = await probe.WaitForStableLeaderAsync(Group, nodes, FailoverSteps.Bound, cancellationToken);
 
-        var anchor = nodes[^1];
+        var anchor = Array.FindLast(nodes, id => !string.Equals(id, initialLeader, StringComparison.Ordinal))!;
         var ring = replicas == 3 ? KeyOwnerHelper.ThreeNode : KeyOwnerHelper.FiveNode;
         var writer = await (await cluster.ConnectClientAsync(anchor, cancellationToken)).GetCacheAsync<long>(CacheName, cancellationToken);
         var reader = await (await cluster.ConnectClientAsync(anchor, cancellationToken)).GetCacheAsync<long>(CacheName, cancellationToken);
         var rig = new Rig(cluster, fabric, probe, new FaultSchedule(nodes, anchor, replicas, seed), (writer, reader), (ring, FailoverSteps.KeysOf(ring, CacheName, Group, "probe", 1)[0]));
         var history = new List<(RegisterHistory History, string[] Keys)>();
+        var leaderFaults = 0;
 
         string Context()
         {
-            return $"seed {seed.ToString(CultureInfo.InvariantCulture)}, steps: {string.Join(" -> ", trace)}";
+            return $"seed {seed.ToString(CultureInfo.InvariantCulture)} (fixes the kinds of the steps; the victims depend on which node led), anchor {anchor}, initial leader {initialLeader}, steps: {string.Join(" -> ", trace)}";
         }
 
         try
         {
             for (var step = 1; step <= replicas * 4; step++)
-                history.Add(await RunStepAsync(rig, step, trace, Context, cancellationToken));
+            {
+                var (registers, keys, hitLeader) = await RunStepAsync(rig, step, trace, Context, cancellationToken);
+                history.Add((registers, keys));
+                leaderFaults += hitLeader ? 1 : 0;
+            }
 
             await FinishAsync(rig, nodes, history, Context, cancellationToken);
+            _ = await Assert.That(leaderFaults).IsGreaterThan(0).Because($"a schedule must fault a leader at least once; {Context()}");
             var (acked, ambiguous, reads) = Totals(history);
-            TestContext.Current?.Output.WriteLine($"{testName}: {trace.Count} steps, {acked} acknowledged and {ambiguous} ambiguous writes, {reads} reads; {Context()}");
+            TestContext.Current?.Output.WriteLine($"{testName}: {trace.Count} steps, {leaderFaults} leader faults, {acked} acknowledged and {ambiguous} ambiguous writes, {reads} reads; {Context()}");
         }
         catch (Exception exception) when (exception is not AssertionException)
         {
@@ -102,12 +110,12 @@ public sealed class FaultScheduleTests : EndToEndTestBase
     /// <param name="trace">Receives a line for the step before it is applied.</param>
     /// <param name="context">Describes the seed and the steps run so far, for a failure message.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The history and the keys of the workload of the step.</returns>
-    private static async Task<(RegisterHistory History, string[] Keys)> RunStepAsync(Rig rig, int index, List<string> trace, Func<string> context, CancellationToken cancellationToken)
+    /// <returns>The history and the keys of the workload of the step, and whether the step faulted the leader.</returns>
+    private static async Task<(RegisterHistory History, string[] Keys, bool HitLeader)> RunStepAsync(Rig rig, int index, List<string> trace, Func<string> context, CancellationToken cancellationToken)
     {
         var ledger = rig.Probe.Ledger(Group);
         var step = rig.Schedule.Next(ledger.Observe(rig.Schedule.Healthy()).NodeId);
-        trace.Add($"{index}:{step.Kind}{(step.NodeId.Length == 0 ? string.Empty : " " + step.NodeId)}");
+        trace.Add($"{index}:{step.Kind}{(step.NodeId.Length == 0 ? string.Empty : " " + step.NodeId)}{(step.HitsLeader ? " (leader)" : string.Empty)}");
         var keys = FailoverSteps.KeysOf(rig.Keys.Ring, CacheName, Group, $"step{index.ToString(CultureInfo.InvariantCulture)}", Registers);
         var registers = new RegisterWorkload(rig.Clients.Writer, rig.Clients.Reader, keys) { Pace = Pace };
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -115,29 +123,34 @@ public sealed class FaultScheduleTests : EndToEndTestBase
         var safety = ledger.UntilAsync(() => running.IsCompleted, "the workload ends", cancellationToken);
         try
         {
-            await ledger.UntilValueAsync(
-                (rig.Clients.Reader, Key: keys[0]),
-                static async (s, token) => (await s.Reader.GetValueAsync(s.Key, token)).Value >= Progress,
-                "the workload makes progress",
-                cancellationToken);
+            await ledger.UntilValueAsync((rig.Clients.Reader, Key: keys[0], Value: Progress), FailoverSteps.ReachedAsync, "the workload makes progress", cancellationToken);
 
+            // A fault on the leader changes the leader, so its timeline tells when the new one took over and the workload must cover the time after.
+            await using var timeline = step.HitsLeader ? FailoverTimeline<ClusterStartOptions>.Start(rig.Cluster.Cluster, Group) : null;
             var started = Stopwatch.GetTimestamp();
             await ApplyAsync(rig, step, cancellationToken);
             var attempts = new List<EventualAttempt>();
             var (read, elapsed) = await FailoverSteps.RecoverAsync(rig.Clients.Writer, rig.Keys.Probe, index, started, attempts, cancellationToken);
             var healthy = rig.Schedule.Healthy();
             _ = await rig.Probe.WaitForStableLeaderAsync(Group, healthy, FailoverSteps.Bound, cancellationToken);
+            if (timeline != null)
+                await ledger.UntilAsync(() => timeline.TimestampOf(FailoverPhase.NewLeader) != null, "the timeline sees the new leader", cancellationToken);
+
             done.SetResult();
             await running;
             await safety;
             await FailoverSteps.ReadFinalAsync(registers.History, rig.Clients.Reader, keys, cancellationToken);
             _ = await GroupLogAudit.RunAsync(rig.Cluster.Cluster, Group, healthy, FailoverSteps.Bound, cancellationToken);
 
-            var dump = context() + Eventually.Dump(attempts);
+            var dump = context() + Environment.NewLine + Eventually.Dump(attempts);
+            var summary = registers.History.Summary() + Environment.NewLine + context();
             _ = await Assert.That(read).IsEqualTo(new CacheValueResult<long>(true, index)).Because(dump);
             _ = await Assert.That(elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(dump);
-            _ = await Assert.That(registers.History.Check()).IsEmpty().Because(registers.History.Summary() + context());
-            return (registers.History, keys);
+            _ = await Assert.That(registers.History.Check()).IsEmpty().Because(summary);
+            if (timeline != null)
+                _ = await Assert.That(FailoverFault.CoversAfter(registers.History, timeline.TimestampOf(FailoverPhase.NewLeader) ?? long.MaxValue)).IsTrue().Because(summary + Environment.NewLine + timeline.Dump());
+
+            return (registers.History, keys, step.HitsLeader);
         }
         catch
         {
@@ -166,7 +179,7 @@ public sealed class FaultScheduleTests : EndToEndTestBase
         {
             var (registers, keys) = history[i];
             await FailoverSteps.ReadFinalAsync(registers, rig.Clients.Reader, keys, cancellationToken);
-            _ = await Assert.That(registers.Check()).IsEmpty().Because($"step {i + 1}: {registers.Summary()} {context()}");
+            _ = await Assert.That(registers.Check()).IsEmpty().Because($"step {i + 1}: {registers.Summary()}{Environment.NewLine}{context()}");
         }
     }
 

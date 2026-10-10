@@ -14,6 +14,23 @@ namespace Squirix.Server.TestKit.Hosting;
 [Immutable]
 public sealed record TestElectionTiming
 {
+    /// <summary>Gets the timing a node runs without an override, copied from the product defaults.</summary>
+    /// <remarks>The jitter seed is left unset, so every node draws a random seed unless the caller sets one.</remarks>
+    public static TestElectionTiming ProductDefaults
+    {
+        get
+        {
+            var product = new ElectionTimerOptions();
+            return new TestElectionTiming
+            {
+                ElectionTimeout = product.ElectionTimeout,
+                HeartbeatInterval = product.HeartbeatInterval,
+                MaxJitter = product.MaxJitter,
+                VoteRpcTimeout = product.VoteRpcTimeout,
+            };
+        }
+    }
+
     /// <summary>Gets the time without leader contact after which a follower starts an election.</summary>
     public TimeSpan ElectionTimeout { get; init; } = TimeSpan.FromSeconds(2);
 

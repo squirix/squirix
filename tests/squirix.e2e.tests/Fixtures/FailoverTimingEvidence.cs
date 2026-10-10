@@ -10,9 +10,11 @@ namespace Squirix.E2ETests.Fixtures;
 /// <param name="ElectionTiming">The election timing of every node.</param>
 /// <param name="Gate">Whether the p95 limit was enforced on this host, and why.</param>
 /// <param name="Completed">Whether the series ran to the end.</param>
-/// <param name="LimitMs">The p95 limit that applies on the controlled machine.</param>
-/// <param name="P50Ms">The median recovery time.</param>
-/// <param name="P95Ms">The 95th percentile recovery time.</param>
+/// <param name="SinceDownP95LimitMs">The limit of <paramref name="SinceDownP95Ms" /> on the controlled machine.</param>
+/// <param name="FromStopStartP50Ms">The median of the recovery times measured from the start of the stop.</param>
+/// <param name="FromStopStartP95Ms">The 95th percentile of the recovery times measured from the start of the stop.</param>
+/// <param name="SinceDownP50Ms">The median of the recovery times measured from the moment the stopped node was down.</param>
+/// <param name="SinceDownP95Ms">The 95th percentile of the recovery times measured from the moment the stopped node was down; the value the limit applies to.</param>
 /// <param name="Samples">One entry per leader stop, in order.</param>
 internal sealed record FailoverTimingEvidence(
     string Schema,
@@ -24,7 +26,9 @@ internal sealed record FailoverTimingEvidence(
     ElectionTimingEvidence ElectionTiming,
     string Gate,
     bool Completed,
-    double LimitMs,
-    double P50Ms,
-    double P95Ms,
+    double SinceDownP95LimitMs,
+    double FromStopStartP50Ms,
+    double FromStopStartP95Ms,
+    double SinceDownP50Ms,
+    double SinceDownP95Ms,
     FailoverSample[] Samples);

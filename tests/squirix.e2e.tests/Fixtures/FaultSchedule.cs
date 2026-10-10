@@ -10,7 +10,11 @@ namespace Squirix.E2ETests.Fixtures;
 /// cut links heal. The schedule never touches the anchor node, and never keeps more than a minority of the replicas stopped or isolated at once,
 /// so a majority stays alive and connected after every step.
 /// </summary>
-/// <remarks>The same seed yields the same sequence for the same inputs; the schedule keeps its own record of which nodes are down.</remarks>
+/// <remarks>
+/// A seed fixes the kinds of the steps, and so the number of faults and recoveries. The victims also depend on which node led the group when a
+/// step was chosen, which a seed does not fix: the same seed can strike other nodes in another run. The first fault always strikes the leader
+/// when it is not the anchor, so a run always includes a fault on a leader.
+/// </remarks>
 internal sealed class FaultSchedule
 {
     /// <summary>The name of the environment variable that overrides the seed of every schedule.</summary>
@@ -21,6 +25,7 @@ internal sealed class FaultSchedule
     private readonly int _limit;
     private readonly string[] _nodes;
     private readonly List<string> _stopped = [];
+    private int _faults;
     private ulong _state;
 
     /// <summary>Initializes a new instance of the <see cref="FaultSchedule" /> class.</summary>
@@ -30,10 +35,12 @@ internal sealed class FaultSchedule
     /// <param name="seed">The seed of the sequence, which drives a SplitMix64 generator: unlike <see cref="Random" />, its sequence does not change between runtime versions.</param>
     /// <exception cref="ArgumentNullException">An argument is <see langword="null" />.</exception>
     /// <exception cref="ArgumentException"><paramref name="anchor" /> is not one of <paramref name="nodes" />.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="replicaCount" /> is below three, where no minority can fail.</exception>
     internal FaultSchedule(string[] nodes, string anchor, int replicaCount, ulong seed)
     {
         ArgumentNullException.ThrowIfNull(nodes);
         ArgumentNullException.ThrowIfNull(anchor);
+        ArgumentOutOfRangeException.ThrowIfLessThan(replicaCount, 3);
         if (Array.IndexOf(nodes, anchor) < 0)
             throw new ArgumentException($"The anchor {anchor} is not one of the nodes.", nameof(anchor));
 
@@ -50,7 +57,7 @@ internal sealed class FaultSchedule
     internal static ulong SeedFor(string name)
     {
         var text = Environment.GetEnvironmentVariable(SeedVariable);
-        return string.IsNullOrWhiteSpace(text) ? FailoverTiming.SeedOf(name) : ulong.Parse(text, NumberStyles.None, CultureInfo.InvariantCulture);
+        return string.IsNullOrWhiteSpace(text) ? FailoverTiming.SeedOf(name) : ParseSeed(text);
     }
 
     /// <summary>Gets the nodes that are running and connected.</summary>
@@ -99,6 +106,11 @@ internal sealed class FaultSchedule
         return Take(kinds[NextBelow(kinds.Count)], leader);
     }
 
+    private static ulong ParseSeed(string text) =>
+        ulong.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var seed)
+            ? seed
+            : throw new FormatException($"The environment variable {SeedVariable} must hold an unsigned integer, but holds '{text}'.");
+
     /// <summary>Applies a kind of fault to a node the schedule chooses, and records its effect.</summary>
     /// <param name="kind">The kind of fault.</param>
     /// <param name="leader">The leader of the watched group, or empty when none is known.</param>
@@ -119,14 +131,20 @@ internal sealed class FaultSchedule
             case FaultKind.AbruptStop:
                 var stopped = Victim(leader);
                 _stopped.Add(stopped);
-                return new FaultStep(kind, stopped);
+                return Fault(kind, stopped, leader);
             case FaultKind.Isolate:
                 var cut = Victim(leader);
                 _isolated.Add(cut);
-                return new FaultStep(kind, cut);
+                return Fault(kind, cut, leader);
             default:
                 throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported enum value.");
         }
+    }
+
+    private FaultStep Fault(FaultKind kind, string victim, string leader)
+    {
+        _faults++;
+        return new FaultStep(kind, victim, string.Equals(victim, leader, StringComparison.Ordinal));
     }
 
     /// <summary>Draws the next value of the SplitMix64 generator.</summary>
@@ -164,6 +182,9 @@ internal sealed class FaultSchedule
         }
 
         var leads = candidates.Contains(leader);
+        if (leads && _faults == 0)
+            return leader;
+
         var pick = NextBelow(candidates.Count + (leads ? candidates.Count : 0));
         return leads && pick >= candidates.Count ? leader : candidates[pick % candidates.Count];
     }

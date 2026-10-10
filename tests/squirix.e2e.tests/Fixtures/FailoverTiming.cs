@@ -1,4 +1,3 @@
-using System;
 using Squirix.Server.TestKit.Hosting;
 
 namespace Squirix.E2ETests.Fixtures;
@@ -11,17 +10,10 @@ internal static class FailoverTiming
     /// <returns>The election timing of every node of the test cluster.</returns>
     internal static TestElectionTiming For(string testName) => new() { JitterSeed = SeedOf(testName) };
 
-    /// <summary>Gets the timing a node runs without an override: a one-second election timeout and jitter, a 100 ms heartbeat and a 250 ms vote wait.</summary>
+    /// <summary>Gets the timing a node runs without an override, as the testkit copies it from the product, with a jitter seed fixed per test.</summary>
     /// <param name="testName">The test name, which seeds the election jitter; the testkit mixes in the node.</param>
     /// <returns>The election timing of every node of the test cluster.</returns>
-    internal static TestElectionTiming ProductDefaults(string testName) => new()
-    {
-        ElectionTimeout = TimeSpan.FromSeconds(1),
-        HeartbeatInterval = TimeSpan.FromMilliseconds(100),
-        MaxJitter = TimeSpan.FromSeconds(1),
-        VoteRpcTimeout = TimeSpan.FromMilliseconds(250),
-        JitterSeed = SeedOf(testName),
-    };
+    internal static TestElectionTiming ProductDefaults(string testName) => TestElectionTiming.ProductDefaults with { JitterSeed = SeedOf(testName) };
 
     /// <summary>Gets a stable hash of a name, so a seed repeats across runs.</summary>
     /// <param name="name">The name.</param>

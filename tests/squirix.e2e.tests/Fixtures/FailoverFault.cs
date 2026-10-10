@@ -52,11 +52,7 @@ internal static class FailoverFault
         Task? stopping = null;
         try
         {
-            await ledger.UntilValueAsync(
-                (Reader: reader, Key: keys[0]),
-                static async (s, token) => (await s.Reader.GetValueAsync(s.Key, token)).Value >= Progress,
-                "the workload makes progress",
-                cancellationToken);
+            await ledger.UntilValueAsync((Reader: reader, Key: keys[0], Value: Progress), FailoverSteps.ReachedAsync, "the workload makes progress", cancellationToken);
 
             var started = Stopwatch.GetTimestamp();
             scene.Timeline.Mark(fault.What);

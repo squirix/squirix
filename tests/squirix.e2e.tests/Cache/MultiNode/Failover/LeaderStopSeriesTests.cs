@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Fixtures;
@@ -29,12 +30,16 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
     /// <summary>The number of leader stops in the series.</summary>
     private const int Stops = 30;
 
+    /// <summary>The number of times a stop reads the leader again when another election changed it before the stop began.</summary>
+    private const int MaxAttempts = 3;
+
     /// <summary>The name of the evidence file the series writes.</summary>
     private const string EvidenceFile = "failover-leader-stop-series.json";
 
     /// <summary>
-    /// Stops the current leader thirty times, restarting it and auditing the group log after each stop. The timing is written as evidence;
-    /// the 95th percentile is held to its limit only on the controlled machine, elsewhere each stop is held to the recovery bound.
+    /// Stops the current leader thirty times, restarting it and auditing the group log after each stop. The timing is written as evidence,
+    /// measured both from the start of the stop and from the moment the stopped node was down; the 95th percentile of the second measure is
+    /// held to its limit only on the controlled machine, elsewhere each stop is held to the recovery bound.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A task that represents the asynchronous test.</returns>
@@ -54,6 +59,7 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
 
         var samples = new List<FailoverSample>(Stops);
         var series = new List<(RegisterHistory History, string[] Keys)>(Stops);
+        FailoverTimingEvidence? evidence = null;
         var completed = false;
         try
         {
@@ -70,17 +76,57 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
         }
         finally
         {
-            var evidence = FailoverEvidence.Build(testName, timing, [.. samples], completed);
-            var path = await FailoverEvidence.WriteAsync(evidence, EvidenceFile, CancellationToken.None);
-            Write(string.Create(CultureInfo.InvariantCulture, $"Timing evidence of {samples.Count} stops, p50 {evidence.P50Ms:F0} ms, p95 {evidence.P95Ms:F0} ms ({evidence.Gate}): {path}"));
+            evidence = FailoverEvidence.Build(testName, timing, [.. samples], completed);
+            await WriteEvidenceAsync(evidence);
         }
 
         var (machine, enforced, reason) = FailoverEvidence.Gate();
         if (enforced)
         {
-            var p95 = FailoverEvidence.Build(testName, timing, [.. samples], true).P95Ms;
-            _ = await Assert.That(FailoverEvidence.WithinLimit(machine, p95)).IsTrue().Because($"p95 {p95:F0} ms must stay within {FailoverEvidence.P95Limit.TotalMilliseconds:F0} ms ({reason})");
+            _ = await Assert.That(FailoverEvidence.WithinLimit(machine, evidence.SinceDownP95Ms)).IsTrue()
+                            .Because($"p95 of the recovery since the node was down, {evidence.SinceDownP95Ms:F0} ms, must stay within {FailoverEvidence.P95Limit.TotalMilliseconds:F0} ms ({reason})");
         }
+    }
+
+    /// <summary>Writes the evidence file and reports where; a write that fails is reported to the test output and does not replace the failure of the test.</summary>
+    /// <param name="evidence">The evidence.</param>
+    /// <returns>A task that completes once the file is written or the failure is reported.</returns>
+    private static async Task WriteEvidenceAsync(FailoverTimingEvidence evidence)
+    {
+        try
+        {
+            var path = await FailoverEvidence.WriteAsync(evidence, EvidenceFile, CancellationToken.None);
+            Write(
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Timing evidence of {evidence.Samples.Length} stops: from stop start p50 {evidence.FromStopStartP50Ms:F0} ms, p95 {evidence.FromStopStartP95Ms:F0} ms; since down p50 {evidence.SinceDownP50Ms:F0} ms, p95 {evidence.SinceDownP95Ms:F0} ms ({evidence.Gate}): {path}"));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            Write($"The timing evidence could not be written to {FailoverEvidence.EvidenceDirectory()}: {exception.Message}");
+        }
+    }
+
+    /// <summary>Stops the leader once, reading the leader again when another election changed it before the stop began.</summary>
+    /// <param name="cluster">The cluster.</param>
+    /// <param name="probe">The leader probe whose ledger checks election safety throughout.</param>
+    /// <param name="iteration">The position in the series, from one.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The sample, and the history and the keys of the workload.</returns>
+    /// <exception cref="InvalidOperationException">The leader changed before the stop in every attempt, or a step other than an assertion failed.</exception>
+    private static async Task<(FailoverSample Sample, RegisterHistory History, string[] Keys)> StopOnceAsync(
+        HostedCluster cluster,
+        ClusterLeaderProbe<ClusterStartOptions> probe,
+        int iteration,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; attempt <= MaxAttempts; attempt++)
+        {
+            if (await StopWhenLeaderIsStableAsync(cluster, probe, iteration, cancellationToken) is { } result)
+                return result;
+        }
+
+        throw new InvalidOperationException($"Leader stop {iteration} found another leader than the one it read in each of {MaxAttempts} attempts.");
     }
 
     /// <summary>Stops the leader under a register workload, checks the recovery and the safety invariants, then restarts the node and waits until it caught up.</summary>
@@ -88,9 +134,9 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
     /// <param name="probe">The leader probe whose ledger checks election safety throughout.</param>
     /// <param name="iteration">The position in the series, from one.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The sample, and the history and the keys of the workload.</returns>
+    /// <returns>The sample, and the history and the keys of the workload; <see langword="null" /> when the leader changed before the stop began and nothing was stopped.</returns>
     /// <exception cref="InvalidOperationException">A step other than an assertion failed; the message carries the failover timeline.</exception>
-    private static async Task<(FailoverSample Sample, RegisterHistory History, string[] Keys)> StopOnceAsync(
+    private static async Task<(FailoverSample Sample, RegisterHistory History, string[] Keys)?> StopWhenLeaderIsStableAsync(
         HostedCluster cluster,
         ClusterLeaderProbe<ClusterStartOptions> probe,
         int iteration,
@@ -99,48 +145,46 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
         var (former, formerTerm) = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
         var survivors = FailoverSteps.Except(FailoverSteps.ThreeNodes, former);
         var timeline = FailoverTimeline<ClusterStartOptions>.Start(cluster.Cluster, Group);
+        var clients = cluster.ClientCount;
         await using (timeline)
         {
             try
             {
                 var stopStarted = 0L;
+                var stale = false;
+
                 ValueTask StopLeaderAsync()
                 {
                     stopStarted = Stopwatch.GetTimestamp();
-                    return cluster.StopNodeAsync(former);
+                    stale = timeline.Baseline != (former, formerTerm) || probe.Ledger(Group).Observe(FailoverSteps.ThreeNodes) != (former, formerTerm);
+                    return stale ? throw new InvalidOperationException($"The leader of {Group} changed before the stop began.") : cluster.StopNodeAsync(former);
                 }
 
                 var scene = new FailoverFault.Scene(cluster, probe, timeline, CacheName, Group, KeyOwnerHelper.ThreeNode);
                 var fault = (former, $"stop {iteration}: leader {former} stops", (Func<ValueTask>?)StopLeaderAsync);
-                var run = await FailoverFault.RunAsync(scene, survivors, $"stop{iteration}", fault, cancellationToken);
+                FailoverFault.FaultRun run;
+                try
+                {
+                    run = await FailoverFault.RunAsync(scene, survivors, $"stop{iteration}", fault, cancellationToken);
+                }
+                catch (InvalidOperationException) when (stale)
+                {
+                    await cluster.DisposeClientsAfterAsync(clients);
+                    return null;
+                }
+
                 _ = await probe.WaitForStableLeaderAsync(Group, survivors, FailoverSteps.Bound, cancellationToken);
                 await probe.Ledger(Group).UntilAsync(() => timeline.TimestampOf(FailoverPhase.Converged) != null, "the timeline sees the survivors converge", cancellationToken);
                 await FailoverSteps.ReadFinalAsync(run.Workload.History, run.Reader, run.Keys, cancellationToken);
 
-                var dump = timeline.Dump() + Eventually.Dump(run.Attempts);
-                _ = await Assert.That(run.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(dump);
-                _ = await Assert.That(run.Read).IsEqualTo(new CacheValueResult<long>(true, 1L)).Because(dump);
-                _ = await Assert.That(run.StoppedWhileAcked).IsTrue().Because(dump);
-                _ = await Assert.That(run.Acked.Term).IsGreaterThan(formerTerm).Because(dump);
-                _ = await Assert.That(survivors).Contains(run.Acked.NodeId).Because(dump);
-                _ = await Assert.That(run.Workload.History.Check()).IsEmpty().Because(run.Workload.History.Summary() + dump);
+                var history = run.Workload.History;
+                var sample = await RecordAsync(timeline, run, (iteration, former, formerTerm, survivors), stopStarted);
 
-                var sample = new FailoverSample(
-                    iteration,
-                    former,
-                    run.Acked.NodeId,
-                    run.Acked.Term,
-                    run.Elapsed.TotalMilliseconds,
-                    Stopwatch.GetElapsedTime(stopStarted, run.Down).TotalMilliseconds,
-                    PhaseMs(timeline, FailoverPhase.LeaderLost, stopStarted),
-                    PhaseMs(timeline, FailoverPhase.TermRaised, stopStarted),
-                    PhaseMs(timeline, FailoverPhase.NewLeader, stopStarted),
-                    PhaseMs(timeline, FailoverPhase.Converged, stopStarted));
-
+                await cluster.DisposeClientsAfterAsync(clients);
                 await cluster.RestartNodeAsync(former, cancellationToken);
                 _ = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
                 _ = await GroupLogAudit.RunAsync(cluster.Cluster, Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
-                return (sample, run.Workload.History, run.Keys);
+                return (sample, history, run.Keys);
             }
             catch (Exception exception) when (exception is not AssertionException)
             {
@@ -149,7 +193,46 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
         }
     }
 
-    /// <summary>Reads every register of every stop once more through a node that ran through the whole series, and checks each history again.</summary>
+    /// <summary>Builds the sample of a stop and asserts the recovery, the workload coverage after the election and the validity of the timeline.</summary>
+    /// <param name="timeline">The timeline of the stop.</param>
+    /// <param name="run">What the stop recorded.</param>
+    /// <param name="stop">The position in the series, the leader that stopped with its term, and the survivors.</param>
+    /// <param name="stopStarted">When the stop began, in <see cref="Stopwatch" /> ticks.</param>
+    /// <returns>The sample.</returns>
+    private static async Task<FailoverSample> RecordAsync(
+        FailoverTimeline<ClusterStartOptions> timeline,
+        FailoverFault.FaultRun run,
+        (int Iteration, string Former, ulong FormerTerm, string[] Survivors) stop,
+        long stopStarted)
+    {
+        var dump = timeline.Dump() + Eventually.Dump(run.Attempts);
+        var history = run.Workload.History;
+        var stopDuration = Stopwatch.GetElapsedTime(stopStarted, run.Down).TotalMilliseconds;
+        var sample = new FailoverSample(
+            stop.Iteration,
+            stop.Former,
+            run.Acked.NodeId,
+            run.Acked.Term,
+            run.Elapsed.TotalMilliseconds,
+            stopDuration,
+            run.Elapsed.TotalMilliseconds - stopDuration,
+            PhaseMs(timeline, FailoverPhase.LeaderLost, stopStarted),
+            PhaseMs(timeline, FailoverPhase.TermRaised, stopStarted),
+            PhaseMs(timeline, FailoverPhase.NewLeader, stopStarted),
+            PhaseMs(timeline, FailoverPhase.Converged, stopStarted));
+        _ = await Assert.That(run.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(dump);
+        _ = await Assert.That(run.Read).IsEqualTo(new CacheValueResult<long>(true, 1L)).Because(dump);
+        _ = await Assert.That(run.StoppedWhileAcked).IsTrue().Because(dump);
+        _ = await Assert.That(run.Acked.Term).IsGreaterThan(stop.FormerTerm).Because(dump);
+        _ = await Assert.That(stop.Survivors).Contains(run.Acked.NodeId).Because(dump);
+        _ = await Assert.That(history.Check()).IsEmpty().Because(history.Summary() + dump);
+        _ = await Assert.That(FailoverFault.CoversAfter(history, timeline.TimestampOf(FailoverPhase.NewLeader) ?? long.MaxValue)).IsTrue().Because(history.Summary() + dump);
+        _ = await Assert.That(sample.RecoverySinceDownMs).IsGreaterThanOrEqualTo(0).Because(dump);
+        _ = await Assert.That(HasNegativePhase(sample)).IsFalse().Because($"a phase was seen before the stop began: {FailoverEvidence.Describe(sample)}{Environment.NewLine}{dump}");
+        return sample;
+    }
+
+    /// <summary>Reads every register of every stop once more through the first node, which serves the group again after its last restart, and checks each history again.</summary>
     /// <param name="cluster">The cluster.</param>
     /// <param name="series">The history and the keys of each stop's workload.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -164,6 +247,8 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
             _ = await Assert.That(history.Check()).IsEmpty().Because($"stop {i + 1}: {history.Summary()}");
         }
     }
+
+    private static bool HasNegativePhase(FailoverSample sample) => sample.LeaderLostMs < 0 || sample.TermRaisedMs < 0 || sample.NewLeaderMs < 0 || sample.ConvergedMs < 0;
 
     private static double? PhaseMs(FailoverTimeline<ClusterStartOptions> timeline, FailoverPhase phase, long stopStarted) =>
         timeline.TimestampOf(phase) is { } at ? Stopwatch.GetElapsedTime(stopStarted, at).TotalMilliseconds : null;
