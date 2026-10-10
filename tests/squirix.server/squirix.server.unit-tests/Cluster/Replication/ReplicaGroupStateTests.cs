@@ -115,6 +115,53 @@ public sealed class ReplicaGroupStateTests : ServerUnitTestBase
         _ = await Assert.That(state.HasRecentLeaderContact(Options.ElectionTimeout)).IsTrue();
     }
 
+    /// <summary>A contact that names no leader but comes in the term of a silent leader revives its route and wakes the waiters.</summary>
+    [Test]
+    public async Task UnnamedContactRevivesSilentLeader()
+    {
+        var time = new FakeTimeProvider();
+        var state = new ReplicaGroupState(3, Options, time);
+        state.ObserveLeaderContact("n2", 4UL);
+        time.Advance(Options.ElectionTimeout);
+        var before = state.RouteChanged.Version;
+
+        state.ObserveLeaderContact(null, 4UL);
+
+        _ = await Assert.That(state.RouteChanged.Version).IsGreaterThan(before);
+        _ = await Assert.That(state.ReadRoute().Known).IsEqualTo(new LeaderRoute("n2", 4UL));
+    }
+
+    /// <summary>A contact of a higher term that names no leader publishes nothing when no leader is known.</summary>
+    [Test]
+    public async Task UnnamedContactWithoutLeaderIsQuiet()
+    {
+        var state = new ReplicaGroupState(3, Options, new FakeTimeProvider());
+        var before = state.RouteChanged.Version;
+
+        state.ObserveLeaderContact(null, 5UL);
+
+        _ = await Assert.That(state.RouteChanged.Version).IsEqualTo(before);
+        _ = await Assert.That(state.ReadRoute().Known).IsEqualTo(default);
+    }
+
+    /// <summary>After a higher-term contact forgot the leader, a named contact in that term names its leader again, the same node included.</summary>
+    /// <param name="leader">The node the later contact names.</param>
+    [Test]
+    [Arguments("n2")]
+    [Arguments("n3")]
+    public async Task NamedContactAfterForgetNamesLeader(string leader)
+    {
+        var state = new ReplicaGroupState(3, Options, new FakeTimeProvider());
+        state.ObserveLeaderContact("n2", 4UL);
+        state.ObserveLeaderContact(null, 5UL);
+        var before = state.RouteChanged.Version;
+
+        state.ObserveLeaderContact(leader, 5UL);
+
+        _ = await Assert.That(state.ReadRoute().Known).IsEqualTo(new LeaderRoute(leader, 5UL));
+        _ = await Assert.That(state.RouteChanged.Version).IsGreaterThan(before);
+    }
+
     /// <summary>A granted vote postpones the own election but does not count as a leader, so pre-votes are still answered.</summary>
     [Test]
     public async Task GrantedVotePostponesElectionOnly()

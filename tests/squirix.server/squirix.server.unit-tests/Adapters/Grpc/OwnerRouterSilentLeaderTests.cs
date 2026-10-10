@@ -25,7 +25,7 @@ namespace Squirix.Server.UnitTests.Adapters.Grpc;
 public sealed class OwnerRouterSilentLeaderTests : ServerUnitTestBase
 {
     private const string First = "node-b";
-    private const string Group = "node-g";
+    private const string Group = "n2";
     private const string Other = "node-d";
     private const string Second = "node-c";
     private const string Self = "node-a";
@@ -45,9 +45,34 @@ public sealed class OwnerRouterSilentLeaderTests : ServerUnitTestBase
         time.Advance(registry.Election.ElectionTimeout);
         var targets = new List<string>();
 
-        var call = RunAsync(registry, time, targets);
+        var call = RunAsync(registry, time, targets, false);
 
-        _ = await Assert.That(call.IsCompleted).IsFalse();
+        var parked = call.IsCompleted;
+        time.Advance(LeaderWait);
+
+        _ = await Assert.That(parked).IsFalse();
+        _ = await Assert.That(targets.Count).IsEqualTo(0);
+        _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(call);
+    }
+
+    /// <summary>A trusted internal call reaching a follower whose leader went silent is refused as having no leader, not as stale-owner.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SilentLeaderRefusesInternalCall(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-router-silent-internal");
+        var time = new FakeTimeProvider();
+        await using var registry = await OpenRegistryAsync(dir, time, cancellationToken);
+        registry.StateFor(Group).ObserveLeaderContact(First, 3UL);
+        var targets = new List<string>();
+        var live = NodeExceptionAssert.For<RpcException>().Throws((registry, time, targets), static s => _ = RunAsync(s.registry, s.time, s.targets, true));
+        time.Advance(registry.Election.ElectionTimeout);
+
+        var silent = NodeExceptionAssert.For<RpcException>().Throws((registry, time, targets), static s => _ = RunAsync(s.registry, s.time, s.targets, true));
+
+        _ = await Assert.That(live.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
+        _ = await Assert.That(silent.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(silent.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         _ = await Assert.That(targets.Count).IsEqualTo(0);
     }
 
@@ -62,7 +87,7 @@ public sealed class OwnerRouterSilentLeaderTests : ServerUnitTestBase
         registry.StateFor(Group).ObserveLeaderContact(First, 3UL);
         time.Advance(registry.Election.ElectionTimeout);
         var targets = new List<string>();
-        var call = RunAsync(registry, time, targets);
+        var call = RunAsync(registry, time, targets, false);
 
         registry.StateFor(Group).ObserveLeaderContact(Second, 4UL);
 
@@ -81,7 +106,7 @@ public sealed class OwnerRouterSilentLeaderTests : ServerUnitTestBase
         registry.StateFor(Group).ObserveLeaderContact(First, 3UL);
         time.Advance(registry.Election.ElectionTimeout);
         var targets = new List<string>();
-        var call = RunAsync(registry, time, targets);
+        var call = RunAsync(registry, time, targets, false);
 
         time.Advance(LeaderWait);
 
@@ -103,20 +128,20 @@ public sealed class OwnerRouterSilentLeaderTests : ServerUnitTestBase
         time.Advance(registry.Election.ElectionTimeout - TimeSpan.FromMilliseconds(1));
         var targets = new List<string>();
 
-        var call = RunAsync(registry, time, targets);
+        var call = RunAsync(registry, time, targets, false);
 
         _ = await Assert.That(call.IsCompleted).IsTrue();
         _ = await Assert.That(await call).IsEqualTo(First);
         _ = await Assert.That(string.Join(',', targets)).IsEqualTo(First);
     }
 
-    private static Task<string> RunAsync(ReplicaGroupRegistry registry, TimeProvider time, List<string> targets)
+    private static Task<string> RunAsync(ReplicaGroupRegistry registry, TimeProvider time, List<string> targets, bool internalCall)
     {
         var ownership = new INodeOwnershipResolverCreateExpectations();
         _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
         _ = ownership.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Group);
         var invocation = new IRemoteInvocationStateCreateExpectations();
-        _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(false);
+        _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(internalCall);
         var locator = OwnerRouters.Locator(Self, First, Second, Other, Group);
         var router = new OwnerRouter(
             ownership.Instance(),
