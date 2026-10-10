@@ -141,10 +141,11 @@ void ValidateFile(string repoRoot, string path, List<string> outFailures)
         if (!string.Equals(localName, "TargetFramework", StringComparison.Ordinal) && !string.Equals(localName, "TargetFrameworks", StringComparison.Ordinal))
             continue;
 
-        foreach (var framework in element.InnerText.Split(';'))
+        var frameworks = element.InnerText.AsSpan();
+        foreach (var range in frameworks.Split(';'))
         {
-            var value = framework.Trim();
-            if (value.Length == 0 || string.Equals(value, supportedTargetFramework, StringComparison.Ordinal))
+            var value = frameworks[range].Trim();
+            if (value.IsEmpty || value.SequenceEqual(supportedTargetFramework.AsSpan()))
                 continue;
 
             outFailures.Add($"{Path.GetRelativePath(repoRoot, path)}: unsupported target framework '{value}'. squirix projects must target net10.0 only.");
