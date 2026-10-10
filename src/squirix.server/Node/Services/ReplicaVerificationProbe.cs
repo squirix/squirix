@@ -125,7 +125,7 @@ internal sealed class ReplicaVerificationProbe
             return new ReplicaVerificationSnapshot(ReplicaVerification.AllReady);
 
         var (members, header) = BuildMembership(term);
-        var probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility, LeaderReplicaIndex), members, header, status, ProbeTimeout, cancellationToken)
+        var probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility, LeaderReplicaIndex), members, header, status, new ReplicaProbeBudget(ProbeTimeout, int.MaxValue), cancellationToken)
                                                .ConfigureAwait(false);
         var answered = new bool[probed.Length];
         var anyAnswered = false;
@@ -161,7 +161,7 @@ internal sealed class ReplicaVerificationProbe
         // A commit may have moved the tail between the unguarded probe and the gate: the verdicts then describe
         // an older tail, so the slots that answered are probed again against the current one.
         if (current.LastLogIndex != status.LastLogIndex || current.LastLogTerm != status.LastLogTerm)
-            probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, snapshot.Answered, snapshot.Members, snapshot.Header, current, ProbeTimeout, cancellationToken).ConfigureAwait(false);
+            probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, snapshot.Answered, snapshot.Members, snapshot.Header, current, new ReplicaProbeBudget(ProbeTimeout, int.MaxValue), cancellationToken).ConfigureAwait(false);
 
         // StartAsync may have verified some of these slots while this call waited for the gate: an older verdict
         // must not demote them.

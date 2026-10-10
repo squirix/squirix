@@ -24,7 +24,7 @@ internal static class ReplicaReadinessProbe
     /// <param name="election">The election state of the group, or <see langword="null" /> for a group led statically.</param>
     /// <param name="results">Per-slot probe outcomes.</param>
     /// <param name="term">The led term the probes carried; a follower answers from its log only at or below it.</param>
-    /// <remarks>The contact is recorded when the probes end, at most one probe timeout after the answer.</remarks>
+    /// <remarks>The contact is recorded when the probes end; a probe given up before it answered records none.</remarks>
     internal static void RecordContacts(ReplicaGroupState? election, ReplicaProbeResult[] results, ulong term)
     {
         ArgumentNullException.ThrowIfNull(results);
@@ -146,22 +146,45 @@ internal static class ReplicaReadinessProbe
         return candidates;
     }
 
+    /// <summary>Returns how many probe answers from the log of a follower complete a write majority together with the slots that already count.</summary>
+    /// <param name="eligibility">Participation gates of the owned group.</param>
+    /// <param name="leaderReplicaIndex">Zero-based slot of the leader.</param>
+    /// <returns>
+    /// The answers still needed, or <see cref="int.MaxValue" /> when the slots that count already form a majority, so the probes of the
+    /// remaining followers are all awaited.
+    /// </returns>
+    internal static int AnswersForMajority(ReplicaEligibility eligibility, int leaderReplicaIndex)
+    {
+        ArgumentNullException.ThrowIfNull(eligibility);
+        var counting = eligibility.CanCountInWriteQuorum(leaderReplicaIndex) ? 1 : 0;
+        var slots = new ReplicaSlots(leaderReplicaIndex);
+        for (var i = 0; i < eligibility.ReplicaCount; i++)
+        {
+            if (slots.IsFollower(i) && eligibility.CanCountInWriteQuorum(i))
+                counting++;
+        }
+
+        var needed = (eligibility.ReplicaCount / 2) + 1 - counting;
+        return needed <= 0 ? int.MaxValue : needed;
+    }
+
     /// <summary>Probes the selected follower slots in parallel.</summary>
     /// <param name="gateway">Follower replication RPCs.</param>
     /// <param name="candidates">Per-slot flags selecting the slots to probe; the leader slot is never selected.</param>
     /// <param name="members">Ordered group members, in slot order.</param>
     /// <param name="header">Replication envelope identity.</param>
     /// <param name="leader">Leader log status naming the entry the followers must hold.</param>
-    /// <param name="timeout">Per-probe budget.</param>
+    /// <param name="budget">Per-probe timeout and the answers after which the probes still pending are given up.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Per-slot outcomes; unselected slots carry the default unreachable verdict.</returns>
+    /// <returns>Per-slot outcomes; unselected and given-up slots carry the default unreachable verdict.</returns>
+    /// <remarks>No probe outlives the call: the ones given up are canceled and awaited.</remarks>
     internal static async Task<ReplicaProbeResult[]> ProbeAllAsync(
         IReplicaRpcGateway gateway,
         bool[] candidates,
         string[] members,
         ReplicaRpcHeader header,
         FollowerLogStatus leader,
-        TimeSpan timeout,
+        ReplicaProbeBudget budget,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(candidates);
@@ -169,15 +192,31 @@ internal static class ReplicaReadinessProbe
         var results = new ReplicaProbeResult[candidates.Length];
         var slots = new List<int>(candidates.Length);
         var probes = new List<Task<ReplicaProbeResult>>(candidates.Length);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         for (var i = 0; i < candidates.Length; i++)
         {
             if (!candidates[i])
                 continue;
 
             slots.Add(i);
-            probes.Add(ProbeAsync(gateway, members[i], in header, in leader, timeout, cancellationToken));
+            probes.Add(ProbeAsync(gateway, members[i], in header, in leader, budget.Timeout, cancellationToken, linked.Token));
         }
 
+        var pending = new List<Task<ReplicaProbeResult>>(probes);
+        var answers = 0;
+        while (pending.Count > 0 && answers < budget.AnswersNeeded)
+        {
+            var finished = await Task.WhenAny(pending).ConfigureAwait(false);
+            _ = pending.Remove(finished);
+            if (finished.IsFaulted)
+                break;
+
+            if (finished.IsCompletedSuccessfully && await finished.ConfigureAwait(false) is { Kind: ReplicaProbeKind.Accepted or ReplicaProbeKind.LogMismatch })
+                answers++;
+        }
+
+        // Probes given up are canceled and awaited, so none outlives the call; a faulted one rethrows here.
+        await linked.CancelAsync().ConfigureAwait(false);
         var probed = await Task.WhenAll(probes).ConfigureAwait(false);
         for (var k = 0; k < slots.Count; k++)
             results[slots[k]] = probed[k];
@@ -244,18 +283,20 @@ internal static class ReplicaReadinessProbe
     /// <param name="leader">Leader log status naming the entry the follower must hold.</param>
     /// <param name="timeout">Per-probe budget.</param>
     /// <param name="cancellationToken">Cancellation token; its cancellation propagates.</param>
-    /// <returns>The probe outcome; transport failures and timeouts are reported as <see cref="ReplicaProbeKind.Unreachable" />.</returns>
+    /// <param name="giveUp">Token linked to <paramref name="cancellationToken" /> that also ends the probe when its outcome is no longer needed; the probe is then reported as unreachable.</param>
+    /// <returns>The probe outcome; transport failures, timeouts and given-up probes are reported as <see cref="ReplicaProbeKind.Unreachable" />.</returns>
     private static Task<ReplicaProbeResult> ProbeAsync(
         IReplicaRpcGateway gateway,
         string nodeId,
         in ReplicaRpcHeader header,
         in FollowerLogStatus leader,
         TimeSpan timeout,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        CancellationToken giveUp)
     {
         ArgumentNullException.ThrowIfNull(gateway);
         var batch = new FollowerBatch([], header.LeaderNodeId, header.Term, leader.LastLogIndex, leader.LastLogTerm, leader.CommitIndex);
-        return SendAsync(gateway, nodeId, header, batch, timeout, cancellationToken);
+        return SendAsync(gateway, nodeId, header, batch, timeout, cancellationToken, giveUp);
     }
 
     private static async Task<ReplicaProbeResult> SendAsync(
@@ -264,9 +305,10 @@ internal static class ReplicaReadinessProbe
         ReplicaRpcHeader header,
         FollowerBatch batch,
         TimeSpan timeout,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        CancellationToken giveUp)
     {
-        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(giveUp);
         bounded.CancelAfter(timeout);
         try
         {
