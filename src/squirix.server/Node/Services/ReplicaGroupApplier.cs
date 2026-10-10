@@ -295,9 +295,15 @@ internal sealed class ReplicaGroupApplier
     }
 
     private Task StartReapplyAsync(IFollowerLog log, ulong commitIndex, CancellationToken cancellationToken) => Task.Factory.StartNew(
-            () => ReapplyCoreAsync(log, commitIndex, cancellationToken),
+            static state => state is Reapply reapply
+                ? reapply.Applier.ReapplyCoreAsync(reapply.Log, reapply.CommitIndex, reapply.CancellationToken)
+                : throw new InvalidOperationException("The reapply was started without its state."),
+            new Reapply(this, log, commitIndex, cancellationToken),
             CancellationToken.None,
             TaskCreationOptions.DenyChildAttach,
             TaskScheduler.Default)
         .Unwrap();
+
+    [Immutable]
+    private sealed record Reapply(ReplicaGroupApplier Applier, IFollowerLog Log, ulong CommitIndex, CancellationToken CancellationToken);
 }

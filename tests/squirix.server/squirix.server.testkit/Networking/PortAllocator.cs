@@ -175,7 +175,7 @@ public sealed class PortAllocator : IDisposable
 
         _heldPorts.Clear();
 
-        foreach (var port in _allocatedPorts.Keys)
+        foreach (var (port, _) in _allocatedPorts)
             _ = Reserved.TryRemove(port, out _);
 
         _allocatedPorts.Clear();

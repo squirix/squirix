@@ -226,16 +226,16 @@ internal sealed class JournalReplayKit
         var snapshotted = await session.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(snapshotted).IsNotNull();
 
-        var cut = (session.ManifestStore, writer: StoreFactory.CreateWriter(Persistence), entry: snapshotted!, coordinator, writeStart);
+        var cut = (session.ManifestStore, Writer: StoreFactory.CreateWriter(Persistence), Entry: snapshotted!, Coordinator: coordinator, WriteStart: writeStart);
         _ = await coordinator.ExecuteSnapshotCutAsync(
             cut,
-            static (state, _, _) => new ValueTask<(int ReplayFromSegment, ulong NextSequence)>((state.coordinator.CurrentSegmentIndex, state.coordinator.NextSequence)),
+            static (state, _, _) => new ValueTask<(int ReplayFromSegment, ulong NextSequence)>((state.Coordinator.CurrentSegmentIndex, state.Coordinator.NextSequence)),
             static async (state, seqAtFlush, boundary, ct) =>
             {
                 var previous = await state.ManifestStore.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false);
                 var nextIndex = (previous.LastSnapshot?.Index ?? 0) + 1;
-                var entry = new NodeCacheEntry<object?> { Value = state.entry.Value, Version = state.entry.Version, ExpiresUtc = state.entry.ExpiresUtc };
-                var path = await state.writer.WriteSingleAsync(nextIndex, new CacheKey(CacheName, Key), entry, ct).ConfigureAwait(false);
+                var entry = new NodeCacheEntry<object?> { Value = state.Entry.Value, Version = state.Entry.Version, ExpiresUtc = state.Entry.ExpiresUtc };
+                var path = await state.Writer.WriteSingleAsync(nextIndex, new CacheKey(CacheName, Key), entry, ct).ConfigureAwait(false);
                 var updated = new State
                 {
                     Format = previous.Format,
@@ -245,7 +245,7 @@ internal sealed class JournalReplayKit
                     {
                         Index = nextIndex,
                         Path = path,
-                        CreatedUtc = state.writeStart,
+                        CreatedUtc = state.WriteStart,
                         LastAppliedSequence = seqAtFlush,
                         ReplayFromJournalSegment = boundary.ReplayFromSegment,
                     },

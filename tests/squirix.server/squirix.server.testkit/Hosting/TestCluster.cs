@@ -317,7 +317,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
         }
 
         List<Exception>? failures = null;
-        foreach (var node in _nodes.Values)
+        foreach (var (_, node) in _nodes)
         {
             try
             {
