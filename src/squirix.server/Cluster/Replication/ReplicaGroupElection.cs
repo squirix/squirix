@@ -251,8 +251,9 @@ internal sealed class ReplicaGroupElection
     /// <returns><see langword="true" /> when this node now has authority in <paramref name="term" />.</returns>
     /// <remarks>
     /// A promotion that held the driver for a heartbeat interval or more, such as a start whose probes waited for followers that gave no
-    /// answer from their logs, sent no heartbeat meanwhile: without authority, the quorum check then restarts its grace, so the leader is not deposed for followers
-    /// it could not ask. A quick promotion that stays pending restarts nothing, so a leader no majority answers still steps down.
+    /// answer from their logs, sent no heartbeat meanwhile: without authority, the quorum check then restarts its grace, so the leader is
+    /// not deposed for followers it could not ask. A quick promotion that stays pending restarts nothing, so a leader no majority answers
+    /// still steps down.
     /// </remarks>
     private async Task<bool> PromoteAsync(ulong term, CancellationToken cancellationToken)
     {

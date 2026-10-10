@@ -20,9 +20,9 @@ namespace Squirix.Server.Node.Services;
 /// and verified again at once when it was admitted. A loop keeps polling at the maximum delay once everything is ready; a follower the
 /// commit path demotes is queued in the group's <see cref="ReplicaRepairQueue" />, which wakes that loop to verify and catch it up at
 /// once. A verification pass ends once a majority of followers answered, so a dead follower does not delay a newly elected leader; a pass
-/// that admitted nobody and left the group pending is followed by a pass that awaits every follower. The groups do not wait for each other. A group the election hands this node gets its loop when its leadership starts, and the
-/// loop ends with the leadership. A loop that faults stops the others, and the service ends with its fault once they have ended. It runs on
-/// the host lifetime and stops with it.
+/// that admitted nobody and left the group pending is followed by a pass that awaits every follower. The groups do not wait for each
+/// other. A group the election hands this node gets its loop when its leadership starts, and the loop ends with the leadership. A loop
+/// that faults stops the others, and the service ends with its fault once they have ended. It runs on the host lifetime and stops with it.
 /// </remarks>
 internal sealed class ReplicaGroupReadinessService : BackgroundService
 {
