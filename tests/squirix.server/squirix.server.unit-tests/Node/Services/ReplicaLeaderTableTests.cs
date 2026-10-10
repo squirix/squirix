@@ -396,7 +396,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
         _ = await Assert.That((known.IsCompleted, await known)).IsEqualTo((true, true));
     }
 
-    private static async Task<ReplicaGroupRegistry> OpenTimedRegistryAsync(TempDirectory dir, TimeProvider time, CancellationToken cancellationToken)
+    internal static async Task<ReplicaGroupRegistry> OpenTimedRegistryAsync(TempDirectory dir, TimeProvider time, CancellationToken cancellationToken)
     {
         var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1UL, NullLoggerFactory.Instance) { ElectionClock = time };
         try

@@ -38,12 +38,14 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
 
         _ = await follower.AppendAsync(GroupId, Fingerprint, 1UL, new FollowerBatch([], "n2", 7UL, 0UL, 0UL, 0UL), cancellationToken);
         var refused = await follower.PreVoteAsync(GroupId, Fingerprint, 1UL, ballot, cancellationToken);
+        var named = registry.StateFor(GroupId).ReadRoute().Known;
         time.Advance(registry.Election.ElectionTimeout);
         var answered = await follower.PreVoteAsync(GroupId, Fingerprint, 1UL, ballot, cancellationToken);
 
         _ = await Assert.That((refused.Granted, refused.RefusalCode, refused.CurrentTerm)).IsEqualTo((false, RefusalCodes.LeaderContact, 7UL));
         _ = await Assert.That(answered.Granted).IsTrue();
-        _ = await Assert.That(registry.StateFor(GroupId).ReadRoute().Known).IsEqualTo(new LeaderRoute("n2", 7UL));
+        _ = await Assert.That(named).IsEqualTo(new LeaderRoute("n2", 7UL));
+        _ = await Assert.That(registry.StateFor(GroupId).ReadRoute().Known).IsEqualTo(default);
     }
 
     /// <summary>A group no election driver runs for answers a pre-vote from its log right after a leader contact, exactly as before.</summary>

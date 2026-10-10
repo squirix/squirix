@@ -19,7 +19,7 @@ public sealed class ReplicaGroupStateTests : ServerUnitTestBase
 {
     private static readonly ElectionTimerOptions Options = new() { ElectionTimeout = TimeSpan.FromMilliseconds(500), JitterSeed = 7UL };
 
-    /// <summary>A leader contact counts as live for one election timeout and names the leader; then it expires.</summary>
+    /// <summary>A leader contact counts as live for one election timeout and names the leader; then it expires and the leader is no longer named.</summary>
     [Test]
     public async Task LeaderContactExpiresAfterElectionTimeout()
     {
@@ -29,11 +29,90 @@ public sealed class ReplicaGroupStateTests : ServerUnitTestBase
         state.ObserveLeaderContact("n2", 4UL);
         time.Advance(TimeSpan.FromMilliseconds(499));
         var live = state.HasRecentLeaderContact(Options.ElectionTimeout);
+        var named = state.ReadRoute().Known;
         time.Advance(TimeSpan.FromMilliseconds(1));
 
         _ = await Assert.That(live).IsTrue();
+        _ = await Assert.That(named).IsEqualTo(new LeaderRoute("n2", 4UL));
         _ = await Assert.That(state.HasRecentLeaderContact(Options.ElectionTimeout)).IsFalse();
-        _ = await Assert.That((state.ReadRoute().Known, state.HighestObservedTerm)).IsEqualTo((new LeaderRoute("n2", 4UL), 4UL));
+        _ = await Assert.That((state.ReadRoute().Known, state.HighestObservedTerm)).IsEqualTo((default, 4UL));
+    }
+
+    /// <summary>A leader is named one tick before the election timeout and not at it.</summary>
+    [Test]
+    public async Task SilentLeaderIsNotNamed()
+    {
+        var time = new FakeTimeProvider();
+        var state = new ReplicaGroupState(3, Options, time);
+        state.ObserveLeaderContact("n2", 4UL);
+
+        time.Advance(Options.ElectionTimeout - TimeSpan.FromMilliseconds(1));
+        var live = state.ReadRoute().Known;
+        time.Advance(TimeSpan.FromMilliseconds(1));
+
+        _ = await Assert.That(live).IsEqualTo(new LeaderRoute("n2", 4UL));
+        _ = await Assert.That(state.ReadRoute().Known).IsEqualTo(default);
+    }
+
+    /// <summary>A contact of the same leader and term after silence names it again and wakes the route waiters.</summary>
+    [Test]
+    public async Task ContactRevivesSilentLeader()
+    {
+        var time = new FakeTimeProvider();
+        var state = new ReplicaGroupState(3, Options, time);
+        state.ObserveLeaderContact("n2", 4UL);
+        time.Advance(Options.ElectionTimeout);
+        var before = state.RouteChanged.Version;
+
+        state.ObserveLeaderContact("n2", 4UL);
+
+        _ = await Assert.That(state.RouteChanged.Version).IsGreaterThan(before);
+        _ = await Assert.That(state.ReadRoute().Known).IsEqualTo(new LeaderRoute("n2", 4UL));
+    }
+
+    /// <summary>A contact of the leader while its route is live changes nothing and publishes nothing.</summary>
+    [Test]
+    public async Task LiveContactDoesNotPublish()
+    {
+        var time = new FakeTimeProvider();
+        var state = new ReplicaGroupState(3, Options, time);
+        state.ObserveLeaderContact("n2", 4UL);
+        time.Advance(Options.ElectionTimeout - TimeSpan.FromMilliseconds(1));
+        var before = state.RouteChanged.Version;
+
+        state.ObserveLeaderContact("n2", 4UL);
+
+        _ = await Assert.That(state.RouteChanged.Version).IsEqualTo(before);
+    }
+
+    /// <summary>Granted votes postpone the own election but do not keep a silent leader named.</summary>
+    [Test]
+    public async Task GrantedVoteDoesNotKeepLeaderNamed()
+    {
+        var time = new FakeTimeProvider();
+        var state = new ReplicaGroupState(3, Options, time);
+        state.ObserveLeaderContact("n2", 4UL);
+        time.Advance(Options.ElectionTimeout - TimeSpan.FromMilliseconds(1));
+
+        state.ObserveGrantedVote();
+        time.Advance(TimeSpan.FromMilliseconds(1));
+
+        _ = await Assert.That(state.ReadRoute().Known).IsEqualTo(default);
+    }
+
+    /// <summary>A live contact of a higher term that names no leader deposes the known leader of the older term.</summary>
+    [Test]
+    public async Task HigherTermContactForgetsLeader()
+    {
+        var state = new ReplicaGroupState(3, Options, new FakeTimeProvider());
+        state.ObserveLeaderContact("n2", 4UL);
+        var before = state.RouteChanged.Version;
+
+        state.ObserveLeaderContact(null, 5UL);
+
+        _ = await Assert.That(state.ReadRoute().Known).IsEqualTo(default);
+        _ = await Assert.That(state.RouteChanged.Version).IsGreaterThan(before);
+        _ = await Assert.That(state.HasRecentLeaderContact(Options.ElectionTimeout)).IsTrue();
     }
 
     /// <summary>A granted vote postpones the own election but does not count as a leader, so pre-votes are still answered.</summary>
