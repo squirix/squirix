@@ -38,16 +38,11 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     /// <summary>Bounds every wait; the timing below elects within seconds, the rest absorbs a loaded machine.</summary>
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(90);
 
-    private static readonly ElectionTimerOptions Timing = new()
-    {
-        ElectionTimeout = TimeSpan.FromSeconds(2),
-        HeartbeatInterval = TimeSpan.FromMilliseconds(200),
-        MaxJitter = TimeSpan.FromSeconds(2),
-        VoteRpcTimeout = TimeSpan.FromSeconds(1),
-    };
+    /// <summary>The election timing of every node; each node draws its own jitter seed, so two candidates do not keep splitting the vote.</summary>
+    private static readonly TestElectionTiming Timing = new() { MaxJitter = TimeSpan.FromSeconds(2) };
 
     /// <summary>How long a negative is watched: three election rounds of the longest timeout, so any election that could run would have.</summary>
-    private static readonly TimeSpan Watch = (Timing.ElectionTimeout + Timing.MaxJitter) * 3;
+    private static readonly TimeSpan Watch = Timing.Round * 3;
 
     private static readonly string[] Three = ["node-a", "node-b", "node-c"];
 
@@ -345,11 +340,8 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         AutomaticFailoverEnabled = true,
         QuorumReadsEnabled = true,
         PartitionFabric = fabric,
-        ServicesConfigure = services =>
-        {
-            _ = services.AddSingleton(Timing);
-            configure?.Invoke(services);
-        },
+        ElectionTiming = Timing,
+        ServicesConfigure = configure,
     };
 
     private static int SlotOf(ITestNodeHost host, string nodeId)
