@@ -38,6 +38,9 @@ internal sealed class HostedCluster : IAsyncDisposable
     /// <summary>Gets the underlying test cluster, for the testkit probes that read node state.</summary>
     internal TestCluster<ClusterStartOptions> Cluster { get; }
 
+    /// <summary>Gets the number of clients <see cref="ConnectClientAsync" /> opened and the cluster still holds.</summary>
+    internal int ClientCount => _clients.Count;
+
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
@@ -132,6 +135,19 @@ internal sealed class HostedCluster : IAsyncDisposable
         client = await LoopbackConnect.ConnectAsync(Cluster[nodeId].Uri, cancellationToken);
         _nodeClients[nodeId] = client;
         return await client.GetCacheAsync<T>(cacheName, cancellationToken);
+    }
+
+    /// <summary>Disposes the clients <see cref="ConnectClientAsync" /> opened after the first given number of them, so a long test does not hold one pair per step.</summary>
+    /// <param name="keep">The number of the oldest clients to keep, as <see cref="ClientCount" /> reported it earlier.</param>
+    /// <returns>A task that completes once the newer clients are disposed.</returns>
+    internal async ValueTask DisposeClientsAfterAsync(int keep)
+    {
+        for (var i = _clients.Count - 1; i >= keep; i--)
+        {
+            var client = _clients[i];
+            _clients.RemoveAt(i);
+            await client.DisposeAsync();
+        }
     }
 
     internal Uri GetUri(string nodeId) => Cluster[nodeId].Uri;

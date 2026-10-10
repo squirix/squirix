@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
@@ -12,6 +13,19 @@ namespace Squirix.Server.UnitTests.Hosting;
 /// <summary>The test election timing refuses settings the elections cannot run with.</summary>
 public sealed class TestElectionTimingTests
 {
+    /// <summary>The product defaults of the testkit equal the defaults of the election timer options.</summary>
+    [Test]
+    public async Task ProductDefaultsMatchElectionOptions()
+    {
+        var product = new ElectionTimerOptions();
+        var options = TestElectionTiming.ProductDefaults.ToOptions("node-a");
+
+        _ = await Assert.That(options.ElectionTimeout).IsEqualTo(product.ElectionTimeout);
+        _ = await Assert.That(options.HeartbeatInterval).IsEqualTo(product.HeartbeatInterval);
+        _ = await Assert.That(options.MaxJitter).IsEqualTo(product.MaxJitter);
+        _ = await Assert.That(options.VoteRpcTimeout).IsEqualTo(product.VoteRpcTimeout);
+    }
+
     /// <summary>A heartbeat that is not below the election timeout is refused.</summary>
     [Test]
     public async Task SlowHeartbeatIsRefused()

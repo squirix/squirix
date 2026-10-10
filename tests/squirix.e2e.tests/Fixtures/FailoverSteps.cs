@@ -112,6 +112,22 @@ internal static class FailoverSteps
         }
     }
 
+    /// <summary>Tells whether a register reached a value; a call the cluster cannot serve yet counts as not reached, so a wait for progress does not fail on a transient refusal.</summary>
+    /// <param name="state">The cache to read through, the register key and the value to reach.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns><see langword="true" /> when the register holds at least the value.</returns>
+    internal static async ValueTask<bool> ReachedAsync((ICache<long> Reader, string Key, long Value) state, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await state.Reader.GetValueAsync(state.Key, cancellationToken)).Value >= state.Value;
+        }
+        catch (RpcException exception) when (exception.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Writes a value and reads it back through a surviving member until both succeed, and measures the time from the start of the fault;
     /// an unknown commit outcome is retried, since writing the same value again is idempotent.

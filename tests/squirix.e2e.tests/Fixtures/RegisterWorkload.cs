@@ -44,6 +44,10 @@ internal sealed class RegisterWorkload
     /// <summary>Gets the history the workload records into.</summary>
     internal RegisterHistory History { get; } = new();
 
+    /// <summary>Gets the time between two operations of one writer or reader; <see langword="null" /> runs them back to back.</summary>
+    /// <remarks>A paced workload bounds the number of operations a long fault schedule records.</remarks>
+    internal TimeSpan? Pace { get; init; }
+
     /// <summary>Runs the writers and readers of every key at once and completes when all of them have run their operations.</summary>
     /// <param name="writesPerKey">The number of writes of each key.</param>
     /// <param name="readsPerKey">The number of reads of each key.</param>
@@ -96,6 +100,8 @@ internal sealed class RegisterWorkload
         return true;
     }
 
+    private PeriodicTimer? CreatePacer() => Pace is { } pace ? new PeriodicTimer(pace, TimeProvider.System) : null;
+
     private Task RunCoreAsync((int Writes, int Reads, Task? Until, int After) limit, CancellationToken cancellationToken)
     {
         var calls = new Task[_keys.Length * 2];
@@ -111,9 +117,13 @@ internal sealed class RegisterWorkload
     private async Task ReadAsync(string key, (int Count, Task? Until, int After) limit, CancellationToken cancellationToken)
     {
         await Task.Yield();
+        using var pacer = CreatePacer();
         var tail = 0;
         for (var i = 0; Continues(limit, i, ref tail); i++)
         {
+            if (pacer != null)
+                _ = await pacer.WaitForNextTickAsync(cancellationToken);
+
             var start = Stopwatch.GetTimestamp();
             try
             {
@@ -130,10 +140,14 @@ internal sealed class RegisterWorkload
     private async Task WriteAsync(string key, (int Count, Task? Until, int After) limit, CancellationToken cancellationToken)
     {
         await Task.Yield();
+        using var pacer = CreatePacer();
         var tail = 0;
         var done = 0;
         for (var value = 1L; Continues(limit, done, ref tail); value++, done++)
         {
+            if (pacer != null)
+                _ = await pacer.WaitForNextTickAsync(cancellationToken);
+
             var start = Stopwatch.GetTimestamp();
             var acked = false;
             try
