@@ -189,8 +189,8 @@ public sealed class ReplicaFollowerOrderingTests : IsolatedStorageTestBase
 
         public async ValueTask DisposeAsync()
         {
-            foreach (var log in Logs)
-                await log.Value.DisposeAsync();
+            foreach (var (_, log) in Logs)
+                await log.DisposeAsync();
         }
     }
 }

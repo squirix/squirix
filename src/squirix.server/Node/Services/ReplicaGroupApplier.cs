@@ -304,5 +304,6 @@ internal sealed class ReplicaGroupApplier
             TaskScheduler.Default)
         .Unwrap();
 
+    [Immutable]
     private sealed record Reapply(ReplicaGroupApplier Applier, IFollowerLog Log, ulong CommitIndex, CancellationToken CancellationToken);
 }

@@ -159,5 +159,6 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
         }
     }
 
+    [Immutable]
     private sealed record PoolRun(ReplicaExpirationCoordinator<TEntry> Coordinator, string CacheName, string Key);
 }

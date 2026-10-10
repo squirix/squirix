@@ -841,6 +841,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             }
         }
 
+        [Immutable]
         private sealed record ForeignApply(IReplicaCommitPipeline Pipeline, PreparedReplicaMutation Entry);
     }
 }

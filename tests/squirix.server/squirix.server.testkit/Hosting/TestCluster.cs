@@ -317,11 +317,11 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
         }
 
         List<Exception>? failures = null;
-        foreach (var node in _nodes)
+        foreach (var (_, node) in _nodes)
         {
             try
             {
-                await node.Value.ShutdownAsync().ConfigureAwait(false);
+                await node.ShutdownAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
