@@ -204,6 +204,7 @@ internal sealed class HostedCluster : IAsyncDisposable
         AutomaticFailoverEnabled = startOptions.Failover,
         QuorumReadsEnabled = startOptions.Failover,
         ElectionTiming = startOptions.ElectionTiming,
+        TrackRequests = startOptions.TrackRequests,
         PartitionFabric = startOptions.PartitionFabric,
         ServicesConfigure = startOptions.ServicesConfigure == null ? null : services => startOptions.ServicesConfigure(nodeId, services),
     };

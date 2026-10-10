@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit.Benchmarks;
@@ -75,5 +76,24 @@ public sealed class TimingEvidenceTests : EndToEndTestBase
         _ = await Assert.That(read!.Samples[0]).IsEqualTo(withPhases);
         _ = await Assert.That(read.Samples[1]).IsEqualTo(without);
         _ = await Assert.That(read.Samples[1].StopTotalMs).IsNull();
+    }
+
+    /// <summary>An evidence file written before the stop breakdown existed still reads, with the breakdown empty.</summary>
+    /// <returns>A task that represents the asynchronous test.</returns>
+    [Test]
+    public async Task EvidenceWithoutStopPhasesStillReads()
+    {
+        string[] added = ["stopHostMs", "stopDisposeMs", "stopPersistenceReleaseMs", "stopTotalMs", "stopInFlightRequests", "stopLastRequestFinishedMs"];
+        var sample = new FailoverSample(1, "nodeA", "nodeB", 2UL, 1000.0, 100.0, 900.0, null, null, null, null, 90.0, 4.0, 2.5, 97.0, 3, 88.0);
+        var evidence = FailoverEvidence.Build("test", new TestElectionTiming(), [sample], true);
+        var old = JsonNode.Parse(JsonSerializer.Serialize(evidence, FailoverEvidenceJsonContext.Default.FailoverTimingEvidence))!;
+        var oldSample = old["samples"]![0]!.AsObject();
+        for (var i = 0; i < added.Length; i++)
+            _ = oldSample.Remove(added[i]);
+
+        var read = JsonSerializer.Deserialize(old.ToJsonString(), FailoverEvidenceJsonContext.Default.FailoverTimingEvidence);
+
+        _ = await Assert.That(oldSample.ContainsKey("stopHostMs")).IsFalse();
+        _ = await Assert.That(read!.Samples[0]).IsEqualTo(sample with { StopHostMs = null, StopDisposeMs = null, StopPersistenceReleaseMs = null, StopTotalMs = null, StopInFlightRequests = null, StopLastRequestFinishedMs = null });
     }
 }

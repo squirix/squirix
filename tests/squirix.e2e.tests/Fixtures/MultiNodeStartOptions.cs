@@ -56,6 +56,9 @@ internal sealed class MultiNodeStartOptions
     /// <summary>Gets the shared node time source applied to every node; null keeps the real system clock.</summary>
     internal TimeProvider? TimeProvider { get; init; }
 
+    /// <summary>Gets a value indicating whether every node counts the requests it serves, so a stop reports the requests in flight.</summary>
+    internal bool TrackRequests { get; init; }
+
     /// <summary>Gets the clock of one node: its own clock when <see cref="NodeClock" /> gives one, otherwise the shared clock.</summary>
     /// <param name="nodeId">Node identifier.</param>
     /// <returns>The node clock; null keeps the real system clock.</returns>

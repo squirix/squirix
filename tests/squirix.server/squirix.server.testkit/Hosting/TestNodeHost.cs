@@ -50,11 +50,11 @@ internal sealed class TestNodeHost : ITestNodeHost
         _tracker = app.Services.GetService<InFlightRequestTracker>();
     }
 
-    NodeStopPhases? ITestNodeHost.LastStop => Volatile.Read(ref _lastStop);
-
     string ITestNodeHost.DataDir => _dataDir;
 
     bool ITestNodeHost.HasInterNodeMtlsListener => _app.Services.GetService<MtlsCertificate>() is { Enabled: true };
+
+    NodeStopPhases? ITestNodeHost.LastStop => Volatile.Read(ref _lastStop);
 
     bool ITestNodeHost.PersistenceEnabled => _persistenceEnabled;
 
@@ -70,21 +70,37 @@ internal sealed class TestNodeHost : ITestNodeHost
 
         var started = Stopwatch.GetTimestamp();
         _tracker?.BeginStop(started);
+        var hostStopMs = 0.0;
+        var disposeMs = 0.0;
+        var releaseMs = 0.0;
+        try
+        {
+            // A killed process answers nothing: drop the listeners and open connections first, so no call reaches a disposed service and
+            // returns its failure.
+            try
+            {
+                await SuppressObjectDisposedAsync(AbortServerAsync()).ConfigureAwait(false);
+            }
+            finally
+            {
+                hostStopMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            }
 
-        // A killed process answers nothing: drop the listeners and open connections first, so no call reaches a disposed service and
-        // returns its failure.
-        await SuppressObjectDisposedAsync(AbortServerAsync()).ConfigureAwait(false);
-        var hostStopMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-        var disposeStarted = Stopwatch.GetTimestamp();
-        await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
-        var disposeMs = Stopwatch.GetElapsedTime(disposeStarted).TotalMilliseconds;
-        DisposeScope();
+            var disposeStarted = Stopwatch.GetTimestamp();
+            await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
+            disposeMs = Stopwatch.GetElapsedTime(disposeStarted).TotalMilliseconds;
+            DisposeScope();
 
-        // Abrupt dispose can leave Windows handles on man-current / journal segments draining briefly.
-        // Offline compact and restart paths open those files immediately; wait until they are shareable.
-        var releaseStarted = Stopwatch.GetTimestamp();
-        await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
-        Publish(started, hostStopMs, disposeMs, Stopwatch.GetElapsedTime(releaseStarted).TotalMilliseconds);
+            // Abrupt dispose can leave Windows handles on man-current / journal segments draining briefly.
+            // Offline compact and restart paths open those files immediately; wait until they are shareable.
+            var releaseStarted = Stopwatch.GetTimestamp();
+            await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
+            releaseMs = Stopwatch.GetElapsedTime(releaseStarted).TotalMilliseconds;
+        }
+        finally
+        {
+            Publish(started, hostStopMs, disposeMs, releaseMs);
+        }
     }
 
     /// <summary>Asynchronously disposes the underlying <see cref="WebApplication" /> and releases resources.</summary>
@@ -139,7 +155,11 @@ internal sealed class TestNodeHost : ITestNodeHost
 
     private void Publish(long started, double hostStopMs, double disposeMs, double releaseMs)
     {
-        var (inFlight, lastFinishedMs) = _tracker?.Snapshot() ?? (0, null);
+        int? inFlight = null;
+        double? lastFinishedMs = null;
+        if (_tracker != null)
+            (inFlight, lastFinishedMs) = _tracker.Snapshot();
+
         Volatile.Write(ref _lastStop, new NodeStopPhases(hostStopMs, disposeMs, releaseMs, Stopwatch.GetElapsedTime(started).TotalMilliseconds, inFlight, lastFinishedMs));
     }
 

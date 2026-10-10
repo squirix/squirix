@@ -223,7 +223,12 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             throw new InvalidOperationException($"Cluster node '{node.NodeId}' is already running; stop it before starting it again.");
 
         var host = await _startNode(node, topology, options, cancellationToken).ConfigureAwait(false);
-        if (!_nodes.TryAdd(node.NodeId, host))
+        if (_nodes.TryAdd(node.NodeId, host))
+        {
+            // A started node has not stopped yet: never report the stop of its previous incarnation.
+            _ = _lastStops.TryRemove(node.NodeId, out _);
+        }
+        else
         {
             // Another start for the same identifier won the race while this one was in flight; the
             // host was never handed to a caller, so this call is responsible for shutting it down.
@@ -282,6 +287,8 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             {
                 if (stopping?.LastStop is { } phases)
                     _lastStops[nodeId] = phases;
+                else
+                    _ = _lastStops.TryRemove(nodeId, out _);
 
                 lock (_stopLock)
                     _ = _stoppingNodes.Remove(nodeId);
@@ -452,6 +459,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             TimeProvider = startOptions?.TimeProvider,
             ElectionTiming = startOptions?.ElectionTiming,
             ServicesConfigure = startOptions?.ServicesConfigure,
+            TrackRequests = startOptions?.TrackRequests ?? false,
         };
     }
 

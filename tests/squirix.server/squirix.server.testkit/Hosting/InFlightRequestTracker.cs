@@ -11,13 +11,14 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 namespace Squirix.Server.TestKit.Hosting;
 
 /// <summary>Counts the requests a node serves, so a stop can report how many were in flight when it began and when the last one finished.</summary>
+/// <remarks>A request costs two interlocked operations and one volatile read while the node runs; the lock is taken only after the stop began.</remarks>
 internal sealed class InFlightRequestTracker
 {
     private readonly Lock _gate = new();
     private int _active;
     private int _activeAtStop;
     private long _lastFinished;
-    private bool _stopping;
+    private int _stopping;
     private long _stopStarted;
 
     /// <summary>Registers the tracker and the middleware that feeds it.</summary>
@@ -35,14 +36,16 @@ internal sealed class InFlightRequestTracker
         lock (_gate)
         {
             _stopStarted = timestamp;
-            _activeAtStop = _active;
-            _stopping = true;
+
+            // The flag goes up before the count is read: a request that finishes in between is either not counted or sees the flag.
+            Volatile.Write(ref _stopping, 1);
+            _activeAtStop = Volatile.Read(ref _active);
         }
     }
 
     /// <summary>Reads what the tracker saw since the stop began.</summary>
     /// <returns>The requests in flight when the stop began, and the time until the last request finished.</returns>
-    internal (int InFlightAtStop, double? LastFinishedMs) Snapshot()
+    internal (int? InFlightAtStop, double? LastFinishedMs) Snapshot()
     {
         lock (_gate)
         {
@@ -51,20 +54,16 @@ internal sealed class InFlightRequestTracker
         }
     }
 
-    private void Enter()
-    {
-        lock (_gate)
-            _active++;
-    }
+    private void Enter() => _ = Interlocked.Increment(ref _active);
 
     private void Exit()
     {
+        _ = Interlocked.Decrement(ref _active);
+        if (Volatile.Read(ref _stopping) == 0)
+            return;
+
         lock (_gate)
-        {
-            _active--;
-            if (_stopping)
-                _lastFinished = Stopwatch.GetTimestamp();
-        }
+            _lastFinished = Stopwatch.GetTimestamp();
     }
 
     private sealed class TrackingStartupFilter : IStartupFilter

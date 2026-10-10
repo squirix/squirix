@@ -16,8 +16,11 @@ namespace Squirix.E2ETests.Fixtures;
 /// <param name="StopDisposeMs">The part of the stop spent disposing the application, or <see langword="null" /> when the host did not report it.</param>
 /// <param name="StopPersistenceReleaseMs">The part of the stop spent waiting until the journal files were released, or <see langword="null" /> when the host did not report it.</param>
 /// <param name="StopTotalMs">The time the host measured for the whole stop, or <see langword="null" /> when the host did not report it.</param>
-/// <param name="StopInFlightRequests">The number of requests the stopping node was serving when the stop began, or <see langword="null" /> when the host did not report it.</param>
-/// <param name="StopLastRequestFinishedMs">The time from the start of the stop until the last request on the stopping node finished, or <see langword="null" /> when none finished afterwards.</param>
+/// <param name="StopInFlightRequests">The number of requests the stopping node was serving when the stop began, or <see langword="null" /> when the host did not report it or did not track requests.</param>
+/// <param name="StopLastRequestFinishedMs">
+/// The time from the start of the stop until the last request on the stopping node finished, counting every request that finished after the stop
+/// began, including those that arrived while the web server was draining; <see langword="null" /> when requests were not tracked or none finished afterwards.
+/// </param>
 internal sealed record FailoverSample(
     int Iteration,
     string StoppedLeader,

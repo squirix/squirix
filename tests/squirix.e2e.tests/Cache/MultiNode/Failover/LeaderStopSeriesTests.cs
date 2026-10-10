@@ -52,7 +52,7 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
 
         // The product default timing, not the pull request tier, with a jitter seed fixed per test; the testkit mixes in each node.
         var timing = FailoverTiming.ProductDefaults(testName);
-        var options = new MultiNodeStartOptions { ReplicaCount = 3, Failover = true, ElectionTiming = timing };
+        var options = new MultiNodeStartOptions { ReplicaCount = 3, Failover = true, ElectionTiming = timing, TrackRequests = true };
         await using var cluster = await HostedCluster.StartThreeNodeAsync(testName, options, true, cancellationToken);
         var probe = new ClusterLeaderProbe<ClusterStartOptions>(cluster.Cluster);
         _ = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
