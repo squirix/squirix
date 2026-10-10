@@ -67,4 +67,10 @@ public class ClusterStartOptions
     /// advance time deterministically; when null, the real system clock is used.
     /// </summary>
     public TimeProvider? TimeProvider { get; init; }
+
+    /// <summary>
+    /// Gets a value indicating whether the node counts the requests it serves, so a stop can report them in <see cref="NodeStopPhases" />.
+    /// Adds a middleware to the request pipeline, so it stays off unless the evidence needs it. Defaults to <see langword="false" />.
+    /// </summary>
+    public bool TrackRequests { get; init; }
 }

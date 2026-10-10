@@ -52,7 +52,7 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
 
         // The product default timing, not the pull request tier, with a jitter seed fixed per test; the testkit mixes in each node.
         var timing = FailoverTiming.ProductDefaults(testName);
-        var options = new MultiNodeStartOptions { ReplicaCount = 3, Failover = true, ElectionTiming = timing };
+        var options = new MultiNodeStartOptions { ReplicaCount = 3, Failover = true, ElectionTiming = timing, TrackRequests = true };
         await using var cluster = await HostedCluster.StartThreeNodeAsync(testName, options, true, cancellationToken);
         var probe = new ClusterLeaderProbe<ClusterStartOptions>(cluster.Cluster);
         _ = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
@@ -178,7 +178,7 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
                 await FailoverSteps.ReadFinalAsync(run.Workload.History, run.Reader, run.Keys, cancellationToken);
 
                 var history = run.Workload.History;
-                var sample = await RecordAsync(timeline, run, (iteration, former, formerTerm, survivors), stopStarted);
+                var sample = await RecordAsync(timeline, run, (iteration, former, formerTerm, survivors), stopStarted, cluster.Cluster.LastStopOf(former));
 
                 await cluster.DisposeClientsAfterAsync(clients);
                 await cluster.RestartNodeAsync(former, cancellationToken);
@@ -198,12 +198,14 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
     /// <param name="run">What the stop recorded.</param>
     /// <param name="stop">The position in the series, the leader that stopped with its term, and the survivors.</param>
     /// <param name="stopStarted">When the stop began, in <see cref="Stopwatch" /> ticks.</param>
+    /// <param name="phases">Where the time of the stop went, as the host measured it; <see langword="null" /> when it did not report it.</param>
     /// <returns>The sample.</returns>
     private static async Task<FailoverSample> RecordAsync(
         FailoverTimeline<ClusterStartOptions> timeline,
         FailoverFault.FaultRun run,
         (int Iteration, string Former, ulong FormerTerm, string[] Survivors) stop,
-        long stopStarted)
+        long stopStarted,
+        NodeStopPhases? phases)
     {
         var dump = timeline.Dump() + Eventually.Dump(run.Attempts);
         var history = run.Workload.History;
@@ -219,7 +221,13 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
             PhaseMs(timeline, FailoverPhase.LeaderLost, stopStarted),
             PhaseMs(timeline, FailoverPhase.TermRaised, stopStarted),
             PhaseMs(timeline, FailoverPhase.NewLeader, stopStarted),
-            PhaseMs(timeline, FailoverPhase.Converged, stopStarted));
+            PhaseMs(timeline, FailoverPhase.Converged, stopStarted),
+            phases?.HostStopMs,
+            phases?.DisposeMs,
+            phases?.PersistenceReleaseMs,
+            phases?.TotalMs,
+            phases?.InFlightAtStop,
+            phases?.LastRequestFinishedMs);
         _ = await Assert.That(run.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(dump);
         _ = await Assert.That(run.Read).IsEqualTo(new CacheValueResult<long>(true, 1L)).Because(dump);
         _ = await Assert.That(run.StoppedWhileAcked).IsTrue().Because(dump);

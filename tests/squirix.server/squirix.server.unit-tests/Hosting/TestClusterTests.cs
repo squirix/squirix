@@ -180,6 +180,33 @@ public sealed class TestClusterTests
         _ = await Assert.That(hosts["n1"].ShutdownCallCount).IsEqualTo(1);
     }
 
+    /// <summary>The phases of a stop are recorded by the cluster, and a restart never returns the stop of the previous incarnation.</summary>
+    [Test]
+    public async Task LastStopOfFollowsTheNodeIncarnation()
+    {
+        await using var cluster = CreateCluster(out var hosts, "n1");
+        var first = new NodeStopPhases(10.0, 2.0, 1.0, 14.0, 3, 9.0);
+        var second = new NodeStopPhases(20.0, 3.0, 2.0, 26.0, null, null);
+        _ = await cluster.StartNodeAsync("n1", cancellationToken: CancellationToken.None);
+        _ = await Assert.That(cluster.LastStopOf("n1")).IsNull();
+
+        hosts["n1"].PhasesOnShutdown = first;
+        await cluster.StopNodeAsync("n1");
+        _ = await Assert.That(cluster.LastStopOf("n1")).IsEqualTo(first);
+
+        _ = await cluster.StartNodeAsync("n1", cancellationToken: CancellationToken.None);
+        _ = await Assert.That(cluster.LastStopOf("n1")).IsNull().Because("The restarted node has not stopped yet.");
+
+        hosts["n1"].PhasesOnShutdown = second;
+        await cluster.StopNodeAsync("n1");
+        _ = await Assert.That(cluster.LastStopOf("n1")).IsEqualTo(second);
+
+        _ = await cluster.StartNodeAsync("n1", cancellationToken: CancellationToken.None);
+        hosts["n1"].PhasesOnShutdown = null;
+        await cluster.StopNodeAsync("n1");
+        _ = await Assert.That(cluster.LastStopOf("n1")).IsNull().Because("A stop that reported nothing must not leave an earlier value.");
+    }
+
     /// <summary>Disposal releases the held listen port of a topology entry that never started.</summary>
     [Test]
     public async Task DisposeReleasesUnstartedHeldPort()
@@ -247,6 +274,8 @@ public sealed class TestClusterTests
 
         public bool HasInterNodeMtlsListener => false;
 
+        public NodeStopPhases? LastStop { get; private set; }
+
         public bool PersistenceEnabled => false;
 
         public IServiceProvider Services { get; } = new EmptyServiceProvider();
@@ -259,6 +288,8 @@ public sealed class TestClusterTests
 
         internal ClusterStartOptions? LastOptions { get; set; }
 
+        internal NodeStopPhases? PhasesOnShutdown { get; set; }
+
         internal Task ShutdownGate { get; set; } = Task.CompletedTask;
 
         internal int ShutdownCallCount => _shutdownCallCount;
@@ -268,6 +299,7 @@ public sealed class TestClusterTests
         public ValueTask ShutdownAsync()
         {
             _ = Interlocked.Increment(ref _shutdownCallCount);
+            LastStop = PhasesOnShutdown;
             return FailShutdown ? ValueTask.FromException(new InvalidOperationException("Simulated shutdown failure.")) : new ValueTask(ShutdownGate);
         }
 

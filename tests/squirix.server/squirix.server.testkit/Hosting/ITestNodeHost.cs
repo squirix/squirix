@@ -17,6 +17,9 @@ public interface ITestNodeHost : IAsyncDisposable
     /// <summary>Gets a value indicating whether the internode mTLS listener is enabled for this host.</summary>
     bool HasInterNodeMtlsListener { get; }
 
+    /// <summary>Gets the phases of the last stop of this host, or <see langword="null" /> while it has not been stopped.</summary>
+    NodeStopPhases? LastStop { get; }
+
     /// <summary>Gets a value indicating whether persistence is enabled for the hosted node.</summary>
     bool PersistenceEnabled { get; }
 

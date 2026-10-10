@@ -129,7 +129,7 @@ internal static class FailoverEvidence
         ArgumentNullException.ThrowIfNull(sample);
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"#{sample.Iteration,2} {sample.StoppedLeader} -> {sample.NewLeader} term {sample.NewTerm}: recovery from stop start {sample.RecoveryFromStopStartMs:F0} ms, stop took {sample.StopDurationMs:F0} ms, recovery since down {sample.RecoverySinceDownMs:F0} ms, leader lost {Format(sample.LeaderLostMs)}, term raised {Format(sample.TermRaisedMs)}, new leader {Format(sample.NewLeaderMs)}, converged {Format(sample.ConvergedMs)}");
+            $"#{sample.Iteration,2} {sample.StoppedLeader} -> {sample.NewLeader} term {sample.NewTerm}: recovery from stop start {sample.RecoveryFromStopStartMs:F0} ms, stop took {sample.StopDurationMs:F0} ms, recovery since down {sample.RecoverySinceDownMs:F0} ms, leader lost {Format(sample.LeaderLostMs)}, term raised {Format(sample.TermRaisedMs)}, new leader {Format(sample.NewLeaderMs)}, converged {Format(sample.ConvergedMs)}, stop phases: host {Format(sample.StopHostMs)}, dispose {Format(sample.StopDisposeMs)}, persistence release {Format(sample.StopPersistenceReleaseMs)}, total {Format(sample.StopTotalMs)}, in flight {sample.StopInFlightRequests?.ToString(CultureInfo.InvariantCulture) ?? "not seen"}, last request finished {Format(sample.StopLastRequestFinishedMs)}");
     }
 
     private static double PercentileOrZero(double[] sorted, double percentile) => sorted.Length == 0 ? 0.0 : Percentile(sorted, percentile);

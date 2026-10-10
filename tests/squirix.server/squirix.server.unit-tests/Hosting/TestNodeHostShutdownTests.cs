@@ -134,6 +134,131 @@ public sealed class TestNodeHostShutdownTests
 
         _ = await Assert.That(appProbe.IsDisposed).IsTrue().Because("The app must be disposed even when its stop step throws.");
         _ = await Assert.That(scope.IsDisposed).IsTrue().Because("The owned scope must be disposed even when the app stop step throws.");
+        _ = await Assert.That(host.LastStop).IsNotNull().Because("The phases must be published even when the app stop step throws.");
+    }
+
+    /// <summary>A node tracks requests only when the start option asks for it, so the benchmark nodes keep the product pipeline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RequestTrackingFollowsStartOption(CancellationToken cancellationToken)
+    {
+        using var trackedPort = ListenPortPool.ServerUnitTests.HoldPort();
+        using var plainPort = ListenPortPool.ServerUnitTests.HoldPort();
+        await using var tracked = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", trackedPort.HttpUri));
+        await using var plain = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeB", plainPort.HttpUri));
+        var trackedHost = await tracked.StartNodeAsync("nodeA", new ClusterStartOptions { TrackRequests = true }, cancellationToken);
+        var plainHost = await plain.StartNodeAsync("nodeB", cancellationToken: cancellationToken);
+
+        await trackedHost.ShutdownAsync();
+        await plainHost.ShutdownAsync();
+
+        _ = await Assert.That(trackedHost.LastStop!.InFlightAtStop).IsNotNull();
+        _ = await Assert.That(plainHost.LastStop!.InFlightAtStop).IsNull();
+        _ = await Assert.That(plainHost.LastStop.LastRequestFinishedMs).IsNull();
+        _ = await Assert.That(plainHost.LastStop.TotalMs).IsGreaterThanOrEqualTo(0.0);
+    }
+
+    /// <summary>An abrupt stop publishes its phases.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AbruptShutdownReportsStopPhases(CancellationToken cancellationToken)
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        InFlightRequestTracker.AddTo(builder.Services);
+        var app = builder.Build();
+        await app.StartAsync(cancellationToken);
+
+        await using ITestNodeHost host = new TestNodeHost(app, new Uri("http://127.0.0.1"), string.Empty);
+        await host.AbruptShutdownAsync();
+
+        var phases = host.LastStop;
+        _ = await Assert.That(phases).IsNotNull();
+        _ = await Assert.That(phases!.InFlightAtStop).IsEqualTo(0);
+        _ = await Assert.That(phases.HostStopMs).IsGreaterThanOrEqualTo(0.0);
+        _ = await Assert.That(phases.DisposeMs).IsGreaterThanOrEqualTo(0.0);
+        _ = await Assert.That(phases.TotalMs).IsGreaterThanOrEqualTo(phases.HostStopMs + phases.DisposeMs + phases.PersistenceReleaseMs - 0.5);
+    }
+
+    /// <summary>A node without a tracker reports no in-flight count, not an idle one.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UntrackedNodeReportsNoInFlightCount(CancellationToken cancellationToken)
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        var app = builder.Build();
+        await app.StartAsync(cancellationToken);
+
+        await using ITestNodeHost host = new TestNodeHost(app, new Uri("http://127.0.0.1"), string.Empty);
+        await host.ShutdownAsync();
+
+        _ = await Assert.That(host.LastStop!.InFlightAtStop).IsNull();
+    }
+
+    /// <summary>A graceful stop reports its phases, the request it waited for, and when that request finished.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ShutdownReportsStopPhases(CancellationToken cancellationToken)
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var builder = WebApplication.CreateSlimBuilder();
+        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        InFlightRequestTracker.AddTo(builder.Services);
+        var app = builder.Build();
+        app.Run(async _ =>
+        {
+            entered.SetResult();
+            await release.Task.WaitAsync(CancellationToken.None);
+        });
+        await app.StartAsync(cancellationToken);
+        Uri? address = null;
+        foreach (var url in app.Urls)
+            address ??= new Uri(url);
+
+        using var client = new HttpClient();
+        await using ITestNodeHost host = new TestNodeHost(app, address!, string.Empty);
+        _ = await Assert.That(host.LastStop).IsNull();
+
+        var call = client.GetAsync(address, cancellationToken);
+        await entered.Task.WaitAsync(cancellationToken);
+        var stop = host.ShutdownAsync().AsTask();
+        release.SetResult();
+        await stop;
+        using var response = await call;
+
+        var phases = host.LastStop;
+        _ = await Assert.That(phases).IsNotNull();
+        _ = await Assert.That(phases!.InFlightAtStop).IsEqualTo(1);
+        _ = await Assert.That(phases.HostStopMs).IsGreaterThanOrEqualTo(0.0);
+        _ = await Assert.That(phases.DisposeMs).IsGreaterThanOrEqualTo(0.0);
+        _ = await Assert.That(phases.PersistenceReleaseMs).IsGreaterThanOrEqualTo(0.0);
+        _ = await Assert.That(phases.TotalMs).IsGreaterThanOrEqualTo(phases.HostStopMs + phases.DisposeMs + phases.PersistenceReleaseMs - 0.5);
+        _ = await Assert.That(phases.LastRequestFinishedMs).IsNotNull();
+        _ = await Assert.That(phases.LastRequestFinishedMs!.Value).IsGreaterThanOrEqualTo(0.0);
+        _ = await Assert.That(phases.LastRequestFinishedMs.Value).IsLessThanOrEqualTo(phases.TotalMs);
+    }
+
+    /// <summary>A stop of an idle node reports no request in flight and none finishing.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ShutdownOfIdleNodeReportsNoRequests(CancellationToken cancellationToken)
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        InFlightRequestTracker.AddTo(builder.Services);
+        var app = builder.Build();
+        await app.StartAsync(cancellationToken);
+
+        await using ITestNodeHost host = new TestNodeHost(app, new Uri("http://127.0.0.1"), string.Empty);
+        await host.ShutdownAsync();
+
+        var phases = host.LastStop;
+        _ = await Assert.That(phases).IsNotNull();
+        _ = await Assert.That(phases!.InFlightAtStop).IsEqualTo(0);
+        _ = await Assert.That(phases.LastRequestFinishedMs).IsNull();
+        _ = await Assert.That(phases.TotalMs).IsGreaterThanOrEqualTo(0.0);
     }
 
     private static void AssertPortReleased(int port)

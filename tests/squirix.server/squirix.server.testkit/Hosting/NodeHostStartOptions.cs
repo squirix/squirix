@@ -45,5 +45,8 @@ internal sealed class NodeHostStartOptions
     /// <summary>Gets the node time source; when set it is registered in DI so cache expiration and other clock consumers read it.</summary>
     internal TimeProvider? TimeProvider { get; init; }
 
+    /// <summary>Gets a value indicating whether the request pipeline counts the requests in flight.</summary>
+    internal bool TrackRequests { get; init; }
+
     internal bool WaitForRecovery { get; init; } = true;
 }

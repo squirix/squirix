@@ -22,6 +22,9 @@ internal static class NodeHost
 
         await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
 
+        if (options.TrackRequests)
+            InFlightRequestTracker.AddTo(builder.Services);
+
         var app = builder.Build();
         try
         {
