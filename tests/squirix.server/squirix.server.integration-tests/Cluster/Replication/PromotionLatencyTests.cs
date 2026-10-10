@@ -21,6 +21,7 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 /// The survivors are watched through the route signal of their election state, so the time from a term first seen to the authority
 /// of that term is measured without polling.
 /// </remarks>
+[NotInParallel]
 public sealed class PromotionLatencyTests : NodeIntegrationTestBase
 {
     private const string Group = "node-a";
@@ -29,7 +30,7 @@ public sealed class PromotionLatencyTests : NodeIntegrationTestBase
     /// <summary>Bounds every wait; the timing below elects within seconds, the rest absorbs a loaded machine.</summary>
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(90);
 
-    private static readonly ElectionTimerOptions Timing = new()
+    private static readonly TestElectionTiming Timing = new()
     {
         ElectionTimeout = TimeSpan.FromSeconds(2),
         HeartbeatInterval = TimeSpan.FromMilliseconds(100),
@@ -68,7 +69,9 @@ public sealed class PromotionLatencyTests : NodeIntegrationTestBase
 
         _ = await Assert.That(authorized).IsEqualTo(nextTerm);
         _ = await Assert.That((noop.MutationKind, noop.Term, committed)).IsEqualTo((ReplicaMutationKinds.LeaderNoop, nextTerm, true));
-        _ = await Assert.That(promotion).IsLessThan(allowed).Because($"term {nextTerm} took {promotion.TotalMilliseconds:F0} ms from first seen to authority, allowed {allowed.TotalMilliseconds:F0} ms");
+        _ = await Assert.That(promotion)
+                        .IsLessThan(allowed)
+                        .Because($"term {nextTerm} took {promotion.TotalMilliseconds:F0} ms from first seen to authority, allowed {allowed.TotalMilliseconds:F0} ms");
     }
 
     /// <summary>Reads the leader-term entry the leader appended in its term, and whether it is committed.</summary>
@@ -82,7 +85,8 @@ public sealed class PromotionLatencyTests : NodeIntegrationTestBase
         var committers = leader.GetRequiredService<ReplicaGroupCommitters>();
         var tenure = committers.Leads(Group) ? committers.For(Group).Tenure : throw new InvalidOperationException($"The leader no longer leads group {Group}.");
         var index = tenure is { } held && held.Term == term ? held.NoopIndex : throw new InvalidOperationException($"The leader holds no leadership of term {term}.");
-        var log = leader.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(Group, out var opened) ? opened : throw new InvalidOperationException($"The group log {Group} is not open.");
+        var registry = leader.GetRequiredService<ReplicaGroupRegistry>();
+        var log = registry.TryGetLog(Group, out var opened) ? opened : throw new InvalidOperationException($"The group log {Group} is not open.");
         var status = await log.GetStatusAsync(cancellationToken);
         var read = await log.ReadEntriesAsync(index, 1, cancellationToken);
         var record = read.Entries.Count == 1 ? ReplicaLogCodec.Decode(read.Entries[0].Payload) : null;
@@ -98,7 +102,7 @@ public sealed class PromotionLatencyTests : NodeIntegrationTestBase
         AutomaticFailoverEnabled = true,
         QuorumReadsEnabled = true,
         PartitionFabric = fabric,
-        ServicesConfigure = static services => services.AddSingleton(Timing),
+        ElectionTiming = Timing,
     };
 
     /// <summary>Records when the election state of each watched node first showed each term, and when it held authority in a term above a given one.</summary>
