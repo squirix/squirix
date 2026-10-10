@@ -139,6 +139,29 @@ public sealed class ReplicaCommitterAuthorityTests : ServerUnitTestBase
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(last);
     }
 
+    /// <summary>The restart of an authorized leadership probes every follower: a held probe blocks the write until it is released, and is never given up.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AuthorizedRestartProbesEveryFollower(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-authority-restart-probes");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var gateway = new ProbeHoldingGateway();
+        var (committer, _) = await LeadAsync(registry, gateway, TimeProvider.System, cancellationToken);
+        await using var owned = committer;
+        committer.DropStartedState();
+        gateway.HeldNode = "n3";
+        gateway.HoldProbes = true;
+
+        var write = committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken);
+        await gateway.ProbeHeld.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        var blocked = !write.IsCompleted;
+        gateway.ReleaseProbes();
+        await write.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That((blocked, gateway.HeldProbeCanceled)).IsEqualTo((true, false));
+    }
+
     /// <summary>A retry of an operation whose entry is in the log but unresolved stays unknown on a deposed leader, never a stale marker.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -236,6 +259,10 @@ public sealed class ReplicaCommitterAuthorityTests : ServerUnitTestBase
 
         internal Task EntriesHeld => _entriesHeld.Task;
 
+        internal bool HeldProbeCanceled { get; private set; }
+
+        internal string? HeldNode { get; set; }
+
         internal bool HoldEntries { get; set; }
 
         internal bool HoldProbes { get; set; }
@@ -244,10 +271,18 @@ public sealed class ReplicaCommitterAuthorityTests : ServerUnitTestBase
 
         public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
-            if (batch.Records.Count == 0 && HoldProbes)
+            if (batch.Records.Count == 0 && HoldProbes && (HeldNode == null || string.Equals(HeldNode, nodeId, StringComparison.Ordinal)))
             {
                 _ = _probeHeld.TrySetResult();
-                await new ValueTask(_released.Task).ConfigureAwait(false);
+                try
+                {
+                    await _released.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    HeldProbeCanceled = true;
+                    throw;
+                }
             }
 
             if (batch.Records.Count > 0 && HoldEntries)

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -62,6 +63,32 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         _ = await Assert.That(noops.Count).IsEqualTo(1);
         _ = await Assert.That((noops[0].LogIndex, noops[0].Term)).IsEqualTo((1UL, 2UL));
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CommitIndex).IsEqualTo(1UL);
+    }
+
+    /// <summary>
+    /// A promotion stops probing once a follower answered from its log and forms a majority with the leader: a follower that never answers
+    /// does not hold the commit gate for the probe timeout, and its probe is canceled when the promotion gives it up.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PromotionDoesNotWaitForSilentFollower(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-silent");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var followers = new ScriptedGateway();
+        followers.Set("n2", FollowerMode.Behind);
+        var gateway = new SilentFollowerGateway(followers, "n3");
+        var local = new StubCache();
+        await using var committer = CreateElectedCommitter(registry, "n2", gateway, local, new ReplicaGroupApplier(local, NullLogger.Instance, "n2", "n1"));
+
+        var started = Stopwatch.GetTimestamp();
+        var first = await committer.PromoteAsync(2UL, cancellationToken);
+        var elapsed = Stopwatch.GetElapsedTime(started);
+
+        _ = await Assert.That(first).IsFalse();
+        _ = await Assert.That(gateway.CanceledProbes).IsEqualTo(1);
+        _ = await Assert.That(elapsed).IsLessThan(ReplicaVerificationProbe.ProbeTimeout);
     }
 
     /// <summary>
@@ -346,5 +373,39 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
 
         _ = await log.ObserveTermAsync(term, cancellationToken);
         return log;
+    }
+
+    /// <summary>Delegates every follower to a scripted gateway except one, whose calls never answer and end only by cancellation.</summary>
+    private sealed class SilentFollowerGateway : IReplicaRpcGateway
+    {
+        private readonly ScriptedGateway _followers;
+        private readonly string _silentNodeId;
+        private int _canceledProbes;
+
+        internal SilentFollowerGateway(ScriptedGateway followers, string silentNodeId)
+        {
+            _followers = followers;
+            _silentNodeId = silentNodeId;
+        }
+
+        /// <summary>Gets the number of probes without entries of the silent follower that ended by cancellation.</summary>
+        internal int CanceledProbes => Volatile.Read(ref _canceledProbes);
+
+        public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
+        {
+            if (!string.Equals(nodeId, _silentNodeId, StringComparison.Ordinal))
+                return _followers.AppendEntriesAsync(nodeId, header, batch, cancellationToken);
+
+            var isProbe = batch.Records.Count == 0;
+            var silent = new TaskCompletionSource<FollowerLogAppendResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _ = cancellationToken.Register(() =>
+            {
+                if (isProbe)
+                    _ = Interlocked.Increment(ref _canceledProbes);
+
+                _ = silent.TrySetCanceled(cancellationToken);
+            });
+            return silent.Task.WaitAsync(CancellationToken.None);
+        }
     }
 }

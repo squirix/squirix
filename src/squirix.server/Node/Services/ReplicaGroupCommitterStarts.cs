@@ -22,7 +22,12 @@ internal static class ReplicaGroupCommitterStarts
         /// the probe results to admit once the coordinator exists.
         /// </returns>
         /// <exception cref="StaticLeaderTermExceededException">A static leader whose log moved past term one; nothing was written.</exception>
-        /// <remarks>Runs under the commit gate, after the coordinator of the previous start is retired.</remarks>
+        /// <remarks>
+        /// Runs under the commit gate, after the coordinator of the previous start is retired. The first start of an elected leadership
+        /// stops probing once enough followers answered from their logs to form a majority with the slots that count, so a silent follower
+        /// does not hold the gate for its whole probe timeout; the readiness loop admits the answering followers. Every other start
+        /// awaits every probe.
+        /// </remarks>
         internal async Task<(ReplicaGroupCommitPipeline Pipeline, ReplicaMutationFactory Factory, FollowerLogTail Read, ulong Term, ReplicaEligibility Eligibility, ReplicaProbeResult[] Results)>
             LaunchAsync(IFollowerLog log, ReplicaLeaderTenure? tenure, bool replacing, CancellationToken cancellationToken)
         {
@@ -58,8 +63,9 @@ internal static class ReplicaGroupCommitterStarts
                 ReplicaReadinessProbe.UnverifyFollowers(eligibility, leaderIndex);
 
             ReplicaReadinessProbe.MarkLeaderReady(eligibility, leaderIndex, in status, committer.Topology.Fingerprint, committer.Topology.Generation);
+            var answersNeeded = tenure is { Authorized: false } ? ReplicaReadinessProbe.AnswersForMajority(eligibility, leaderIndex) : int.MaxValue;
             var results = eligibility.CanCountInWriteQuorum(leaderIndex)
-                ? await ReplicaReadinessProbe.ProbeAllAsync(committer.Gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility, leaderIndex), members, header, status, new ReplicaProbeBudget(ReplicaVerificationProbe.ProbeTimeout, int.MaxValue), cancellationToken).ConfigureAwait(false)
+                ? await ReplicaReadinessProbe.ProbeAllAsync(committer.Gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility, leaderIndex), members, header, status, new ReplicaProbeBudget(ReplicaVerificationProbe.ProbeTimeout, answersNeeded), cancellationToken).ConfigureAwait(false)
                 : [];
             ReplicaReadinessProbe.RecordContacts(committer.Election, results, term);
 
