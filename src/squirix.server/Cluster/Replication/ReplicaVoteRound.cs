@@ -12,7 +12,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// <summary>One pre-vote or vote round of a candidate: every other member asked at once, each reply bounded by the vote timeout.</summary>
 /// <remarks>
 /// The round ends once its outcome is decided: a majority granted, a majority can no longer be reached, or a reply reported a term above
-/// the candidate's. Calls still unanswered are canceled and awaited, so no reply arrives after the round ended and a silent member adds
+/// the candidate's. Calls still unanswered are canceled and awaited, so no reply arrives after the round ended, a canceled call reports no term, and a silent member adds
 /// no vote timeout to a decided round. An unreachable or slow voter is no vote, never a grant and never an observed term. The candidate
 /// counts for itself.
 /// </remarks>
@@ -43,7 +43,7 @@ internal sealed class ReplicaVoteRound
     /// <param name="last">The last entry of the candidate log.</param>
     /// <param name="cancellationToken">Cancellation token; its cancellation ends the round by throwing.</param>
     /// <returns>
-    /// The grants, this node included, and the highest term a refusal reported. A vote counts only when it is granted with a reply term
+    /// The grants, this node included, and the highest term a refusal reported among the replies received before the round ended. A vote counts only when it is granted with a reply term
     /// equal to the candidate term; a pre-vote counts when it is granted.
     /// </returns>
     /// <remarks>No call outlives the round: the ones still unanswered once the outcome is decided are canceled and awaited.</remarks>
@@ -56,7 +56,6 @@ internal sealed class ReplicaVoteRound
     {
         var majority = (_members.Length / 2) + 1;
         var calls = new Task<FollowerLogVoteResult?>[_members.Length];
-        var tallied = new bool[_members.Length];
         var pending = new List<Task<FollowerLogVoteResult?>>(_members.Length);
         using var round = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         for (var i = 0; i < calls.Length; i++)
@@ -76,23 +75,24 @@ internal sealed class ReplicaVoteRound
         while (pending.Count > 0 && granted < majority && granted + pending.Count >= majority && highest <= ownTerm)
         {
             var finished = await Task.WhenAny(pending).ConfigureAwait(false);
-            _ = pending.Remove(finished);
+
+            // One entry leaves per finished call, even when two calls share a task instance: they then share the result too.
+            pending.RemoveAt(pending.IndexOf(finished));
             if (!finished.IsCompletedSuccessfully)
                 break;
 
-            tallied[Array.IndexOf(calls, finished)] = true;
             Tally(await finished.ConfigureAwait(false), preVote, header.Term, ref granted, ref highest);
         }
 
         // Calls given up are canceled and awaited, so none outlives the round; a faulted one rethrows here.
         await round.CancelAsync().ConfigureAwait(false);
-        var replies = await Task.WhenAll(calls).ConfigureAwait(false);
+        _ = await Task.WhenAll(calls).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-        for (var i = 0; i < replies.Length; i++)
-        {
-            if (!tallied[i])
-                Tally(replies[i], preVote, header.Term, ref granted, ref highest);
-        }
+
+        // The calls still in the list are exactly the ones not tallied above; the own slot is never in it.
+        var rest = await Task.WhenAll(pending).ConfigureAwait(false);
+        for (var i = 0; i < rest.Length; i++)
+            Tally(rest[i], preVote, header.Term, ref granted, ref highest);
 
         return (granted, highest);
     }

@@ -159,7 +159,9 @@ internal sealed class ReplicaGroupElection
         // belongs to the owner of the group alone, so the first election is for term two.
         var term = Math.Max(status.CurrentTerm + 1, 2UL);
         _state.BecomePreCandidate();
-        var (granted, highest) = await _round.RunAsync(true, _header with { Term = term }, status.CurrentTerm, (status.LastLogIndex, status.LastLogTerm), cancellationToken).ConfigureAwait(false);
+        var (granted, highest) = await _round
+            .RunAsync(true, _header with { Term = term }, status.CurrentTerm, (status.LastLogIndex, status.LastLogTerm), cancellationToken)
+            .ConfigureAwait(false);
         return true switch
         {
             _ when highest > status.CurrentTerm => await FollowAsync(highest, cancellationToken).ConfigureAwait(false),
@@ -357,7 +359,9 @@ internal sealed class ReplicaGroupElection
         }
 
         _state.BecomeCandidate(term);
-        var (granted, highest) = await _round.RunAsync(false, _header with { Term = term }, term, (current.LastLogIndex, current.LastLogTerm), cancellationToken).ConfigureAwait(false);
+        var (granted, highest) = await _round
+            .RunAsync(false, _header with { Term = term }, term, (current.LastLogIndex, current.LastLogTerm), cancellationToken)
+            .ConfigureAwait(false);
         return true switch
         {
             _ when highest > term => await FollowAsync(highest, cancellationToken).ConfigureAwait(false),

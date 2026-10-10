@@ -65,6 +65,41 @@ public sealed class ReplicaVoteRoundTests
         _ = await Assert.That(voters.WasCanceled("n5")).IsTrue();
     }
 
+    /// <summary>Synchronous transport failures are no votes and do not disturb the tally of the grants that follow them.</summary>
+    /// <returns>An asynchronous operation.</returns>
+    [Test]
+    public async Task SyncFailuresDoNotDisturbTally()
+    {
+        var voters = new ScriptedVoters();
+        voters.Fail("n2");
+        voters.Fail("n3");
+        voters.Answer("n4", Grant(false));
+        voters.Answer("n5", Grant(false));
+        var scope = new RoundScope(voters, 5);
+
+        var outcome = await scope.RunAsync(false, CandidateTerm, CancellationToken.None);
+
+        _ = await Assert.That(outcome).IsEqualTo((3, 0UL));
+    }
+
+    /// <summary>A win with two silent voters returns without them, and both calls are canceled.</summary>
+    /// <returns>An asynchronous operation.</returns>
+    [Test]
+    public async Task WinDoesNotWaitForTwoSilentVoters()
+    {
+        var voters = new ScriptedVoters();
+        voters.Answer("n2", Grant(false));
+        voters.Answer("n3", Grant(false));
+        _ = voters.Hang("n4");
+        _ = voters.Hang("n5");
+        var scope = new RoundScope(voters, 5);
+
+        var outcome = await scope.RunAsync(false, CandidateTerm, CancellationToken.None);
+
+        _ = await Assert.That(outcome).IsEqualTo((3, 0UL));
+        _ = await Assert.That((voters.WasCanceled("n4"), voters.WasCanceled("n5"))).IsEqualTo((true, true));
+    }
+
     /// <summary>A round whose outcome depends on a silent voter waits for the vote timeout of that call.</summary>
     /// <returns>An asynchronous operation.</returns>
     [Test]
