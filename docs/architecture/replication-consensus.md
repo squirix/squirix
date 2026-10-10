@@ -54,16 +54,17 @@ elects a replacement.
 - **Leader contact.** A member refuses a pre-vote with `leader-contact` while it heard from a live leader within one
   election timeout, so a node cut off from the leader alone keeps campaigning in vain instead of deposing it.
 - **Authority.** A winner appends a `leader-noop` record in its term, under the operation scope `squirix:leader-term`,
-  before it probes any follower. It gains authority only once a majority committed that entry for this promotion; until
-  then, and after any step-down, a write is refused before anything is appended: `Unavailable` with "Replica group has
-  no leader with authority on this node; nothing was read or written.", or the stale-owner refusal naming the leader this node
-  knows.
+  before it probes any follower. The start stops probing once enough followers answered from their logs to form a
+  majority with the leader, so a follower that never answers does not hold it for the probe timeout. It gains authority
+  only once a majority committed that entry for this promotion; until then, and after any step-down, a write is refused
+  before anything is appended: `Unavailable` with "Replica group has no leader with authority on this node; nothing was
+  read or written.", or the stale-owner refusal naming the leader this node knows.
 - **Heartbeats and step-down.** A leader sends an empty append to every idle follower each heartbeat interval. It steps
   down once fewer than a majority, itself included, answered within one election timeout, and at once on a higher term
   in any reply. A new leader gets one timeout of grace. A follower that answered the probes of the start counts as
   answered, and a leader without authority whose promotion held its driver for a heartbeat interval or more, such as a
-  start that waited for a dead follower, gets the grace again once the promotion returns. Authority is revoked before
-  the leader retires its pipeline.
+  start that waited for followers that gave no answer, gets the grace again once the promotion returns. Authority is
+  revoked before the leader retires its pipeline.
 - **Repair.** A follower out of the write quorum that answers a heartbeat or an append from its log is queued for repair
   at once, at most once per election timeout, instead of waiting for the readiness retry.
 - **Status.** While a driver runs, the replica status reports a node as leader only with authority, its majority contact
@@ -71,8 +72,8 @@ elects a replacement.
 
 Default timing: election timeout 1 s, jitter up to 1 s, heartbeat interval 100 ms, vote RPC timeout 250 ms. On
 three-node starts with nodes about 0.4 s apart, a 500 ms timeout deposed a provisional owner and elected a needless second
-term in half of the runs, and 1 s in none; a failover then took about 4 s from the stop of the leader to a new leader
-with authority.
+term in half of the runs, and 1 s in none. A failover takes the election timeout plus the jitter to detect the stopped
+leader, then one election round; a follower that is gone adds no probe timeout to the promotion of the new leader.
 
 An entry node routes each single-key call to the leader of the key's group and reroutes at most once when the target
 answers `stale-owner` or `stale-term`; a refusal of either kind is only given before anything was appended.

@@ -19,9 +19,10 @@ namespace Squirix.Server.Node.Services;
 /// yet up at node start join later. A follower that answered but lacks entries is caught up from the leader log, one follower at a time,
 /// and verified again at once when it was admitted. A loop keeps polling at the maximum delay once everything is ready; a follower the
 /// commit path demotes is queued in the group's <see cref="ReplicaRepairQueue" />, which wakes that loop to verify and catch it up at
-/// once. The groups do not wait for each other. A group the election hands this node gets its loop when its leadership starts, and the
-/// loop ends with the leadership. A loop that faults stops the others, and the service ends with its fault once they have ended. It runs on
-/// the host lifetime and stops with it.
+/// once. A verification pass ends once a majority of followers answered, so a dead follower does not delay a newly elected leader; a pass
+/// that admitted nobody and left the group pending is followed by a pass that awaits every follower. The groups do not wait for each
+/// other. A group the election hands this node gets its loop when its leadership starts, and the loop ends with the leadership. A loop
+/// that faults stops the others, and the service ends with its fault once they have ended. It runs on the host lifetime and stops with it.
 /// </remarks>
 internal sealed class ReplicaGroupReadinessService : BackgroundService
 {
@@ -85,12 +86,13 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         var catchUp = new ReplicaCatchUpReporter(committer.GroupId, _log, _catchUpMetrics);
         var repairs = committer.Probe.Repairs;
         var backoff = Options.InitialDelay;
+        var quick = true;
         ReplicaVerification? reported = null;
         try
         {
             while (true)
             {
-                var outcome = await VerifyOnceAsync(committer, stoppingToken).ConfigureAwait(false);
+                var outcome = await VerifyOnceAsync(committer, quick, stoppingToken).ConfigureAwait(false);
                 if (outcome != reported)
                 {
                     Report(committer.GroupId, outcome);
@@ -98,7 +100,12 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
                 }
 
                 // A follower admitted by its catch-up is verified again at once, so the group reports ready without a backoff.
-                if (outcome == ReplicaVerification.Pending && await CatchUpOnceAsync(committer, catchUp, stoppingToken).ConfigureAwait(false))
+                var admitted = outcome == ReplicaVerification.Pending && await CatchUpOnceAsync(committer, catchUp, stoppingToken).ConfigureAwait(false);
+
+                // A quick pass that admitted nobody and left the group pending is followed by a full one, so a fast follower that cannot be
+                // caught up never starves a slower one that can.
+                quick = outcome != ReplicaVerification.Pending || admitted;
+                if (admitted)
                     continue;
 
                 // Pending backs off exponentially toward the cap; a blocked or fully ready group is only re-checked at the cap.
@@ -197,11 +204,11 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         }
     }
 
-    private async Task<ReplicaVerification> VerifyOnceAsync(ReplicaGroupCommitter committer, CancellationToken stoppingToken)
+    private async Task<ReplicaVerification> VerifyOnceAsync(ReplicaGroupCommitter committer, bool quick, CancellationToken stoppingToken)
     {
         try
         {
-            return await committer.VerifyReplicasAsync(stoppingToken).ConfigureAwait(false);
+            return await committer.VerifyReplicasAsync(quick, stoppingToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException && !stoppingToken.IsCancellationRequested)
         {

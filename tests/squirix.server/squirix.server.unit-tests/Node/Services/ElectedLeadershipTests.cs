@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,6 +35,9 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
     /// <summary>The event id of a group whose every replica slot is verified.</summary>
     private const int VerificationCompleteEventId = 4002;
 
+    /// <summary>The event id of a follower that a catch-up session admitted.</summary>
+    private const int FollowerCaughtUpEventId = 4021;
+
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
     /// <summary>
@@ -62,6 +66,70 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         _ = await Assert.That(noops.Count).IsEqualTo(1);
         _ = await Assert.That((noops[0].LogIndex, noops[0].Term)).IsEqualTo((1UL, 2UL));
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CommitIndex).IsEqualTo(1UL);
+    }
+
+    /// <summary>
+    /// A promotion stops probing once a follower answered from its log and forms a majority with the leader: a follower that never answers
+    /// does not hold the commit gate for the probe timeout, and its probe is canceled when the promotion gives it up.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PromotionDoesNotWaitForSilentFollower(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-silent");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var followers = new ScriptedGateway();
+        followers.Set("n2", FollowerMode.Behind);
+        var gateway = new SilentFollowerGateway(followers, "n3");
+        var local = new StubCache();
+        await using var committer = CreateElectedCommitter(registry, "n2", gateway, local, new ReplicaGroupApplier(local, NullLogger.Instance, "n2", "n1"));
+
+        var started = Stopwatch.GetTimestamp();
+        var first = await committer.PromoteAsync(2UL, cancellationToken);
+        var verification = await committer.VerifyReplicasAsync(true, cancellationToken);
+        var admitted = await committer.CatchUpFollowersAsync(new ReplicaCatchUpReporter("n2", NullLogger.Instance, null), cancellationToken);
+        var authorized = await committer.PromoteAsync(2UL, cancellationToken);
+        var elapsed = Stopwatch.GetElapsedTime(started);
+
+        _ = await Assert.That((first, verification, admitted, authorized)).IsEqualTo((false, ReplicaVerification.Pending, true, true));
+        _ = await Assert.That(gateway.CanceledProbes).IsGreaterThanOrEqualTo(2);
+        _ = await Assert.That(elapsed).IsLessThan(ReplicaVerificationProbe.ProbeTimeout);
+    }
+
+    /// <summary>
+    /// A quick verification pass that admitted nobody is followed by a pass that awaits every follower for its whole probe timeout: a fast
+    /// follower that cannot be caught up does not starve a slower one that can.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FullPassFollowsQuickPassWithoutAdmission(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-alternation");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var followers = new ScriptedGateway();
+        followers.Set("n2", FollowerMode.Mismatch);
+        followers.Set("n3", FollowerMode.Behind);
+        var gateway = new SlowFollowerGateway(followers, "n3");
+        await using var committers = ElectedSet(registry, gateway);
+        var log = new EventRecordingLogger();
+        using var service = new ReplicaGroupReadinessService(committers, log, TimeProvider.System);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            _ = await committers.PromoteAsync("n2", 2UL, cancellationToken);
+            await log.WhenLoggedAsync(FollowerCaughtUpEventId, "follower n3 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        var eligibility = registry.EligibilityFor("n2");
+        _ = await Assert.That(eligibility.StateFor(1)).IsEqualTo(ReplicaParticipantState.Ready);
+        _ = await Assert.That(eligibility.StateFor(0)).IsNotEqualTo(ReplicaParticipantState.Ready);
     }
 
     /// <summary>
@@ -295,7 +363,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
     private static ReplicaGroupCommitter Elected(
         ReplicaGroupRegistry registry,
         string groupId,
-        ScriptedGateway gateway,
+        IReplicaRpcGateway gateway,
         ReplicaGroupApplier? applier = null,
         StubCache? cache = null)
     {
@@ -315,7 +383,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         _ = state.GrantAuthority(term);
     }
 
-    private static ReplicaGroupCommitters ElectedSet(ReplicaGroupRegistry registry, ScriptedGateway gateway) =>
+    private static ReplicaGroupCommitters ElectedSet(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway) =>
         new(groupId => Elected(registry, groupId, gateway), new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")), "n1", Owners(), TimeProvider.System);
 
     private static async Task<List<ReplicaLogRecord>> NoopsAsync(IFollowerLog log, CancellationToken cancellationToken)
@@ -346,5 +414,73 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
 
         _ = await log.ObserveTermAsync(term, cancellationToken);
         return log;
+    }
+
+    /// <summary>Delegates every follower to a scripted gateway except one, whose calls never answer and end only by cancellation.</summary>
+    private sealed class SilentFollowerGateway : IReplicaRpcGateway
+    {
+        private readonly ScriptedGateway _followers;
+        private readonly string _silentNodeId;
+        private int _canceledProbes;
+
+        internal SilentFollowerGateway(ScriptedGateway followers, string silentNodeId)
+        {
+            _followers = followers;
+            _silentNodeId = silentNodeId;
+        }
+
+        /// <summary>Gets the number of probes without entries of the silent follower that ended by cancellation.</summary>
+        internal int CanceledProbes => Volatile.Read(ref _canceledProbes);
+
+        public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
+        {
+            if (!string.Equals(nodeId, _silentNodeId, StringComparison.Ordinal))
+                return _followers.AppendEntriesAsync(nodeId, header, batch, cancellationToken);
+
+            var isProbe = batch.Records.Count == 0;
+            var silent = new TaskCompletionSource<FollowerLogAppendResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _ = cancellationToken.Register(() =>
+            {
+                if (isProbe)
+                    _ = Interlocked.Increment(ref _canceledProbes);
+
+                _ = silent.TrySetCanceled(cancellationToken);
+            });
+            return silent.Task.WaitAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// Delegates every follower to a scripted gateway, except one whose probes never answer until one of them was awaited for its whole
+    /// timeout, as a follower that is slower than the others; a probe given up at once does not count.
+    /// </summary>
+    private sealed class SlowFollowerGateway : IReplicaRpcGateway
+    {
+        private readonly ScriptedGateway _followers;
+        private readonly string _slowNodeId;
+        private int _awaitedProbes;
+
+        internal SlowFollowerGateway(ScriptedGateway followers, string slowNodeId)
+        {
+            _followers = followers;
+            _slowNodeId = slowNodeId;
+        }
+
+        public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
+        {
+            if (!string.Equals(nodeId, _slowNodeId, StringComparison.Ordinal) || batch.Records.Count > 0 || Volatile.Read(ref _awaitedProbes) > 0)
+                return _followers.AppendEntriesAsync(nodeId, header, batch, cancellationToken);
+
+            var started = Stopwatch.GetTimestamp();
+            var slow = new TaskCompletionSource<FollowerLogAppendResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _ = cancellationToken.Register(() =>
+            {
+                if (Stopwatch.GetElapsedTime(started) >= ReplicaVerificationProbe.ProbeTimeout / 2)
+                    _ = Interlocked.Increment(ref _awaitedProbes);
+
+                _ = slow.TrySetCanceled(cancellationToken);
+            });
+            return slow.Task.WaitAsync(CancellationToken.None);
+        }
     }
 }

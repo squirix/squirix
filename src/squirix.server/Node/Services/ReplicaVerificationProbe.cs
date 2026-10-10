@@ -12,7 +12,8 @@ namespace Squirix.Server.Node.Services;
 
 /// <summary>Probes the followers of a replica group this node leads for verification, without the commit gate.</summary>
 /// <remarks>
-/// Followers are probed without the gate, so a dead or slow peer never delays writes. The verdicts are admitted afterwards under the
+/// Followers are probed without the gate, so a dead or slow peer never delays writes. A quick probing ends once a majority answered, and
+/// the verification that follows a quick pass that admitted nobody waits for every follower. The verdicts are admitted afterwards under the
 /// commit gate of the committer, and the followers that answered but lack entries are handed to the catch-up pass.
 /// </remarks>
 internal sealed class ReplicaVerificationProbe
@@ -91,13 +92,17 @@ internal sealed class ReplicaVerificationProbe
     /// <summary>Probes the non-ready followers against the leader log.</summary>
     /// <param name="log">The group log.</param>
     /// <param name="leaderTerm">The term this node leads the group in when it won it by election; zero when it leads its own group statically, in term one.</param>
+    /// <param name="untilMajority">
+    /// Whether the probing may end once enough followers answered from their logs to form a majority with the slots that count, giving up
+    /// the probes of the followers still silent; otherwise it awaits every probe.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The final verification state, or the probing the admission under the commit gate continues from.</returns>
     /// <remarks>
     /// A log whose term moved past the elected leader term, or past term one for a static leader, is blocked: a newer leader exists, and
     /// this one verifies nothing for it.
     /// </remarks>
-    internal async Task<ReplicaVerificationSnapshot> ProbeAsync(IFollowerLog log, ulong leaderTerm, CancellationToken cancellationToken)
+    internal async Task<ReplicaVerificationSnapshot> ProbeAsync(IFollowerLog log, ulong leaderTerm, bool untilMajority, CancellationToken cancellationToken)
     {
         var eligibility = _registry.EligibilityFor(_groupId);
         var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
@@ -125,7 +130,8 @@ internal sealed class ReplicaVerificationProbe
             return new ReplicaVerificationSnapshot(ReplicaVerification.AllReady);
 
         var (members, header) = BuildMembership(term);
-        var probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility, LeaderReplicaIndex), members, header, status, ProbeTimeout, cancellationToken)
+        var answersNeeded = untilMajority ? eligibility.AnswersForMajority(LeaderReplicaIndex) : int.MaxValue;
+        var probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility, LeaderReplicaIndex), members, header, status, new ReplicaProbeBudget(ProbeTimeout, answersNeeded), cancellationToken)
                                                .ConfigureAwait(false);
         var answered = new bool[probed.Length];
         var anyAnswered = false;
@@ -161,7 +167,7 @@ internal sealed class ReplicaVerificationProbe
         // A commit may have moved the tail between the unguarded probe and the gate: the verdicts then describe
         // an older tail, so the slots that answered are probed again against the current one.
         if (current.LastLogIndex != status.LastLogIndex || current.LastLogTerm != status.LastLogTerm)
-            probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, snapshot.Answered, snapshot.Members, snapshot.Header, current, ProbeTimeout, cancellationToken).ConfigureAwait(false);
+            probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, snapshot.Answered, snapshot.Members, snapshot.Header, current, new ReplicaProbeBudget(ProbeTimeout, int.MaxValue), cancellationToken).ConfigureAwait(false);
 
         // StartAsync may have verified some of these slots while this call waited for the gate: an older verdict
         // must not demote them.
