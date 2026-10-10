@@ -110,26 +110,42 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
         _ = await Assert.That((scope.State.Role, scope.Leadership.Calls)).IsEqualTo((ReplicaGroupRole.Follower, string.Empty));
     }
 
-    /// <summary>A voter that never answers is given up on at the vote timeout of each round, and the others still elect.</summary>
+    /// <summary>A voter that never answers does not delay an election the others decide, in either round.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SilentVoterTimesOut(CancellationToken cancellationToken)
+    public async Task SilentVoterDoesNotDelayElection(CancellationToken cancellationToken)
     {
-        var votes = new SilentVoter("n3");
+        var votes = new SilentVoter("n3", false);
+        await using var scope = await OpenAsync("n2", 3, votes);
+        var election = CreateElection(scope, Three);
+        _ = await election.StepAsync(cancellationToken);
+        scope.Time.Advance(Options.ElectionTimeout);
+
+        var outcome = await election.StepAsync(cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.Authorized, 2UL));
+        _ = await Assert.That(votes.Canceled).IsEqualTo(2);
+    }
+
+    /// <summary>A silent voter the outcome depends on is given up on at the vote timeout.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NeededSilentVoterTimesOut(CancellationToken cancellationToken)
+    {
+        var votes = new SilentVoter("n3", true);
         await using var scope = await OpenAsync("n2", 3, votes);
         var election = CreateElection(scope, Three);
         _ = await election.StepAsync(cancellationToken);
         scope.Time.Advance(Options.ElectionTimeout);
 
         var step = election.StepAsync(cancellationToken);
-        var preVoteAsked = await votes.Arrivals.WaitAsync(HangGuard, cancellationToken);
-        scope.Time.Advance(Options.VoteRpcTimeout);
-        var voteAsked = await votes.Arrivals.WaitAsync(HangGuard, cancellationToken);
+        var arrived = await votes.Arrivals.WaitAsync(HangGuard, cancellationToken);
+        var pending = !step.IsCompleted;
         scope.Time.Advance(Options.VoteRpcTimeout);
         var outcome = await step.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((preVoteAsked, voteAsked)).IsEqualTo((true, true));
-        _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.Authorized, 2UL));
+        _ = await Assert.That((arrived, pending)).IsEqualTo((true, true));
+        _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.PreVoteLost, 0UL));
     }
 
     /// <summary>
@@ -176,7 +192,7 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
         public async Task<FollowerLogVoteResult> PreVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken)
         {
             if (Interlocked.Exchange(ref _raced, 1) == 0 && Log is { } log)
-                _ = await log.RequestVoteAsync(new ElectionVoteRequest("n3", header.Term, 0UL, 0UL), cancellationToken);
+                _ = await log.RequestVoteAsync(new ElectionVoteRequest("n3", header.Term, 0UL, 0UL), CancellationToken.None);
 
             return new FollowerLogVoteResult(true, string.Empty, 0UL);
         }
@@ -185,18 +201,23 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
             Task.FromResult(new FollowerLogVoteResult(true, string.Empty, header.Term));
     }
 
-    /// <summary>Voters of which one never answers until its call is canceled; every call to it is signaled.</summary>
+    /// <summary>Voters of which one never answers until its call is canceled; every call to it is signaled and canceled calls are counted.</summary>
     [ThreadSafe]
     private sealed class SilentVoter : IReplicaVoteGateway
     {
+        private readonly bool _refuseOthers;
         private readonly string _silent;
+        private int _canceled;
 
-        internal SilentVoter(string silent)
+        internal SilentVoter(string silent, bool refuseOthers)
         {
             _silent = silent;
+            _refuseOthers = refuseOthers;
         }
 
         internal SemaphoreSlim Arrivals { get; } = new(0);
+
+        internal int Canceled => Volatile.Read(ref _canceled);
 
         public Task<FollowerLogVoteResult> PreVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken) =>
             AnswerAsync(nodeId, 0UL, cancellationToken);
@@ -207,10 +228,19 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
         private async Task<FollowerLogVoteResult> AnswerAsync(string nodeId, ulong term, CancellationToken cancellationToken)
         {
             if (!string.Equals(nodeId, _silent, StringComparison.Ordinal))
-                return new FollowerLogVoteResult(true, string.Empty, term);
+                return new FollowerLogVoteResult(!_refuseOthers, _refuseOthers ? "refused" : string.Empty, term);
 
             _ = Arrivals.Release();
-            await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, cancellationToken);
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                _ = Interlocked.Increment(ref _canceled);
+                throw;
+            }
+
             throw new InvalidOperationException("A silent voter never answers.");
         }
     }

@@ -1442,11 +1442,16 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             // A higher term is persisted durably, clearing any previous vote before the grant decision:
             // a crash between the step and the grant must still recover the higher term without a phantom vote.
+            var completion = cancellationToken;
             if (request.Term > owner.Meta.CurrentTerm)
             {
                 var stepped = owner.Meta with { CurrentTerm = request.Term, VotedFor = string.Empty };
                 await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, stepped, cancellationToken).ConfigureAwait(false);
                 owner.Meta = stepped;
+
+                // The higher term is part of the log whatever happens next: a restart recovers it. Cancelling the grant behind it would
+                // leave the caller unaware of a term the log already holds, so the rest of the vote runs to completion.
+                completion = CancellationToken.None;
             }
 
             // At most one vote per term: only the recorded candidate may be re-granted.
@@ -1464,7 +1469,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             // The granted vote is persisted before reporting success, so a restart never grants a second vote.
             var granted = owner.Meta with { VotedFor = request.CandidateId };
-            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, granted, cancellationToken).ConfigureAwait(false);
+            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, granted, completion).ConfigureAwait(false);
             owner.Meta = granted;
             return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
         }

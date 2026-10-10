@@ -48,7 +48,10 @@ elects a replacement.
   nor a granted vote happened for the election timeout plus a seeded jitter. It first runs a pre-vote for the next term,
   which changes no term anywhere; with a majority of the static membership it persists the term and its own vote through
   the same vote path a peer request takes, then asks the other members. A higher term seen in any reply is made durable
-  before the node follows it.
+  before the node follows it. A pre-vote or vote round asks every other member at once and ends as soon as its outcome is
+  decided: a majority granted, a majority can no longer be reached, or a reply reported a higher term. Calls still
+  unanswered are canceled, so a member that does not answer adds no vote timeout to a decided round; only a round that
+  depends on that member waits for the vote RPC timeout.
 - **Term one.** Term one belongs to the owner of a group: a node whose own group log never moved past term one leads it in
   term one at start, without votes, and no vote is ever granted for term one. The first election is for term two.
 - **Leader contact.** A member refuses a pre-vote with `leader-contact` while it heard from a live leader within one
@@ -73,7 +76,8 @@ elects a replacement.
 Default timing: election timeout 1 s, jitter up to 1 s, heartbeat interval 100 ms, vote RPC timeout 250 ms. On
 three-node starts with nodes about 0.4 s apart, a 500 ms timeout deposed a provisional owner and elected a needless second
 term in half of the runs, and 1 s in none. A failover takes the election timeout plus the jitter to detect the stopped
-leader, then one election round; a follower that is gone adds no probe timeout to the promotion of the new leader.
+leader, then one election round, which a follower that is gone does not prolong once the others decided it; nor does
+such a follower add a probe timeout to the promotion of the new leader.
 
 An entry node routes each single-key call to the leader of the key's group and reroutes at most once when the target
 answers `stale-owner` or `stale-term`; a refusal of either kind is only given before anything was appended.

@@ -35,14 +35,15 @@ public sealed class PromotionLatencyTests : NodeIntegrationTestBase
         ElectionTimeout = TimeSpan.FromSeconds(2),
         HeartbeatInterval = TimeSpan.FromMilliseconds(100),
         MaxJitter = TimeSpan.FromSeconds(1),
-        VoteRpcTimeout = TimeSpan.FromMilliseconds(200),
+        VoteRpcTimeout = TimeSpan.FromSeconds(1),
     };
 
     private static readonly string[] Three = ["node-a", "node-b", "node-c"];
 
     /// <summary>
-    /// With the stopped leader black-holed, so every dial to it hangs, the new leader gains authority within one vote timeout and one
-    /// probe timeout of its term being first seen, with its leader-term entry committed.
+    /// With the stopped leader black-holed, so every dial to it hangs, the new leader gains authority within the shorter of the vote
+    /// timeout and the probe timeout of its term being first seen, with its leader-term entry committed. The vote round must end once the
+    /// surviving voter granted, instead of waiting out the vote timeout for the voter that is gone.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -65,7 +66,7 @@ public sealed class PromotionLatencyTests : NodeIntegrationTestBase
         var authorized = await watch.AuthorizedAsync.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         var (noop, committed) = await NoopAsync(cluster[next], nextTerm, cancellationToken);
         var promotion = watch.PromotionTime(authorized);
-        var allowed = Timing.VoteRpcTimeout + ReplicaVerificationProbe.ProbeTimeout;
+        var allowed = Timing.VoteRpcTimeout < ReplicaVerificationProbe.ProbeTimeout ? Timing.VoteRpcTimeout : ReplicaVerificationProbe.ProbeTimeout;
 
         _ = await Assert.That(authorized).IsEqualTo(nextTerm);
         _ = await Assert.That((noop.MutationKind, noop.Term, committed)).IsEqualTo((ReplicaMutationKinds.LeaderNoop, nextTerm, true));

@@ -10,10 +10,10 @@ namespace Squirix.Server.Cluster.Replication;
 /// <remarks>
 /// <para>
 /// One caller runs <see cref="StepAsync" /> at a time, after <see cref="NextDelay" /> or when the group state wakes it; the driver is
-/// the only writer of the role, term, and authority of the group state, and every round it starts ends inside the step, so no late
-/// reply is ever counted. Terms are made durable in the group log before the driver acts on them: a pre-vote changes nothing, a
-/// candidate persists its term and its own vote through the same vote path a peer's request takes, and a higher term seen anywhere is
-/// persisted before the driver follows it.
+/// the only writer of the role, term, and authority of the group state, and every round it starts ends inside the step, with its
+/// unanswered calls canceled and awaited, so no late reply is ever counted. Terms are made durable in the group log before the driver
+/// acts on them: a pre-vote changes nothing, a candidate persists its term and its own vote through the same vote path a peer's request
+/// takes, and a higher term seen anywhere is persisted before the driver follows it.
 /// </para>
 /// <para>
 /// A follower campaigns once no leader contact or granted vote happened for the election timeout plus a seeded jitter: a pre-vote round
@@ -159,7 +159,9 @@ internal sealed class ReplicaGroupElection
         // belongs to the owner of the group alone, so the first election is for term two.
         var term = Math.Max(status.CurrentTerm + 1, 2UL);
         _state.BecomePreCandidate();
-        var (granted, highest) = await _round.RunAsync(true, _header with { Term = term }, (status.LastLogIndex, status.LastLogTerm), cancellationToken).ConfigureAwait(false);
+        var (granted, highest) = await _round
+            .RunAsync(true, _header with { Term = term }, status.CurrentTerm, (status.LastLogIndex, status.LastLogTerm), cancellationToken)
+            .ConfigureAwait(false);
         return true switch
         {
             _ when highest > status.CurrentTerm => await FollowAsync(highest, cancellationToken).ConfigureAwait(false),
@@ -357,7 +359,9 @@ internal sealed class ReplicaGroupElection
         }
 
         _state.BecomeCandidate(term);
-        var (granted, highest) = await _round.RunAsync(false, _header with { Term = term }, (current.LastLogIndex, current.LastLogTerm), cancellationToken).ConfigureAwait(false);
+        var (granted, highest) = await _round
+            .RunAsync(false, _header with { Term = term }, term, (current.LastLogIndex, current.LastLogTerm), cancellationToken)
+            .ConfigureAwait(false);
         return true switch
         {
             _ when highest > term => await FollowAsync(highest, cancellationToken).ConfigureAwait(false),
