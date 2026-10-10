@@ -85,7 +85,7 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         var looserCaller = contextDeadline.AddSeconds(30);
         var tighterCaller = contextDeadline.AddSeconds(-2);
 
-        using (var __ = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", default), capture.OnContinueAsync))
+        using (interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", default), capture.OnContinueAsync))
             _ = await Assert.That(capture.Deadline).IsNull();
 
         using (ServerRpcDeadlineContext.Push(contextDeadline, TimeProvider.System))

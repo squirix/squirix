@@ -820,7 +820,14 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         }
 
         private Task StartApplyAsync(PreparedReplicaMutation entry) => Task.Factory.StartNew(
-            async () => await _pipeline.ApplyMemoryAsync(entry, CancellationToken.None).ConfigureAwait(false),
+            static async state =>
+            {
+                if (state is not ForeignApply apply)
+                    throw new InvalidOperationException("The foreign apply was started without its state.");
+
+                await apply.Pipeline.ApplyMemoryAsync(apply.Entry, CancellationToken.None).ConfigureAwait(false);
+            },
+            new ForeignApply(_pipeline, entry),
             CancellationToken.None,
             TaskCreationOptions.DenyChildAttach,
             TaskScheduler.Default).Unwrap();
@@ -833,5 +840,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
                 return pending != null;
             }
         }
+
+        private sealed record ForeignApply(IReplicaCommitPipeline Pipeline, PreparedReplicaMutation Entry);
     }
 }

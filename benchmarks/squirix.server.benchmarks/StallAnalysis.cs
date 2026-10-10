@@ -9,7 +9,8 @@ internal static class StallAnalysis
 {
     private const double BaselineFromMs = 1000;
     private const double BytesPerMegabyte = 1024.0 * 1024.0;
-    private static readonly double[] FailFastThresholdsSeconds = [1, 2, 5];
+
+    private static ReadOnlySpan<double> FailFastThresholdsSeconds => [1, 2, 5];
 
     /// <summary>Analyzes one finished cell.</summary>
     /// <param name="cell">The measured cell.</param>
