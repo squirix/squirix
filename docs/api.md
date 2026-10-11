@@ -103,7 +103,7 @@ gRPC `ResourceExhausted`. Other live public codes include `INVALID_CACHE_KEY`, `
 `MEMORY_PRESSURE`, `JOURNAL_DISK_QUOTA`, and the `OPERATION_ID_*` family. Cache **names** still fail as
 `ArgumentException` → gRPC `InvalidArgument` without a structured `INVALID_CACHE_NAME` code.
 
-In a multi-node cluster, the entry node forwards the client request to the key owner over internode gRPC unchanged, with
+In a multi-node cluster, the entry node forwards the client request to the key owner (the replica group leader when automatic failover is on) over internode gRPC unchanged, with
 the **client** `operation_id` and without running the cache pipeline itself. Only the owner records the outcome:
 idempotency records are per-node in memory (durable nodes also persist outcomes through the journal/snapshot path), and
 the entry node keeps none. When a retry lands on a different entry node (bootstrap endpoint switch or transport

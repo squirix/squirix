@@ -32,7 +32,9 @@ endpoint).
 | exported `ICache<T>` methods (`GetValueAsync`, `SetAsync`, `AddAsync`, `RemoveAsync`, `GetOrAddAsync`, `TouchAsync`, `RemoveExpirationAsync`, `UpdateAsync`, …) | On transport-level failure, retry the same RPC on the next bootstrap endpoint. |
 
 Transport failover covers gRPC transport errors (for example `Unavailable`, `DeadlineExceeded`). Application-level
-outcomes (`NotFound`, validation errors) are not failover signals.
+outcomes (`NotFound`, validation errors) are not failover signals. An answer from a deposed replica group leader (gRPC
+`FailedPrecondition` with the detail `stale-term`) reroutes the call once to the next bootstrap endpoint. `COMMIT_OUTCOME_UNKNOWN` never
+fails over.
 
 The client SDK keeps the same `operation_id` when it retries a mutating RPC on the next bootstrap endpoint. Server
 nodes propagate that id through owner-routing hops, so a retry that reaches a different entry node still deduplicates on
@@ -70,4 +72,5 @@ bootstrap endpoint, and the server-side routing to the key owner. It does not gr
 ## What this is not
 
 - Not full cluster partition routing or dynamic membership on the client.
-- Not replication or automatic data failover between nodes (see [consistency](consistency.md) for server semantics).
+- Not replication or leader election: the client only retries and reroutes. Electing a new leader for a replica group
+  is an opt-in server feature for RF>=3, see [clustering.md](clustering.md#automatic-failover).
