@@ -76,6 +76,25 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
         _ = await Assert.That(Interlocked.Read(ref total[0])).IsEqualTo(1L);
     }
 
+    /// <summary>A start refused on its recovered tail leaves no pipeline behind, on the first attempt or on a retry: the committer stays not started.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RefusedTailStartLeavesNoPipeline(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-owner-refused-tail-pipeline");
+        await SeedRecordAsync(dir, await InconsistentRecordAsync(cancellationToken), false, cancellationToken);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway());
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken));
+        var firstLeft = committer.RunningPipeline;
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken));
+
+        _ = await Assert.That(firstLeft).IsNull();
+        _ = await Assert.That(committer.RunningPipeline).IsNull();
+        _ = await Assert.That(committer.IsStarted).IsFalse();
+    }
+
     /// <summary>The same refused record, attempted again and again, is counted once; a different record is counted again.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
