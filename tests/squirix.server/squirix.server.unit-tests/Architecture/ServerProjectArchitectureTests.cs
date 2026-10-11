@@ -85,7 +85,6 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
             "Squirix.Server.SmokeTests",
             "Squirix.Server.TestKit",
             "Squirix.Server.Benchmarks",
-            "squirix-test-host",
             "sqr-ring-distribution",
             "DynamicProxyGenAssembly2",
         ];
