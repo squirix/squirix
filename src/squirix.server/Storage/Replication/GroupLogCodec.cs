@@ -386,7 +386,7 @@ internal static class GroupLogCodec
     /// <summary>The five fixed-width fields that open a metadata payload.</summary>
     /// <param name="ConfigurationGeneration">The configuration generation of the group.</param>
     /// <param name="CurrentTerm">The highest term this node has observed.</param>
-    /// <param name="LastLogIndex">The durable last log index.</param>
+    /// <param name="LastLogIndex">The last log index at the time of the publish; not relied on by recovery.</param>
     /// <param name="CommitIndex">The durable commit index.</param>
     /// <param name="LastAppliedIndex">The index last applied to memory by the coordinator.</param>
     [StructLayout(LayoutKind.Auto)]
