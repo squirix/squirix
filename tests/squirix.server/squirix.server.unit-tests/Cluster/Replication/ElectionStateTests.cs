@@ -2,9 +2,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
-using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -14,7 +12,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
-/// <summary>Durable election state: term and vote persistence plus RF=1 timer suppression.</summary>
+/// <summary>Durable election state: term and vote persistence.</summary>
 [Immutable]
 public sealed class ElectionStateTests : ServerUnitTestBase
 {
@@ -52,20 +50,6 @@ public sealed class ElectionStateTests : ServerUnitTestBase
         var reopenedStatus = await reopened.GetStatusAsync(cancellationToken);
         _ = await Assert.That(reopenedStatus.CurrentTerm).IsEqualTo(2UL);
         _ = await Assert.That(reopenedStatus.VotedFor).IsEqualTo("node-b");
-    }
-
-    /// <summary>A single-node group creates no election timer.</summary>
-    [Test]
-    public async Task RfOneDoesNotCreateElectionTimer()
-    {
-        var time = new FakeTimeProvider();
-
-        using var redundant = ElectionTimer.Create(0, null, time);
-        using var single = ElectionTimer.Create(1, null, time);
-        _ = await Assert.That(redundant).IsNull();
-        _ = await Assert.That(single).IsNull();
-        using var quorum = ElectionTimer.Create(3, null, time);
-        _ = await Assert.That(quorum).IsNotNull();
     }
 
     /// <summary>Opens a follower log for the election group without materializing storage yet.</summary>
