@@ -77,6 +77,42 @@ public sealed class ReplicaEligibilityTests
         _ = await Assert.That(eligibility.StateFor(1)).IsEqualTo(ReplicaParticipantState.Recovering);
     }
 
+    /// <summary>Forgetting a ready participant drops its progress and its place in the quorum, and a later lower report is accepted as ready.</summary>
+    [Test]
+    public async Task ForgetDropsProgressAndQuorumPlace()
+    {
+        var eligibility = new ReplicaEligibility(1);
+        var high = Progress(9, 8, 8, 0, 7, 42);
+        _ = await Assert.That(eligibility.TryMarkReady(0, in high, in high)).IsTrue();
+
+        eligibility.Forget(0);
+
+        _ = await Assert.That(eligibility.StateFor(0)).IsEqualTo(ReplicaParticipantState.CatchingUp);
+        _ = await Assert.That(eligibility.ProgressFor(0)).IsEqualTo(default);
+        _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsFalse();
+
+        var low = Progress(3, 2, 2, 0, 7, 42);
+        _ = await Assert.That(eligibility.TryMarkReady(0, in low, in low)).IsTrue();
+        _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsTrue();
+    }
+
+    /// <summary>Forgetting leaves a quarantined participant quarantined, and clears the floor of a catching-up one.</summary>
+    [Test]
+    public async Task ForgetKeepsQuarantineClearsFloor()
+    {
+        var eligibility = new ReplicaEligibility(2);
+        var target = Progress(5, 4, 4, 0, 7, 42);
+        _ = await Assert.That(eligibility.TryMarkCatchingUp(0, in target)).IsTrue();
+        eligibility.Quarantine(1);
+
+        eligibility.Forget(0);
+        eligibility.Forget(1);
+
+        _ = await Assert.That(eligibility.StateFor(0)).IsEqualTo(ReplicaParticipantState.CatchingUp);
+        _ = await Assert.That(eligibility.ProgressFor(0)).IsEqualTo(default);
+        _ = await Assert.That(eligibility.StateFor(1)).IsEqualTo(ReplicaParticipantState.Quarantined);
+    }
+
     /// <summary>Every participant begins recovering with no retained progress.</summary>
     [Test]
     public async Task NewParticipantsBeginRecovering()

@@ -111,6 +111,24 @@ internal sealed class ReplicaEligibility
             _states[replicaIndex] = ReplicaParticipantState.Quarantined;
     }
 
+    /// <summary>Clears the retained progress of a participant, so the next report is not compared with an earlier one.</summary>
+    /// <param name="replicaIndex">Zero-based replica slot.</param>
+    /// <remarks>A ready participant moves to catching up; catching up and recovering keep their state; a quarantined participant is left as it is.</remarks>
+    internal void Forget(int replicaIndex)
+    {
+        ValidateIndex(replicaIndex);
+        lock (_sync)
+        {
+            var state = _states[replicaIndex];
+            if (state == ReplicaParticipantState.Quarantined)
+                return;
+
+            _progress[replicaIndex] = default;
+            if (state == ReplicaParticipantState.Ready)
+                _states[replicaIndex] = ReplicaParticipantState.CatchingUp;
+        }
+    }
+
     /// <summary>Returns the participant state.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
     /// <returns>The participant state.</returns>
