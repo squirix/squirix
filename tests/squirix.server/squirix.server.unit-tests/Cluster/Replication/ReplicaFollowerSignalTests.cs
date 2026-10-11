@@ -1,4 +1,6 @@
 using System;
+using System.Buffers.Binary;
+using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -64,11 +66,44 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
         var snapshot = await PublishSnapshotAsync(sourceDir, cancellationToken);
         await using var registry = await OpenAsync(dir, cancellationToken);
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var fileBytes = await File.ReadAllBytesAsync(GroupStoragePaths.GetSnapshotPath(sourceDir, GroupId), cancellationToken);
+        var upload = new ReplicaSnapshotUpload(
+            fileBytes,
+            BinaryPrimitives.ReadUInt32LittleEndian(fileBytes.AsSpan(fileBytes.Length - 4)),
+            snapshot.LastIncludedIndex,
+            snapshot.LastIncludedTerm);
+        _ = await follower.AppendAsync(GroupId, Fingerprint, 1, Batch(1, 0, 1), cancellationToken);
+        _ = await Assert.That(registry.TryGetLog(GroupId, out var log)).IsTrue();
+        _ = await Assert.That((await log!.AdvanceAppliedAsync(1UL, cancellationToken)).Success).IsTrue();
+        _ = await IsRaisedAsync(registry, cancellationToken);
 
-        var result = await follower.InstallSnapshotAsync(GroupId, Fingerprint, 1, snapshot, 1UL, cancellationToken);
+        var result = await follower.InstallSnapshotUploadAsync(GroupId, Fingerprint, 1, upload, 1UL, cancellationToken);
 
-        _ = await Assert.That(result.Success).IsTrue().Because($"refused with '{result.RefusalCode}'");
+        _ = await Assert.That(result.Success).IsTrue().Because($"refused with '{result.Refusal}'");
         _ = await Assert.That(await IsRaisedAsync(registry, cancellationToken)).IsTrue();
+    }
+
+    /// <summary>A snapshot install the log refuses leaves the apply signal idle.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RefusedSnapshotInstallLeavesSignalIdle(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-signal-install-refused");
+        using var sourceDir = new TempDirectory("squirix-follower-signal-install-refused-source");
+        var snapshot = await PublishSnapshotAsync(sourceDir, cancellationToken);
+        await using var registry = await OpenAsync(dir, cancellationToken);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var fileBytes = await File.ReadAllBytesAsync(GroupStoragePaths.GetSnapshotPath(sourceDir, GroupId), cancellationToken);
+        var upload = new ReplicaSnapshotUpload(
+            fileBytes,
+            BinaryPrimitives.ReadUInt32LittleEndian(fileBytes.AsSpan(fileBytes.Length - 4)),
+            snapshot.LastIncludedIndex,
+            snapshot.LastIncludedTerm);
+
+        var result = await follower.InstallSnapshotUploadAsync(GroupId, Fingerprint, 1, upload, 1UL, cancellationToken);
+
+        _ = await Assert.That(result.Success).IsFalse();
+        _ = await Assert.That(await IsRaisedAsync(registry, cancellationToken)).IsFalse();
     }
 
     /// <summary>An append the log refuses leaves the apply signal idle.</summary>

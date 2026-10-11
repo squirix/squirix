@@ -1,4 +1,6 @@
 using System;
+using System.Buffers.Binary;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -156,12 +158,18 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
     {
         using var commitDir = new TempDirectory("squirix-follower-election-commit");
         using var snapshotDir = new TempDirectory("squirix-follower-election-snapshot");
+        using var sourceDir = new TempDirectory("squirix-follower-election-snapshot-source");
         await using var committed = await OpenRegistryAsync(commitDir, new FakeTimeProvider(), cancellationToken);
         await using var installed = await OpenRegistryAsync(snapshotDir, new FakeTimeProvider(), cancellationToken);
         var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, [], DateTime.UnixEpoch);
+        var upload = await PublishUploadAsync(sourceDir, snapshot, cancellationToken);
+        _ = await Assert.That(installed.TryGetLog(GroupId, out var log)).IsTrue();
+        FollowerLogEntry[] entries = [new(1UL, 1UL, new byte[] { 1 })];
+        _ = await log!.AppendAsync(new FollowerLogAppendRequest("n2", 1UL, 0UL, 0UL, 1UL, entries), cancellationToken);
+        _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
 
         var commit = await new ReplicaFollower(committed, RocksDoubles.CreateReplicaMembers()).AdvanceCommitAsync(GroupId, Fingerprint, 1UL, 0UL, 3UL, cancellationToken);
-        var install = await new ReplicaFollower(installed, RocksDoubles.CreateReplicaMembers()).InstallSnapshotAsync(GroupId, Fingerprint, 1UL, snapshot, 4UL, cancellationToken);
+        var install = await new ReplicaFollower(installed, RocksDoubles.CreateReplicaMembers()).InstallSnapshotUploadAsync(GroupId, Fingerprint, 1UL, upload, 4UL, cancellationToken);
 
         _ = await Assert.That((commit.Success, install.Success)).IsEqualTo((true, true));
         _ = await Assert.That(committed.StateFor(GroupId).HasRecentLeaderContact(TimeSpan.FromSeconds(1))).IsTrue();
@@ -240,8 +248,8 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         var preVote = await follower.PreVoteAsync(GroupId, unelected, 1UL, ballot, cancellationToken);
         var vote = await follower.RequestVoteAsync(GroupId, unelected, 1UL, ballot, cancellationToken);
         var commit = await follower.AdvanceCommitAsync(GroupId, unelected, 1UL, 0UL, 3UL, cancellationToken);
-        var snapshot = new GroupSnapshot(GroupId, unelected, 1UL, 1UL, 1UL, 1UL, [], DateTime.UnixEpoch);
-        var install = await follower.InstallSnapshotAsync(GroupId, unelected, 1UL, snapshot, 3UL, cancellationToken);
+        var upload = new ReplicaSnapshotUpload(ReadOnlyMemory<byte>.Empty, 0U, 1UL, 1UL);
+        var install = await follower.InstallSnapshotUploadAsync(GroupId, unelected, 1UL, upload, 3UL, cancellationToken);
         var status = await follower.GetStatusAsync(GroupId, cancellationToken);
 
         _ = await Assert.That(unelected.AsSpan().SequenceEqual(elected)).IsFalse();
@@ -292,6 +300,15 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(vote);
         var status = await follower.GetStatusAsync(GroupId, cancellationToken);
         _ = await Assert.That((status?.CurrentTerm, status?.VotedFor)).IsEqualTo((0UL, string.Empty));
+    }
+
+    private static async Task<ReplicaSnapshotUpload> PublishUploadAsync(TempDirectory dir, GroupSnapshot snapshot, CancellationToken cancellationToken)
+    {
+        var path = GroupStoragePaths.GetSnapshotPath(dir, snapshot.GroupId);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await new GroupSnapshotStore(dir, snapshot.GroupId).PublishAsync(snapshot, cancellationToken);
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+        return new ReplicaSnapshotUpload(bytes, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(bytes.Length - 4)), snapshot.LastIncludedIndex, snapshot.LastIncludedTerm);
     }
 
     private static byte[] ModeFingerprint(bool elected)

@@ -119,31 +119,6 @@ internal sealed class ReplicaFollower
         return !TryGetLog(groupId, out var log) ? null : await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Installs a leader snapshot into a group log after agreement checks.</summary>
-    /// <param name="groupId">Replica group identifier.</param>
-    /// <param name="fingerprint">Leader topology fingerprint.</param>
-    /// <param name="generation">Leader configuration generation.</param>
-    /// <param name="snapshot">Snapshot to install.</param>
-    /// <param name="leaderTerm">Leader term authorizing the install.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The installation outcome.</returns>
-    internal async Task<GroupSnapshotInstallResult> InstallSnapshotAsync(
-        string groupId,
-        ReadOnlyMemory<byte> fingerprint,
-        ulong generation,
-        GroupSnapshot snapshot,
-        ulong leaderTerm,
-        CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
-        if (!TryGetLog(groupId, out var log))
-            return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotMember);
-
-        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        return status.IsTopologyMismatch(fingerprint, generation) ? GroupSnapshotInstallResult.Refused(FollowerLogRefusal.TopologyMismatch)
-            : await InstallAsync(groupId, log, snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
-    }
-
     /// <summary>Installs a transferred snapshot file into a group log after agreement checks.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="fingerprint">Leader topology fingerprint.</param>

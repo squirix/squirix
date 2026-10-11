@@ -186,8 +186,9 @@ machinery scales across the allowed RF set; operational budgets are validated by
 
 The storage layer publishes an atomic, CRC32C-validated `group.snapshot` containing the committed baseline and resolved
 idempotency outcomes. Installing a snapshot is accepted only for the same group and compatible topology generation;
-the committed prefix is replaced while the uncommitted suffix is retained. Compaction removes only the journal prefix
-covered by the published snapshot and preserves the log header and installable snapshot.
+a follower also refuses a snapshot whose boundary is above its applied index, because a snapshot carries no cache
+entries. The committed prefix is replaced while the uncommitted suffix is retained. Compaction removes only the journal
+prefix covered by the published snapshot and preserves the log header and installable snapshot.
 
 Transport streaming and catch-up orchestration are intentionally deferred to M8-08. The snapshot storage contract is
 therefore internal to `Storage.Replication` and does not add a transport dependency.

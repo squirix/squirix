@@ -384,11 +384,15 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <param name="leaderTerm">Leader term authorizing the installation; stale terms are refused.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The installation outcome.</returns>
+    /// <remarks>
+    /// A snapshot carries no cache entries, so a boundary above the durable applied watermark is refused before anything is written:
+    /// installing it would count entries as applied that memory never received.
+    /// </remarks>
     public async Task<GroupSnapshotInstallResult> InstallSnapshotAsync(GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
+        if (RefusesInstall(in snapshot))
             return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
 
         // A stale leader term authorizes nothing: snapshots from a deposed leader are refused like stale appending.
@@ -591,6 +595,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
         _meta = candidate;
     }
+
+    /// <summary>Tells whether the log cannot take a snapshot install now or the snapshot boundary lies above the durable applied index.</summary>
+    /// <param name="snapshot">The snapshot to install.</param>
+    /// <returns><see langword="true" /> when the install is refused before anything is written.</returns>
+    /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
+    private bool RefusesInstall(in GroupSnapshot snapshot) => IsDisposed || Readiness != FollowerLogReadiness.Ready || snapshot.LastIncludedIndex > _meta.LastAppliedIndex;
 
     /// <summary>Builds the status of the durable log state.</summary>
     /// <returns>The durable log status.</returns>
@@ -2426,10 +2436,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 // A snapshot installation rewrites the durable log to a header plus the retained tail above the boundary, so
                 // every frame at or below the boundary leaves the log and nothing can apply it any more: the applied
                 // watermark moves to the boundary. Keeping it below would point the applier at entries no frame holds, and
-                // its catch-up would refuse the gap forever. The snapshot carries no payloads, so memory that lacks entries
-                // below the boundary keeps lacking them; the applier raises its in-memory index to the boundary and logs
-                // that gap. The eligibility check refuses a boundary below the applied watermark or above the snapshot's
-                // commit index, so the watermark never moves backward nor past the commit index.
+                // its catch-up would refuse the gap forever. The snapshot carries no payloads, so a boundary above the applied
+                // watermark would count entries as applied that memory never received: the eligibility check refuses such a
+                // boundary, one below the applied watermark, and one above the snapshot's commit index, so the watermark
+                // never moves.
                 LastAppliedIndex = Math.Max(owner.Meta.LastAppliedIndex, snapshot.LastIncludedIndex),
             };
         }
