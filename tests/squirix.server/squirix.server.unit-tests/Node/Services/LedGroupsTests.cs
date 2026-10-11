@@ -34,6 +34,9 @@ public sealed class LedGroupsTests : ServerUnitTestBase
     /// <summary>The event id of a group whose every replica slot is verified.</summary>
     private const int VerificationCompleteEventId = 4002;
 
+    /// <summary>The event id of a verification attempt that failed and is retried.</summary>
+    private const int VerificationRetryEventId = 4003;
+
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
     /// <summary>
@@ -178,6 +181,45 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         _ = await Assert.That(recovering).IsEqualTo((false, false));
         _ = await Assert.That(reopened.EligibilityFor("n1").AllCanCountInWriteQuorum()).IsTrue();
         _ = await Assert.That(reopened.EligibilityFor("n2").AllCanCountInWriteQuorum()).IsTrue();
+    }
+
+    /// <summary>
+    /// A restart whose committed backlog meets a full node journal leaves the verification pending instead of faulting the service: the
+    /// start is retried, and the group regains its write quorum once the journal has room.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FullJournalVerificationRetries(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-led-groups-readiness-full-journal");
+        await using (var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken))
+        {
+            await using var committers = LeadTwo(registry, (new ScriptedGateway(), new ScriptedGateway()), new StubCache(), TimeProvider.System);
+            await committers.For("n1").CommitSetAsync(NewOperationId(), CacheName, "a", Entry("a"), cancellationToken);
+        }
+
+        await using var reopened = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var cache = new StubCache { OnApplied = static () => throw new JournalCapacityExceededException() };
+        await using var restarted = LeadTwo(reopened, (new ScriptedGateway(), new ScriptedGateway()), cache, TimeProvider.System);
+        var log = new EventRecordingLogger();
+        using var service = new ReplicaGroupReadinessService(restarted, log, TimeProvider.System);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            await log.WhenLoggedAsync(VerificationRetryEventId, "group n1 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            var faulted = service.ExecuteTask?.IsCompleted;
+            cache.OnApplied = null;
+            await log.WhenLoggedAsync(VerificationCompleteEventId, "group n1 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(faulted).IsFalse().Because("A full journal must not end the service.");
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(service.ExecuteTask?.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(reopened.EligibilityFor("n1").AllCanCountInWriteQuorum()).IsTrue();
     }
 
     /// <summary>A loop that fails outside the retried faults stops the loop of the other group, and the service ends with its fault.</summary>

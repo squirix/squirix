@@ -210,9 +210,9 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         {
             return await committer.VerifyReplicasAsync(quick, stoppingToken).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException && !stoppingToken.IsCancellationRequested)
+        catch (Exception exception) when (ReplicaRetryableFault.Is(exception) && !stoppingToken.IsCancellationRequested)
         {
-            // Storage or commit-gate faults are retried like unreachable peers; unexpected exceptions still fault
+            // Storage, full-journal or commit-gate faults are retried like unreachable peers; unexpected exceptions still fault
             // the service so the host fails fast instead of silently running without a verified quorum.
             ServerLog.ReplicaVerificationRetry(_log, committer.GroupId, exception);
             return ReplicaVerification.Pending;

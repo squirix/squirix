@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Replication;
-using Squirix.Server.Errors;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
@@ -97,11 +96,6 @@ internal sealed class ReplicaApplyService : BackgroundService
         await ReplicaGroupLoops.AwaitAllAsync(loops, stopping).ConfigureAwait(false);
     }
 
-    /// <summary>Tells whether a fault of a pass leaves the group pending for the next pass instead of faulting the service.</summary>
-    /// <param name="exception">The fault of the pass.</param>
-    /// <returns><see langword="true" /> for storage and journal faults, and for a full journal or memory that refused the write.</returns>
-    private static bool IsRetryable(Exception exception) => exception is IOException or InvalidOperationException or JournalCapacityExceededException or ResourceExhaustedException;
-
     /// <summary>Applies the committed entries of one follower group until the host stops or a committed record stops the group.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="stoppingToken">The host stopping token.</param>
@@ -163,7 +157,7 @@ internal sealed class ReplicaApplyService : BackgroundService
             ServerLog.ReplicaFollowerApplyStopped(_log, groupId, exception);
             return (true, reported);
         }
-        catch (Exception exception) when (IsRetryable(exception) && !stoppingToken.IsCancellationRequested)
+        catch (Exception exception) when (ReplicaRetryableFault.Is(exception) && !stoppingToken.IsCancellationRequested)
         {
             // The same fault repeats on every pass until it clears, so it is logged when its kind or the entry it stops at changes, not on
             // every retry; its message may name the commit index, which moves on while the fault stays.
