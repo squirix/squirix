@@ -23,6 +23,8 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
 
     private const int Steps = 500;
 
+    private const int RebuildSteps = 24;
+
     private static readonly TimeSpan Retention = TimeSpan.FromSeconds(600);
 
     private static readonly DateTimeOffset Epoch = new(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
@@ -41,7 +43,7 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
     public async Task StoreMatchesScanningModel(ulong seed)
     {
         var run = new Run(seed);
-        var divergence = string.Empty;
+        var divergence = run.Rebuild();
         for (var step = 0; step < Steps && divergence.Length == 0; step++)
         {
             divergence = run.Step(step);
@@ -85,8 +87,33 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
         {
             _random = new Splitmix(seed);
             _state = new GroupIdempotencyState(Capacity, Retention, _clock);
-            _state.MarkOutcomesRebuilt();
             _model = new Model(_clock);
+        }
+
+        /// <summary>Rebuilds outcomes newest first, as a start does, with pins admitted past the capacity so that the closing trim evicts.</summary>
+        /// <returns>The first divergence from the model, or an empty string.</returns>
+        internal string Rebuild()
+        {
+            _state.BeginOutcomeRebuild();
+            var divergence = string.Empty;
+            for (var i = 0; i < RebuildSteps && divergence.Length == 0; i++)
+            {
+                var id = $"k{_random.Next(Keys)}";
+                var index = Convert.ToUInt64(40 - i);
+                divergence = _random.Next(4) switch
+                {
+                    0 => Pin(id, index),
+                    1 => _model.Advance(TimeSpan.FromSeconds(_random.Next(121))),
+                    _ => Rebuilt(id, index, $"r{i}"),
+                };
+            }
+
+            _state.MarkOutcomesRebuilt();
+            _model.Trim();
+            if (divergence.Length == 0)
+                divergence = Compare(0);
+
+            return divergence.Length == 0 ? string.Empty : $"rebuild: {divergence}";
         }
 
         internal string Step(int step)
@@ -126,11 +153,27 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
             return string.Equals(exportedSet, expectedSet, StringComparison.Ordinal) ? string.Empty : $"step {step}: exported {exportedSet}, expected {expectedSet}";
         }
 
+        private static GroupIdempotencyRecord Outcome(string id, string payload, ulong index, DateTime resolvedUtc) =>
+            new(Scope, id, Encoding.UTF8.GetBytes(id), Encoding.UTF8.GetBytes(payload), GroupRecordKind.UserMutation, resolvedUtc, resolvedUtc, index, 1UL);
+
+        private string Pin(string id, ulong index)
+        {
+            var reserved = _state.Reserve(Scope, id, Encoding.UTF8.GetBytes(id), GroupRecordKind.UserMutation, index, 1UL, true);
+            return reserved == _model.Reserve(id, id, index, true) ? string.Empty : "pin";
+        }
+
+        private string Rebuilt(string id, ulong index, string payload)
+        {
+            var age = TimeSpan.FromSeconds(_random.Next(701));
+            var record = Outcome(id, payload, index, _clock.GetUtcNow().UtcDateTime - age);
+            return _state.RestoreOutcome(in record, age) == _model.Rebuild(id, payload, index, age) ? string.Empty : "restore";
+        }
+
         private string Reserve(string id, ulong index)
         {
             var fingerprint = _random.Next(6) == 0 ? id + "x" : id;
             var reserved = _state.Reserve(Scope, id, Encoding.UTF8.GetBytes(fingerprint), GroupRecordKind.UserMutation, index, 1UL);
-            return reserved == _model.Reserve(id, fingerprint, index) ? string.Empty : "reserve";
+            return reserved == _model.Reserve(id, fingerprint, index, false) ? string.Empty : "reserve";
         }
 
         private string Resolve(string id, ulong index, string payload)
@@ -144,17 +187,7 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
         private string Commit(string id, ulong index, string payload)
         {
             var decided = TimeSpan.FromSeconds(_random.Next(841) - 60);
-            var resolvedUtc = _clock.GetUtcNow().UtcDateTime - decided;
-            var record = new GroupIdempotencyRecord(
-                Scope,
-                id,
-                Encoding.UTF8.GetBytes(id),
-                Encoding.UTF8.GetBytes(payload),
-                GroupRecordKind.UserMutation,
-                resolvedUtc,
-                resolvedUtc,
-                index,
-                1UL);
+            var record = Outcome(id, payload, index, _clock.GetUtcNow().UtcDateTime - decided);
             _state.RecordCommittedOutcome(in record);
             _model.Commit(id, payload, index, decided);
             return string.Empty;
@@ -218,7 +251,40 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
                 _ = _table.Remove(id);
         }
 
-        internal GroupIdempotencyReserveResult Reserve(string id, string fingerprint, ulong index)
+        /// <summary>Restores one rebuilt outcome without sweeping, as the store does.</summary>
+        /// <param name="id">The operation identifier.</param>
+        /// <param name="payload">The outcome.</param>
+        /// <param name="index">The log index of the entry.</param>
+        /// <param name="age">How long ago the outcome was decided.</param>
+        /// <returns>What became of the outcome.</returns>
+        /// <remarks>The rebuild reads newest first, so at capacity no retained outcome is older than the one that arrives and none gives way.</remarks>
+        internal GroupOutcomeRestoreResult Rebuild(string id, string payload, ulong index, TimeSpan age)
+        {
+            if (age >= Retention)
+                return GroupOutcomeRestoreResult.Expired;
+
+            if (_table.TryGetValue(id, out var existing))
+            {
+                if (!existing.IsResolved || existing.Index >= index)
+                    return GroupOutcomeRestoreResult.Retained;
+            }
+            else if (_table.Count >= Capacity)
+            {
+                return GroupOutcomeRestoreResult.Full;
+            }
+
+            _table[id] = new Entry(id, index, 1UL, true, payload, _elapsed - age);
+            return GroupOutcomeRestoreResult.Restored;
+        }
+
+        /// <summary>Evicts the resolved outcomes with the oldest log indexes until the table fits the capacity or none is left.</summary>
+        internal void Trim()
+        {
+            while (_table.Count > Capacity && TryFindOldestResolved(out var oldest))
+                _ = _table.Remove(oldest);
+        }
+
+        internal GroupIdempotencyReserveResult Reserve(string id, string fingerprint, ulong index, bool logged)
         {
             Sweep();
             if (_table.TryGetValue(id, out var existing))
@@ -232,7 +298,7 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
                 return GroupIdempotencyReserveResult.Success;
             }
 
-            if (_table.Count >= Capacity)
+            if (!logged && _table.Count >= Capacity)
                 return GroupIdempotencyReserveResult.CapacityExceeded;
 
             _table[id] = new Entry(fingerprint, index, 1UL, false, string.Empty, TimeSpan.Zero);
@@ -345,6 +411,24 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
                 if (retained.Contains(entry.Index))
                     _table[id] = entry;
             }
+        }
+
+        private bool TryFindOldestResolved(out string oldest)
+        {
+            oldest = string.Empty;
+            var oldestIndex = ulong.MaxValue;
+            var found = false;
+            foreach (var (id, entry) in _table)
+            {
+                if (!entry.IsResolved || entry.Index > oldestIndex)
+                    continue;
+
+                oldest = id;
+                oldestIndex = entry.Index;
+                found = true;
+            }
+
+            return found;
         }
     }
 }
