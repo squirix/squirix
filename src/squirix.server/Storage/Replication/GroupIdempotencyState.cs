@@ -17,14 +17,18 @@ namespace Squirix.Server.Storage.Replication;
 ///     </para>
 ///     <para>
 ///     Retention is counted from resolution on the monotonic clock of the injected <see cref="TimeProvider" />, so a wall-clock
-///     step never ages a record. A resolved outcome stays retrievable until its retention elapses; eviction and capacity
-///     accounting consider only resolved records past retention, so at capacity a new reservation is rejected instead of
-///     evicting a live outcome.
+///     step never ages a record. A resolved outcome is always retrievable for the minimum retention, and up to the
+///     retention while the table has room. At capacity a new reservation takes the place of the oldest resolved outcome, one eviction per
+///     admission, when that outcome is at least as old as the minimum retention; otherwise the reservation is rejected instead of evicting
+///     a younger outcome. With the minimum retention equal to the retention, which is the default, no unexpired outcome is ever evicted.
 ///     </para>
 ///     <para>
 ///     The capacity bounds new reservations only. The outcome of a committed entry is never refused for capacity: an entry applied on a
 ///     follower group, and the outcomes a snapshot or a retained log suffix restores, are kept even when the store then holds more records
 ///     than its capacity, until retention ages them out. Refusing one would fail the group log over an entry that is already committed.
+///     An applied entry does trim the store: while the store holds more than its capacity it evicts the oldest resolved outcomes, other than
+///     its own, that are at least as old as the minimum retention, and it stops at the first outcome younger than that. Outcomes of the same
+///     age leave oldest resolution first.
 ///     </para>
 ///     <para>
 ///     Expiration tombstones (<see cref="GroupRecordKind.Expiration" />) and leader-term no-ops (<see cref="GroupRecordKind.LeaderTerm" />)
@@ -56,6 +60,7 @@ internal sealed class GroupIdempotencyState
     /// <summary>The default retention window for resolved outcomes.</summary>
     internal static readonly TimeSpan DefaultRetention = TimeSpan.FromHours(1);
 
+    private readonly TimeSpan _minRetention;
     private readonly GroupOutcomeOrder<GroupOperationKey> _order;
     private readonly Dictionary<GroupOperationKey, StoredRecord> _records;
     private readonly TimeSpan _retention;
@@ -89,21 +94,32 @@ internal sealed class GroupIdempotencyState
     /// sentinel — callers no longer normalize <see cref="TimeSpan.Zero" /> to a default window.
     /// </param>
     /// <param name="timeProvider">The injected time source used to advance retention.</param>
-    internal GroupIdempotencyState(int capacity, TimeSpan retention, TimeProvider timeProvider)
+    /// <param name="minRetention">
+    /// How long a resolved outcome is always retrievable: a full table gives up its oldest outcome to a new operation only once that outcome is this old.
+    /// <see langword="null" /> selects <paramref name="retention" />, which never evicts an unexpired outcome.
+    /// </param>
+    /// <exception cref="ArgumentOutOfRangeException">The capacity is not positive, or a retention is negative or <paramref name="minRetention" /> exceeds <paramref name="retention" />.</exception>
+    internal GroupIdempotencyState(int capacity, TimeSpan retention, TimeProvider timeProvider, TimeSpan? minRetention = null)
     {
         if (capacity <= 0)
             throw new ArgumentOutOfRangeException(nameof(capacity), "Idempotency capacity must be positive.");
 
         retention.ThrowIfNegative(nameof(retention), "Idempotency retention must be non-negative.");
+        var floor = minRetention ?? retention;
+        floor.ThrowIfNegative(nameof(minRetention), "Idempotency minimum retention must be non-negative.");
+        if (floor > retention)
+            throw new ArgumentOutOfRangeException(nameof(minRetention), "Idempotency minimum retention must not exceed the retention.");
 
         Capacity = capacity;
         _retention = retention;
+        _minRetention = floor;
         ArgumentNullException.ThrowIfNull(timeProvider);
         _timeProvider = timeProvider;
         _records = [];
         _order = new GroupOutcomeOrder<GroupOperationKey>(
             timeProvider,
             retention,
+            floor,
             (key, sequence, out age) =>
             {
                 // Only a resolved record has a sequence, so an unresolved or replaced record never matches.
@@ -310,8 +326,9 @@ internal sealed class GroupIdempotencyState
                 return GroupIdempotencyReserveResult.Success;
             }
 
-            var answersRetries = AnswersRetries(kind);
-            if (_records.Count - _exemptPins >= Capacity && !alreadyLogged && answersRetries)
+            // The capacity binds only a new operation that answers retries.
+            var admitted = alreadyLogged || !AnswersRetries(kind) || TryMakeRoom(1);
+            if (!admitted)
                 return GroupIdempotencyReserveResult.CapacityExceeded;
 
             var memory = BufferEx.CopyToOwned(operationFingerprint);
@@ -398,8 +415,8 @@ internal sealed class GroupIdempotencyState
     ///     swept on the next access.
     ///     </para>
     ///     <para>
-    ///     The entry is committed and its effect is already in memory, so its outcome is never refused and evicts nothing: the store may
-    ///     hold more than <see cref="Capacity" /> records until retention ages them out, and capacity keeps bounding new reservations only.
+    ///     The entry is committed and its effect is already in memory, so its outcome is never refused. It evicts only outcomes past the
+    ///     minimum retention, so the store may hold more than <see cref="Capacity" /> records until retention ages them out.
     ///     </para>
     /// </remarks>
     internal void RecordCommittedOutcome(in GroupIdempotencyRecord record)
@@ -418,16 +435,19 @@ internal sealed class GroupIdempotencyState
             if (known && stored.Record.IsResolved && stored.Record.LogIndex >= record.LogIndex)
                 return;
 
-            // The record of the identity, if any, is replaced or dropped below.
+            // The record of the identity, if any, is replaced or dropped below; it goes first so the trim never counts or evicts it.
             if (known)
-                AdjustExemptPins(stored.Record, -1);
-
-            // An expiration or a leader-term no-op answers no retry: its pin, if any, is resolved by dropping it, and no outcome is kept.
-            if (!AnswersRetries(record.Kind))
             {
+                AdjustExemptPins(stored.Record, -1);
                 _ = _records.Remove(key);
-                return;
             }
+
+            // An expiration or a leader-term no-op answers no retry: its pin, if any, was resolved by dropping it, and no outcome is kept.
+            if (!AnswersRetries(record.Kind))
+                return;
+
+            // Make room for the outcome by trimming the oldest outcomes past the minimum retention; younger ones stay and the store exceeds its capacity.
+            _ = TryMakeRoom(int.MaxValue);
 
             var age = _timeProvider.GetUtcNow().UtcDateTime - record.ResolvedUtc!.Value;
             age = age > TimeSpan.Zero ? age : TimeSpan.Zero;
@@ -524,6 +544,19 @@ internal sealed class GroupIdempotencyState
         }
 
         return retained;
+    }
+
+    /// <summary>Makes room for one record: while the store is at capacity, evicts the oldest resolved outcomes that are at least as old as the minimum retention.</summary>
+    /// <param name="maxEvictions">The most outcomes to evict.</param>
+    /// <returns><see langword="true" /> when the store is under its capacity or gave up an outcome.</returns>
+    /// <remarks>Called under <see cref="_sync" />. Unresolved records are not in the order, so they are never evicted.</remarks>
+    private bool TryMakeRoom(int maxEvictions)
+    {
+        var evicted = 0;
+        while (evicted < maxEvictions && _records.Count - _exemptPins >= Capacity && _order.TryTakeOldest(_minRetention, out var oldest))
+            evicted += _records.Remove(oldest) ? 1 : 0;
+
+        return evicted > 0 || _records.Count - _exemptPins < Capacity;
     }
 
     private void ExpireCore()

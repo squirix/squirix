@@ -32,6 +32,12 @@ internal sealed class FollowerLogOptions
     /// <summary>Gets the idempotency retention window; <see langword="null" /> selects <see cref="GroupIdempotencyState.DefaultRetention" />, <see cref="TimeSpan.Zero" /> means explicit immediate expiration.</summary>
     internal TimeSpan? IdempotencyRetention { get; init; }
 
+    /// <summary>
+    /// Gets the minimum retention: a full idempotency table gives up its oldest resolved outcome to a new operation only once that outcome is this old.
+    /// <see langword="null" /> selects <see cref="IdempotencyRetention" />, so no unexpired outcome is evicted.
+    /// </summary>
+    internal TimeSpan? IdempotencyMinRetention { get; init; }
+
     /// <summary>Gets the maximum accepted snapshot size in bytes.</summary>
     internal int MaxSnapshotBytes { get; init; } = GroupSnapshotStore.DefaultMaxSnapshotBytes;
 

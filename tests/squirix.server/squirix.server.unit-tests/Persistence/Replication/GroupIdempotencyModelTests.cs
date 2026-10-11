@@ -40,9 +40,25 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
     [Arguments(6UL)]
     [Arguments(7UL)]
     [Arguments(8UL)]
-    public async Task StoreMatchesScanningModel(ulong seed)
+    public Task StoreMatchesScanningModel(ulong seed) => VerifyAsync(seed, Retention);
+
+    /// <summary>The same sequences with a minimum retention below the retention evict exactly the outcomes the model does, ties included.</summary>
+    /// <param name="seed">The seed of the operation sequence.</param>
+    /// <remarks>The minimum retention sits in the middle of the ages the sequence produces, so a full table both evicts and refuses often.</remarks>
+    [Test]
+    [Arguments(1UL)]
+    [Arguments(2UL)]
+    [Arguments(3UL)]
+    [Arguments(4UL)]
+    [Arguments(5UL)]
+    [Arguments(6UL)]
+    [Arguments(7UL)]
+    [Arguments(8UL)]
+    public Task StoreMatchesScanningModelWithFloor(ulong seed) => VerifyAsync(seed, TimeSpan.FromSeconds(300));
+
+    private static async Task VerifyAsync(ulong seed, TimeSpan floor)
     {
-        var run = new Run(seed);
+        var run = new Run(seed, floor);
         var divergence = run.Rebuild();
         for (var step = 0; step < Steps && divergence.Length == 0; step++)
         {
@@ -54,7 +70,7 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
         _ = await Assert.That(divergence).IsEqualTo(string.Empty);
     }
 
-    private sealed record Entry(string Fingerprint, ulong Index, ulong Term, bool IsResolved, string Payload, TimeSpan Birth);
+    private sealed record Entry(string Fingerprint, ulong Index, ulong Term, bool IsResolved, string Payload, TimeSpan Birth, long Order);
 
     private sealed class Splitmix
     {
@@ -83,11 +99,11 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
         private readonly Splitmix _random;
         private readonly GroupIdempotencyState _state;
 
-        internal Run(ulong seed)
+        internal Run(ulong seed, TimeSpan floor)
         {
             _random = new Splitmix(seed);
-            _state = new GroupIdempotencyState(Capacity, Retention, _clock);
-            _model = new Model(_clock);
+            _state = new GroupIdempotencyState(Capacity, Retention, _clock, floor);
+            _model = new Model(_clock, floor);
         }
 
         /// <summary>Rebuilds outcomes newest first, as a start does, with pins admitted past the capacity so that the closing trim evicts.</summary>
@@ -220,12 +236,15 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
     private sealed class Model
     {
         private readonly FakeTimeProvider _clock;
+        private readonly TimeSpan _floor;
         private readonly Dictionary<string, Entry> _table;
         private TimeSpan _elapsed;
+        private long _lastOrder;
 
-        internal Model(FakeTimeProvider clock)
+        internal Model(FakeTimeProvider clock, TimeSpan floor)
         {
             _clock = clock;
+            _floor = floor;
             _table = [with(StringComparer.Ordinal)];
         }
 
@@ -273,7 +292,7 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
                 return GroupOutcomeRestoreResult.Full;
             }
 
-            _table[id] = new Entry(id, index, 1UL, true, payload, _elapsed - age);
+            _table[id] = new Entry(id, index, 1UL, true, payload, _elapsed - age, ++_lastOrder);
             return GroupOutcomeRestoreResult.Restored;
         }
 
@@ -298,10 +317,10 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
                 return GroupIdempotencyReserveResult.Success;
             }
 
-            if (!logged && _table.Count >= Capacity)
+            if (!logged && _table.Count >= Capacity && !TryEvictOldest())
                 return GroupIdempotencyReserveResult.CapacityExceeded;
 
-            _table[id] = new Entry(fingerprint, index, 1UL, false, string.Empty, TimeSpan.Zero);
+            _table[id] = new Entry(fingerprint, index, 1UL, false, string.Empty, TimeSpan.Zero, 0L);
             return GroupIdempotencyReserveResult.Success;
         }
 
@@ -311,7 +330,7 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
             if (!_table.TryGetValue(id, out var existing) || existing.Index != index || existing.Term != term || existing.IsResolved)
                 return false;
 
-            _table[id] = existing with { IsResolved = true, Payload = payload, Birth = _elapsed };
+            _table[id] = existing with { IsResolved = true, Payload = payload, Birth = _elapsed, Order = ++_lastOrder };
             return true;
         }
 
@@ -321,8 +340,16 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
             if (_table.TryGetValue(id, out var existing) && existing.IsResolved && existing.Index >= index)
                 return;
 
+            // The record of the identity is replaced; the trim neither counts nor evicts it, and never touches the new outcome.
+            _ = _table.Remove(id);
+            while (_table.Count >= Capacity)
+            {
+                if (!TryEvictOldest())
+                    break;
+            }
+
             var age = decided > TimeSpan.Zero ? decided : TimeSpan.Zero;
-            _table[id] = new Entry(id, index, 1UL, true, payload, _elapsed - age);
+            _table[id] = new Entry(id, index, 1UL, true, payload, _elapsed - age, ++_lastOrder);
         }
 
         internal int Release(ulong fromIndex)
@@ -403,7 +430,7 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
                     continue;
 
                 var payload = Encoding.UTF8.GetString(record.OutcomePayload.Span);
-                _table[record.OperationId] = new Entry(Encoding.UTF8.GetString(record.OperationFingerprint.Span), record.LogIndex, record.Term, true, payload, _elapsed - age);
+                _table[record.OperationId] = new Entry(Encoding.UTF8.GetString(record.OperationFingerprint.Span), record.LogIndex, record.Term, true, payload, _elapsed - age, ++_lastOrder);
             }
 
             foreach (var (id, entry) in previous)
@@ -411,6 +438,24 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
                 if (retained.Contains(entry.Index))
                     _table[id] = entry;
             }
+        }
+
+        /// <summary>Evicts the resolved outcome with the oldest birth, the oldest order first among equal births, when it is at least as old as the floor.</summary>
+        /// <returns><see langword="true" /> when an outcome was evicted.</returns>
+        private bool TryEvictOldest()
+        {
+            string? oldest = null;
+            Entry? head = null;
+            foreach (var (id, entry) in _table)
+            {
+                if (entry.IsResolved && (head == null || entry.Birth < head.Birth || (entry.Birth == head.Birth && entry.Order < head.Order)))
+                {
+                    oldest = id;
+                    head = entry;
+                }
+            }
+
+            return oldest != null && head != null && _elapsed - head.Birth >= _floor && _table.Remove(oldest);
         }
 
         private bool TryFindOldestResolved(out string oldest)

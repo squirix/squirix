@@ -101,7 +101,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         _idempotency = new GroupIdempotencyState(
             settings.IdempotencyCapacity,
             settings.IdempotencyRetention ?? GroupIdempotencyState.DefaultRetention,
-            settings.TimeProvider ?? TimeProvider.System);
+            settings.TimeProvider ?? TimeProvider.System,
+            settings.IdempotencyMinRetention);
         Idempotency = _idempotency;
     }
 
