@@ -1,11 +1,12 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -88,11 +89,12 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         var backoff = Options.InitialDelay;
         var quick = true;
         ReplicaVerification? reported = null;
+        var fault = new StrongBox<Type?>();
         try
         {
             while (true)
             {
-                var outcome = await VerifyOnceAsync(committer, quick, stoppingToken).ConfigureAwait(false);
+                var outcome = await VerifyOnceAsync(committer, quick, fault, stoppingToken).ConfigureAwait(false);
                 if (outcome != reported)
                 {
                     Report(committer.GroupId, outcome);
@@ -178,9 +180,9 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         {
             return await committer.CatchUpFollowersAsync(catchUp, stoppingToken).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException && !stoppingToken.IsCancellationRequested)
+        catch (Exception exception) when (ReplicaRetryableFault.Is(exception) && !stoppingToken.IsCancellationRequested)
         {
-            // The same policy as the verification: storage or gate faults are retried on the next pass, anything else faults the service.
+            // The same predicate as the verification: retryable faults are retried on the next pass, anything else faults the service.
             ServerLog.ReplicaVerificationRetry(_log, committer.GroupId, exception);
             return false;
         }
@@ -204,17 +206,24 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         }
     }
 
-    private async Task<ReplicaVerification> VerifyOnceAsync(ReplicaGroupCommitter committer, bool quick, CancellationToken stoppingToken)
+    private async Task<ReplicaVerification> VerifyOnceAsync(ReplicaGroupCommitter committer, bool quick, StrongBox<Type?> fault, CancellationToken stoppingToken)
     {
         try
         {
-            return await committer.VerifyReplicasAsync(quick, stoppingToken).ConfigureAwait(false);
+            var outcome = await committer.VerifyReplicasAsync(quick, stoppingToken).ConfigureAwait(false);
+            fault.Value = null;
+            return outcome;
         }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException && !stoppingToken.IsCancellationRequested)
+        catch (Exception exception) when (ReplicaRetryableFault.Is(exception) && !stoppingToken.IsCancellationRequested)
         {
-            // Storage or commit-gate faults are retried like unreachable peers; unexpected exceptions still fault
-            // the service so the host fails fast instead of silently running without a verified quorum.
+            // Storage, full-journal or commit-gate faults are retried like unreachable peers; unexpected exceptions still fault
+            // the service so the host fails fast instead of silently running without a verified quorum. A full journal or refused memory
+            // would otherwise leave the group unverified without a trace at the default level, so it is warned about when the fault changes.
             ServerLog.ReplicaVerificationRetry(_log, committer.GroupId, exception);
+            if (exception is JournalCapacityExceededException or ResourceExhaustedException && fault.Value != exception.GetType())
+                ServerLog.ReplicaVerificationRefused(_log, committer.GroupId, exception);
+
+            fault.Value = exception.GetType();
             return ReplicaVerification.Pending;
         }
     }

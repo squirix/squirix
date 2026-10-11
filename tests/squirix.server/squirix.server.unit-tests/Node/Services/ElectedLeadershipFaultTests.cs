@@ -28,6 +28,8 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
 {
     private const int OlderTermTailEventId = 4010;
 
+    private const int StorageRetryEventId = 4048;
+
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
     /// <summary>A start that fails after it appended the leader-term entry is retried without a second entry: the promotion keeps its index.</summary>
@@ -230,6 +232,88 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         _ = await Assert.That(events.Count(OlderTermTailEventId)).IsEqualTo(2);
         var status = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That((status.CurrentTerm, status.LastLogIndex, status.LastLogTerm, status.CommitIndex)).IsEqualTo((2UL, 2UL, 1UL, 0UL));
+    }
+
+    /// <summary>
+    /// A promotion whose committed backlog meets a full node journal midway is retried like any other storage fault: it reports not
+    /// authorized without throwing, logs the fault once, keeps the applied index behind the entry that failed, appends no leader-term entry
+    /// meanwhile, and once the journal has room applies the rest, never the first entry again, and appends exactly one.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FullJournalPromotionRetries(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-full-journal");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var log = await TermAsync(registry, "n2", 1UL, cancellationToken);
+        await AppendCommittedAsync(log, ["a", "b"], cancellationToken);
+        _ = await log.ObserveTermAsync(2UL, cancellationToken);
+        var cache = new StubCache();
+        var full = true;
+        cache.OnApplied = () =>
+        {
+            if (full && cache.Applied.Count >= 2)
+                throw new JournalCapacityExceededException();
+        };
+        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1");
+        var events = new EventRecordingLogger();
+        await using var committer = CreateElectedBudgetCommitter(registry, "n2", new HoldingGateway { MatchFollowers = true }, (cache, applier), TimeProvider.System, events);
+
+        var first = await committer.PromoteAsync(2UL, cancellationToken);
+        var second = await committer.PromoteAsync(2UL, cancellationToken);
+        var whileFull = (applier.AppliedIndex, (await log.GetStatusAsync(cancellationToken)).LastLogIndex);
+        full = false;
+        var third = await committer.PromoteAsync(2UL, cancellationToken);
+
+        _ = await Assert.That((first, second, third)).IsEqualTo((false, false, true));
+        _ = await Assert.That(whileFull).IsEqualTo((1UL, 2UL));
+        _ = await Assert.That(events.Count(StorageRetryEventId)).IsEqualTo(1);
+        _ = await Assert.That(string.Join(',', cache.Applied)).IsEqualTo("a,b,b,b");
+        _ = await Assert.That(((await log.GetStatusAsync(cancellationToken)).LastLogIndex, committer.Tenure?.NoopIndex, applier.AppliedIndex)).IsEqualTo((3UL, 3UL, 3UL));
+    }
+
+    /// <summary>
+    /// A promotion whose committed backlog is refused by memory admission reports not authorized without throwing, warns once, and
+    /// succeeds on a later call once memory accepts the write.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RefusedMemoryPromotionRetries(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-refused-memory");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var log = await TermAsync(registry, "n2", 1UL, cancellationToken);
+        await AppendCommittedAsync(log, ["a"], cancellationToken);
+        _ = await log.ObserveTermAsync(2UL, cancellationToken);
+        var cache = new StubCache { OnApplied = static () => throw new ResourceExhaustedException() };
+        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1");
+        var events = new EventRecordingLogger();
+        await using var committer = CreateElectedBudgetCommitter(registry, "n2", new HoldingGateway { MatchFollowers = true }, (cache, applier), TimeProvider.System, events);
+
+        var first = await committer.PromoteAsync(2UL, cancellationToken);
+        var second = await committer.PromoteAsync(2UL, cancellationToken);
+        cache.OnApplied = null;
+        var third = await committer.PromoteAsync(2UL, cancellationToken);
+
+        _ = await Assert.That((first, second, third)).IsEqualTo((false, false, true));
+        _ = await Assert.That(events.Count(StorageRetryEventId)).IsEqualTo(1);
+        _ = await Assert.That(events.Find(StorageRetryEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(applier.AppliedIndex).IsEqualTo(2UL);
+    }
+
+    private static async Task AppendCommittedAsync(IFollowerLog log, string[] keys, CancellationToken cancellationToken)
+    {
+        var factory = new ReplicaMutationFactory(new StubCache(), "n2", 1UL, TimeProvider.System, NullLogger.Instance);
+        var entries = new FollowerLogEntry[keys.Length];
+        for (var i = 0; i < keys.Length; i++)
+        {
+            var index = ulong.CreateChecked(i + 1);
+            entries[i] = new FollowerLogEntry(index, 1UL, factory.PrepareSet(NewOperationId(), "cache", keys[i], Entry(keys[i]), index).CanonicalPayload);
+        }
+
+        var appended = await log.AppendAsync(new FollowerLogAppendRequest("n2", 1UL, 0UL, 0UL, ulong.CreateChecked(keys.Length), entries), cancellationToken);
+        if (!appended.Success)
+            throw new InvalidOperationException($"The group log refused the committed entries: {appended.RefusalCode}.");
     }
 
     private static FollowerLogEntry[] OlderEntry(ulong index, TimeProvider clock)

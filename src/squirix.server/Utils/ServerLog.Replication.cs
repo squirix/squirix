@@ -217,7 +217,12 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 4047, Level = LogLevel.Debug, Message = "Replica group {GroupId} {Pass} passes are skipped while this node leads the group")]
     internal static partial void ReplicaPassSkippedWhileLeading(ILogger logger, string groupId, string pass);
 
-    [LoggerMessage(EventId = 4048, Level = LogLevel.Warning, Message = "Replica group {GroupId} could not start leading term {Term} because its storage failed; retried on the next election tick")]
+    [LoggerMessage(
+        EventId = 4048,
+        Level = LogLevel.Warning,
+        Message =
+            "Replica group {GroupId} could not start leading term {Term} because its local storage failed, or the journal or memory " +
+            "refused the write; retried on the next election tick")]
     internal static partial void ReplicaPromotionStorageRetry(ILogger logger, string groupId, ulong term, Exception exception);
 
     [LoggerMessage(EventId = 4049, Level = LogLevel.Warning, Message = "Replica group {GroupId} has no open log on this node, so no election runs for it")]
@@ -230,4 +235,10 @@ internal static partial class ServerLog
             "Replica group {GroupId} log is at term {Term}, which only an election sets; this node leads the group without elections, " +
             "in term one only, so the group stays blocked")]
     internal static partial void ReplicaStaticLeaderTermAboveOne(ILogger logger, string groupId, ulong term);
+
+    [LoggerMessage(
+        EventId = 4051,
+        Level = LogLevel.Warning,
+        Message = "Replica group {GroupId} cannot be verified because the journal or memory refused the write; retried until it has room")]
+    internal static partial void ReplicaVerificationRefused(ILogger logger, string groupId, Exception exception);
 }

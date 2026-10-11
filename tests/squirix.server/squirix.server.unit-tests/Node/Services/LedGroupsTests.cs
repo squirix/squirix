@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
@@ -33,6 +34,12 @@ public sealed class LedGroupsTests : ServerUnitTestBase
 
     /// <summary>The event id of a group whose every replica slot is verified.</summary>
     private const int VerificationCompleteEventId = 4002;
+
+    /// <summary>The event id of a verification attempt that failed and is retried.</summary>
+    private const int VerificationRetryEventId = 4003;
+
+    /// <summary>The event id of a verification retried because local storage or memory refused the write.</summary>
+    private const int VerificationRefusedEventId = 4051;
 
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
@@ -180,6 +187,44 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         _ = await Assert.That(reopened.EligibilityFor("n2").AllCanCountInWriteQuorum()).IsTrue();
     }
 
+    /// <summary>
+    /// A restart whose committed backlog meets a full node journal leaves the verification pending instead of faulting the service: the
+    /// start is retried, and the group regains its write quorum once the journal has room.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FullJournalVerificationRetries(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-led-groups-readiness-full-journal");
+        await using (var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken))
+        {
+            await using var committers = LeadTwo(registry, (new ScriptedGateway(), new ScriptedGateway()), new StubCache(), TimeProvider.System);
+            await committers.For("n1").CommitSetAsync(NewOperationId(), CacheName, "a", Entry("a"), cancellationToken);
+        }
+
+        await using var reopened = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var cache = new StubCache { OnApplied = static () => throw new JournalCapacityExceededException() };
+        await using var restarted = LeadTwo(reopened, (new ScriptedGateway(), new ScriptedGateway()), cache, TimeProvider.System);
+        var log = new EventRecordingLogger();
+        using var service = new ReplicaGroupReadinessService(restarted, log, TimeProvider.System);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            await WhenLoggedUnlessEndedAsync(log.WhenLoggedAsync(VerificationRetryEventId, "group n1 "), service, cancellationToken);
+            cache.OnApplied = null;
+            await WhenLoggedUnlessEndedAsync(log.WhenLoggedAsync(VerificationCompleteEventId, "group n1 "), service, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(service.ExecuteTask?.IsCompletedSuccessfully).IsTrue().Because("A full journal must not end the service.");
+        _ = await Assert.That((log.Count(VerificationRefusedEventId), log.Find(VerificationRefusedEventId)?.Level)).IsEqualTo((1, LogLevel.Warning));
+        _ = await Assert.That(reopened.EligibilityFor("n1").AllCanCountInWriteQuorum()).IsTrue();
+    }
+
     /// <summary>A loop that fails outside the retried faults stops the loop of the other group, and the service ends with its fault.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -239,6 +284,23 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         _ = await Assert.That(await RetainedAsync(registry, "n1", cancellationToken)).IsEqualTo((2UL, 0));
         _ = await Assert.That(await RetainedAsync(registry, "n2", cancellationToken)).IsEqualTo((2UL, 0));
         _ = await Assert.That(await RetainedAsync(registry, "n3", cancellationToken)).IsEqualTo((0UL, 0));
+    }
+
+    /// <summary>Waits for an event, failing at once with the fault of the service when it ends first.</summary>
+    /// <param name="logged">The task completing when the event is logged.</param>
+    /// <param name="service">The started readiness service.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="InvalidOperationException">The service ended without a fault before the event was logged.</exception>
+    private static async Task WhenLoggedUnlessEndedAsync(Task logged, ReplicaGroupReadinessService service, CancellationToken cancellationToken)
+    {
+        var ended = service.ExecuteTask ?? Task.CompletedTask;
+        var first = await Task.WhenAny(logged, ended).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        // A service that faulted rethrows its fault here instead of leaving the test to wait for its guard.
+        await first;
+        if (!ReferenceEquals(first, logged))
+            throw new InvalidOperationException("The readiness service ended before the event was logged.");
     }
 
     /// <summary>Asserts that every batch with entries a group sent went to its followers n2 and n3, once each, from leader n1.</summary>
