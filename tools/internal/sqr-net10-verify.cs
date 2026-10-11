@@ -1,5 +1,11 @@
 #:property PublishAot=false
 #:property IsAotCompatible=true
+#:property ImplicitUsings=disable
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Xml;
 
 const string supportedTargetFramework = "net10.0";

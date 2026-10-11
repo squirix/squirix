@@ -1,14 +1,20 @@
 #:property PublishAot=false
 #:property IsAotCompatible=true
 #:property NoWarn=SA1649;S3903;IDE0010
+#:property ImplicitUsings=disable
 
 // IDE0010 is suppressed: the nuspec metadata switch intentionally ignores unknown elements.
 
 // The file-based release app keeps its options DTO inline so the validator remains directly runnable.
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Xml;
 
 var requiredDocs = new[]
