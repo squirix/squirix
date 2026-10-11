@@ -11,6 +11,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -328,11 +329,9 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     private static Task WriteGroupMetadataAsync(string dir, string groupId, ReadOnlyMemory<byte> fingerprint, ulong generation, CancellationToken cancellationToken)
     {
-        var meta = new GroupLogMetadata(groupId, fingerprint, generation, 9, string.Empty, 12, 10, 7);
-        var buffer = new byte[GroupLogCodec.ComputeMetaEncodedLength(in meta)];
-        GroupLogCodec.EncodeMeta(in meta, buffer);
+        var meta = new GroupLogMetadata(groupId, fingerprint, generation, 9, string.Empty, 10, 7);
         _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, groupId));
-        return File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, groupId), buffer, cancellationToken);
+        return GroupMetadataFile.WriteAsync(GroupStoragePaths.GetMetadataPath(dir, groupId), in meta, cancellationToken);
     }
 
     private static byte[] WrongFingerprintBytes(SquirixServerOptions options, MtlsOptions mtls)

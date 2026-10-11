@@ -18,7 +18,7 @@ namespace Squirix.Server.Storage.Replication;
 /// <remarks>
 ///     <para>
 ///     The log stores canonical entry bytes in an append-only file with per-frame CRC32C and publishes
-///     per-group metadata (term, commit index, applied index, voted-for) through an atomic temp-file replacement.
+///     per-group metadata (term, commit index, applied index, voted-for) through a two-slot file written in place and flushed.
 ///     Only the committed prefix that is not yet applied is exposed through the storage contract; the uncommitted
 ///     tail is retained on disk for pending-operation rebuild but is never applied to memory.
 ///     </para>
@@ -97,7 +97,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         GroupId = groupId;
         var paths = FollowerLogPaths.Create(persistenceRoot, groupId);
         var snapshot = new GroupSnapshotStore(persistenceRoot, groupId, settings.MaxSnapshotBytes);
-        _journal = new FollowerLogJournal(paths, snapshot);
+        _journal = new FollowerLogJournal(paths, snapshot, new GroupMetadataStore(paths.MetadataPath, paths.MetadataTempPath, groupId, _faults, log));
         _idempotency = new GroupIdempotencyState(
             settings.IdempotencyCapacity,
             settings.IdempotencyRetention ?? GroupIdempotencyState.DefaultRetention,
@@ -165,6 +165,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
     /// <summary>Gets the published snapshot file path, or <see langword="null" /> when none is published.</summary>
     internal string? SnapshotPath => _journal.Snapshot.SnapshotExists ? _journal.Snapshot.SnapshotPath : null;
+
+    /// <summary>Gets the store of the durable group metadata.</summary>
+    internal GroupMetadataStore Metadata => _journal.Metadata;
 
     /// <summary>Gets a value indicating whether the log has been disposed of.</summary>
     private bool IsDisposed => Volatile.Read(ref _disposed) != 0;
@@ -267,6 +270,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // Closing the registry makes a later durable operation fail fast instead of parking on a closed handle.
             _ = _acks.FaultAll(new ObjectDisposedException(nameof(FollowerLog)));
             _durability.Dispose();
+            _journal.Metadata.Dispose();
             _ = FileEx.TryDeleteFile(_journal.Paths.MetadataTempPath);
         }
     }
@@ -892,7 +896,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 }
             }
 
-            // A change of the last log index alone publishes nothing: recovery derives it from the log file.
+            // The last log index is not stored: recovery derives it from the log file.
             if (commitLogical is { } candidate)
             {
                 await PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
@@ -1037,20 +1041,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             owner.LastLogIndex = offsets[^1].Key;
             owner.LogLength = startOffset + totalLength;
-            owner.Meta = owner.Meta with { LastLogIndex = owner.LastLogIndex };
         }
 
         internal static Task PersistMetaAsync(FollowerLogJournal journal, IFollowerLogContext owner, in GroupLogMetadata meta, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var encodedLength = GroupLogCodec.ComputeMetaEncodedLength(in meta);
-            var buffer = ArrayPool<byte>.Shared.Rent(encodedLength);
-            GroupLogCodec.EncodeMeta(in meta, buffer.AsSpan(0, encodedLength));
-            var work = new MetaDurableWork(owner.Acks, journal.Paths.MetadataTempPath, journal.Paths.MetadataPath, buffer, encodedLength, owner.Faults, owner.Log);
 
-            // The buffer is returned only inside MetaDurableWork.Execute; a non-cancelable scheduling token
-            // after the explicit check guarantees the worker always runs and the buffer is always returned.
-            return work.RunTrackedAsync();
+            // A non-cancelable scheduling token after the explicit check guarantees the worker always runs.
+            return new MetaDurableWork(owner.Acks, journal.Metadata, in meta).RunTrackedAsync();
         }
 
         internal static async Task<(int Length, List<long> Offsets)> ReplaceLogAsync(
@@ -1113,7 +1111,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 journal.RemoveEntriesAbove(logIndex - 1UL);
                 owner.LastLogIndex = logIndex - 1;
                 owner.LogLength = location.Offset;
-                owner.Meta = owner.Meta with { LastLogIndex = owner.LastLogIndex };
             }
 
             return released;
@@ -1211,50 +1208,21 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
         }
 
-        /// <summary>Background work that writes and atomically publishes metadata.</summary>
+        /// <summary>Background work that durably publishes metadata through the metadata store.</summary>
         [Immutable]
         private sealed class MetaDurableWork : TrackedDurableWorkBase
         {
-            private readonly byte[] _buffer;
-            private readonly IFollowerLogFaultHooks _faults;
-            private readonly int _length;
-            private readonly ILogger _log;
-            private readonly string _metaPath;
-            private readonly string _metaTempPath;
+            private readonly GroupLogMetadata _meta;
+            private readonly GroupMetadataStore _store;
 
-            internal MetaDurableWork(FollowerLogAckRegistry acks, string metaTempPath, string metaPath, byte[] buffer, int length, IFollowerLogFaultHooks faults, ILogger log)
+            internal MetaDurableWork(FollowerLogAckRegistry acks, GroupMetadataStore store, in GroupLogMetadata meta)
                 : base(acks)
             {
-                _metaTempPath = metaTempPath;
-                _metaPath = metaPath;
-                _buffer = buffer;
-                _length = length;
-                _faults = faults;
-                _log = log;
+                _store = store;
+                _meta = meta;
             }
 
-            protected override void Run()
-            {
-                try
-                {
-                    const FileOptions options = FileOptions.WriteThrough;
-                    using (var handle = File.OpenHandle(_metaTempPath, FileMode.Create, FileAccess.Write, FileShare.None, options))
-                    {
-                        RandomAccess.Write(handle, _buffer.AsSpan(0, _length), 0);
-                        _faults.OnMetaWritten();
-                        if (!OperatingSystem.IsWindows())
-                            RandomAccess.FlushToDisk(handle);
-                    }
-
-                    var result = FileEx.PublishFile(_metaTempPath, _metaPath, TimeProvider.System);
-                    if (result.Attempts > 1)
-                        ServerLog.DurablePublishRetried(_log, _metaPath, result.Attempts, result.Holders ?? FileEx.UnknownHolders);
-                }
-                finally
-                {
-                    ArrayPool<byte>.Shared.ReturnCleared(_buffer);
-                }
-            }
+            protected override void Run() => _store.Publish(in _meta);
         }
 
         /// <summary>Writes and flushes the header plus each retained frame incrementally before atomically publishing the result as the log.</summary>
@@ -1580,7 +1548,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             switch (metaExists)
             {
                 case false when !logExists && !journal.Snapshot.SnapshotExists:
-                    var fresh = new GroupLogMetadata(owner.GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL);
+                    var fresh = new GroupLogMetadata(owner.GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL);
                     await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, fresh, cancellationToken).ConfigureAwait(false);
                     owner.Meta = fresh;
                     owner.LastLogIndex = 0;
@@ -1592,24 +1560,25 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 case false when !logExists:
                     // A published snapshot is a durable state even when metadata and the log are absent. Seed recovery with
                     // empty metadata, so RestoreSnapshotBaseAsync validates the snapshot instead of creating a zeroed ready state.
-                    owner.Meta = new GroupLogMetadata(owner.GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL);
+                    owner.Meta = new GroupLogMetadata(owner.GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL);
                     await FollowerLogRecovery.RecoverLogFileAsync(journal, owner, cancellationToken).ConfigureAwait(false);
                     owner.Durability.Open(journal.Paths.LogPath, owner.LogLength);
                     owner.Readiness = FollowerLogReadiness.Ready;
                     return;
                 case true:
-                    var metaBytes = await File.ReadAllBytesAsync(journal.Paths.MetadataPath, cancellationToken).ConfigureAwait(false);
-                    if (!GroupLogCodec.TryDecodeMeta(metaBytes, out var decoded) || !string.Equals(decoded.GroupId, owner.GroupId, StringComparison.Ordinal))
+                    // The store opens its handle only on a valid record, so a refused file is left untouched.
+                    var loaded = journal.Metadata.Open();
+                    if (loaded.Status != GroupMetadataReadStatus.Valid)
                     {
                         owner.Readiness = FollowerLogReadiness.Failed;
-                        throw new InvalidDataException($"Replica group '{owner.GroupId}' metadata is corrupt.");
+                        throw new InvalidDataException(GroupMetadataStore.DescribeFailure(loaded.Status, owner.GroupId));
                     }
 
-                    owner.Meta = decoded;
+                    owner.Meta = loaded.Metadata;
                     break;
 
                 default:
-                    // The log file exists without its atomically published metadata, so the committed boundary is unknown.
+                    // The log file exists without its metadata file, so the committed boundary is unknown.
                     // Assuming CommitIndex = 0 would treat every durable frame as an uncommitted tail and truncate it,
                     // destroying possibly-committed data. Fail readiness instead; the group requires explicit repair.
                     owner.Readiness = FollowerLogReadiness.Failed;
@@ -2199,10 +2168,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             CancellationToken cancellationToken)
         {
             owner.LogLength = walk.LastValidEnd;
-            owner.Meta = owner.Meta with { LastLogIndex = owner.LastLogIndex };
             EnsureCommittedPrefixCovered(owner, snapshotBase);
 
-            // The persisted last log index is not relied on: only a frame the walk found above its base counts as held by the log.
+            // Only a frame the walk found above its base counts as held by the log.
             await RaiseAppliedToBoundaryAsync(journal, owner, snapshotBase, owner.LastLogIndex > walk.BaseIndex ? owner.LastLogIndex : 0UL, cancellationToken).ConfigureAwait(false);
 
             // Releases the applied entry payloads from memory, retaining their durable frame offsets.
@@ -2241,7 +2209,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// The applied watermark is owned by AdvanceAppliedAsync, not by the snapshot boundary. A snapshot carries only idempotency and commit
         /// state, not the application payload, so a frame the log holds at or above the boundary keeps the watermark where it is and is applied
         /// on catch-up. Frames below the boundary are covered by the snapshot and are skipped. The boundary is compared against the highest
-        /// frame found in the log file, because the persisted last log index is not relied on. A retried open reads the metadata from the
+        /// frame found in the log file. A retried open reads the metadata from the
         /// disk again, so this step is safe to repeat.
         /// </remarks>
         /// <param name="journal">The paired in-memory journal state.</param>
@@ -2268,7 +2236,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             owner.LogLength = 0;
             owner.LastLogIndex = snapshotBase;
-            owner.Meta = owner.Meta with { LastLogIndex = snapshotBase };
         }
     }
 
@@ -2331,8 +2298,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             var tail = CollectInstallTail(journal, in snapshot);
             var retainedLogIndexes = CollectRetainedLogIndexes(tail);
             var fingerprint = owner.Meta.TopologyFingerprint.IsEmpty ? snapshot.TopologyFingerprint : owner.Meta.TopologyFingerprint;
-            var installedLastIndex = tail.Count == 0 ? snapshot.LastIncludedIndex : tail[^1].LogIndex;
-            var candidate = BuildInstallCandidateMeta(owner, in snapshot, fingerprint, installedLastIndex);
+            var candidate = BuildInstallCandidateMeta(owner, in snapshot, fingerprint);
 
             // Publish the snapshot before advancing metadata. If publication fails, the old metadata and log remain
             // authoritative. If metadata or log rewriting fails afterward, recovery can use the new snapshot while
@@ -2421,9 +2387,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// <param name="owner">They log the snapshot targets.</param>
         /// <param name="snapshot">The snapshot being installed.</param>
         /// <param name="fingerprint">The topology fingerprint to record.</param>
-        /// <param name="installedLastIndex">The last index the rewritten durable log will support: the retained tail's last entry, or the snapshot boundary when no tail is retained.</param>
         /// <returns>The next metadata value.</returns>
-        private static GroupLogMetadata BuildInstallCandidateMeta(IFollowerLogContext owner, in GroupSnapshot snapshot, ReadOnlyMemory<byte> fingerprint, ulong installedLastIndex)
+        private static GroupLogMetadata BuildInstallCandidateMeta(IFollowerLogContext owner, in GroupSnapshot snapshot, ReadOnlyMemory<byte> fingerprint)
         {
             return owner.Meta with
             {
@@ -2432,11 +2397,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 CurrentTerm = Math.Max(owner.Meta.CurrentTerm, snapshot.LastIncludedTerm),
                 VotedFor = snapshot.LastIncludedTerm > owner.Meta.CurrentTerm ? string.Empty : owner.Meta.VotedFor,
 
-                // The published last index should describe the journal the installation leaves behind. When the boundary
-                // term diverges, the tail is empty, and the rewrite produces a header-only log ending at the snapshot
-                // boundary; keeping the higher pre-install value here would store an index no durable frame supports.
-                // Recovery does not read the stored value; it derives the last index from the log file.
-                LastLogIndex = installedLastIndex,
                 CommitIndex = Math.Max(owner.Meta.CommitIndex, Math.Min(snapshot.CommitIndex, snapshot.LastIncludedIndex)),
 
                 // A snapshot installation rewrites the durable log to a header plus the retained tail above the boundary, so
@@ -2595,10 +2555,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             // ReindexTail already left only entries above the boundary, so the paired advance prunes nothing.
             journal.AdvanceBaseline(new SnapshotBaseline(snapshot.Value.LastIncludedIndex, snapshot.Value.LastIncludedTerm));
-
-            var candidate = owner.Meta with { LastLogIndex = Math.Max(included, owner.LastLogIndex) };
-            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
-            owner.Meta = candidate;
 
             // The discarded prefix is now owned by the snapshot, which exports only resolved outcomes; any remaining
             // record at or below `included` has lost its durable journal frame and must be released, while records

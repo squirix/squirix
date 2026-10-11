@@ -12,8 +12,9 @@ namespace Squirix.Server.Storage.Replication;
 /// <remarks>
 ///     <para>On-disk layout is little-endian throughout.</para>
 ///     <para>
-///     Metadata file: <c language="csharp">magic(4) | version(1) | payload | crc32c(payload)(4)</c> where payload carries the
-///     fixed-width term/commit fields followed by length-prefixed UTF-8 strings and the topology fingerprint.
+///     Metadata record: <c language="csharp">magic(4) | version(1) | payload | crc32c(payload)(4)</c> where payload carries the
+///     fixed-width term/commit fields followed by length-prefixed UTF-8 strings and the topology fingerprint. The record is
+///     stored in a slot of <see cref="GroupMetadataSlots" />.
 ///     </para>
 ///     <para>
 ///     Log frame: <c language="csharp">bodyLength(4) | body | crc32c(body)(4)</c> where body carries
@@ -47,8 +48,8 @@ internal static class GroupLogCodec
     /// <summary>Maximum accepted log frame body length; mirrors the journal frame payload cap so a corrupt header cannot force a multi-GB pool rent.</summary>
     private const int MaxFrameBodyLength = FrameFixedByteCount + (512 * 1024 * 1024);
 
-    /// <summary>Fixed metadata size: magic(4) + version(1) + five ulongs.</summary>
-    private const int MetaFixedByteCount = sizeof(uint) + sizeof(byte) + (sizeof(ulong) * 5);
+    /// <summary>Fixed metadata size: magic(4) + version(1) + four ulongs.</summary>
+    private const int MetaFixedByteCount = sizeof(uint) + sizeof(byte) + (sizeof(ulong) * 4);
 
     /// <summary>Metadata file magic bytes, <c language="csharp">"SQRM"</c>.</summary>
     private const uint MetaMagic = 0x4D525153u;
@@ -132,8 +133,6 @@ internal static class GroupLogCodec
         BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], meta.ConfigurationGeneration);
         offset += 8;
         BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], meta.CurrentTerm);
-        offset += 8;
-        BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], meta.LastLogIndex);
         offset += 8;
         BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], meta.CommitIndex);
         offset += 8;
@@ -248,21 +247,19 @@ internal static class GroupLogCodec
     private static bool TryReadFixedFields(ReadOnlySpan<byte> buffer, ref int offset, out MetaFixedFields fields)
     {
         fields = default;
-        if (buffer.Length - offset < sizeof(ulong) * 5)
+        if (buffer.Length - offset < sizeof(ulong) * 4)
             return false;
 
         var generation = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
         offset += 8;
         var term = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
         offset += 8;
-        var lastLogIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
-        offset += 8;
         var commitIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
         offset += 8;
         var lastAppliedIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
         offset += 8;
 
-        fields = new MetaFixedFields(generation, term, lastLogIndex, commitIndex, lastAppliedIndex);
+        fields = new MetaFixedFields(generation, term, commitIndex, lastAppliedIndex);
         return true;
     }
 
@@ -344,7 +341,6 @@ internal static class GroupLogCodec
             fields.ConfigurationGeneration,
             fields.CurrentTerm,
             votedFor,
-            fields.LastLogIndex,
             fields.CommitIndex,
             fields.LastAppliedIndex);
         return true;
@@ -383,13 +379,12 @@ internal static class GroupLogCodec
         offset += byteCount;
     }
 
-    /// <summary>The five fixed-width fields that open a metadata payload.</summary>
+    /// <summary>The four fixed-width fields that open a metadata payload.</summary>
     /// <param name="ConfigurationGeneration">The configuration generation of the group.</param>
     /// <param name="CurrentTerm">The highest term this node has observed.</param>
-    /// <param name="LastLogIndex">The last log index at the time of the publish; not relied on by recovery.</param>
     /// <param name="CommitIndex">The durable commit index.</param>
     /// <param name="LastAppliedIndex">The index last applied to memory by the coordinator.</param>
     [StructLayout(LayoutKind.Auto)]
     [Immutable]
-    private readonly record struct MetaFixedFields(ulong ConfigurationGeneration, ulong CurrentTerm, ulong LastLogIndex, ulong CommitIndex, ulong LastAppliedIndex);
+    private readonly record struct MetaFixedFields(ulong ConfigurationGeneration, ulong CurrentTerm, ulong CommitIndex, ulong LastAppliedIndex);
 }

@@ -9,6 +9,7 @@ using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -236,7 +237,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         var service = new ReplicaFollower(registry, Members);
         _ = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("leader", 1UL, 0UL, 0UL, 0UL, Record(1UL, 1UL)), cancellationToken);
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
-        var before = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        var before = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
 
         var probe = await service.PreVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);
 
@@ -245,7 +246,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         var status = await Assert.That(await service.GetStatusAsync(GroupId, cancellationToken)).IsNotNull();
         _ = await Assert.That(status.CurrentTerm).IsEqualTo(1UL);
         _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
-        var after = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        var after = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
         await SequenceAssert.EqualAsync(before, after);
     }
 
@@ -284,7 +285,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         var first = await service.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);
         _ = await Assert.That(first.Granted).IsTrue();
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
-        var before = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        var before = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
 
         var rival = await service.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("node-c", 2UL, 1UL, 1UL), cancellationToken);
         var retry = await service.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);
@@ -294,7 +295,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         _ = await Assert.That(rival.CurrentTerm).IsEqualTo(2UL);
         _ = await Assert.That(retry.Granted).IsTrue();
         _ = await Assert.That(retry.CurrentTerm).IsEqualTo(2UL);
-        var after = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        var after = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
         await SequenceAssert.EqualAsync(before, after);
     }
 
@@ -307,7 +308,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
         var service = new ReplicaFollower(registry, Members);
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
-        var before = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        var before = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
 
         var vote = await service.RequestVoteAsync(GroupId, new byte[] { 4 }, 1UL, new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
         var probe = await service.PreVoteAsync(GroupId, Fingerprint, 0UL, new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
@@ -317,7 +318,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         _ = await Assert.That(vote.CurrentTerm).IsEqualTo(0UL);
         _ = await Assert.That(probe.Granted).IsFalse();
         _ = await Assert.That(probe.RefusalCode).IsEqualTo(FollowerLogRefusal.TopologyMismatch);
-        var after = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        var after = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
         await SequenceAssert.EqualAsync(before, after);
     }
 

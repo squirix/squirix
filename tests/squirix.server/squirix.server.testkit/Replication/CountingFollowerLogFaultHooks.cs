@@ -7,7 +7,7 @@ namespace Squirix.Server.TestKit.Replication;
 /// <summary>Counts the durable boundaries a follower log crosses: metadata publishes, frame writes, and flushes.</summary>
 /// <remarks>
 /// Counters are monotonic; take a <see cref="Snapshot" /> before and after the work under measurement and subtract. The log reports a
-/// metadata publish once, after it wrote the new record and before it replaces the file, so a publish that fails at the replace is
+/// metadata publish once, after the record is encoded and before any byte of the file changes, so a publish that fails afterwards is
 /// counted too: the count is of publishes started, which equals publishes completed on a healthy log.
 /// </remarks>
 [ThreadSafe]

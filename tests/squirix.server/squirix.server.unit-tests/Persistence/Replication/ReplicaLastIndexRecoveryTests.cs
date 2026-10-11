@@ -91,7 +91,7 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
         _ = await Assert.That((next.Success, next.LastLogIndex)).IsEqualTo((true, 4UL));
     }
 
-    /// <summary>A crash between a snapshot publish and its metadata publish never raises applied past frames the log holds above the stored last index.</summary>
+    /// <summary>A crash between a snapshot publish and its metadata publish never raises applied past frames the log holds above the boundary.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task LogAboveBoundaryKeepsEntriesUnapplied(CancellationToken cancellationToken)
@@ -193,13 +193,10 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
             new GroupSnapshot(groupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, included, included, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch),
             cancellationToken);
 
-    internal static async Task<GroupLogMetadata> ReadMetaAsync(TempDirectory dir, string groupId, CancellationToken cancellationToken)
-    {
-        var encoded = await File.ReadAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, groupId), cancellationToken);
-        return GroupLogCodec.TryDecodeMeta(encoded, out var meta) ? meta : throw new InvalidDataException("The durable metadata payload failed codec validation.");
-    }
+    internal static Task<GroupLogMetadata> ReadMetaAsync(TempDirectory dir, string groupId, CancellationToken cancellationToken) =>
+        GroupMetadataFile.ReadAsync(GroupStoragePaths.GetMetadataPath(dir, groupId), cancellationToken);
 
-    /// <summary>Leaves a log holding <paramref name="lastIndex" /> frames whose published metadata names last index two and commit index two.</summary>
+    /// <summary>Leaves a log holding <paramref name="lastIndex" /> frames of which the last metadata publish covered up to commit index two.</summary>
     /// <param name="dir">The group directory.</param>
     /// <param name="composition">The group composition.</param>
     /// <param name="lastIndex">The highest frame index to append, at least two.</param>
@@ -213,7 +210,7 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
 
-        // These appends change the last log index only, so the published metadata keeps naming index two.
+        // These appends publish no metadata.
         for (var index = 3UL; index <= lastIndex; index++)
             _ = await log.AppendAsync(Append(index, "tail"), cancellationToken);
     }

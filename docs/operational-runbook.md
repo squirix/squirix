@@ -296,7 +296,7 @@ existing RF=1 data to RF>1 or starting an RF>1 data directory as RF=1. When star
 4. Do not edit or delete `topology.stamp` to force a start: the replica group state in the directory still belongs to
    the activated topology.
 
-`squirix-server doctor` reads the stamp and the replica group metadata without starting the node. With persistence
+`squirix-server doctor` reads the stamp and the replica group metadata without starting the node, and can also read the metadata of a node that is running. With persistence
 enabled, it inspects the data directory the node would start on: `--data-dir` / `DataDirectory` when set, otherwise the
 default `{LocalApplicationData}/squirix/{ClusterId}/{NodeId}` (`{SQUIRIX_TEST_ROOT}/{ClusterId}/{NodeId}` when that
 test-only variable is set), reported as `Persistence: enabled (data dir: {path}, default)`. It prints:

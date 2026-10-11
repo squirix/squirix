@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -42,10 +43,8 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
 
         // Durable metadata that carries an applied watermark above the commit index: the exact incoherent state the guard defends against,
         // where compacting through the commit index would otherwise drop applied frames.
-        var incoherent = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 3UL, 2UL, 3UL);
-        var encoded = new byte[GroupLogCodec.ComputeMetaEncodedLength(in incoherent)];
-        GroupLogCodec.EncodeMeta(in incoherent, encoded);
-        await File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), encoded, cancellationToken);
+        var incoherent = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 2UL, 3UL);
+        await GroupMetadataFile.WriteAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), in incoherent, cancellationToken);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await log.OpenAsync(cancellationToken);
@@ -130,15 +129,12 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// A failure at either durability boundary of a compaction through the applied index leaves a log that reopens with the committed tail
-    /// above the snapshot.
+    /// A failure after the snapshot is published and the rewritten log is flushed to its temp file, before it is swapped in, leaves a log
+    /// that reopens with the committed tail above the snapshot.
     /// </summary>
-    /// <param name="boundary">The boundary the failure is injected at.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(GroupLogCompactThroughTests.FaultBoundary.AfterSnapshotPublish)]
-    [Arguments(GroupLogCompactThroughTests.FaultBoundary.AfterLogReplace)]
-    public async Task FaultKeepsCommittedTail(GroupLogCompactThroughTests.FaultBoundary boundary, CancellationToken cancellationToken)
+    public async Task FaultKeepsCommittedTail(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-compaction-committed-tail-fault");
         var armed = false;
@@ -146,8 +142,8 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         _ = hooks.Setups.OnFrameWritten();
         _ = hooks.Setups.OnCommitAdvanced();
         _ = hooks.Setups.OnBeforeMemoryApply();
-        _ = hooks.Setups.OnFlushed().Callback(() => FailIfArmed(armed && boundary == GroupLogCompactThroughTests.FaultBoundary.AfterSnapshotPublish));
-        _ = hooks.Setups.OnMetaWritten().Callback(() => FailIfArmed(armed && boundary == GroupLogCompactThroughTests.FaultBoundary.AfterLogReplace));
+        _ = hooks.Setups.OnFlushed().Callback(() => FailIfArmed(armed));
+        _ = hooks.Setups.OnMetaWritten();
         await using (var log = await SeedCommittedTailAsync(dir, new FollowerLogOptions { FaultHooks = hooks.Instance() }, cancellationToken))
         {
             armed = true;
@@ -155,10 +151,10 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
             armed = false;
         }
 
-        // The snapshot is published at both boundaries; only the later one swapped in the log that starts right above it.
+        // The snapshot is published and the log that starts right above it was not swapped in.
         var first = await FirstFrameIndexAsync(dir, cancellationToken);
         _ = await Assert.That(File.Exists(GroupStoragePaths.GetSnapshotPath(dir, GroupId))).IsTrue();
-        _ = await Assert.That(first).IsEqualTo(boundary == GroupLogCompactThroughTests.FaultBoundary.AfterLogReplace ? Applied + 1 : 1UL);
+        _ = await Assert.That(first).IsEqualTo(1UL);
 
         await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);

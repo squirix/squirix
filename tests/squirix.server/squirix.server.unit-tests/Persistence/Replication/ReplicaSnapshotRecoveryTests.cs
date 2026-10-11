@@ -10,6 +10,7 @@ using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
@@ -147,7 +148,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await using (var initialTarget = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance))
             await initialTarget.OpenAsync(cancellationToken);
 
-        await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, "node-1", 0UL, 0UL, 0UL), cancellationToken);
+        await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, "node-1", 0UL, 0UL), cancellationToken);
 
         await using (var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
@@ -349,7 +350,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
             await seed.OpenAsync(cancellationToken);
 
-        await WriteMetadataAsync(dir, new GroupLogMetadata(GroupId, fingerprint, 5UL, 0UL, string.Empty, 0UL, 0UL, 0UL), cancellationToken);
+        await WriteMetadataAsync(dir, new GroupLogMetadata(GroupId, fingerprint, 5UL, 0UL, string.Empty, 0UL, 0UL), cancellationToken);
 
         await using (var source = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
@@ -362,7 +363,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await using (var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance))
             await target.OpenAsync(cancellationToken);
 
-        await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, "node-1", 0UL, 0UL, 0UL), cancellationToken);
+        await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, "node-1", 0UL, 0UL), cancellationToken);
 
         File.Copy(GroupStoragePaths.GetSnapshotPath(dir, GroupId), GroupStoragePaths.GetSnapshotPath(dir2, GroupId));
 
@@ -419,7 +420,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
 
         File.Copy(GroupStoragePaths.GetSnapshotPath(dir, GroupId), GroupStoragePaths.GetSnapshotPath(dir2, GroupId));
 
-        await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 2UL, string.Empty, 3UL, 2UL, 2UL), cancellationToken);
+        await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 2UL, string.Empty, 2UL, 2UL), cancellationToken);
 
         await using var reopened = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);
@@ -480,7 +481,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         }
 
         File.Copy(GroupStoragePaths.GetSnapshotPath(dir, GroupId), GroupStoragePaths.GetSnapshotPath(dir2, GroupId));
-        await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, string.Empty, 3UL, 1UL, 0UL), cancellationToken);
+        await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, string.Empty, 1UL, 0UL), cancellationToken);
 
         await using (var recovered = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance))
             await recovered.OpenAsync(cancellationToken);
@@ -619,7 +620,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
 
         await store.PublishAsync(new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 3UL, 3UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch), cancellationToken);
 
-        var candidate = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, string.Empty, 3UL, 3UL, 3UL);
+        var candidate = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, string.Empty, 3UL, 3UL);
         await WriteMetadataAsync(dir, in candidate, cancellationToken);
 
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
@@ -747,7 +748,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
             await seed.OpenAsync(cancellationToken);
 
-        await WriteMetadataAsync(dir, new GroupLogMetadata(GroupId, fingerprint, 2UL, 0UL, string.Empty, 0UL, 0UL, 0UL), cancellationToken);
+        await WriteMetadataAsync(dir, new GroupLogMetadata(GroupId, fingerprint, 2UL, 0UL, string.Empty, 0UL, 0UL), cancellationToken);
 
         await using (var source = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
@@ -762,7 +763,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await using (var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance))
             await target.OpenAsync(cancellationToken);
 
-        await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, new byte[] { 5, 6, 7, 8 }, 2UL, 0UL, string.Empty, 0UL, 0UL, 0UL), cancellationToken);
+        await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, new byte[] { 5, 6, 7, 8 }, 2UL, 0UL, string.Empty, 0UL, 0UL), cancellationToken);
 
         File.Copy(GroupStoragePaths.GetSnapshotPath(dir, GroupId), GroupStoragePaths.GetSnapshotPath(dir2, GroupId));
 
@@ -942,8 +943,8 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     /// <exception cref="InvalidDataException">Thrown when the encoded metadata fails codec validation.</exception>
     private static async Task<ulong> ReadDurableCommitIndexAsync(TempDirectory dir, CancellationToken cancellationToken)
     {
-        var encoded = await File.ReadAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
-        return GroupLogCodec.TryDecodeMeta(encoded, out var meta) ? meta.CommitIndex : throw new InvalidDataException("The durable metadata payload failed codec validation.");
+        var meta = await GroupMetadataFile.ReadAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
+        return meta.CommitIndex;
     }
 
     /// <summary>Encodes metadata through the production codec and writes it as the group's durable metadata file.</summary>
@@ -951,10 +952,6 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     /// <param name="metadata">The metadata instance to encode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the file has been written.</returns>
-    private static Task WriteMetadataAsync(TempDirectory dir, in GroupLogMetadata metadata, CancellationToken cancellationToken)
-    {
-        var encoded = new byte[GroupLogCodec.ComputeMetaEncodedLength(in metadata)];
-        GroupLogCodec.EncodeMeta(in metadata, encoded);
-        return File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, metadata.GroupId), encoded, cancellationToken);
-    }
+    private static Task WriteMetadataAsync(TempDirectory dir, in GroupLogMetadata metadata, CancellationToken cancellationToken) =>
+        GroupMetadataFile.WriteAsync(GroupStoragePaths.GetMetadataPath(dir, metadata.GroupId), in metadata, cancellationToken);
 }

@@ -50,7 +50,7 @@ internal static class ReplicaDoctorReportBuilder
 
         // Both appends have side effects (report lines) and must always run: no short-circuiting here.
         var stampMismatch = await AppendStampLinesAsync(dataDirectory, expectedGeneration, replicaCount, expectedBytes, lines, cancellationToken).ConfigureAwait(false);
-        var groupMismatch = await AppendGroupLinesAsync(dataDirectory, groupIds, expectedBytes, expectedGeneration, lines, cancellationToken).ConfigureAwait(false);
+        var groupMismatch = AppendGroupLines(dataDirectory, groupIds, expectedBytes, expectedGeneration, lines, cancellationToken);
         var mismatch = stampMismatch || groupMismatch;
 
         return (mismatch, lines);
@@ -67,7 +67,7 @@ internal static class ReplicaDoctorReportBuilder
             $" fingerprint {(fingerprintMatch ? "match" : "MISMATCH")}" + $" generation {(generationMatch ? "match" : "MISMATCH")}");
     }
 
-    private static async Task<bool> AppendGroupLinesAsync(
+    private static bool AppendGroupLines(
         string dataDirectory,
         IReadOnlyList<string> groupIds,
         byte[] expectedFingerprint,
@@ -78,6 +78,7 @@ internal static class ReplicaDoctorReportBuilder
         var mismatch = false;
         for (var i = 0; i < groupIds.Count; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var groupId = groupIds[i];
             var metadataPath = GroupStoragePaths.GetMetadataPath(dataDirectory, groupId);
             if (!File.Exists(metadataPath))
@@ -86,10 +87,11 @@ internal static class ReplicaDoctorReportBuilder
                 continue;
             }
 
-            byte[] bytes;
+            // The read shares the file with a running node, so the doctor also works while the node holds it open.
+            GroupMetadataRead read;
             try
             {
-                bytes = await File.ReadAllBytesAsync(metadataPath, cancellationToken).ConfigureAwait(false);
+                read = GroupMetadataStore.Read(metadataPath);
             }
             catch (FileNotFoundException)
             {
@@ -97,13 +99,14 @@ internal static class ReplicaDoctorReportBuilder
                 continue;
             }
 
-            if (!GroupLogCodec.TryDecodeMeta(bytes, out var meta))
+            if (read.Status != GroupMetadataReadStatus.Valid)
             {
                 lines.Add($"group '{groupId}': metadata UNREADABLE (checksum or format mismatch)");
                 mismatch = true;
                 continue;
             }
 
+            var meta = read.Metadata;
             AppendGroupLine(lines, groupId, in meta, expectedFingerprint, expectedGeneration);
             if (!ReplicaTopologyMatch.MatchesFingerprint(meta.TopologyFingerprint, expectedFingerprint) ||
                 !ReplicaTopologyMatch.MatchesGeneration(meta.ConfigurationGeneration, expectedGeneration))

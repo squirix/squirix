@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,6 +14,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -133,7 +133,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         await using var follower = await CreateFollowerScopeAsync(CreateTopology().NodeId, true, null, cancellationToken);
         follower.Header.Term = 2;
         var request = new ReplicaVoteRequest { Header = follower.Header };
-        var before = await File.ReadAllBytesAsync(MetaPath(follower), cancellationToken);
+        var before = await GroupMetadataFile.ReadBytesAsync(MetaPath(follower), cancellationToken);
 
         var vote = await follower.Adapter.RequestVote(request, new TestServerCallContext(null, follower.HttpContext));
         var preVote = await follower.Adapter.PreVote(request, new TestServerCallContext(null, follower.HttpContext));
@@ -144,7 +144,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         _ = await Assert.That(preVote.Granted).IsFalse();
         _ = await Assert.That(preVote.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
         _ = await Assert.That(preVote.Term).IsEqualTo(0UL);
-        var after = await File.ReadAllBytesAsync(MetaPath(follower), cancellationToken);
+        var after = await GroupMetadataFile.ReadBytesAsync(MetaPath(follower), cancellationToken);
         await SequenceAssert.EqualAsync(before, after);
     }
 
@@ -284,7 +284,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     {
         await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
         var request = new ReplicaVoteRequest { Header = follower.Header };
-        var before = await File.ReadAllBytesAsync(MetaPath(follower), cancellationToken);
+        var before = await GroupMetadataFile.ReadBytesAsync(MetaPath(follower), cancellationToken);
 
         var vote = await follower.Adapter.RequestVote(request, new TestServerCallContext(null, follower.HttpContext));
         var preVote = await follower.Adapter.PreVote(request, new TestServerCallContext(null, follower.HttpContext));
@@ -297,7 +297,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var status = await GroupStatusAsync(follower, cancellationToken);
         _ = await Assert.That(status.CurrentTerm).IsEqualTo(0UL);
         _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
-        var after = await File.ReadAllBytesAsync(MetaPath(follower), cancellationToken);
+        var after = await GroupMetadataFile.ReadBytesAsync(MetaPath(follower), cancellationToken);
         await SequenceAssert.EqualAsync(before, after);
     }
 

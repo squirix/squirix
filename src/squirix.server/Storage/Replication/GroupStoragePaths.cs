@@ -58,7 +58,7 @@ internal static class GroupStoragePaths
     /// <returns>The metadata file path.</returns>
     internal static string GetMetadataPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), MetadataFileName);
 
-    /// <summary>Resolves the temporary metadata file path used for atomic replacement.</summary>
+    /// <summary>Resolves the temporary metadata file path used while the metadata file is first created.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
     /// <param name="groupId">The replica group identifier.</param>
     /// <returns>The temporary metadata file path.</returns>
