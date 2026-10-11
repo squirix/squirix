@@ -159,7 +159,7 @@ internal sealed class ReplicaElectionService : BackgroundService
                 ServerLog.ReplicaElectionPromotionPending(_log, groupId, outcome.Term);
                 break;
             case ElectionEvent.SteppedDown:
-                ServerLog.ReplicaElectionSteppedDown(_log, groupId, outcome.Term);
+                ReportSteppedDown(groupId, in outcome);
                 break;
             case ElectionEvent.RetirePending:
                 ServerLog.ReplicaElectionRetirePending(_log, groupId, outcome.Term);
@@ -170,11 +170,19 @@ internal sealed class ReplicaElectionService : BackgroundService
             case ElectionEvent.TermNotDurable:
                 ServerLog.ReplicaElectionTermNotDurable(_log, groupId, outcome.Term);
                 break;
-            case ElectionEvent.AuthorityTimedOut:
-                ServerLog.ReplicaElectionAuthorityTimedOut(_log, groupId, outcome.Term, outcome.Waited);
-                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(outcome), outcome.Event, "Unsupported election event.");
         }
+    }
+
+    /// <summary>Logs a step-down: a leadership that got no authority within its deadline names how long it waited.</summary>
+    /// <param name="groupId">The replica group.</param>
+    /// <param name="outcome">The outcome of the step.</param>
+    private void ReportSteppedDown(string groupId, in ElectionOutcome outcome)
+    {
+        if (outcome.Waited > TimeSpan.Zero)
+            ServerLog.ReplicaElectionAuthorityTimedOut(_log, groupId, outcome.Term, outcome.Waited);
+        else
+            ServerLog.ReplicaElectionSteppedDown(_log, groupId, outcome.Term);
     }
 }

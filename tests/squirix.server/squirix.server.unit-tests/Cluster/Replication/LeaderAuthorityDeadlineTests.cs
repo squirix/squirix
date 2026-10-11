@@ -35,7 +35,7 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
         var outcome = await LeadForAsync(scope, election, Tick, cancellationToken);
 
         _ = await Assert.That((early.Event, roleBefore)).IsEqualTo((ElectionEvent.PromotionPending, ReplicaGroupRole.Leader));
-        _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.AuthorityTimedOut, 2UL, FailoverDenial.None, TimeSpan.FromSeconds(30)));
+        _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.SteppedDown, 2UL, FailoverDenial.None, TimeSpan.FromSeconds(30)));
         _ = await Assert.That(scope.Leadership.Calls).EndsWith("retire:False");
         _ = await Assert.That((scope.State.Role, scope.State.HasAuthority)).IsEqualTo((ReplicaGroupRole.Follower, false));
     }
@@ -137,7 +137,7 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
         while (outcome.Event == ElectionEvent.PromotionPending);
 
         _ = await Assert.That(elected.Event).IsEqualTo(ElectionEvent.Elected);
-        _ = await Assert.That((pending, outcome.Event, outcome.Waited)).IsEqualTo((5, ElectionEvent.AuthorityTimedOut, TimeSpan.FromSeconds(30)));
+        _ = await Assert.That((pending, outcome.Event, outcome.Waited.TotalSeconds)).IsEqualTo((5, ElectionEvent.SteppedDown, 30d));
     }
 
     /// <summary>A give-up whose retirement stays pending is retried like any other pending retirement.</summary>
@@ -154,9 +154,28 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
         var pending = await election.StepAsync(cancellationToken);
         var retired = await election.StepAsync(cancellationToken);
 
-        _ = await Assert.That((gaveUp.Event, pending.Event, retired.Event)).IsEqualTo((ElectionEvent.AuthorityTimedOut, ElectionEvent.RetirePending, ElectionEvent.SteppedDown));
+        _ = await Assert.That((gaveUp.Event, pending.Event, retired.Event)).IsEqualTo((ElectionEvent.SteppedDown, ElectionEvent.RetirePending, ElectionEvent.SteppedDown));
+        _ = await Assert.That((gaveUp.Waited.TotalSeconds, retired.Waited.TotalSeconds)).IsEqualTo((30d, 0d));
         _ = await Assert.That(scope.Leadership.Calls).EndsWith("retire:False,retire:False,retire:False");
         _ = await Assert.That(scope.State.Role).IsEqualTo(ReplicaGroupRole.Follower);
+    }
+
+    /// <summary>A step-down on a higher term or a silent majority reports no wait for authority.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OrdinaryStepDownReportsNoWait(CancellationToken cancellationToken)
+    {
+        await using var higher = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
+        var higherElection = await ElectAsync(higher, cancellationToken);
+        higher.State.ObserveHigherTerm(7UL);
+        var deposed = await higherElection.StepAsync(cancellationToken);
+        await using var silent = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
+        var silentElection = await ElectAsync(silent, cancellationToken);
+        silent.Time.Advance(Options.ElectionTimeout);
+        var abandoned = await silentElection.StepAsync(cancellationToken);
+
+        _ = await Assert.That((deposed.Event, deposed.Waited.TotalSeconds)).IsEqualTo((ElectionEvent.SteppedDown, 0d));
+        _ = await Assert.That((abandoned.Event, abandoned.Waited.TotalSeconds)).IsEqualTo((ElectionEvent.SteppedDown, 0d));
     }
 
     private static Task<ElectionOutcome> CampaignAgainAsync(ElectionScope scope, ReplicaGroupElection election, CancellationToken cancellationToken)
@@ -179,7 +198,7 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
     private static async Task<double> GiveUpAsync(ElectionScope scope, ReplicaGroupElection election, CancellationToken cancellationToken)
     {
         var outcome = await LeadForAsync(scope, election, TimeSpan.FromMinutes(10), cancellationToken);
-        return outcome.Event == ElectionEvent.AuthorityTimedOut ? outcome.Waited.TotalSeconds : -1;
+        return outcome.Event == ElectionEvent.SteppedDown ? outcome.Waited.TotalSeconds : -1;
     }
 
     /// <summary>Runs leader ticks for a span of fake time, with one follower answering before each, until the leader gives up.</summary>
@@ -192,7 +211,7 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
     {
         var outcome = new ElectionOutcome(ElectionEvent.None, scope.State.Term);
         var remaining = span;
-        while (remaining > TimeSpan.Zero && outcome.Event != ElectionEvent.AuthorityTimedOut)
+        while (remaining > TimeSpan.Zero && outcome.Event != ElectionEvent.SteppedDown)
         {
             var slice = remaining < Slice ? remaining : Slice;
             scope.State.RecordFollowerContact(0, scope.State.Term);

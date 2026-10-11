@@ -26,6 +26,9 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
     /// <summary>The event id of a leader that gave the group up for want of authority.</summary>
     private const int AuthorityTimedOutEventId = 4052;
 
+    /// <summary>The event id of a leader that stepped down.</summary>
+    private const int SteppedDownEventId = 4042;
+
     /// <summary>The event id of the elections stopped by the host.</summary>
     private const int StoppedEventId = 4046;
 
@@ -102,7 +105,33 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         _ = await Assert.That(log.Count(AuthorityTimedOutEventId)).IsEqualTo(1);
         _ = await Assert.That(log.Find(AuthorityTimedOutEventId)?.Level).IsEqualTo(LogLevel.Warning);
         _ = await Assert.That(log.FindMessage(AuthorityTimedOutEventId)).Contains("term 1");
+        _ = await Assert.That(log.Count(SteppedDownEventId)).IsEqualTo(0);
         _ = await Assert.That(registry.StateFor("n1").HasAuthority).IsFalse();
+    }
+
+    /// <summary>An ordinary step-down of a leader logs the step-down message and never the missed-deadline warning.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OrdinaryStepDownLogsStepDown(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-election-service-stepdown");
+        await using var registry = await OpenAsync(dir, cancellationToken);
+        var log = new EventRecordingLogger();
+        using var service = Create(registry, 3, new Leadership(), log);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            await log.WhenLoggedAsync(AuthorizedEventId, "group n1 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            registry.StateFor("n1").ObserveHigherTerm(5UL);
+            await log.WhenLoggedAsync(SteppedDownEventId, "group n1 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That((log.Count(SteppedDownEventId), log.Count(AuthorityTimedOutEventId))).IsEqualTo((1, 0));
     }
 
     /// <summary>Groups of two replicas run no election loop: their owner leads them statically, and nothing is promoted.</summary>

@@ -20,9 +20,9 @@ namespace Squirix.Server.Cluster.Replication;
 /// first, then the vote round in the next term. A won term goes to the leadership, which commits a leader-term entry; authority is
 /// granted only once that entry is committed by a majority. A leader heartbeats its followers, retries the promotion until it is
 /// authorized, and steps down on a higher term or once a majority stayed silent for an election timeout, revoking its authority before
-/// it retires. A leader that stays without authority past its deadline gives the group up the same way and abstains from campaigning for
-/// a little longer than a normal timer, so another member can take it; see <see cref="AuthorityDeadline" />. The provisional term one of the group this node owns needs no election: only the owner may lead it, so a log that never
-/// left it is led at term one at once. The leadership reports a failure to promote or retire as <see langword="false" />; anything it
+/// it retires. A leader that stays without authority past its deadline steps down the same way and abstains from campaigning for a
+/// little longer than a normal timer, so another member can take it; see <see cref="AuthorityDeadline" />. The provisional term one of
+/// the group this node owns needs no election: only the owner may lead it, so a log that never left it is led at term one at once. The leadership reports a failure to promote or retire as <see langword="false" />; anything it
 /// throws faults the step.
 /// </para>
 /// </remarks>
@@ -81,6 +81,19 @@ internal sealed class ReplicaGroupElection
         _jitter = new ElectionJitter(state.Options.JitterSeed, header.GroupId);
         _deadline = new AuthorityDeadline(state.Clock, state.Options);
         Arm();
+    }
+
+    /// <summary>Why the leader of a term leaves it.</summary>
+    private enum LeaderExit
+    {
+        /// <summary>It stays.</summary>
+        None = 0,
+
+        /// <summary>A higher term was observed, or no majority of followers answered within the election timeout.</summary>
+        Deposed = 1,
+
+        /// <summary>It got no authority within its deadline.</summary>
+        AuthorityTimedOut = 2,
     }
 
     /// <summary>Gets the replica group identifier.</summary>
@@ -213,9 +226,9 @@ internal sealed class ReplicaGroupElection
     private async Task<ElectionOutcome> LeadStepAsync(CancellationToken cancellationToken)
     {
         var term = _state.Term;
-        var verdict = LeaderVerdict(term);
-        if (verdict != ElectionEvent.None)
-            return await LeaveAsync(term, verdict, cancellationToken).ConfigureAwait(false);
+        var exit = LeaderVerdict(term);
+        if (exit != LeaderExit.None)
+            return await LeaveAsync(term, exit, cancellationToken).ConfigureAwait(false);
 
         await _leadership.HeartbeatAsync(GroupId, cancellationToken).ConfigureAwait(false);
         return true switch
@@ -229,34 +242,34 @@ internal sealed class ReplicaGroupElection
     /// <summary>Decides whether the leader of a term must leave it.</summary>
     /// <param name="term">The term led.</param>
     /// <returns>
-    /// <see cref="ElectionEvent.SteppedDown" /> on a higher term or a silent majority; otherwise <see cref="ElectionEvent.AuthorityTimedOut" />
-    /// when the leader got no authority within its deadline, checked after the other two; otherwise <see cref="ElectionEvent.None" />.
+    /// <see cref="LeaderExit.Deposed" /> on a higher term or a silent majority; otherwise <see cref="LeaderExit.AuthorityTimedOut" />
+    /// when the leader got no authority within its deadline, checked after the other two; otherwise <see cref="LeaderExit.None" />.
     /// </returns>
-    private ElectionEvent LeaderVerdict(ulong term)
+    private LeaderExit LeaderVerdict(ulong term)
     {
         var deposed = _state.HighestObservedTerm > term || !_state.HasQuorumContact(_selfSlot, _state.Options.ElectionTimeout);
         return true switch
         {
-            _ when deposed => ElectionEvent.SteppedDown,
-            _ when _deadline.IsOverdue(_state.HasAuthority) => ElectionEvent.AuthorityTimedOut,
-            _ => ElectionEvent.None,
+            _ when deposed => LeaderExit.Deposed,
+            _ when _deadline.IsOverdue(_state.HasAuthority) => LeaderExit.AuthorityTimedOut,
+            _ => LeaderExit.None,
         };
     }
 
     /// <summary>Leaves the led term; a leader that missed its authority deadline then abstains from campaigning for a little longer than a normal timer.</summary>
     /// <param name="term">The term led.</param>
-    /// <param name="verdict">Why the leader leaves.</param>
+    /// <param name="exit">Why the leader leaves.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The outcome of the step-down, or the missed deadline, whose retirement is retried like any pending one.</returns>
-    private async Task<ElectionOutcome> LeaveAsync(ulong term, ElectionEvent verdict, CancellationToken cancellationToken)
+    /// <returns>The outcome of the step-down; for a missed deadline it also carries how long the leader waited.</returns>
+    private async Task<ElectionOutcome> LeaveAsync(ulong term, LeaderExit exit, CancellationToken cancellationToken)
     {
-        if (verdict != ElectionEvent.AuthorityTimedOut)
+        if (exit != LeaderExit.AuthorityTimedOut)
             return await StepDownAsync(term, cancellationToken).ConfigureAwait(false);
 
         // The step-down arms the election timer right away and takes the pending abstain with it.
         var waited = _deadline.GiveUp();
         _ = await StepDownAsync(term, cancellationToken).ConfigureAwait(false);
-        return new ElectionOutcome(verdict, term, FailoverDenial.None, waited);
+        return new ElectionOutcome(ElectionEvent.SteppedDown, term, FailoverDenial.None, waited);
     }
 
     private ElectionOutcome Lose(ElectionEvent lost, ulong term)
