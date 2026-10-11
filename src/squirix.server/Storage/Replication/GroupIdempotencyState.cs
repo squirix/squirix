@@ -56,6 +56,7 @@ internal sealed class GroupIdempotencyState
     /// <summary>The default retention window for resolved outcomes.</summary>
     internal static readonly TimeSpan DefaultRetention = TimeSpan.FromHours(1);
 
+    private readonly GroupOutcomeOrder<GroupOperationKey> _order;
     private readonly Dictionary<GroupOperationKey, StoredRecord> _records;
     private readonly TimeSpan _retention;
     private readonly Lock _sync = new();
@@ -100,6 +101,16 @@ internal sealed class GroupIdempotencyState
         ArgumentNullException.ThrowIfNull(timeProvider);
         _timeProvider = timeProvider;
         _records = [];
+        _order = new GroupOutcomeOrder<GroupOperationKey>(
+            timeProvider,
+            retention,
+            (key, sequence, out age) =>
+            {
+                // Only a resolved record has a sequence, so an unresolved or replaced record never matches.
+                var live = _records.TryGetValue(key, out var stored) && stored.Sequence == sequence;
+                age = live ? stored.Age(timeProvider) : TimeSpan.Zero;
+                return live;
+            });
     }
 
     /// <summary>Initializes a new instance of the <see cref="GroupIdempotencyState" /> class.</summary>
@@ -305,7 +316,7 @@ internal sealed class GroupIdempotencyState
 
             var memory = BufferEx.CopyToOwned(operationFingerprint);
             var record = new GroupIdempotencyRecord(scope, operationId, memory, ReadOnlyMemory<byte>.Empty, kind, _timeProvider.GetUtcNow().UtcDateTime, null, logIndex, term);
-            _records[key] = new StoredRecord(record, 0L, TimeSpan.Zero);
+            _records[key] = new StoredRecord(record, 0L, TimeSpan.Zero, 0L);
             AdjustExemptPins(in record, 1);
 
             return GroupIdempotencyReserveResult.Success;
@@ -367,7 +378,7 @@ internal sealed class GroupIdempotencyState
         {
             return OutcomesRebuilt
                 ? ThrowHelper.Throw<GroupOutcomeRestoreResult>(new InvalidOperationException("The outcomes of the committed log entries are already rebuilt."))
-                : (_rebuild ??= new OutcomeRebuild()).Restore(_records, in record, age, (_retention, Capacity + _exemptPins, _timeProvider));
+                : (_rebuild ??= new OutcomeRebuild()).Restore(_records, in record, age, (_retention, Capacity + _exemptPins, _timeProvider, _order));
         }
     }
 
@@ -419,7 +430,11 @@ internal sealed class GroupIdempotencyState
             }
 
             var age = _timeProvider.GetUtcNow().UtcDateTime - record.ResolvedUtc!.Value;
-            _records[key] = new StoredRecord(record, _timeProvider.GetTimestamp(), age > TimeSpan.Zero ? age : TimeSpan.Zero);
+            age = age > TimeSpan.Zero ? age : TimeSpan.Zero;
+            var anchor = _timeProvider.GetTimestamp();
+            var sequence = _order.NextSequence();
+            _order.Add(key, sequence, anchor, age);
+            _records[key] = new StoredRecord(record, anchor, age, sequence);
         }
     }
 
@@ -477,7 +492,10 @@ internal sealed class GroupIdempotencyState
             }
 
             var resolved = record.Resolve(BufferEx.CopyToOwned(outcomePayload), _timeProvider.GetUtcNow().UtcDateTime);
-            _records[key] = new StoredRecord(resolved, _timeProvider.GetTimestamp(), TimeSpan.Zero);
+            var anchor = _timeProvider.GetTimestamp();
+            var sequence = _order.NextSequence();
+            _order.Add(key, sequence, anchor, TimeSpan.Zero);
+            _records[key] = new StoredRecord(resolved, anchor, TimeSpan.Zero, sequence);
             return true;
         }
     }
@@ -492,21 +510,6 @@ internal sealed class GroupIdempotencyState
     /// <param name="sign">1 when the record is added; -1 when it is removed.</param>
     /// <remarks>Called under <see cref="_sync" />.</remarks>
     private void AdjustExemptPins(in GroupIdempotencyRecord record, int sign) => _exemptPins += record.IsUnresolved && !AnswersRetries(record.Kind) ? sign : 0;
-
-    private List<GroupOperationKey> CollectExpiredKeys()
-    {
-        var expired = new List<GroupOperationKey>();
-        if (_retention == TimeSpan.MaxValue)
-            return expired;
-
-        foreach (var (key, stored) in _records)
-        {
-            if (stored.Record.IsResolved && stored.Age(_timeProvider) >= _retention)
-                expired.Add(key);
-        }
-
-        return expired;
-    }
 
     /// <summary>Collects the in-memory records whose journal index survives the snapshot boundary.</summary>
     /// <param name="retainedSet">The retained journal indexes after the snapshot boundary.</param>
@@ -525,16 +528,10 @@ internal sealed class GroupIdempotencyState
 
     private void ExpireCore()
     {
-        if (_retention == TimeSpan.MaxValue)
-            return;
+        while (_order.TryTakeExpired(out var key))
+            _ = _records.Remove(key);
 
-        if (_records.Count == 0)
-            return;
-
-        var expired = CollectExpiredKeys();
-
-        for (var i = 0; i < expired.Count; i++)
-            _ = _records.Remove(expired[i]);
+        _order.Compact(_records.Count);
     }
 
     /// <summary>Keeps the snapshot outcomes still inside their retention window and anchors their age on this node's monotonic clock.</summary>
@@ -555,7 +552,7 @@ internal sealed class GroupIdempotencyState
             var age = capturedUtc - record.ResolvedUtc!.Value;
             age = age > TimeSpan.Zero ? age : TimeSpan.Zero;
             if (_retention == TimeSpan.MaxValue || age < _retention)
-                surviving.Add(new StoredRecord(record, anchor, age));
+                surviving.Add(new StoredRecord(record, anchor, age, _order.NextSequence()));
         }
 
         return surviving;
@@ -573,9 +570,15 @@ internal sealed class GroupIdempotencyState
         for (var i = 0; i < retained.Count; i++)
             _records[GroupOperationKey.Of(retained[i].Record)] = retained[i];
 
+        // The table was rebuilt: order its resolved records afresh, which drops every entry made for the old one.
         _exemptPins = 0;
-        foreach (var stored in _records.Values)
+        _order.Clear();
+        foreach (var (key, stored) in _records)
+        {
             AdjustExemptPins(stored.Record, 1);
+            if (stored.Record.IsResolved)
+                _order.Add(key, stored.Sequence, stored.AnchorTimestamp, stored.AgeAtAnchor);
+        }
     }
 
     /// <summary>Identity of a retained idempotency record.</summary>
@@ -594,8 +597,9 @@ internal sealed class GroupIdempotencyState
     /// <param name="Record">The record.</param>
     /// <param name="AnchorTimestamp">The monotonic timestamp the age is counted from; unused while the record is unresolved.</param>
     /// <param name="AgeAtAnchor">The age the record already had at <paramref name="AnchorTimestamp" />, carried over from a snapshot.</param>
+    /// <param name="Sequence">The generation of a resolved record in the expiry order; <c language="csharp">0</c> while the record is unresolved.</param>
     [Immutable]
-    private readonly record struct StoredRecord(GroupIdempotencyRecord Record, long AnchorTimestamp, TimeSpan AgeAtAnchor)
+    private readonly record struct StoredRecord(GroupIdempotencyRecord Record, long AnchorTimestamp, TimeSpan AgeAtAnchor, long Sequence)
     {
         /// <summary>Returns how long ago the record was resolved, on the monotonic clock.</summary>
         /// <param name="clock">The clock the anchor was read from.</param>
@@ -638,20 +642,19 @@ internal sealed class GroupIdempotencyState
         /// <param name="records">The records of the store.</param>
         /// <param name="record">The resolved record rebuilt from the entry.</param>
         /// <param name="age">How long ago the outcome was decided.</param>
-        /// <param name="limits">The retention, the capacity and the clock of the store.</param>
+        /// <param name="limits">The retention, the capacity, the clock and the expiry order of the store.</param>
         /// <returns>What became of the outcome.</returns>
         internal GroupOutcomeRestoreResult Restore(
             Dictionary<GroupOperationKey, StoredRecord> records,
             in GroupIdempotencyRecord record,
             TimeSpan age,
-            (TimeSpan Retention, int Capacity, TimeProvider Clock) limits)
+            (TimeSpan Retention, int Capacity, TimeProvider Clock, GroupOutcomeOrder<GroupOperationKey> Order) limits)
         {
             age = age > TimeSpan.Zero ? age : TimeSpan.Zero;
             if (limits.Retention != TimeSpan.MaxValue && age >= limits.Retention)
                 return GroupOutcomeRestoreResult.Expired;
 
             var key = GroupOperationKey.Of(in record);
-            var stored = new StoredRecord(record, limits.Clock.GetTimestamp(), age);
             if (records.TryGetValue(key, out var existing))
             {
                 if (existing.Record.IsUnresolved || existing.Record.LogIndex >= record.LogIndex)
@@ -662,7 +665,10 @@ internal sealed class GroupIdempotencyState
                 return GroupOutcomeRestoreResult.Full;
             }
 
-            records[key] = stored;
+            var anchor = limits.Clock.GetTimestamp();
+            var sequence = limits.Order.NextSequence();
+            limits.Order.Add(key, sequence, anchor, age);
+            records[key] = new StoredRecord(record, anchor, age, sequence);
             return GroupOutcomeRestoreResult.Restored;
         }
 
