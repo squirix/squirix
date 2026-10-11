@@ -85,7 +85,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         _ = hooks.Setups.OnCommitAdvanced();
         _ = hooks.Setups.OnBeforeMemoryApply();
         _ = hooks.Setups.OnFlushed().Callback(() => FailIfArmed(armed));
-        _ = hooks.Setups.OnMetaWritten();
+        _ = hooks.Setups.OnMetaPublishing();
         await using (var log = await SeedAsync(dir, new FollowerLogOptions { FaultHooks = hooks.Instance() }, cancellationToken))
         {
             armed = true;

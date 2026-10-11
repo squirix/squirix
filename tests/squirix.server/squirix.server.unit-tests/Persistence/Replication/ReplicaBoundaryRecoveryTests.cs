@@ -112,7 +112,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
         await ReplicaLastIndexRecoveryTests.PublishSnapshotAsync(dir, GroupId, 4UL, cancellationToken);
 
         var faults = new IFollowerLogFaultHooksCreateExpectations();
-        _ = faults.Setups.OnMetaWritten().Callback(static () => throw new IOException("simulated failure at the metadata publish."));
+        _ = faults.Setups.OnMetaPublishing().Callback(static () => throw new IOException("simulated failure at the metadata publish."));
         _ = faults.Setups.OnCommitAdvanced();
         _ = faults.Setups.OnFrameWritten();
         _ = faults.Setups.OnFlushed();

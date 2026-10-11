@@ -82,7 +82,7 @@ public sealed class ObserveTermTests : ServerUnitTestBase
         _ = faults.Setups.OnFlushed();
         _ = faults.Setups.OnCommitAdvanced();
         _ = faults.Setups.OnBeforeMemoryApply();
-        _ = faults.Setups.OnMetaWritten().Callback(() =>
+        _ = faults.Setups.OnMetaPublishing().Callback(() =>
         {
             if (armed)
                 throw new IOException("simulated crash before the metadata is published.");
@@ -140,7 +140,7 @@ public sealed class ObserveTermTests : ServerUnitTestBase
         _ = faults.Setups.OnFlushed();
         _ = faults.Setups.OnCommitAdvanced();
         _ = faults.Setups.OnBeforeMemoryApply();
-        _ = faults.Setups.OnMetaWritten().Callback(() =>
+        _ = faults.Setups.OnMetaPublishing().Callback(() =>
         {
             if (!armed)
                 return;

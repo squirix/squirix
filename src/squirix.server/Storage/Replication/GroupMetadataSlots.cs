@@ -15,6 +15,10 @@ namespace Squirix.Server.Storage.Replication;
 ///     A slot is valid when its magic, version, length, checksum and payload all check and its sequence is not zero. The newest valid slot wins; two
 ///     valid slots with one sequence are accepted only when they are byte-identical, since distinct records never share a sequence.
 ///     </para>
+///     <para>
+///     A vote grant is stored in both slots (see <see cref="GroupMetadataStore" />), because the fallback to the older slot after a damaged newest one
+///     must never roll back a vote; any other record may be rolled back by one publish.
+///     </para>
 /// </remarks>
 internal static class GroupMetadataSlots
 {
@@ -74,8 +78,12 @@ internal static class GroupMetadataSlots
     /// <returns>The newest valid record, or why there is none.</returns>
     internal static GroupMetadataRead Select(ReadOnlySpan<byte> image)
     {
-        if (image.Length != FileSize || BinaryPrimitives.ReadUInt32LittleEndian(image) == EarlierMagic)
+        // Only the earlier magic proves a file belongs to an earlier build; any other wrong size is damage.
+        if (image.Length >= sizeof(uint) && BinaryPrimitives.ReadUInt32LittleEndian(image) == EarlierMagic)
             return Failure(GroupMetadataReadStatus.Unsupported);
+
+        if (image.Length != FileSize)
+            return Failure(GroupMetadataReadStatus.Corrupt);
 
         var first = image[..SlotSize];
         var second = image[SlotSize..];

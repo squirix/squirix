@@ -39,5 +39,5 @@ public sealed class CountingFollowerLogFaultHooks : IFollowerLogFaultHooks
     public void OnFrameWritten() => _ = Interlocked.Increment(ref _frameWrites);
 
     /// <inheritdoc />
-    public void OnMetaWritten() => _ = Interlocked.Increment(ref _metaWrites);
+    public void OnMetaPublishing() => _ = Interlocked.Increment(ref _metaWrites);
 }

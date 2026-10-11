@@ -15,6 +15,11 @@ namespace Squirix.Server.Storage.Replication;
 ///     as a complete image, which is created beside it and renamed into place, so it never exists without a valid slot.
 ///     </para>
 ///     <para>
+///     A vote grant is published mirrored, into both slots. The reader falls back to the older slot when the newest fails its checksum, which is right
+///     for a torn write, but damage at rest to an acknowledged newest slot looks the same, and rolling back a term step or a commit advance by one record
+///     is harmless while rolling back a vote could allow a second vote in the same term.
+///     </para>
+///     <para>
 ///     Not thread-safe: the owning follower log serializes every call under its gate. The layout lives in <see cref="GroupMetadataSlots" />.
 ///     </para>
 /// </remarks>
@@ -72,23 +77,23 @@ internal sealed class GroupMetadataStore : IDisposable
     {
         using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, ReaderShare, FileOptions.None);
         var length = RandomAccess.GetLength(handle);
-        if (length != GroupMetadataSlots.FileSize)
-            return GroupMetadataSlots.Select([]);
 
+        // A file of another size is only told apart by its first bytes, the earlier magic, so no more than that is read of it.
+        var wanted = length == GroupMetadataSlots.FileSize ? GroupMetadataSlots.FileSize : int.CreateTruncating(Math.Min(length, sizeof(uint)));
         var image = ArrayPool<byte>.Shared.Rent(GroupMetadataSlots.FileSize);
         try
         {
             var read = 0;
-            while (read < GroupMetadataSlots.FileSize)
+            while (read < wanted)
             {
-                var count = RandomAccess.Read(handle, image.AsSpan(read, GroupMetadataSlots.FileSize - read), read);
+                var count = RandomAccess.Read(handle, image.AsSpan(read, wanted - read), read);
                 if (count == 0)
                     break;
 
                 read += count;
             }
 
-            // A file that shrank while it was read is refused like any other file of another size.
+            // A file that shrank while it was read is judged on the bytes that were there.
             return GroupMetadataSlots.Select(image.AsSpan(0, read));
         }
         finally
@@ -133,11 +138,24 @@ internal sealed class GroupMetadataStore : IDisposable
         var target = _currentSlot == 0 ? 1 : 0;
         long offset = target == 0 ? 0 : GroupMetadataSlots.SlotSize;
         GroupMetadataSlots.Encode(_slot, next, in meta);
-        _faults.OnMetaWritten();
+        _faults.OnMetaPublishing();
         RandomAccess.Write(handle, _slot, offset);
         RandomAccess.FlushToDisk(handle);
         _currentSlot = target;
         _sequence = next;
+    }
+
+    /// <summary>Durably publishes a record twice, so that both slots hold it.</summary>
+    /// <param name="meta">The record.</param>
+    /// <exception cref="InvalidOperationException">The record does not fit a slot, or the file exists but was not opened.</exception>
+    /// <remarks>
+    /// Each publish is a full <see cref="Publish" /> with its own fault hook call. A crash or failure between the two leaves the first copy as the
+    /// current record, which is a valid durable state, and a failure of the second is reported like any failed publish.
+    /// </remarks>
+    internal void PublishMirrored(in GroupLogMetadata meta)
+    {
+        Publish(in meta);
+        Publish(in meta);
     }
 
     private void Create(in GroupLogMetadata meta)
@@ -151,7 +169,7 @@ internal sealed class GroupMetadataStore : IDisposable
             // The whole image is zeroed first: the second slot stays never written, and a rented array is not clean.
             image.AsSpan(0, GroupMetadataSlots.FileSize).Clear();
             GroupMetadataSlots.Encode(image.AsSpan(0, GroupMetadataSlots.SlotSize), 1UL, in meta);
-            _faults.OnMetaWritten();
+            _faults.OnMetaPublishing();
             using var temp = File.OpenHandle(_tempPath, FileMode.Create, FileAccess.Write, FileShare.None, FileOptions.WriteThrough);
             RandomAccess.Write(temp, image.AsSpan(0, GroupMetadataSlots.FileSize), 0);
             RandomAccess.FlushToDisk(temp);

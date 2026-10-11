@@ -54,7 +54,7 @@ public sealed class ArmableFlushFaultHooks : IFollowerLogFaultHooks
     }
 
     /// <inheritdoc />
-    public void OnMetaWritten()
+    public void OnMetaPublishing()
     {
     }
 }

@@ -402,7 +402,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
     private static IFollowerLogFaultHooksCreateExpectations CreateFaultExpectations()
     {
         var expectations = new IFollowerLogFaultHooksCreateExpectations();
-        _ = expectations.Setups.OnMetaWritten();
+        _ = expectations.Setups.OnMetaPublishing();
         _ = expectations.Setups.OnCommitAdvanced();
         return expectations;
     }

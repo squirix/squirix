@@ -789,24 +789,32 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         internal static bool IsLogUpToDate(ulong candidateLastTerm, ulong candidateLastIndex, ulong localLastTerm, ulong localLastIndex) =>
             candidateLastTerm != localLastTerm ? candidateLastTerm > localLastTerm : candidateLastIndex >= localLastIndex;
 
-        internal static async Task PersistMetaOrFailReadinessAsync(
-            FollowerLogJournal journal,
-            IFollowerLogContext owner,
-            GroupLogMetadata candidate,
-            CancellationToken cancellationToken)
+        internal static async Task PersistMetaOrFailReadinessAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupLogMetadata candidate, CancellationToken cancellationToken)
         {
             try
             {
-                await FollowerLogDurable.PersistMetaAsync(journal, owner, in candidate, cancellationToken).ConfigureAwait(false);
+                await FollowerLogDurable.PersistMetaAsync(journal, owner, in candidate, false, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
+            catch (Exception ex) when (FailsReadiness(ex))
             {
-                // Neither is a publication failure, so readiness is preserved. Cancellation lets the caller retry;
-                // a dispose that faulted the in-flight write on shutdown says nothing about the storage, the write
-                // itself may still land, and restart recovery reconciles it.
+                owner.Readiness = FollowerLogReadiness.Failed;
                 throw;
             }
-            catch
+        }
+
+        /// <summary>Persists a vote grant into both metadata slots, failing readiness like <see cref="PersistMetaOrFailReadinessAsync" />.</summary>
+        /// <param name="journal">The storage surface.</param>
+        /// <param name="owner">The owning follower log.</param>
+        /// <param name="candidate">The metadata that records the grant.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>A task that completes once both copies are durable.</returns>
+        internal static async Task PersistMirroredMetaOrFailReadinessAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupLogMetadata candidate, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await FollowerLogDurable.PersistMetaAsync(journal, owner, in candidate, true, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (FailsReadiness(ex))
             {
                 owner.Readiness = FollowerLogReadiness.Failed;
                 throw;
@@ -876,6 +884,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 return journal.EntryOffsets.TryGetValue(logIndex, out var location) ? location.Term : baselineTerm;
             }
         }
+
+        /// <summary>Tells whether a failed metadata publish fails readiness.</summary>
+        /// <param name="exception">The failure.</param>
+        /// <returns><see langword="false" /> for cancellation and a dispose, which say nothing about the storage: cancellation lets the caller retry, and a write faulted by a dispose may still land and is reconciled by restart recovery.</returns>
+        private static bool FailsReadiness(Exception exception) => exception is not (OperationCanceledException or ObjectDisposedException);
 
         private static async Task<FollowerLogAppendResult> CompleteAppendAsync(
             FollowerLogJournal journal,
@@ -1043,12 +1056,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             owner.LogLength = startOffset + totalLength;
         }
 
-        internal static Task PersistMetaAsync(FollowerLogJournal journal, IFollowerLogContext owner, in GroupLogMetadata meta, CancellationToken cancellationToken)
+        internal static Task PersistMetaAsync(FollowerLogJournal journal, IFollowerLogContext owner, in GroupLogMetadata meta, bool mirrored, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             // A non-cancelable scheduling token after the explicit check guarantees the worker always runs.
-            return new MetaDurableWork(owner.Acks, journal.Metadata, in meta).RunTrackedAsync();
+            return new MetaDurableWork(owner.Acks, journal.Metadata, in meta, mirrored).RunTrackedAsync();
         }
 
         internal static async Task<(int Length, List<long> Offsets)> ReplaceLogAsync(
@@ -1213,16 +1226,24 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         private sealed class MetaDurableWork : TrackedDurableWorkBase
         {
             private readonly GroupLogMetadata _meta;
+            private readonly bool _mirrored;
             private readonly GroupMetadataStore _store;
 
-            internal MetaDurableWork(FollowerLogAckRegistry acks, GroupMetadataStore store, in GroupLogMetadata meta)
+            internal MetaDurableWork(FollowerLogAckRegistry acks, GroupMetadataStore store, in GroupLogMetadata meta, bool mirrored)
                 : base(acks)
             {
                 _store = store;
                 _meta = meta;
+                _mirrored = mirrored;
             }
 
-            protected override void Run() => _store.Publish(in _meta);
+            protected override void Run()
+            {
+                if (_mirrored)
+                    _store.PublishMirrored(in _meta);
+                else
+                    _store.Publish(in _meta);
+            }
         }
 
         /// <summary>Writes and flushes the header plus each retained frame incrementally before atomically publishing the result as the log.</summary>
@@ -1433,9 +1454,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (string.Equals(owner.Meta.VotedFor, request.CandidateId, StringComparison.Ordinal))
                 return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
 
-            // The granted vote is persisted before reporting success, so a restart never grants a second vote.
+            // The granted vote is persisted before reporting success, so a restart never grants a second vote. It is the one record that
+            // is mirrored into both slots: a damaged newest slot would otherwise roll the vote back to the previous record. This is also
+            // the path of a candidate's vote for itself.
             var granted = owner.Meta with { VotedFor = request.CandidateId };
-            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, granted, completion).ConfigureAwait(false);
+            await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(journal, owner, granted, completion).ConfigureAwait(false);
             owner.Meta = granted;
             return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
         }
@@ -2690,7 +2713,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
         }
 
-        public void OnMetaWritten()
+        public void OnMetaPublishing()
         {
         }
     }

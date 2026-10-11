@@ -1089,7 +1089,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         {
         }
 
-        public void OnMetaWritten()
+        public void OnMetaPublishing()
         {
         }
 

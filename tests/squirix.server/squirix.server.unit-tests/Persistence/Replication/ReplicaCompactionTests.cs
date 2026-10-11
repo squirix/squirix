@@ -143,7 +143,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         _ = hooks.Setups.OnCommitAdvanced();
         _ = hooks.Setups.OnBeforeMemoryApply();
         _ = hooks.Setups.OnFlushed().Callback(() => FailIfArmed(armed));
-        _ = hooks.Setups.OnMetaWritten();
+        _ = hooks.Setups.OnMetaPublishing();
         await using (var log = await SeedCommittedTailAsync(dir, new FollowerLogOptions { FaultHooks = hooks.Instance() }, cancellationToken))
         {
             armed = true;
@@ -180,7 +180,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         _ = hooks.Setups.OnFrameWritten();
         _ = hooks.Setups.OnCommitAdvanced();
         _ = hooks.Setups.OnBeforeMemoryApply();
-        _ = hooks.Setups.OnMetaWritten();
+        _ = hooks.Setups.OnMetaPublishing();
 
         // The first flush once armed publishes the snapshot: the outcome recorded there lands between the snapshot and the log rewrite.
         _ = hooks.Setups.OnFlushed().Callback(() =>

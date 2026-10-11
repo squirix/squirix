@@ -7,7 +7,7 @@ internal interface IFollowerLogFaultHooks
     void OnFrameWritten();
 
     /// <summary>Invoked once per metadata publish attempt, after the record is encoded and before any byte of the metadata file changes; a fault leaves the previous record in place.</summary>
-    void OnMetaWritten();
+    void OnMetaPublishing();
 
     /// <summary>Invoked after a durable flush of log or metadata bytes.</summary>
     void OnFlushed();

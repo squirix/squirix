@@ -218,7 +218,7 @@ public sealed class GroupMetadataStoreTests : ServerUnitTestBase
         await AssertBytesAsync(path, earlier, cancellationToken);
     }
 
-    /// <summary>A file of any size other than two slots is refused and not modified, even when its first bytes look like a slot.</summary>
+    /// <summary>A file of any size other than two slots is corrupt, not from an earlier build, and is not modified, even when its first bytes look like a slot.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task WrongSizeIsRefused(CancellationToken cancellationToken)
@@ -234,7 +234,7 @@ public sealed class GroupMetadataStoreTests : ServerUnitTestBase
         using var store = NewStore(dir, new CountingFollowerLogFaultHooks());
         var loaded = store.Open();
 
-        _ = await Assert.That(loaded.Status).IsEqualTo(GroupMetadataReadStatus.Unsupported);
+        _ = await Assert.That(loaded.Status).IsEqualTo(GroupMetadataReadStatus.Corrupt);
         await AssertBytesAsync(path, longer, cancellationToken);
     }
 
@@ -267,7 +267,7 @@ public sealed class GroupMetadataStoreTests : ServerUnitTestBase
         _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, GroupId));
         var armed = false;
         var faults = new IFollowerLogFaultHooksCreateExpectations();
-        _ = faults.Setups.OnMetaWritten().Callback(() =>
+        _ = faults.Setups.OnMetaPublishing().Callback(() =>
         {
             if (armed)
                 throw new IOException("simulated failure at the metadata publish.");
@@ -295,7 +295,7 @@ public sealed class GroupMetadataStoreTests : ServerUnitTestBase
         _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, GroupId));
         var armed = true;
         var faults = new IFollowerLogFaultHooksCreateExpectations();
-        _ = faults.Setups.OnMetaWritten().Callback(() =>
+        _ = faults.Setups.OnMetaPublishing().Callback(() =>
         {
             if (armed)
                 throw new IOException("simulated failure at the metadata creation.");

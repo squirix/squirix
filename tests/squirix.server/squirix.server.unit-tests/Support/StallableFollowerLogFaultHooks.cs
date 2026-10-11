@@ -59,7 +59,7 @@ internal sealed class StallableFollowerLogFaultHooks : IFollowerLogFaultHooks, I
     public void OnFrameWritten() => Stall(FrameArmed);
 
     /// <inheritdoc />
-    public void OnMetaWritten() => Stall(MetaArmed);
+    public void OnMetaPublishing() => Stall(MetaArmed);
 
     /// <summary>Releases the parked pool thread, which then finishes its write normally.</summary>
     internal void Release() => _release.Set();
