@@ -2434,12 +2434,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 CommitIndex = Math.Max(owner.Meta.CommitIndex, Math.Min(snapshot.CommitIndex, snapshot.LastIncludedIndex)),
 
                 // A snapshot installation rewrites the durable log to a header plus the retained tail above the boundary, so
-                // every frame at or below the boundary leaves the log and nothing can apply it any more: the applied
-                // watermark moves to the boundary. Keeping it below would point the applier at entries no frame holds, and
-                // its catch-up would refuse the gap forever. The snapshot carries no payloads, so a boundary above the applied
-                // watermark would count entries as applied that memory never received: the eligibility check refuses such a
-                // boundary, one below the applied watermark, and one above the snapshot's commit index, so the watermark
-                // never moves.
+                // every frame at or below the boundary leaves the log and nothing can apply it any more. The snapshot carries
+                // no payloads, so a boundary above the applied watermark would count entries as applied that memory never
+                // received. The eligibility check refuses a boundary below the watermark too, so an install is accepted only
+                // when its boundary equals the applied watermark, which then does not move.
                 LastAppliedIndex = Math.Max(owner.Meta.LastAppliedIndex, snapshot.LastIncludedIndex),
             };
         }
