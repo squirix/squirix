@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -19,16 +20,6 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
     private const ulong Committed = 3UL;
     private const int EntryCount = 3;
     private const string GroupId = "grp-compact-through";
-
-    /// <summary>A durability boundary of the compaction.</summary>
-    public enum FaultBoundary
-    {
-        /// <summary>The snapshot is published; the rewritten log is flushed to its temp file but not yet swapped in.</summary>
-        AfterSnapshotPublish = 0,
-
-        /// <summary>The log is swapped for the header-only rewrite; the metadata is written to its temp file but not yet published.</summary>
-        AfterLogReplace = 1,
-    }
 
     /// <summary>A committed and applied log compacts to its header alone, keeps its last term from the baseline, and reopens the same.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -50,13 +41,42 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         await AssertCompactedStateAsync(reopened, cancellationToken);
     }
 
-    /// <summary>A failure at either durability boundary of the compaction leaves a log that reopens to the committed, applied state.</summary>
-    /// <param name="boundary">The boundary the failure is injected at.</param>
+    /// <summary>
+    /// A compaction publishes no metadata of its own: after it and a reopen, the last, commit and applied indexes are as before the reopen,
+    /// and the next append takes the following index.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(FaultBoundary.AfterSnapshotPublish)]
-    [Arguments(FaultBoundary.AfterLogReplace)]
-    public async Task FaultReopensConsistent(FaultBoundary boundary, CancellationToken cancellationToken)
+    public async Task ReopenAfterCompactionKeepsIndexes(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-compact-through-indexes");
+        var hooks = new CountingFollowerLogFaultHooks();
+        FollowerLogStatus before;
+        await using (var log = await SeedAsync(dir, new FollowerLogOptions { FaultHooks = hooks }, cancellationToken))
+        {
+            var writesBefore = hooks.Snapshot();
+            _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
+            _ = await Assert.That(hooks.Snapshot().Since(in writesBefore).MetaWrites).IsEqualTo(0L);
+            before = await log.GetStatusAsync(cancellationToken);
+        }
+
+        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        await reopened.OpenAsync(cancellationToken);
+
+        var after = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((after.LastLogIndex, after.CommitIndex, after.LastAppliedIndex)).IsEqualTo((before.LastLogIndex, before.CommitIndex, before.LastAppliedIndex));
+        _ = await Assert.That(after.LastLogIndex).IsEqualTo(Committed);
+        var next = await reopened.AppendAsync(FollowerFoundationScenario.Append("leader", Committed + 1, 1UL, "after"), cancellationToken);
+        _ = await Assert.That((next.Success, next.LastLogIndex)).IsEqualTo((true, Committed + 1));
+    }
+
+    /// <summary>
+    /// A failure after the snapshot is published and the rewritten log is flushed to its temp file, before it is swapped in, leaves a log that
+    /// reopens to the committed, applied state. The swapped log is the last durable step, so its reopen is the one of a completed compaction.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FaultReopensConsistent(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-compact-through-fault");
         var armed = false;
@@ -64,8 +84,8 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         _ = hooks.Setups.OnFrameWritten();
         _ = hooks.Setups.OnCommitAdvanced();
         _ = hooks.Setups.OnBeforeMemoryApply();
-        _ = hooks.Setups.OnFlushed().Callback(() => FailIfArmed(armed && boundary == FaultBoundary.AfterSnapshotPublish));
-        _ = hooks.Setups.OnMetaWritten().Callback(() => FailIfArmed(armed && boundary == FaultBoundary.AfterLogReplace));
+        _ = hooks.Setups.OnFlushed().Callback(() => FailIfArmed(armed));
+        _ = hooks.Setups.OnMetaPublishing();
         await using (var log = await SeedAsync(dir, new FollowerLogOptions { FaultHooks = hooks.Instance() }, cancellationToken))
         {
             armed = true;
@@ -73,10 +93,10 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
             armed = false;
         }
 
-        // The failure hit the intended boundary: the snapshot is published in both cases, and only the later one swapped the log.
+        // The failure hit the intended boundary: the snapshot is published and the log was not swapped.
         var logBytes = new FileInfo(GroupStoragePaths.GetLogPath(dir, GroupId)).Length;
         _ = await Assert.That(File.Exists(GroupStoragePaths.GetSnapshotPath(dir, GroupId))).IsTrue();
-        _ = await Assert.That(logBytes == HeaderLength()).IsEqualTo(boundary == FaultBoundary.AfterLogReplace);
+        _ = await Assert.That(logBytes == HeaderLength()).IsFalse();
 
         await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);

@@ -5,7 +5,7 @@ namespace Squirix.Server.Storage.Replication;
 /// <summary>Durable file paths for one replica-group log.</summary>
 /// <param name="GroupDirectory">The directory holding the group's durable state.</param>
 /// <param name="MetadataPath">The path of the durable group metadata file.</param>
-/// <param name="MetadataTempPath">The path of the metadata temp file used during atomic metadata publication.</param>
+/// <param name="MetadataTempPath">The path of the metadata temp file used while the metadata file is first created.</param>
 /// <param name="LogPath">The path of the durable journal file.</param>
 /// <param name="LogTempPath">The path of the journal temp file used during atomic log replacement.</param>
 [Immutable]

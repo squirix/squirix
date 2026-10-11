@@ -15,7 +15,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
-/// <summary>Recovery of the applied watermark against a newer snapshot boundary when the stored last log index cannot be trusted.</summary>
+/// <summary>Recovery of the applied watermark against a newer snapshot boundary when the log holds frames beyond what the last metadata publish covered.</summary>
 public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
 {
     private const string GroupId = "grp-boundary";
@@ -54,31 +54,6 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
         _ = await Assert.That((status.CommitIndex, status.LastAppliedIndex, status.LastLogIndex)).IsEqualTo((6UL, 2UL, 7UL));
         var pending = await reopened.GetCommittedEntriesAsync(status.LastAppliedIndex, 10, cancellationToken);
         _ = await Assert.That(ReplicaLastIndexRecoveryTests.IndexesOf(pending)).IsEqualTo("3,4,5,6");
-    }
-
-    /// <summary>Metadata that names a last index above the boundary does not keep applied below it when the log holds no frame.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task StaleLastIndexRaisesAppliedOnEmptyLog(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-boundary-stale-high");
-        var composition = GroupComposition.Create(GroupId);
-        await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
-            await seed.OpenAsync(cancellationToken);
-
-        using (var handle = File.OpenHandle(GroupStoragePaths.GetLogPath(dir, GroupId), FileMode.Create, FileAccess.Write))
-            RandomAccess.Write(handle, GroupLogCodec.LogFileHeader, 0);
-
-        var stale = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, string.Empty, 9UL, 3UL, 0UL);
-        await WriteMetadataAsync(dir, in stale, cancellationToken);
-        await ReplicaLastIndexRecoveryTests.PublishSnapshotAsync(dir, GroupId, 3UL, cancellationToken);
-
-        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
-        await reopened.OpenAsync(cancellationToken);
-
-        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
-        var status = await reopened.GetStatusAsync(cancellationToken);
-        _ = await Assert.That((status.CommitIndex, status.LastAppliedIndex, status.LastLogIndex)).IsEqualTo((3UL, 3UL, 3UL));
     }
 
     /// <summary>Truncating a conflicting tail and appending in the already observed term publishes nothing, and a restart recovers the post-truncation log.</summary>
@@ -132,12 +107,12 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
         }
 
         // The metadata already carries the boundary's commit index and term, so the raise is the only publish of the open.
-        var boundaryMeta = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, string.Empty, 2UL, 4UL, 0UL);
+        var boundaryMeta = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, string.Empty, 4UL, 0UL);
         await WriteMetadataAsync(dir, in boundaryMeta, cancellationToken);
         await ReplicaLastIndexRecoveryTests.PublishSnapshotAsync(dir, GroupId, 4UL, cancellationToken);
 
         var faults = new IFollowerLogFaultHooksCreateExpectations();
-        _ = faults.Setups.OnMetaWritten().Callback(static () => throw new IOException("simulated failure at the metadata publish."));
+        _ = faults.Setups.OnMetaPublishing().Callback(static () => throw new IOException("simulated failure at the metadata publish."));
         _ = faults.Setups.OnCommitAdvanced();
         _ = faults.Setups.OnFrameWritten();
         _ = faults.Setups.OnFlushed();
@@ -158,14 +133,10 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
         _ = await Assert.That((status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((4UL, 4UL));
     }
 
-    private static Task WriteMetadataAsync(TempDirectory dir, in GroupLogMetadata metadata, CancellationToken cancellationToken)
-    {
-        var encoded = new byte[GroupLogCodec.ComputeMetaEncodedLength(in metadata)];
-        GroupLogCodec.EncodeMeta(in metadata, encoded);
-        return File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), encoded, cancellationToken);
-    }
+    private static Task WriteMetadataAsync(TempDirectory dir, in GroupLogMetadata metadata, CancellationToken cancellationToken) =>
+        GroupMetadataFile.WriteAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), in metadata, cancellationToken);
 
-    /// <summary>Leaves a log compacted through index two, holding frames three to seven, whose published metadata names last index five.</summary>
+    /// <summary>Leaves a log compacted through index two, holding frames three to seven, of which the last metadata publish covered up to five.</summary>
     /// <param name="dir">The group directory.</param>
     /// <param name="composition">The group composition.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -180,7 +151,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
         _ = await log.AdvanceCommitAsync(5UL, cancellationToken);
         _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 2UL, cancellationToken);
 
-        // These appends change the last log index only, so the published metadata keeps naming index five.
+        // These appends publish no metadata.
         _ = await log.AppendAsync(ReplicaLastIndexRecoveryTests.Append(6UL, "e6"), cancellationToken);
         _ = await log.AppendAsync(ReplicaLastIndexRecoveryTests.Append(7UL, "e7"), cancellationToken);
     }

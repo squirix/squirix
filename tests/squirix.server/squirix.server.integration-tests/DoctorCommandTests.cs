@@ -11,6 +11,7 @@ using Squirix.Server.Node.Replication;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -145,11 +146,9 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         await new ActivatedTopologyStampStore(dataDir).PublishAsync(
             new ActivatedTopologyStamp { Generation = 5, Fingerprint = new ReadOnlyMemory<byte>(expectedBytes), ReplicaCount = 2 },
             cancellationToken);
-        var meta = new GroupLogMetadata("n1", new ReadOnlyMemory<byte>(expectedBytes), 5, 9, string.Empty, 12, 10, 7);
-        var buffer = new byte[GroupLogCodec.ComputeMetaEncodedLength(in meta)];
-        GroupLogCodec.EncodeMeta(in meta, buffer);
+        var meta = new GroupLogMetadata("n1", new ReadOnlyMemory<byte>(expectedBytes), 5, 9, string.Empty, 10, 7);
         _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dataDir, "n1"));
-        await File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dataDir, "n1"), buffer, cancellationToken);
+        await GroupMetadataFile.WriteAsync(GroupStoragePaths.GetMetadataPath(dataDir, "n1"), in meta, cancellationToken);
 
         var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, cancellationToken);
 

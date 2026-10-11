@@ -261,7 +261,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
     public async Task CancelAfterTermStepFinishesVote(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-election-cancel-step");
-        var hooks = new CancelOnMetaWritten();
+        var hooks = new CancelOnMetaPublishing();
         await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), Fingerprint, new FollowerLogOptions { FaultHooks = hooks }, cancellationToken);
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
         using var caller = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -341,7 +341,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
 
     /// <summary>Cancels a caller token when the next metadata write reaches the file, which is after the write of the term step began.</summary>
     [ThreadSafe]
-    private sealed class CancelOnMetaWritten : IFollowerLogFaultHooks
+    private sealed class CancelOnMetaPublishing : IFollowerLogFaultHooks
     {
         private CancellationTokenSource? _armed;
 
@@ -361,7 +361,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         {
         }
 
-        public void OnMetaWritten() => Interlocked.Exchange(ref _armed, null)?.Cancel();
+        public void OnMetaPublishing() => Interlocked.Exchange(ref _armed, null)?.Cancel();
 
         internal void Arm(CancellationTokenSource source) => Volatile.Write(ref _armed, source);
     }

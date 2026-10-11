@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,6 +8,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Replication;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -41,7 +41,7 @@ public sealed class ReplicaVoteGatewayTests : NodeIntegrationTestBase
         var voterLog = GroupLog(voter);
         var before = await voterLog.GetStatusAsync(cancellationToken);
         var metaPath = GroupStoragePaths.GetMetadataPath(voter.DataDir, CandidateId);
-        var metaBefore = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        var metaBefore = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
         var header = new ReplicaRpcHeader(CandidateId, before.TopologyFingerprint, before.ConfigurationGeneration, before.CurrentTerm + 2UL, CandidateId, CandidateId);
         var gateway = candidate.GetRequiredService<IReplicaVoteGateway>();
 
@@ -53,7 +53,7 @@ public sealed class ReplicaVoteGatewayTests : NodeIntegrationTestBase
         var after = await voterLog.GetStatusAsync(cancellationToken);
         _ = await Assert.That(after.CurrentTerm).IsEqualTo(before.CurrentTerm);
         _ = await Assert.That(after.VotedFor).IsEqualTo(before.VotedFor);
-        var metaAfter = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        var metaAfter = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
         await SequenceAssert.EqualAsync(metaBefore, metaAfter);
     }
 

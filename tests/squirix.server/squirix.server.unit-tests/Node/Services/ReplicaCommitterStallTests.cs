@@ -443,8 +443,6 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     private static FollowerLogOptions StallOptions(StallableFollowerLogFaultHooks hooks) =>
         new() { FaultHooks = hooks, ShutdownBudget = LogShutdownBudget };
 
-    private Task<ReplicaGroupRegistry> OpenRegistryAsync(CancellationToken cancellationToken) => OpenRegistryAsync([OwnedGroup], null, NullLoggerFactory.Instance, cancellationToken);
-
     /// <summary>
     /// Releases the stall, disposes the committer and the registry, and closes the log handle a timed-out dispose leaked, as the
     /// process exit would.
@@ -454,22 +452,26 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     /// <param name="registry">The registry to dispose.</param>
     /// <param name="groupId">The group whose log may have been leaked.</param>
     /// <returns>An asynchronous operation.</returns>
-    private async Task ReleaseStallAsync(StallableFollowerLogFaultHooks hooks, ReplicaGroupCommitter? committer, ReplicaGroupRegistry registry, string groupId)
+    private static async Task ReleaseStallAsync(StallableFollowerLogFaultHooks hooks, ReplicaGroupCommitter? committer, ReplicaGroupRegistry registry, string groupId)
     {
         hooks.Release();
         if (hooks.Entered.IsCompleted)
             await hooks.Exited.WaitAsync(StallTimeout, TimeProvider.System, CancellationToken.None);
 
-        // A released metadata write still publishes the file; it must finish before the directory is removed.
-        var metadataTempPath = FollowerLogPaths.Create(Dir, groupId).MetadataTempPath;
-        _ = SpinWait.SpinUntil(() => !File.Exists(metadataTempPath), StallTimeout);
         if (committer != null)
             await committer.DisposeAsync();
 
+        // A released metadata write still lands through the leaked handle; the directory removal retries until it has finished.
         await registry.DisposeAsync();
-        if (registry.TryGetLog(groupId, out var log) && log is IFollowerLogDurability durable)
+        if (registry.TryGetLog(groupId, out var log) && log is FollowerLog followerLog)
+        {
+            IFollowerLogDurability durable = followerLog;
             durable.Durability.Dispose();
+            followerLog.Metadata.Dispose();
+        }
     }
+
+    private Task<ReplicaGroupRegistry> OpenRegistryAsync(CancellationToken cancellationToken) => OpenRegistryAsync([OwnedGroup], null, NullLoggerFactory.Instance, cancellationToken);
 
     private async Task<ReplicaGroupRegistry> OpenRegistryAsync(string[] groupIds, FollowerLogOptions? options, ILoggerFactory loggerFactory, CancellationToken cancellationToken)
     {

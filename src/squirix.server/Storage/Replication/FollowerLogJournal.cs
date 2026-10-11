@@ -18,15 +18,19 @@ internal sealed class FollowerLogJournal
     private readonly SortedDictionary<ulong, FollowerLogEntry> _entries = [];
     private readonly SortedDictionary<ulong, (long Offset, ulong Term)> _entryOffsets = [];
 
-    internal FollowerLogJournal(FollowerLogPaths paths, GroupSnapshotStore snapshot)
+    internal FollowerLogJournal(FollowerLogPaths paths, GroupSnapshotStore snapshot, GroupMetadataStore metadata)
     {
         Paths = paths;
         Snapshot = snapshot;
+        Metadata = metadata;
     }
 
     internal ReadOnlySortedDictionary<ulong, FollowerLogEntry> Entries => new(_entries);
 
     internal ReadOnlySortedDictionary<ulong, (long Offset, ulong Term)> EntryOffsets => new(_entryOffsets);
+
+    /// <summary>Gets the store of the durable group metadata; owned by the log, which disposes it.</summary>
+    internal GroupMetadataStore Metadata { get; }
 
     internal FollowerLogPaths Paths { get; }
 

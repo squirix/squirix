@@ -1,10 +1,10 @@
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -39,8 +39,7 @@ public sealed class ElectionStateTests : ServerUnitTestBase
 
             // The metadata file already carries the term and vote while the log is still open:
             // persistence happens before the grant is reported, not after.
-            var metaBytes = await File.ReadAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
-            _ = await Assert.That(GroupLogCodec.TryDecodeMeta(metaBytes, out var meta)).IsTrue();
+            var meta = await GroupMetadataFile.ReadAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
             _ = await Assert.That(meta.CurrentTerm).IsEqualTo(2UL);
             _ = await Assert.That(meta.VotedFor).IsEqualTo("node-b");
         }

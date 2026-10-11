@@ -8,6 +8,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -67,7 +68,7 @@ public sealed class ObserveTermTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// A crash after the metadata bytes are written but before they are published fails the log and leaves the old term durable: the
+    /// A crash at the metadata publish, before the record reaches the file, fails the log and leaves the old term durable: the
     /// failed log adopts no later term, and a restart recovers the old term with its vote.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -81,7 +82,7 @@ public sealed class ObserveTermTests : ServerUnitTestBase
         _ = faults.Setups.OnFlushed();
         _ = faults.Setups.OnCommitAdvanced();
         _ = faults.Setups.OnBeforeMemoryApply();
-        _ = faults.Setups.OnMetaWritten().Callback(() =>
+        _ = faults.Setups.OnMetaPublishing().Callback(() =>
         {
             if (armed)
                 throw new IOException("simulated crash before the metadata is published.");
@@ -139,7 +140,7 @@ public sealed class ObserveTermTests : ServerUnitTestBase
         _ = faults.Setups.OnFlushed();
         _ = faults.Setups.OnCommitAdvanced();
         _ = faults.Setups.OnBeforeMemoryApply();
-        _ = faults.Setups.OnMetaWritten().Callback(() =>
+        _ = faults.Setups.OnMetaPublishing().Callback(() =>
         {
             if (!armed)
                 return;
@@ -172,9 +173,6 @@ public sealed class ObserveTermTests : ServerUnitTestBase
 
     private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
 
-    private static async Task<GroupLogMetadata> ReadMetaAsync(TempDirectory dir, CancellationToken cancellationToken)
-    {
-        var bytes = await File.ReadAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
-        return GroupLogCodec.TryDecodeMeta(bytes, out var meta) ? meta : throw new InvalidDataException("The metadata file does not decode.");
-    }
+    private static Task<GroupLogMetadata> ReadMetaAsync(TempDirectory dir, CancellationToken cancellationToken) =>
+        GroupMetadataFile.ReadAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
 }

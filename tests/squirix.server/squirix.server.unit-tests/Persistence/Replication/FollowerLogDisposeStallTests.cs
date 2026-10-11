@@ -114,7 +114,6 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
             await hooks.Flushed.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(state.LastLogIndex).IsEqualTo(1UL);
-            _ = await Assert.That(state.Meta.LastLogIndex).IsEqualTo(1UL);
             _ = await Assert.That(durable.LogLength).IsEqualTo(lengthBefore);
         }
         finally
@@ -204,7 +203,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
         using var hooks = new StallableFollowerLogFaultHooks();
         var log = await OpenLogAsync(hooks, new EventRecordingLogger(), cancellationToken);
         IFollowerLogState state = log;
-        var metadataTempPath = FollowerLogPaths.Create(Dir, GroupId).MetadataTempPath;
+        var metadataPath = GroupStoragePaths.GetMetadataPath(Dir, GroupId);
         try
         {
             _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
@@ -218,10 +217,10 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
             _ = await Assert.That(state.Meta.CommitIndex).IsEqualTo(0UL);
 
-            // The released write still publishes the metadata; it must finish before the directory is removed.
+            // The released write still lands in the metadata file through the leaked handle; it must finish before the directory is removed.
             hooks.Release();
             await hooks.Exited.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            _ = await Assert.That(SpinWait.SpinUntil(() => !File.Exists(metadataTempPath), StallTimeout)).IsTrue();
+            _ = await Assert.That(SpinWait.SpinUntil(() => GroupMetadataStore.Read(metadataPath).Metadata.CommitIndex == 1UL, StallTimeout)).IsTrue();
         }
         finally
         {
@@ -268,6 +267,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
         hooks.Release();
         IFollowerLogDurability durable = log;
         durable.Durability.Dispose();
+        log.Metadata.Dispose();
     }
 
     private Task<FollowerLog> OpenLogAsync(StallableFollowerLogFaultHooks hooks, ILogger<FollowerLog> logger, CancellationToken cancellationToken) =>

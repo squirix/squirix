@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,6 +8,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -47,10 +47,10 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         _ = await Assert.That(second.CurrentTerm).IsEqualTo(2UL);
 
         var replayMetaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
-        var replayBefore = await File.ReadAllBytesAsync(replayMetaPath, cancellationToken);
+        var replayBefore = await GroupMetadataFile.ReadBytesAsync(replayMetaPath, cancellationToken);
         var replay = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 2UL, 1UL), cancellationToken);
         _ = await Assert.That(replay.Granted).IsTrue();
-        var replayBytes = await File.ReadAllBytesAsync(replayMetaPath, cancellationToken);
+        var replayBytes = await GroupMetadataFile.ReadBytesAsync(replayMetaPath, cancellationToken);
         await SequenceAssert.EqualAsync(replayBefore, replayBytes);
 
         var staleTerm = await log.RequestVoteAsync(new ElectionVoteRequest("node-c", 1UL, 2UL, 1UL), cancellationToken);
@@ -89,7 +89,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         _ = await Assert.That(granted.Granted).IsTrue();
 
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
-        var before = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        var before = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
 
         var probe = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-b", 6UL, 0UL, 0UL), cancellationToken);
         _ = await Assert.That(probe.Granted).IsTrue();
@@ -98,7 +98,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         var status = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That(status.CurrentTerm).IsEqualTo(5UL);
         _ = await Assert.That(status.VotedFor).IsEqualTo("node-a");
-        var metaBytes = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        var metaBytes = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
         await SequenceAssert.EqualAsync(before, metaBytes);
 
         var stale = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-c", 4UL, 0UL, 0UL), cancellationToken);
@@ -135,7 +135,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
 
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
-        var before = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        var before = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
 
         var vote = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 1UL, 1UL, 1UL), cancellationToken);
         _ = await Assert.That(vote.Granted).IsFalse();
@@ -150,7 +150,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         var status = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That(status.CurrentTerm).IsEqualTo(1UL);
         _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
-        var metaBytes = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        var metaBytes = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
         await SequenceAssert.EqualAsync(before, metaBytes);
     }
 
@@ -164,7 +164,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         await log.OpenAsync(cancellationToken);
 
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
-        var before = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        var before = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
 
         var vote = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 0UL, 0UL, 0UL), cancellationToken);
         _ = await Assert.That(vote.Granted).IsFalse();
@@ -177,7 +177,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         var status = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That(status.CurrentTerm).IsEqualTo(0UL);
         _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
-        var metaBytes = await File.ReadAllBytesAsync(metaPath, cancellationToken);
+        var metaBytes = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
         await SequenceAssert.EqualAsync(before, metaBytes);
     }
 
