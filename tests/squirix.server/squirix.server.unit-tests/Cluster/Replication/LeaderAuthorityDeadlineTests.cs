@@ -12,13 +12,19 @@ using static Squirix.Server.UnitTests.Cluster.Replication.ElectionTestDoubles;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
-/// <summary>A leader that gets no authority within its deadline gives the group up and abstains from campaigning for a while.</summary>
+/// <summary>A leader that gets no authority within its window after the first failed promotion gives the group up.</summary>
 [Immutable]
 public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
 {
-    private static readonly TimeSpan Abstain = Options.ElectionTimeout + Options.MaxJitter + (Options.VoteRpcTimeout * 2);
-    private static readonly TimeSpan Slice = TimeSpan.FromMilliseconds(400);
-    private static readonly TimeSpan Tick = TimeSpan.FromMilliseconds(1);
+    /// <summary>The time a node does not campaign after it gave a group up, with the timing of the driver tests.</summary>
+    internal static readonly TimeSpan Abstain = Options.ElectionTimeout + Options.MaxJitter + (Options.VoteRpcTimeout * 2);
+
+    /// <summary>The span of one leader tick of <see cref="LeadForAsync" />.</summary>
+    internal static readonly TimeSpan Slice = TimeSpan.FromMilliseconds(400);
+
+    /// <summary>The smallest step of fake time.</summary>
+    internal static readonly TimeSpan Tick = TimeSpan.FromMilliseconds(1);
+
     private static readonly string[] Three = ["n2", "n1", "n3"];
 
     /// <summary>A leader whose followers keep answering but whose entry never commits gives up at the deadline, not a tick before.</summary>
@@ -57,27 +63,61 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
         _ = await Assert.That((scope.State.Role, scope.State.HasAuthority)).IsEqualTo((ReplicaGroupRole.Leader, true));
     }
 
-    /// <summary>After giving up, the node campaigns only once its election timeout plus the abstain time passed.</summary>
+    /// <summary>A first promotion that itself takes longer than the window does not make the leader give up on the next tick.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task GiveUpAbstainsFromCampaigning(CancellationToken cancellationToken)
+    public async Task SlowFirstPromotionIsNotCounted(CancellationToken cancellationToken)
     {
-        var votes = new ScriptedVotes(Grant);
-        await using var scope = await OpenAsync("n2", 3, votes);
+        await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
+        scope.Leadership.PromotionsPending = true;
+        scope.Leadership.DuringNextPromotion = () => scope.Time.Advance(TimeSpan.FromSeconds(45));
+        var election = await ElectAsync(scope, cancellationToken);
+
+        var next = await LeadForAsync(scope, election, Tick, cancellationToken);
+        var early = await LeadForAsync(scope, election, TimeSpan.FromSeconds(30) - (Tick * 2), cancellationToken);
+        var due = await LeadForAsync(scope, election, Tick * 2, cancellationToken);
+
+        _ = await Assert.That((next.Event, early.Event)).IsEqualTo((ElectionEvent.PromotionPending, ElectionEvent.PromotionPending));
+        _ = await Assert.That((due.Event, due.Waited >= TimeSpan.FromSeconds(30))).IsEqualTo((ElectionEvent.SteppedDown, true));
+    }
+
+    /// <summary>A leader past its window that also lost its majority steps down as an ordinary step-down and counts no give-up.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SilentMajorityIsNoGiveUp(CancellationToken cancellationToken)
+    {
+        await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
         scope.Leadership.PromotionsPending = true;
         var election = await ElectAsync(scope, cancellationToken);
-        _ = await LeadForAsync(scope, election, TimeSpan.FromSeconds(30), cancellationToken);
-        var callsBefore = votes.Calls.Length;
+        scope.Time.Advance(TimeSpan.FromSeconds(31));
 
-        scope.Time.Advance(Options.ElectionTimeout + Abstain - Tick);
-        var waiting = await election.StepAsync(cancellationToken);
-        var callsWhileWaiting = votes.Calls.Length;
-        scope.Time.Advance(Tick);
-        var campaigned = await election.StepAsync(cancellationToken);
+        var stepped = await election.StepAsync(cancellationToken);
+        scope.Time.Advance(Options.ElectionTimeout);
+        var elected = await election.StepAsync(cancellationToken);
+        var wait = await GiveUpAsync(scope, election, cancellationToken);
 
-        _ = await Assert.That((waiting.Event, callsWhileWaiting)).IsEqualTo((ElectionEvent.None, callsBefore));
-        _ = await Assert.That(campaigned).IsEqualTo(new ElectionOutcome(ElectionEvent.Elected, 3UL));
-        _ = await Assert.That(votes.Calls.Length).IsGreaterThan(callsBefore);
+        _ = await Assert.That((stepped.Event, stepped.Waited)).IsEqualTo((ElectionEvent.SteppedDown, TimeSpan.Zero));
+        _ = await Assert.That((elected.Event, wait)).IsEqualTo((ElectionEvent.Elected, 30d));
+    }
+
+    /// <summary>A leadership deposed without authority between two give-ups neither restarts nor lengthens the window.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DeposedLeaderKeepsTheWindow(CancellationToken cancellationToken)
+    {
+        await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
+        scope.Leadership.PromotionsPending = true;
+        var election = await ElectAsync(scope, cancellationToken);
+        var first = await GiveUpAsync(scope, election, cancellationToken);
+        var second = await CampaignAgainAsync(scope, election, cancellationToken);
+        scope.State.ObserveHigherTerm(scope.State.Term + 3UL);
+        var deposed = await election.StepAsync(cancellationToken);
+        scope.Time.Advance(Options.ElectionTimeout);
+        var third = await election.StepAsync(cancellationToken);
+        var last = await GiveUpAsync(scope, election, cancellationToken);
+
+        _ = await Assert.That((second.Event, deposed.Event, deposed.Waited, third.Event)).IsEqualTo((ElectionEvent.Elected, ElectionEvent.SteppedDown, TimeSpan.Zero, ElectionEvent.Elected));
+        _ = await Assert.That((first, last)).IsEqualTo((30d, 60d));
     }
 
     /// <summary>Each give-up doubles the next window up to eight times the timeout, and authority restarts it.</summary>
@@ -137,27 +177,7 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
         while (outcome.Event == ElectionEvent.PromotionPending);
 
         _ = await Assert.That(elected.Event).IsEqualTo(ElectionEvent.Elected);
-        _ = await Assert.That((pending, outcome.Event, outcome.Waited.TotalSeconds)).IsEqualTo((5, ElectionEvent.SteppedDown, 30d));
-    }
-
-    /// <summary>A give-up whose retirement stays pending is retried like any other pending retirement.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task GiveUpRetireIsRetried(CancellationToken cancellationToken)
-    {
-        await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
-        scope.Leadership.PromotionsPending = true;
-        scope.Leadership.AnswerRetirements(false, false);
-        var election = await ElectAsync(scope, cancellationToken);
-
-        var gaveUp = await LeadForAsync(scope, election, TimeSpan.FromSeconds(30), cancellationToken);
-        var pending = await election.StepAsync(cancellationToken);
-        var retired = await election.StepAsync(cancellationToken);
-
-        _ = await Assert.That((gaveUp.Event, pending.Event, retired.Event)).IsEqualTo((ElectionEvent.SteppedDown, ElectionEvent.RetirePending, ElectionEvent.SteppedDown));
-        _ = await Assert.That((gaveUp.Waited.TotalSeconds, retired.Waited.TotalSeconds)).IsEqualTo((30d, 0d));
-        _ = await Assert.That(scope.Leadership.Calls).EndsWith("retire:False,retire:False,retire:False");
-        _ = await Assert.That(scope.State.Role).IsEqualTo(ReplicaGroupRole.Follower);
+        _ = await Assert.That((pending, outcome.Event, outcome.Waited.TotalSeconds)).IsEqualTo((6, ElectionEvent.SteppedDown, 30d));
     }
 
     /// <summary>A step-down on a higher term or a silent majority reports no wait for authority.</summary>
@@ -178,28 +198,23 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
         _ = await Assert.That((abandoned.Event, abandoned.Waited.TotalSeconds)).IsEqualTo((ElectionEvent.SteppedDown, 0d));
     }
 
-    private static Task<ElectionOutcome> CampaignAgainAsync(ElectionScope scope, ReplicaGroupElection election, CancellationToken cancellationToken)
-    {
-        scope.Time.Advance(Options.ElectionTimeout + Abstain);
-        return election.StepAsync(cancellationToken);
-    }
-
-    private static async Task<ReplicaGroupElection> ElectAsync(ElectionScope scope, CancellationToken cancellationToken)
+    /// <summary>Starts a driver of a three-member group and runs it until it won the election after its full timeout.</summary>
+    /// <param name="scope">The driver parts.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The driver, leading.</returns>
+    internal static async Task<ReplicaGroupElection> ElectAsync(ElectionScope scope, CancellationToken cancellationToken)
     {
         var election = CreateElection(scope, Three);
         _ = await election.StepAsync(cancellationToken);
-        scope.Time.Advance(Options.ElectionTimeout);
+        scope.Time.Advance(scope.State.Options.ElectionTimeout + scope.State.Options.MaxJitter);
         _ = await election.StepAsync(cancellationToken);
         return election;
     }
 
-    private static FollowerLogVoteResult? Grant(VoteCall call) => new(true, string.Empty, call.PreVote ? 0UL : call.Term);
-
-    private static async Task<double> GiveUpAsync(ElectionScope scope, ReplicaGroupElection election, CancellationToken cancellationToken)
-    {
-        var outcome = await LeadForAsync(scope, election, TimeSpan.FromMinutes(10), cancellationToken);
-        return outcome.Event == ElectionEvent.SteppedDown ? outcome.Waited.TotalSeconds : -1;
-    }
+    /// <summary>Answers every vote call with a grant.</summary>
+    /// <param name="call">The vote call.</param>
+    /// <returns>The grant.</returns>
+    internal static FollowerLogVoteResult? Grant(VoteCall call) => new(true, string.Empty, call.PreVote ? 0UL : call.Term);
 
     /// <summary>Runs leader ticks for a span of fake time, with one follower answering before each, until the leader gives up.</summary>
     /// <param name="scope">The driver parts.</param>
@@ -207,7 +222,7 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
     /// <param name="span">The fake time to run.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The outcome of the last tick.</returns>
-    private static async Task<ElectionOutcome> LeadForAsync(ElectionScope scope, ReplicaGroupElection election, TimeSpan span, CancellationToken cancellationToken)
+    internal static async Task<ElectionOutcome> LeadForAsync(ElectionScope scope, ReplicaGroupElection election, TimeSpan span, CancellationToken cancellationToken)
     {
         var outcome = new ElectionOutcome(ElectionEvent.None, scope.State.Term);
         var remaining = span;
@@ -221,5 +236,17 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
         }
 
         return outcome;
+    }
+
+    private static Task<ElectionOutcome> CampaignAgainAsync(ElectionScope scope, ReplicaGroupElection election, CancellationToken cancellationToken)
+    {
+        scope.Time.Advance(Options.ElectionTimeout + Abstain);
+        return election.StepAsync(cancellationToken);
+    }
+
+    private static async Task<double> GiveUpAsync(ElectionScope scope, ReplicaGroupElection election, CancellationToken cancellationToken)
+    {
+        var outcome = await LeadForAsync(scope, election, TimeSpan.FromMinutes(10), cancellationToken);
+        return outcome.Event == ElectionEvent.SteppedDown ? outcome.Waited.TotalSeconds : -1;
     }
 }

@@ -17,10 +17,12 @@ internal sealed class ElectionTimerOptions
     /// <summary>The longest configurable wait for a leader; a request deadline is far shorter.</summary>
     internal static readonly TimeSpan MaxLeaderWaitTimeout = TimeSpan.FromMinutes(1);
 
-    /// <summary>Gets the time a new leader may wait for authority before it gives the group up; it doubles for each consecutive failure of the same node.</summary>
+    /// <summary>Gets the time a new leader may wait for authority before it gives the group up; it doubles for each give-up of the same node.</summary>
     /// <remarks>
-    /// A healthy promotion takes about 11 seconds in the worst case (launch probes up to 1 second, one readiness retry gap up to 5 seconds, one
-    /// catch-up request up to the 5 second commit budget), so the bound is well above it.
+    /// The window starts after the first promotion attempt returned without authority. A healthy promotion needs the launch probes (up to 1
+    /// second), one readiness retry gap (up to 5 seconds), and the catch-up of the followers a majority needs, so the bound is well above
+    /// it. A leader interrupted while a follower is still catching up is elected again and continues with a doubled window, the catch-up
+    /// progress being kept on the follower.
     /// </remarks>
     internal TimeSpan AuthorityTimeout { get; init; } = TimeSpan.FromSeconds(30);
 

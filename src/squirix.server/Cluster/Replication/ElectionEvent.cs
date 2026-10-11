@@ -24,7 +24,7 @@ internal enum ElectionEvent
     /// <summary>The leader-term entry is not committed yet; the promotion is retried.</summary>
     PromotionPending = 6,
 
-    /// <summary>The leader stepped down: a higher term, or no majority contact within the election timeout.</summary>
+    /// <summary>The leader stepped down: a higher term, no majority contact within the election timeout, or no authority within its deadline.</summary>
     SteppedDown = 7,
 
     /// <summary>The leader stepped down but could not retire yet; the retirement is retried.</summary>

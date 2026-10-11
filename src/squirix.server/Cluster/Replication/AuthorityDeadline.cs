@@ -5,8 +5,15 @@ namespace Squirix.Server.Cluster.Replication;
 /// <summary>The time a new leader of one group may wait for authority, and the wait that follows when it gives the group up.</summary>
 /// <remarks>
 /// <para>
-/// The window is the authority timeout doubled for each consecutive leadership of this node that ended without authority, at most three
-/// times, and it restarts from the timeout once the node gets authority. The time runs from the moment the node took the leadership.
+/// The window starts when the first promotion attempt of a leadership returned without authority, so it measures the time spent leading
+/// and retrying, not the time inside the first start. It is the authority timeout doubled for each give-up of this node since it last
+/// had authority, at most three times. A leadership that is deposed without authority, by a higher term or a silent majority, neither
+/// counts as a give-up nor restarts the count, and following another leader does not restart it either.
+/// </para>
+/// <para>
+/// After a give-up the node does not campaign before a point in time that starts once the retirement of the leadership completed and lies
+/// the election timeout, the largest jitter, and two vote timeouts later, so every other member's timer and one pre-vote and one vote
+/// round fit before it campaigns again. Once the point has passed it has no effect.
 /// </para>
 /// <para>
 /// A leadership that never had authority admitted no client write and served no quorum read, so ending it loses nothing acknowledged; its
@@ -21,9 +28,13 @@ internal sealed class AuthorityDeadline
 
     private readonly TimeProvider _clock;
     private readonly ElectionTimerOptions _options;
-    private TimeSpan _abstain;
+    private long _abstainFrom;
+    private bool _abstainPending;
+    private bool _abstaining;
+    private bool _authorized;
     private int _failures;
     private long _since;
+    private bool _waiting;
 
     /// <summary>Initializes a new instance of the <see cref="AuthorityDeadline" /> class.</summary>
     /// <param name="clock">The clock of the group.</param>
@@ -34,16 +45,37 @@ internal sealed class AuthorityDeadline
         _options = options;
     }
 
-    /// <summary>Starts the wait of a leadership that was just taken.</summary>
-    internal void Begin() => _since = _clock.GetTimestamp();
+    /// <summary>Gets how long the node still may not campaign after it gave a group up.</summary>
+    /// <returns>The time left; zero when no abstain runs or it has passed.</returns>
+    internal TimeSpan AbstainLeft()
+    {
+        var left = _abstaining ? AbstainLength() - _clock.GetElapsedTime(_abstainFrom) : TimeSpan.Zero;
+        return left > TimeSpan.Zero ? left : TimeSpan.Zero;
+    }
 
-    /// <summary>Restarts the windows from the authority timeout: the node got authority.</summary>
-    internal void Granted() => _failures = 0;
+    /// <summary>Records that a promotion attempt returned without authority; the first one of a leadership starts its window.</summary>
+    internal void AttemptFailed()
+    {
+        if (_waiting)
+            return;
 
-    /// <summary>Tells whether a leader gave up waiting.</summary>
-    /// <param name="authorized">Whether the leader has authority, which no deadline ends.</param>
-    /// <returns><see langword="true" /> when the leader has no authority and its window elapsed.</returns>
-    internal bool IsOverdue(bool authorized) => !authorized && _clock.GetElapsedTime(_since) >= Window();
+        _since = _clock.GetTimestamp();
+        _waiting = true;
+    }
+
+    /// <summary>Starts a leadership: it has no authority yet, and its window is not running.</summary>
+    internal void Begin()
+    {
+        _authorized = false;
+        _waiting = false;
+    }
+
+    /// <summary>Records that the leadership got authority and restarts the windows from the authority timeout.</summary>
+    internal void Granted()
+    {
+        _authorized = true;
+        _failures = 0;
+    }
 
     /// <summary>Records that the leader gave the group up and lengthens the next window.</summary>
     /// <returns>How long the leader waited.</returns>
@@ -53,18 +85,27 @@ internal sealed class AuthorityDeadline
         if (_failures < MaxDoublings)
             _failures++;
 
-        _abstain = _options.ElectionTimeout + _options.MaxJitter + (_options.VoteRpcTimeout * 2);
+        _abstainPending = true;
         return waited;
     }
 
-    /// <summary>Takes the extra wait before the next campaign that follows a give-up; it applies once.</summary>
-    /// <returns>The extra wait, or zero when none is pending.</returns>
-    internal TimeSpan TakeAbstain()
+    /// <summary>Tells whether the leader waited past its window without getting authority.</summary>
+    /// <returns><see langword="true" /> when the window runs, the leadership has no authority, and the window elapsed.</returns>
+    internal bool IsOverdue() => _waiting && !_authorized && _clock.GetElapsedTime(_since) >= Window();
+
+    /// <summary>Records an answer of the retirement of the led group; the abstain after a give-up starts when it completed.</summary>
+    /// <param name="retired">Whether the group is retired.</param>
+    internal void RetireAnswered(bool retired)
     {
-        var abstain = _abstain;
-        _abstain = TimeSpan.Zero;
-        return abstain;
+        if (!retired || !_abstainPending)
+            return;
+
+        _abstainPending = false;
+        _abstaining = true;
+        _abstainFrom = _clock.GetTimestamp();
     }
+
+    private TimeSpan AbstainLength() => _options.ElectionTimeout + _options.MaxJitter + (_options.VoteRpcTimeout * 2);
 
     private TimeSpan Window() => _options.AuthorityTimeout * (1 << _failures);
 }

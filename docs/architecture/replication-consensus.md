@@ -68,7 +68,10 @@ elects a replacement.
   in any reply. A new leader gets one timeout of grace. A follower that answered the probes of the start counts as
   answered, and a leader without authority whose promotion held its driver for a heartbeat interval or more, such as a
   start that waited for followers that gave no answer, gets the grace again once the promotion returns. Authority is
-  revoked before the leader retires its pipeline.
+  revoked before the leader retires its pipeline. A leader that got no authority within 30 seconds of its first promotion
+  attempt steps down the same way, and its node does not campaign for the election timeout plus the largest jitter plus
+  two vote timeouts after the retirement completed, so another member can take the group. While the same node keeps
+  being elected without authority, the 30 seconds double, up to 240 seconds; getting authority restarts them.
 - **Repair.** A follower out of the write quorum that answers a heartbeat or an append from its log is queued for repair
   at once, at most once per election timeout, instead of waiting for the readiness retry.
 - **Status.** While a driver runs, the replica status reports a node as leader only with authority, its majority contact
