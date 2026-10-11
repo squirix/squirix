@@ -72,9 +72,14 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     }
 
     /// <summary>Under a steady write load the owner compacts repeatedly while writes are in flight, so the gated step fires between commits and its log stays bounded.</summary>
+    /// <remarks>
+    /// Runs apart from the other tests: its writes go one after another and each waits for several durable file operations, so beside tests
+    /// that write to the same disk its pace would measure the load of the machine, not the product.
+    /// </remarks>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <exception cref="TimeoutException">Compaction did not fire the required number of times within the bound.</exception>
+    /// <exception cref="TimeoutException">The writes or the compactions did not reach their counts within the bound.</exception>
     [Test]
+    [NotInParallel]
     public async Task SteadyLoadCompactsRepeatedly(CancellationToken cancellationToken)
     {
         const int writes = 300;
@@ -106,7 +111,11 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
                     break;
 
                 if (Stopwatch.GetElapsedTime(started) >= Bound * 2)
-                    throw new TimeoutException($"Compaction did not fire {requiredCompactions} times while writes went on; compactions: {Volatile.Read(ref compactions.Value)}; {await DescribeLogsAsync(cluster, cancellationToken)}.");
+                {
+                    var fired = Volatile.Read(ref compactions.Value);
+                    var state = await DescribeLogsAsync(cluster, cancellationToken);
+                    throw new TimeoutException($"The steady load made {i} of {writes} writes and {fired} of {requiredCompactions} compactions within the bound; {state}.");
+                }
             }
         }
         finally
