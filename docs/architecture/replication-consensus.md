@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted for M8-01. Product election and local promotion remain forbidden until this ADR is merged and the
-protocol-model explorer reports no unexpected counterexamples within documented bounds.
+Accepted for M8-01. Product election runs only behind the opt-in `AutomaticFailoverEnabled` switch, which was gated on
+this ADR and on the protocol-model explorer reporting no unexpected counterexamples within documented bounds.
 
 ## Context
 
@@ -308,7 +308,7 @@ its deadline until a committed record removes it; RF=1 and foundation-only hosts
 
 ## Consequences
 
-- Product election code and local promotion stay off until this ADR merges and model evidence is green.
+- Product election and promotion are active only with the `AutomaticFailoverEnabled` option on; they are off by default.
 - RF>1 mutations replicate through the group log; quorum reads apply only to elected leaders and are enabled only
   together with automatic failover.
 - RF=1 keeps single-owner behavior without elections.

@@ -33,16 +33,14 @@ Details: [bootstrap-client-failover.md](bootstrap-client-failover.md).
 
 ## Consistency guarantees (v0.1 preview)
 
-- Single-key reads and writes execute on the owning node
+- Single-key reads and writes execute on the owning node (the group leader when automatic failover is on)
 - RF=1 keeps single-owner behavior: durability is per node with no replication or automatic failover
 - RF=2 is a synchronous mirror only: the majority is two, so losing either member stops RF=2 writes and no
   replacement is elected; RF=2 never promotes after peer loss
-- RF>=3 with persistence and mTLS survives single-node loss on the remaining majority; automatic failover and
-  quorum reads apply only to RF>=3 (see [architecture/replication-consensus.md](architecture/replication-consensus.md))
-- Automatic failover is off by default: the owner of each key leads its replica group. With `AutomaticFailoverEnabled`
-  and `QuorumReadsEnabled` on, which validation requires together, RF>=3 groups elect a new leader when the leader goes
-  silent and confirm every read with a majority (see [configuration.md](configuration.md#automatic-failover-and-quorum-reads));
-  RF=1 and RF=2 never elect
+- RF>=3 with persistence and mTLS commits on a majority, so a group keeps accepting writes while one follower is down;
+  losing the owner of a group needs [automatic failover](#automatic-failover) (RF>=3 only)
+- Automatic failover is off by default: the owner of each key leads its replica group, and while that owner is down
+  its keys are unavailable ([architecture/replication-consensus.md](architecture/replication-consensus.md))
 - Multi-key operations are not transactions across owners
 - Memory pressure may reject growing writes before they are persisted
 - Journal disk quota may reject durable appends with `JOURNAL_DISK_QUOTA` before they are persisted
@@ -50,6 +48,62 @@ Details: [bootstrap-client-failover.md](bootstrap-client-failover.md).
 Non-goals: cluster-wide linearizability proofs, cross-owner atomic updates, dynamic membership-driven routing.
 
 Full semantics: [consistency.md](consistency.md).
+
+## Automatic failover
+
+Opt-in, RF>=3 only. With it off, RF>1 behaves as described above: the owner of each key leads its group.
+
+Turn it on by setting both `Squirix:Cluster:AutomaticFailoverEnabled` and `Squirix:Cluster:QuorumReadsEnabled` to
+`true` in the settings of every node, on empty data directories. There is no CLI flag or environment variable.
+Validation refuses one flag without the other, either flag with `ReplicaCount` below 3, and a changed value on an
+existing data directory. Both flags are inputs of the topology fingerprint, so a node configured differently refuses
+replication with its peers. RF>1 itself still requires persistence, internode mTLS, and `ReplicationEnabled`. Details:
+[configuration.md](configuration.md#automatic-failover-and-quorum-reads).
+
+When a leader goes silent:
+
+- The other members of its group notice after the election timeout plus a random jitter, run a pre-vote and a vote,
+  and a member that gets a majority of votes becomes leader in a new term; a member votes only for a candidate whose
+  log is at least as up to date as its own. A new leader accepts writes only after a majority committed an entry of
+  its term. Election timeout (1 s), jitter (up to 1 s), heartbeat (100 ms), and vote timeout (250 ms) are fixed and
+  not configurable, so expect a few seconds without a leader.
+- Without a reachable majority no leader is elected and the group refuses reads and writes (fails closed).
+- A deposed or cut-off former leader steps down and refuses requests; it rejoins as a follower and catches up from the
+  new leader's log.
+
+What clients see:
+
+- Any node accepts a single-key call and routes it to the leader of the key's group, rerouting at most once if the
+  target answers that it is no longer the leader. A node without a known leader waits for one (election timeout plus
+  jitter, capped by the call deadline).
+- While no leader is available the call fails with gRPC `Unavailable`: `Replica group has no leader with authority on
+  this node; nothing was read or written.` or the detail `replica_leader_changed`. Nothing was written, so a retry
+  with the same `operation_id` is safe.
+- The `squirix` client retries transport failures and moves to the next bootstrap endpoint within its single 15 s
+  operation deadline ([bootstrap-client-failover.md](bootstrap-client-failover.md)). A failover that takes longer
+  surfaces as `Unavailable` or `DeadlineExceeded`. A mutation that fails with `COMMIT_OUTCOME_UNKNOWN` or
+  `DeadlineExceeded` may have been committed.
+- Reads are quorum reads: the leader confirms with a majority that it still leads before it answers, so a read sees
+  every write committed before it. A read that cannot be confirmed fails with `Unavailable` and the detail
+  `read_quorum_unconfirmed` or `read_index_unapplied`; it never returns a possibly stale value.
+- Expiry on RF>1 is decided by the leader and takes effect through committed records, so followers and a new leader
+  agree on which keys are gone.
+
+Known limits:
+
+- RF=2 never promotes after losing a member; RF=1 never elects.
+- A follower that fell behind the compacted part of the leader's log is not repaired from a snapshot. It stays out of
+  the write quorum; the group continues on the remaining majority with less fault margin. The leader logs a warning
+  (`needs entries the leader already compacted`) and counts `squirix_replication_catch_up_sessions_total` with
+  `outcome="compacted"`. There is no operator repair for it in this release.
+- All nodes must run builds that agree on the replication settings and the minimum cluster package version
+  (`0.1.0-preview.9`); mixed versions fail readiness through the topology fingerprint, and a data directory activated by
+  an older build refuses to start.
+- Membership is static; there is no rebalancing or dynamic membership.
+
+Observe a failover with `/health/ready` (the `replica_readiness` check) and the metrics `squirix_replication_role` and
+`squirix_replication_term` per group ([diagnostics.md](diagnostics.md)). `squirix-server doctor` is an offline check
+of the data directory and does not show the live leader.
 
 ## Multi-node deployment
 
