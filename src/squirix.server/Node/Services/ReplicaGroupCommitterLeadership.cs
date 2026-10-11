@@ -57,7 +57,7 @@ internal static class ReplicaGroupCommitterLeadership
                 // tick, so it is logged when it changes.
                 if (tenure.ReportFault(exception.GetType()))
                 {
-                    if (exception is IOException or InvalidDataException or JournalCapacityExceededException)
+                    if (exception is IOException or InvalidDataException or JournalCapacityExceededException or ResourceExhaustedException)
                         ServerLog.ReplicaPromotionStorageRetry(committer.Log, committer.GroupId, term, exception);
                     else
                         ServerLog.ReplicaPromotionRetry(committer.Log, committer.GroupId, term, exception);

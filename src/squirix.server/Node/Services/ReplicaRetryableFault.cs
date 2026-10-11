@@ -4,7 +4,7 @@ using Squirix.Server.Errors;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>The faults of applying committed entries to local memory and the node journal that every replica loop retries instead of failing.</summary>
+/// <summary>The faults of applying committed entries to local memory and the node journal that the apply, readiness and promotion paths retry instead of failing.</summary>
 internal static class ReplicaRetryableFault
 {
     /// <summary>Tells whether a fault of applying committed entries leaves the work pending for the next pass instead of faulting its loop.</summary>
