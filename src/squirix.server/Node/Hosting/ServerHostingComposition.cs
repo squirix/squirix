@@ -244,6 +244,7 @@ internal static class ServerHostingComposition
     {
         IdempotencyCapacity = PolicyOptions.RfIdempotencyMaxInFlightRecords,
         IdempotencyRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyRetentionTicks),
+        IdempotencyMinRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyMinRetentionTicks),
         TimeProvider = sp.GetService<TimeProvider>(),
     };
 

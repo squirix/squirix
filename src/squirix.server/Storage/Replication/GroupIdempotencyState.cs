@@ -60,7 +60,6 @@ internal sealed class GroupIdempotencyState
     /// <summary>The default retention window for resolved outcomes.</summary>
     internal static readonly TimeSpan DefaultRetention = TimeSpan.FromHours(1);
 
-    private readonly TimeSpan _minRetention;
     private readonly GroupOutcomeOrder<GroupOperationKey> _order;
     private readonly Dictionary<GroupOperationKey, StoredRecord> _records;
     private readonly TimeSpan _retention;
@@ -112,7 +111,7 @@ internal sealed class GroupIdempotencyState
 
         Capacity = capacity;
         _retention = retention;
-        _minRetention = floor;
+        MinRetention = floor;
         ArgumentNullException.ThrowIfNull(timeProvider);
         _timeProvider = timeProvider;
         _records = [];
@@ -139,6 +138,9 @@ internal sealed class GroupIdempotencyState
 
     /// <summary>Gets the maximum number of retained idempotency records.</summary>
     internal int Capacity { get; }
+
+    /// <summary>Gets how long a resolved outcome is always retrievable.</summary>
+    internal TimeSpan MinRetention { get; }
 
     /// <summary>
     /// Gets a value indicating whether the outcomes of the committed log entries were rebuilt into this store since the log was opened.
@@ -553,7 +555,7 @@ internal sealed class GroupIdempotencyState
     private bool TryMakeRoom(int maxEvictions)
     {
         var evicted = 0;
-        while (evicted < maxEvictions && _records.Count - _exemptPins >= Capacity && _order.TryTakeOldest(_minRetention, out var oldest))
+        while (evicted < maxEvictions && _records.Count - _exemptPins >= Capacity && _order.TryTakeOldest(MinRetention, out var oldest))
             evicted += _records.Remove(oldest) ? 1 : 0;
 
         return evicted > 0 || _records.Count - _exemptPins < Capacity;

@@ -17,8 +17,8 @@ public sealed class TopologyFingerprintTests
     /// <param name="quorumReads">Whether quorum reads are enabled.</param>
     /// <param name="expected">The golden uppercase hex digest.</param>
     [Test]
-    [Arguments(false, false, "3328D304AB035D9F7652883173C0523E37032660BA9F03A7E8D908BB5C15F6AE")]
-    [Arguments(true, true, "2D9AB2912AE8BBA60AF5AB59F58E65CB77CF157615A905CE9459AD25DA35A115")]
+    [Arguments(false, false, "425BB7DE0321D8A16345697266147C6E1BD9D9F175592F680E758D6BDA295DD2")]
+    [Arguments(true, true, "9C13D42E316DE46D50F37A7053C7F21957A391D2AE944ACCE0FD666F69472E74")]
     public async Task ComputeMatchesGoldenVector(bool failover, bool quorumReads, string expected)
     {
         var inputs = new FingerprintInputs
@@ -132,6 +132,29 @@ public sealed class TopologyFingerprintTests
             VirtualNodes = 128,
             Peers = peers,
             Policy = FingerprintPolicy.Default with { RfIdempotencyMaxInFlightRecords = PolicyOptions.RfIdempotencyMaxInFlightRecords + 1 },
+            MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
+            QuorumAckMode = PolicyOptions.QuorumAckMode,
+            AutomaticFailoverEnabled = false,
+            QuorumReadsEnabled = false,
+        };
+        var right = TopologyFingerprint.Compute(fingerprintInputs);
+        _ = await Assert.That(right).IsNotEqualTo(left);
+    }
+
+    /// <summary>Changing the minimum idempotency retention changes the fingerprint.</summary>
+    [Test]
+    public async Task FingerprintTracksMinRetentionChange()
+    {
+        var peers = CreatePeers();
+        var left = TopologyFingerprint.Compute(CreateInputs(peers));
+        var fingerprintInputs = new FingerprintInputs
+        {
+            ClusterId = "cluster",
+            ConfigurationGeneration = 1,
+            ReplicaCount = 2,
+            VirtualNodes = 128,
+            Peers = peers,
+            Policy = FingerprintPolicy.Default with { RfIdempotencyMinRetentionTicks = PolicyOptions.RfIdempotencyMinRetentionTicks + 1 },
             MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
             QuorumAckMode = PolicyOptions.QuorumAckMode,
             AutomaticFailoverEnabled = false,

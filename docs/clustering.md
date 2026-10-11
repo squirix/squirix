@@ -82,7 +82,8 @@ What clients see:
 - The `squirix` client retries transport failures and moves to the next bootstrap endpoint within its single 15 s
   operation deadline ([bootstrap-client-failover.md](bootstrap-client-failover.md)). A failover that takes longer
   surfaces as `Unavailable` or `DeadlineExceeded`. A mutation that fails with `COMMIT_OUTCOME_UNKNOWN` or
-  `DeadlineExceeded` may have been committed.
+  `DeadlineExceeded` may have been committed. A retry with the same `operation_id` replays the original outcome for at
+  least one minute after the write, and for up to 15 minutes while the group's outcome table has room.
 - Reads are quorum reads: the leader confirms with a majority that it still leads before it answers, so a read sees
   every write committed before it. A read that cannot be confirmed fails with `Unavailable` and the detail
   `read_quorum_unconfirmed` or `read_index_unapplied`; it never returns a possibly stale value.

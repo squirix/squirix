@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
@@ -24,5 +25,6 @@ public sealed class GroupIdempotencyCapacityTests : NodeIntegrationTestBase
 
         _ = await Assert.That(served).IsTrue();
         _ = await Assert.That(log!.Idempotency.Capacity).IsEqualTo(PolicyOptions.RfIdempotencyMaxInFlightRecords);
+        _ = await Assert.That(log.Idempotency.MinRetention).IsEqualTo(TimeSpan.FromTicks(PolicyOptions.RfIdempotencyMinRetentionTicks));
     }
 }

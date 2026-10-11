@@ -222,7 +222,8 @@ follows.
   entries already compacted cannot be caught up and stays out of the quorum.
 - **Snapshot size.** A snapshot carries the resolved idempotency outcomes of the covered entries. When they exceed the
   64 MiB snapshot limit, compaction stalls with `snapshot_too_large` until the outcomes age out of idempotency
-  retention (one hour).
+  retention (15 minutes) or are replaced by new writes. A table that stays full does not empty by aging: each new write
+  takes the place of the oldest outcome once that outcome is older than one minute.
 
 Each pass reports its outcome through `squirix_replication_log_compactions_total` and
 `squirix_replication_log_compaction_skipped_total{reason}`, and the retained size through
@@ -259,6 +260,13 @@ committed prefix, at any time and on any node clock, yields identical entries. A
 entries above the durable applied index with the same result, and a recovered uncommitted tail reports the outcome its
 record carries. The client outcome, the durable record outcome and the group idempotency outcome are always the same
 bytes. The operation fingerprint is computed from the request, not from the decision, so a retry keeps its identity.
+
+A replica group keeps up to 65,536 idempotency outcomes. An outcome is always replayable for one minute, and for up to
+15 minutes while the table has room. When the table is full, a new write takes the place of the oldest outcome that is
+older than one minute; the write is refused for capacity only when every outcome is younger.
+Unresolved operations are never evicted. Ages are counted on each node's own clock, and on a follower from the leader's
+decision time, so clock skew between nodes shortens the minute on a node whose clock runs ahead. Outcomes are evicted by
+age and the eviction is not replicated, so replicas can differ on outcomes older than one minute.
 
 A retry replays its outcome across a restart of the owner too. The group snapshot carries the outcomes of the entries it
 covers; for the committed entries above it, applied or not, the restarted owner reads the records back from the group

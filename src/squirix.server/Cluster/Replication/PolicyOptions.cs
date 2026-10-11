@@ -40,4 +40,7 @@ internal static class PolicyOptions
 
     /// <summary>Default RF>1 idempotency retention ticks included in the fingerprint.</summary>
     internal const long RfIdempotencyRetentionTicks = 15L * TimeSpan.TicksPerMinute;
+
+    /// <summary>Default RF>1 minimum idempotency retention ticks (an outcome is always replayable this long) included in the fingerprint.</summary>
+    internal const long RfIdempotencyMinRetentionTicks = TimeSpan.TicksPerMinute;
 }
