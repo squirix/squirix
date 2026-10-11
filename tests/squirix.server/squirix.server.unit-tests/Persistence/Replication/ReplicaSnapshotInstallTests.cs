@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -38,6 +39,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
         _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
+        _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
 
         var status = await log.GetStatusAsync(cancellationToken);
         var now = DateTime.UtcNow;
@@ -65,36 +67,10 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
             _ = await Assert.That(log.Idempotency.Lookup("client", outcomes[i].OperationId, outcomes[i].OperationFingerprint.Span, out _)).IsEqualTo(GroupIdempotencyLookup.Found);
     }
 
-    /// <summary>Install adopts the snapshot boundary as the applied watermark when the durable log does not reach it.</summary>
+    /// <summary>Install of a snapshot at the applied index drops the covered frames: none is left to apply.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task InstallAdoptsBoundaryAsApplied(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-install-boundary-source");
-        using var dir2 = new TempDirectory("squirix-install-boundary-target");
-        var composition = GroupComposition.Create(GroupId);
-
-        await using var source = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
-        await source.OpenAsync(cancellationToken);
-        _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
-        _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
-        _ = await source.AppendAsync(Append(3UL, "c"), cancellationToken);
-        _ = await source.AdvanceCommitAsync(3UL, cancellationToken);
-        var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 3UL, cancellationToken);
-
-        await using var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance);
-        await target.OpenAsync(cancellationToken);
-        var result = await target.InstallSnapshotAsync(snapshot, 1UL, cancellationToken);
-
-        _ = await Assert.That(result.Success).IsTrue();
-        var status = await target.GetStatusAsync(cancellationToken);
-        _ = await Assert.That(status.LastAppliedIndex).IsEqualTo(3UL);
-    }
-
-    /// <summary>Install moves the applied watermark to the snapshot boundary even when the log held the covered entries unapplied: the rewrite drops their frames, so none is left to apply.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task InstallRaisesAppliedToBoundary(CancellationToken cancellationToken)
+    public async Task InstallAtAppliedDropsCoveredFrames(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-install-applied-watermark");
         using var sourceDir = new TempDirectory("squirix-install-applied-watermark-source");
@@ -114,6 +90,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
         _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
+        _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
 
         var result = await log.InstallSnapshotAsync(snapshot, 1UL, cancellationToken);
 
@@ -121,6 +98,81 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var status = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That((status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((3UL, 3UL));
         _ = await Assert.That((await log.GetCommittedEntriesAsync(0UL, 10, cancellationToken)).Count).IsEqualTo(0);
+    }
+
+    /// <summary>Install refuses a snapshot above the applied index of an empty log and leaves the log, its metadata, and the snapshot untouched.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InstallRefusesBoundaryAboveApplied(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-install-boundary-source");
+        using var dir2 = new TempDirectory("squirix-install-boundary-target");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var source = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await source.OpenAsync(cancellationToken);
+        _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
+        _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
+        _ = await source.AppendAsync(Append(3UL, "c"), cancellationToken);
+        _ = await source.AdvanceCommitAsync(3UL, cancellationToken);
+        var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 3UL, cancellationToken);
+
+        await using var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await target.OpenAsync(cancellationToken);
+        var (beforeMeta, beforeLog) = await ReadDurableStateAsync(dir2, cancellationToken);
+
+        var result = await target.InstallSnapshotAsync(snapshot, 1UL, cancellationToken);
+
+        _ = await Assert.That(result.Success).IsFalse();
+        _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
+        _ = await Assert.That(target.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        var status = await target.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((status.LastLogIndex, status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((0UL, 0UL, 0UL));
+        _ = await Assert.That(new GroupSnapshotStore(dir2, GroupId).SnapshotExists).IsFalse();
+        var (afterMeta, afterLog) = await ReadDurableStateAsync(dir2, cancellationToken);
+        await SequenceAssert.EqualAsync(beforeMeta, afterMeta);
+        await SequenceAssert.EqualAsync(beforeLog, afterLog);
+    }
+
+    /// <summary>Install refuses a snapshot above the applied index of a log holding the covered entries unapplied, and neither the entries nor the higher leader term change.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InstallKeepsLogWhenAboveApplied(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-install-above-applied");
+        using var sourceDir = new TempDirectory("squirix-install-above-applied-source");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var source = new FollowerLog(sourceDir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await source.OpenAsync(cancellationToken);
+        _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
+        _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
+        _ = await source.AppendAsync(Append(3UL, "c"), cancellationToken);
+        _ = await source.AdvanceCommitAsync(3UL, cancellationToken);
+        var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, sourceDir, 3UL, cancellationToken);
+
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await log.OpenAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+        _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
+        _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
+        _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
+        _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
+        var retainedBefore = (await log.GetCommittedEntriesAsync(1UL, 10, cancellationToken)).Count;
+        var (beforeMeta, beforeLog) = await ReadDurableStateAsync(dir, cancellationToken);
+
+        var result = await log.InstallSnapshotAsync(snapshot, 5UL, cancellationToken);
+
+        _ = await Assert.That(result.Success).IsFalse();
+        _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
+        var status = await log.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((status.LastLogIndex, status.CommitIndex, status.LastAppliedIndex, status.CurrentTerm)).IsEqualTo((3UL, 3UL, 1UL, 1UL));
+        _ = await Assert.That(retainedBefore).IsGreaterThan(0);
+        _ = await Assert.That((await log.GetCommittedEntriesAsync(1UL, 10, cancellationToken)).Count).IsEqualTo(retainedBefore);
+        _ = await Assert.That(new GroupSnapshotStore(dir, GroupId).SnapshotExists).IsFalse();
+        var (afterMeta, afterLog) = await ReadDurableStateAsync(dir, cancellationToken);
+        await SequenceAssert.EqualAsync(beforeMeta, afterMeta);
+        await SequenceAssert.EqualAsync(beforeLog, afterLog);
     }
 
     /// <summary>Installing a snapshot releases an unresolved reservation it did not export from the covered prefix, and keeps the resolved outcome.</summary>
@@ -137,6 +189,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+        _ = await log.AdvanceAppliedAsync(2UL, cancellationToken);
 
         _ = await Assert.That(log.Idempotency.Reserve("client", "orphan", [1], GroupRecordKind.UserMutation, 2UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(log.Idempotency.Reserve("client", "kept", [2], GroupRecordKind.UserMutation, 1UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
@@ -166,6 +219,9 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
             await log.OpenAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
+            _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
             var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
 
             var result = await log.InstallSnapshotAsync(snapshot, 5UL, cancellationToken);
@@ -193,8 +249,9 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+        _ = await log.AdvanceAppliedAsync(2UL, cancellationToken);
 
-        var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 5UL, 2UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
+        var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 2UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
 
         var result = await log.InstallSnapshotAsync(malformed, 1UL, cancellationToken);
 
@@ -217,10 +274,11 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+        _ = await log.AdvanceAppliedAsync(2UL, cancellationToken);
 
         var now = DateTime.UtcNow;
         var outcome = new GroupIdempotencyRecord("client", "operation-1", new byte[] { 1, 2, 3 }, new byte[] { 8 }, GroupRecordKind.UserMutation, now, now, 4UL, 1UL);
-        var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 3UL, 3UL, new[] { outcome }, now);
+        var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 2UL, 2UL, new[] { outcome }, now);
 
         var result = await log.InstallSnapshotAsync(malformed, 1UL, cancellationToken);
 
@@ -250,6 +308,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
             ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 2UL, BufferEx.CopyToOwned("b"u8))));
         _ = await log.AppendAsync(second, cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+        _ = await log.AdvanceAppliedAsync(2UL, cancellationToken);
 
         var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 2UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
 
@@ -275,6 +334,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+        _ = await log.AdvanceAppliedAsync(2UL, cancellationToken);
 
         var unresolved = new GroupIdempotencyRecord(
             "client",
@@ -312,8 +372,9 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+        _ = await log.AdvanceAppliedAsync(2UL, cancellationToken);
 
-        var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, 5UL, 5UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
+        var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
 
         var result = await log.InstallSnapshotAsync(malformed, 1UL, cancellationToken);
 
@@ -345,6 +406,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
             _ = await Assert.That(log.Idempotency.TryResolve("client", "op-A", [9], 1UL, 1UL)).IsTrue();
             _ = await Assert.That(log.Idempotency.Lookup("client", "op-A", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
+            _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
 
             var status = await log.GetStatusAsync(cancellationToken);
             const GroupRecordKind kind = GroupRecordKind.UserMutation;
@@ -377,6 +439,23 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
     }
 
     private static FollowerLogAppendRequest Append(ulong index, string payload) => Append(index, 1UL, payload);
+
+    private static async Task<(byte[] Meta, byte[] Log)> ReadDurableStateAsync(string dir, CancellationToken cancellationToken)
+    {
+        var meta = await GroupMetadataFile.ReadBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
+        using var handle = File.OpenHandle(GroupStoragePaths.GetLogPath(dir, GroupId), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.Asynchronous);
+        var log = new byte[RandomAccess.GetLength(handle)];
+        var read = 0;
+        while (read < log.Length)
+        {
+            var count = await RandomAccess.ReadAsync(handle, log.AsMemory(read), read, cancellationToken);
+            if (count == 0)
+                break;
+            read += count;
+        }
+
+        return (meta, log);
+    }
 
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => FollowerFoundationScenario.Append("leader", index, term, payload);
 }

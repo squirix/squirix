@@ -58,11 +58,11 @@ public class ReplicaSnapshotBenchmarks
     [IterationSetup(Target = nameof(CompactThroughAsync))]
     public void CompactIterationSetup() => RebuildSourceLogAsync().GetAwaiter().GetResult();
 
-    /// <summary>Rebuilds the source log before each install iteration so every run installs into a fresh replica.</summary>
+    /// <summary>Rebuilds the target log before each install iteration so every run installs into a fresh replica applied through the snapshot boundary.</summary>
     [IterationSetup(Target = nameof(InstallReplicaSnapshotAsync))]
-    public void InstallIterationSetup() => RebuildTargetLogAsync().GetAwaiter().GetResult();
+    public void InstallIterationSetup() => RebuildAppliedTargetLogAsync().GetAwaiter().GetResult();
 
-    /// <summary>Installs the prepared snapshot into a replica log.</summary>
+    /// <summary>Installs the prepared snapshot into a replica log applied through the snapshot boundary.</summary>
     /// <returns>A task that completes after installation is durable.</returns>
     /// <exception cref="InvalidOperationException">Thrown when setup is incomplete or installation is refused.</exception>
     [Benchmark]
@@ -114,6 +114,12 @@ public class ReplicaSnapshotBenchmarks
         var store = new GroupSnapshotStore(dir, GroupId);
         if (await store.ReadPublishedAsync(CancellationToken.None).ConfigureAwait(false) == null)
             throw new InvalidOperationException("Published snapshot was not found.");
+    }
+
+    private async Task RebuildAppliedTargetLogAsync()
+    {
+        await RebuildTargetLogAsync().ConfigureAwait(false);
+        await SeedSourceLogAsync(ThrowHelper.Required(_target, "Benchmark target log was not initialized."), false).ConfigureAwait(false);
     }
 
     private async Task RebuildSourceLogAsync()

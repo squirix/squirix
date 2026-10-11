@@ -55,21 +55,6 @@ public sealed class ReplicaFollowerValidationTests : ServerUnitTestBase
         _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(registry, static r => _ = new ReplicaFollower(r!, RocksDoubles.CreateReplicaMembers()));
     }
 
-    /// <summary>Verifies that snapshot install on an unserved group is refused.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task InstallOnUnknownGroupIsRefusedAsync(CancellationToken cancellationToken)
-    {
-        await using var registry = CreateClosedRegistry();
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
-        var snapshot = new GroupSnapshot("unknown-group", ReadOnlyMemory<byte>.Empty, 1, 0, 0, 0, [], DateTime.UnixEpoch);
-
-        var result = await follower.InstallSnapshotAsync("unknown-group", ReadOnlyMemory<byte>.Empty, 1, snapshot, 7, cancellationToken);
-
-        _ = await Assert.That(result.Success).IsFalse();
-        _ = await Assert.That(result.Refusal).IsEqualTo(FollowerLogRefusal.NotMember);
-    }
-
     /// <summary>Verifies that snapshot upload on an unserved group is refused.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

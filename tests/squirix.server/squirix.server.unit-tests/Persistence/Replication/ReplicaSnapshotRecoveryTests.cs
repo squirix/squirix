@@ -154,6 +154,10 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         {
             await target.OpenAsync(cancellationToken);
             _ = await Assert.That((await target.GetStatusAsync(cancellationToken)).VotedFor).IsEqualTo("node-1");
+            _ = await target.AppendAsync(Append(1UL, "local"), cancellationToken);
+            _ = await target.AdvanceCommitAsync(1UL, cancellationToken);
+            _ = await target.AdvanceAppliedAsync(1UL, cancellationToken);
+            _ = await Assert.That((await target.GetStatusAsync(cancellationToken)).VotedFor).IsEqualTo("node-1");
 
             var result = await target.InstallSnapshotAsync(snapshot, 3UL, cancellationToken);
             var status = await target.GetStatusAsync(cancellationToken);
@@ -194,6 +198,8 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await target.AppendAsync(Append(1UL, "target-1"), cancellationToken);
             _ = await target.AppendAsync(Append(2UL, "target-2"), cancellationToken);
             _ = await target.AppendAsync(Append(3UL, "target-tail"), cancellationToken);
+            _ = await target.AdvanceCommitAsync(2UL, cancellationToken);
+            _ = await target.AdvanceAppliedAsync(2UL, cancellationToken);
 
             var result = await target.InstallSnapshotAsync(snapshot, 2UL, cancellationToken);
             _ = await Assert.That(result.Success).IsTrue();
@@ -233,6 +239,8 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await target.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await target.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await target.AppendAsync(Append(3UL, "old-tail"), cancellationToken);
+        _ = await target.AdvanceCommitAsync(2UL, cancellationToken);
+        _ = await target.AdvanceAppliedAsync(2UL, cancellationToken);
         _ = target.Idempotency.Reserve("client", "pending-tail", [4], GroupRecordKind.UserMutation, 3UL, 1UL);
 
         var result = await target.InstallSnapshotAsync(snapshot, 1UL, cancellationToken);
@@ -275,6 +283,10 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await using (var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
             await target.OpenAsync(cancellationToken);
+            _ = await target.AppendAsync(Append(1UL, "a"), cancellationToken);
+            _ = await target.AppendAsync(Append(2UL, "b"), cancellationToken);
+            _ = await target.AdvanceCommitAsync(2UL, cancellationToken);
+            _ = await target.AdvanceAppliedAsync(2UL, cancellationToken);
             var result = await target.InstallSnapshotAsync(snapshot, 1UL, cancellationToken);
             _ = await Assert.That(result.Success).IsTrue();
         }

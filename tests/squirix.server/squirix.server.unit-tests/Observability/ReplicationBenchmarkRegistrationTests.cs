@@ -20,7 +20,7 @@ public sealed class ReplicationBenchmarkRegistrationTests : ServerUnitTestBase
         _ = await Assert.That(ReplicationBenchmarkCatalog.EveryPhaseHasStoredEvidenceSchema()).IsTrue();
 
         var phases = ReplicationBenchmarkCatalog.Phases;
-        _ = await Assert.That(phases.Count).IsEqualTo(8);
+        _ = await Assert.That(phases.Count).IsEqualTo(7);
         for (var i = 0; i < phases.Count; i++)
         {
             var schema = ReplicationBenchmarkCatalog.GetEvidenceSchemaForPhase(phases[i]);
@@ -30,12 +30,12 @@ public sealed class ReplicationBenchmarkRegistrationTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>All eight required benchmarks are registered and discoverable from source.</summary>
+    /// <summary>All seven required benchmarks are registered and discoverable from source.</summary>
     [Test]
     public async Task RequiredBenchmarksAreDiscoverable()
     {
         var required = ReplicationBenchmarkCatalog.RequiredBenchmarks;
-        _ = await Assert.That(required.Count).IsEqualTo(8);
+        _ = await Assert.That(required.Count).IsEqualTo(7);
         _ = await Assert.That(required).All(static name => ReplicationBenchmarkCatalog.IsMappedToPhase(name));
 
         var root = RepositoryPaths.FindRepositoryRoot();
@@ -68,7 +68,6 @@ public sealed class ReplicationBenchmarkRegistrationTests : ServerUnitTestBase
             "Squirix.Server.Benchmarks.ReplicaPlacementBenchmarks" => Path.Join(root, "benchmarks", "squirix.server.benchmarks", "ReplicaPlacementBenchmarks.cs"),
             "Squirix.Server.Benchmarks.FollowerAppendBenchmarks" => Path.Join(root, "benchmarks", "squirix.server.benchmarks", "FollowerAppendBenchmarks.cs"),
             "Squirix.Server.Benchmarks.ReplicaSnapshotBenchmarks" => Path.Join(root, "benchmarks", "squirix.server.benchmarks", "ReplicaSnapshotBenchmarks.cs"),
-            "Squirix.Server.Benchmarks.ReplicaRepairBenchmarks" => Path.Join(root, "benchmarks", "squirix.server.benchmarks", "ReplicaRepairBenchmarks.cs"),
             "Squirix.E2EBenchmarks.Cache.ReplicaCommitBenchmarks" => Path.Join(root, "benchmarks", "squirix.e2e.benchmarks", "Cache", "ReplicaCommitBenchmarks.cs"),
             "Squirix.E2EBenchmarks.Cache.FailoverBenchmarks" => Path.Join(root, "benchmarks", "squirix.e2e.benchmarks", "Cache", "FailoverBenchmarks.cs"),
             "Squirix.E2EBenchmarks.Cache.LeaderAuthorityBenchmarks" => Path.Join(root, "benchmarks", "squirix.e2e.benchmarks", "Cache", "LeaderAuthorityBenchmarks.cs"),

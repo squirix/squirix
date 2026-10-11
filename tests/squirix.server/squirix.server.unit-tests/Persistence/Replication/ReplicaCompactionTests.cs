@@ -348,6 +348,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
             _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 2UL, cancellationToken);
             _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
             _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
+            _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
 
             faults.Arm();
             _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.InstallSnapshotAsync(snapshot, 1UL, cancellationToken));

@@ -79,6 +79,9 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
         await using (var target = new FollowerLog(targetDir, GroupId, composition, NullLogger<FollowerLog>.Instance, Options(follower)))
         {
             await target.OpenAsync(cancellationToken);
+            _ = await target.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, 1UL, "a"), cancellationToken);
+            _ = await target.AdvanceCommitAsync(1UL, cancellationToken);
+            _ = await target.AdvanceAppliedAsync(1UL, cancellationToken);
             _ = await Assert.That((await target.InstallSnapshotAsync(snapshot, 1UL, cancellationToken)).Success).IsTrue();
             installed = IsRetained(target.Idempotency);
         }
