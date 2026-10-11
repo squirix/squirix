@@ -438,8 +438,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var (pipeline, factory, read, term, eligibility, results) = await this.LaunchAsync(log, tenure, replacing, cancellationToken).ConfigureAwait(false);
         var status = read.Status;
         var leaderIndex = Probe.LeaderReplicaIndex;
+
+        // The pipeline is published only with its coordinator: a failed creation has already closed it and leaves nothing behind.
+        _coordinator = await this.CreateCoordinatorAsync((_locator.ReplicaCount, leaderIndex), (pipeline, factory, read, term, eligibility), log).ConfigureAwait(false);
         _pipeline = pipeline;
-        _coordinator = this.CreateCoordinator((_locator.ReplicaCount, leaderIndex), pipeline, log, in status, eligibility, Applier.RecoverTail(ReplicaLeaderTail.From(read), term, factory));
 
         // Before a restart the outcomes of the committed entries above the snapshot lived only in memory; their records carry them, so
         // a retry of an operation committed before the restart replays its outcome. The recovered tail is pinned first and keeps its pins.
