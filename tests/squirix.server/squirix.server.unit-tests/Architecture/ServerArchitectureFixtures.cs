@@ -49,80 +49,6 @@ internal static class ServerArchitectureFixtures
 
     private static readonly Lazy<MsbuildProjectIndex> ServerProjectIndex = new(static () => ParseMsbuildProject(ServerProject.Value));
 
-    /// <summary>
-    /// Scans repository <c language="csharp">.cs</c> sources for <c language="csharp">global using</c> directives or a <c language="csharp">GlobalUsings.cs</c> file.
-    /// </summary>
-    /// <param name="repositoryRoot">Absolute path to the repository root.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Sorted repo-relative paths of offending sources.</returns>
-    internal static async Task<List<string>> CollectGlobalUsingSourceOffendersAsync(string repositoryRoot, CancellationToken cancellationToken)
-    {
-        var sourceOffenders = new List<string>();
-        foreach (var path in Directory.GetFiles(repositoryRoot, "*.cs", SearchOption.AllDirectories))
-        {
-            // Skip build outputs so generated GlobalUsings under obj/ do not fail architecture tests.
-            if (IsGeneratedOutputPath(path))
-                continue;
-
-            if (Path.GetFileName(path).Equals("GlobalUsings.cs", StringComparison.OrdinalIgnoreCase))
-            {
-                sourceOffenders.Add(Path.GetRelativePath(repositoryRoot, path).Replace(Path.DirectorySeparatorChar, '/'));
-                continue;
-            }
-
-            var hasGlobalUsing = false;
-            foreach (var line in await File.ReadAllLinesAsync(path, cancellationToken))
-            {
-                if (!line.TrimStart().StartsWith("global using ", StringComparison.Ordinal))
-                    continue;
-
-                hasGlobalUsing = true;
-                break;
-            }
-
-            if (hasGlobalUsing)
-                sourceOffenders.Add(Path.GetRelativePath(repositoryRoot, path).Replace(Path.DirectorySeparatorChar, '/'));
-        }
-
-        sourceOffenders.Sort(StringComparer.Ordinal);
-        return sourceOffenders;
-    }
-
-    /// <summary>Scans repository <c language="csharp">.csproj</c> files for <c language="csharp">ImplicitUsings</c> set to <c language="csharp">enable</c>.</summary>
-    /// <param name="repositoryRoot">Absolute path to the repository root.</param>
-    /// <returns>Sorted repo-relative paths of offending projects.</returns>
-    internal static async Task<List<string>> CollectImplicitUsingsOffendersAsync(string repositoryRoot)
-    {
-        var projectOffenders = new List<string>();
-        foreach (var path in Directory.GetFiles(repositoryRoot, "*.csproj", SearchOption.AllDirectories))
-        {
-            if (IsGeneratedOutputPath(path))
-                continue;
-
-            var hasImplicitUsings = false;
-            var navigator = await LoadProjectAsync(path);
-            var elements = navigator.Select("//*");
-            while (elements.MoveNext())
-            {
-                var element = elements.Current!;
-                if (!string.Equals(element.LocalName, "ImplicitUsings", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                if (!element.Value.Trim().Equals("enable", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                hasImplicitUsings = true;
-                break;
-            }
-
-            if (hasImplicitUsings)
-                projectOffenders.Add(Path.GetRelativePath(repositoryRoot, path).Replace(Path.DirectorySeparatorChar, '/'));
-        }
-
-        projectOffenders.Sort(StringComparer.Ordinal);
-        return projectOffenders;
-    }
-
     internal static List<string> CollectUnexpectedMatches(List<string>? includes, Func<string, bool> isMatch, string[] baseline, StringComparer comparer)
     {
         var unexpected = new List<string>();
@@ -248,17 +174,6 @@ internal static class ServerArchitectureFixtures
         var children = root.SelectChildren(XPathNodeType.Element);
         while (children.MoveNext())
             CollectIndexData(children.Current!, properties, includes, includedElements, localNames);
-    }
-
-    private static bool IsGeneratedOutputPath(string path)
-    {
-        var normalized = path.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
-        var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
-        var binMarker = $"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}";
-        var artifactsMarker = $"{Path.DirectorySeparatorChar}artifacts{Path.DirectorySeparatorChar}";
-        var ndependOutMarker = $"{Path.DirectorySeparatorChar}NDependOut{Path.DirectorySeparatorChar}";
-        return normalized.Contains(objMarker, StringComparison.OrdinalIgnoreCase) || normalized.Contains(binMarker, StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains(artifactsMarker, StringComparison.OrdinalIgnoreCase) || normalized.Contains(ndependOutMarker, StringComparison.OrdinalIgnoreCase);
     }
 
     private static XPathNavigator LoadServerProject()

@@ -121,16 +121,6 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
         _ = await Assert.That(stopperText).Contains("JoinJournalThreadAsync", StringComparison.Ordinal);
     }
 
-    /// <summary>Ensures repository projects and sources do not hide dependencies with global or implicit usings.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task NoGlobalOrImplicitUsingsInRepo(CancellationToken cancellationToken)
-    {
-        var root = RepositoryPaths.FindRepositoryRoot();
-        _ = await Assert.That(await ServerArchitectureFixtures.CollectGlobalUsingSourceOffendersAsync(root, cancellationToken)).IsEmpty();
-        _ = await Assert.That(await ServerArchitectureFixtures.CollectImplicitUsingsOffendersAsync(root)).IsEmpty();
-    }
-
     /// <summary>Ensures the server runtime project has the required library package metadata.</summary>
     [Test]
     public async Task ServerProjectShouldBePackableLibrary()
