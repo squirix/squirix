@@ -139,6 +139,7 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         AppendString(hasher, inputs.QuorumAckMode);
         AppendInt32(hasher, inputs.Policy.RfIdempotencyMaxInFlightRecords);
         AppendInt64(hasher, inputs.Policy.RfIdempotencyRetentionTicks);
+        AppendInt64(hasher, inputs.Policy.RfIdempotencyMinRetentionTicks);
         AppendInt32(hasher, inputs.Policy.ClosedMessageMaxBytes);
         AppendInt32(hasher, inputs.Policy.ClosedSnapshotMaxBytes);
     }

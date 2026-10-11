@@ -108,7 +108,8 @@ the **client** `operation_id` and without running the cache pipeline itself. Onl
 idempotency records are per-node in memory (durable nodes also persist outcomes through the journal/snapshot path), and
 the entry node keeps none. When a retry lands on a different entry node (bootstrap endpoint switch or transport
 failover), the owner node replays the cached outcome for the same `operation_id` and fingerprint so the mutation is not
-applied twice. The owner response and errors reach the client unchanged; an unreachable owner surfaces as `Unavailable`.
+applied twice. In a replicated cache an outcome is replayable for at least one minute, and for up to 15 minutes while the
+replica group's outcome table has room. The owner response and errors reach the client unchanged; an unreachable owner surfaces as `Unavailable`.
 Operators can tune in-memory store caps with `SQUIRIX_IDEMPOTENCY_*` — see
 [configuration.md — Environment variables](configuration.md#environment-variables).
 

@@ -1,7 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -28,6 +30,39 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(
             coordinator.CommitAsync(ReplicaMutationTestKit.CreateMutation(), TimeSpan.FromSeconds(1), cancellationToken));
         _ = await Assert.That(pipeline.LocalAppendCount).IsEqualTo(0);
+    }
+
+    /// <summary>
+    /// A full group refuses a new write while its outcomes are younger than the minimum retention, replays a retry inside it, and admits
+    /// the write once the oldest outcome is older.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FullGroupAdmitsWriteAfterMinRetention(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var state = new GroupIdempotencyState(2, TimeSpan.FromMinutes(15), clock, TimeSpan.FromMinutes(1));
+        var pipeline = new ReplicaCommitTestKit.Pipeline();
+        await using var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline, state);
+        var timeout = TimeSpan.FromSeconds(1);
+
+        _ = await coordinator.CommitAsync(CreateMutation("op-1", 1), timeout, cancellationToken);
+        _ = await coordinator.CommitAsync(CreateMutation("op-2", 2), timeout, cancellationToken);
+        clock.Advance(TimeSpan.FromSeconds(59));
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(CreateMutation("op-3", 3), timeout, cancellationToken));
+        _ = await Assert.That(pipeline.LocalAppendCount).IsEqualTo(2);
+
+        _ = await coordinator.CommitAsync(CreateMutation("op-1", 1), timeout, cancellationToken);
+        _ = await Assert.That(pipeline.LocalAppendCount).IsEqualTo(2);
+
+        clock.Advance(TimeSpan.FromSeconds(2));
+        _ = await coordinator.CommitAsync(CreateMutation("op-3", 3), timeout, cancellationToken);
+
+        _ = await Assert.That(pipeline.LocalAppendCount).IsEqualTo(3);
+        _ = await Assert.That(state.Lookup("client", "op-1", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(state.Lookup("client", "op-2", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(state.Lookup("client", "op-3", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
     }
 
     /// <summary>A resolved retry returns exact bytes and mismatched reuse is rejected.</summary>
@@ -74,5 +109,11 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
         _ = await Assert.That(state.TryReleaseUnresolved("client", "op-a", 1, 1)).IsTrue();
         _ = await Assert.That(state.Lookup("client", "op-a", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
         _ = await Assert.That(state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 2, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+    }
+
+    private static PreparedReplicaMutation CreateMutation(string operationId, ulong logIndex)
+    {
+        var identity = new ReplicaOperationIdentity("group-a", "client", operationId, new byte[] { 1 });
+        return new PreparedReplicaMutation(identity, 1, logIndex, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 4));
     }
 }
