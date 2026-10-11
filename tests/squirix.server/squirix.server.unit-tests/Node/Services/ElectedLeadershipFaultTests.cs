@@ -194,6 +194,45 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
     }
 
     /// <summary>
+    /// A node that led fruitlessly in several terms, lost its uncommitted tail to a shorter log of another leader, and is elected again with
+    /// one follower matching is authorized: the progress its slot retained from the earlier leaderships does not keep it out of the quorum.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ShorterTailAfterEarlierTermsAuthorizes(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-shorter-tail");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var log = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var gateway = new HoldingGateway { DownFollowers = true };
+        await using var committer = Elected(registry, gateway);
+        _ = await committer.PromoteAsync(2UL, cancellationToken);
+        for (var term = 3UL; term <= 5UL; term++)
+        {
+            _ = await committer.RetireAsync(cancellationToken);
+            _ = await log.ObserveTermAsync(term, cancellationToken);
+            _ = await committer.PromoteAsync(term, cancellationToken);
+        }
+
+        var longTail = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
+        _ = await committer.RetireAsync(cancellationToken);
+
+        // Leader n3 of term 6 replaces the whole uncommitted tail with one entry of its own and commits it.
+        var foreign = new ReplicaMutationFactory(new StubCache(), "n2", 6UL, TimeProvider.System, NullLogger.Instance).PrepareLeaderTerm(1UL);
+        FollowerLogEntry[] entries = [new(1UL, 6UL, foreign.CanonicalPayload)];
+        var replaced = await log.AppendAsync(new FollowerLogAppendRequest("n3", 6UL, 0UL, 0UL, 1UL, entries), cancellationToken);
+        _ = await log.ObserveTermAsync(7UL, cancellationToken);
+        gateway.DownFollowers = false;
+        gateway.DownNode = "n3";
+        gateway.MatchFollowers = true;
+
+        var authorized = await committer.PromoteAsync(7UL, cancellationToken);
+
+        _ = await Assert.That((replaced.Success, longTail)).IsEqualTo((true, 4UL));
+        _ = await Assert.That(authorized).IsTrue();
+    }
+
+    /// <summary>
     /// A leadership whose leader-term entry append failed leaves a tail of an older term: verification reports it blocked with a warning
     /// once per blocked state, and warns again when the blocked tail grows.
     /// </summary>
@@ -364,6 +403,8 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
 
         internal bool DownFollowers { get; set; }
 
+        internal string DownNode { get; set; } = string.Empty;
+
         internal Task EntriesHeld => _entriesHeld.Task;
 
         internal bool HoldProbes { get; set; }
@@ -378,7 +419,7 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
 
         public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
-            if (DownFollowers)
+            if (DownFollowers || string.Equals(nodeId, DownNode, StringComparison.Ordinal))
                 throw new System.IO.IOException("follower is down");
 
             var empty = batch.Records.Count == 0;

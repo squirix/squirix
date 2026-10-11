@@ -104,6 +104,9 @@ internal static class ReplicaReadinessProbe
     internal static void MarkLeaderReady(ReplicaEligibility eligibility, int leaderReplicaIndex, in FollowerLogStatus leader, ReadOnlyMemory<byte> fingerprint, ulong generation)
     {
         ArgumentNullException.ThrowIfNull(eligibility);
+
+        // The slot starts fresh at each launch: progress retained from an earlier leadership may exceed a tail another leader shortened.
+        eligibility.Forget(leaderReplicaIndex);
         if (leader.Readiness != FollowerLogReadiness.Ready)
             return;
 
@@ -111,7 +114,7 @@ internal static class ReplicaReadinessProbe
         _ = eligibility.TryMarkReady(leaderReplicaIndex, in progress, in progress);
     }
 
-    /// <summary>Takes every ready follower slot out of the write quorum, so it counts again only after a probe or a catch-up session verifies it.</summary>
+    /// <summary>Takes every ready follower slot out of the write quorum and clears the progress of every follower slot, so it counts again only after a probe or a catch-up session verifies it.</summary>
     /// <param name="eligibility">Participation gates of the owned group.</param>
     /// <param name="leaderReplicaIndex">Zero-based slot of the leader, which stays as it is.</param>
     /// <remarks>
@@ -122,12 +125,11 @@ internal static class ReplicaReadinessProbe
     {
         ArgumentNullException.ThrowIfNull(eligibility);
 
-        // No verified progress reaches the maximum index, so every ready follower slot is demoted.
         var slots = new ReplicaSlots(leaderReplicaIndex);
         for (var i = 0; i < eligibility.ReplicaCount; i++)
         {
             if (slots.IsFollower(i))
-                _ = eligibility.TryDemote(i, ulong.MaxValue);
+                eligibility.Forget(i);
         }
     }
 
