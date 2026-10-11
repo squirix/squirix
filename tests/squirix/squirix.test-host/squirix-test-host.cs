@@ -2,8 +2,13 @@
 #:project ../../src/squirix.server/Squirix.Server.csproj
 #:property TargetFramework=net10.0
 #:property PublishAot=false
+#:property ImplicitUsings=disable
+using System;
 using System.Globalization;
+using System.IO;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using Squirix;
 using Squirix.Client;
 using Squirix.Server;

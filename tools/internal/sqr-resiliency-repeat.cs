@@ -1,8 +1,14 @@
 #:property PublishAot=false
 #:property IsAotCompatible=true
 #:property NoWarn=SA1649;S3903
+#:property ImplicitUsings=disable
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 
 var runs = new[]
 {

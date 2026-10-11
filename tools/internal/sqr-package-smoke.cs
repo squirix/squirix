@@ -1,11 +1,17 @@
 #:property PublishAot=false
 #:property IsAotCompatible=true
+#:property ImplicitUsings=disable
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading;
+using System.Threading.Tasks;
 
 var output = Console.Out;
 var argv = Environment.GetCommandLineArgs()[1..];

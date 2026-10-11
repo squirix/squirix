@@ -1,6 +1,11 @@
 #:property PublishAot=false
 #:property IsAotCompatible=true
+#:property ImplicitUsings=disable
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Threading;
 
 var output = Console.Out;
 var argv = Environment.GetCommandLineArgs()[1..];

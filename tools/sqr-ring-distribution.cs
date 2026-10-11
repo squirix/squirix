@@ -1,7 +1,12 @@
 #:project ../src/squirix.server/Squirix.Server.csproj
 #:property PublishAot=false
 #:property IsAotCompatible=true
+#:property ImplicitUsings=disable
+using System;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 
 var output = Console.Out;
