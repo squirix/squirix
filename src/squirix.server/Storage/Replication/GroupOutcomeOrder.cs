@@ -21,6 +21,8 @@ namespace Squirix.Server.Storage.Replication;
 ///     <para>
 ///     The heap key is the birth in <see cref="TimeSpan" /> ticks, so the conversion can misplace two records whose births differ by less
 ///     than one clock tick. The head check uses the real age of the live record, so this only delays an expiry by less than a tick.
+///     Records of the same birth leave oldest sequence first. The key cannot overflow: the time since the clock started is not negative
+///     and an age is at most the span of <see cref="DateTime" />, well below <see cref="long.MaxValue" /> ticks.
 ///     </para>
 /// </remarks>
 [Mutable]
@@ -30,21 +32,27 @@ internal sealed class GroupOutcomeOrder<TKey>
     private const int MinCompactionEntries = 64;
 
     private readonly TimeProvider _clock;
-    private readonly PriorityQueue<Entry, long> _heap = new();
+    private readonly PriorityQueue<Entry, (long Birth, long Sequence)> _heap = new();
     private readonly LiveLookup _lookup;
+    private readonly TimeSpan _minRetention;
     private readonly TimeSpan _retention;
     private long _lastSequence;
 
     /// <summary>Initializes a new instance of the <see cref="GroupOutcomeOrder{TKey}" /> class.</summary>
     /// <param name="clock">The clock the anchors were read from.</param>
-    /// <param name="retention">The retention; with <see cref="TimeSpan.MaxValue" /> nothing expires and nothing is tracked.</param>
+    /// <param name="retention">The retention; with <see cref="TimeSpan.MaxValue" /> nothing expires.</param>
+    /// <param name="minRetention">
+    /// The minimum retention, not greater than <paramref name="retention" />; with <see cref="TimeSpan.MaxValue" /> (so the retention is unbounded too)
+    /// nothing expires, nothing can be taken early, and nothing is tracked.
+    /// </param>
     /// <param name="lookup">Resolves whether an entry still belongs to the live record of its key.</param>
-    internal GroupOutcomeOrder(TimeProvider clock, TimeSpan retention, LiveLookup lookup)
+    internal GroupOutcomeOrder(TimeProvider clock, TimeSpan retention, TimeSpan minRetention, LiveLookup lookup)
     {
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(lookup);
         _clock = clock;
         _retention = retention;
+        _minRetention = minRetention;
         _lookup = lookup;
     }
 
@@ -69,10 +77,10 @@ internal sealed class GroupOutcomeOrder<TKey>
     /// <param name="ageAtAnchor">The age the record had at <paramref name="anchorTimestamp" />.</param>
     internal void Add(TKey key, long sequence, long anchorTimestamp, TimeSpan ageAtAnchor)
     {
-        if (_retention == TimeSpan.MaxValue)
+        if (_minRetention == TimeSpan.MaxValue)
             return;
 
-        _heap.Enqueue(new Entry(key, sequence), _clock.GetElapsedTime(0L, anchorTimestamp).Ticks - ageAtAnchor.Ticks);
+        _heap.Enqueue(new Entry(key, sequence), (_clock.GetElapsedTime(0L, anchorTimestamp).Ticks - ageAtAnchor.Ticks, sequence));
     }
 
     /// <summary>Drops every entry.</summary>
@@ -85,13 +93,19 @@ internal sealed class GroupOutcomeOrder<TKey>
     /// <summary>Takes the oldest live record whose retention elapsed.</summary>
     /// <param name="key">The identity of the expired record; the caller removes it from the store.</param>
     /// <returns><see langword="true" /> when a record expired.</returns>
-    internal bool TryTakeExpired([MaybeNullWhen(false)] out TKey key)
+    internal bool TryTakeExpired([MaybeNullWhen(false)] out TKey key) => TryTakeOldest(_retention, out key);
+
+    /// <summary>Takes the oldest live record when it is at least <paramref name="minimumAge" /> old.</summary>
+    /// <param name="minimumAge">The age the oldest record must have reached.</param>
+    /// <param name="key">The identity of the taken record; the caller removes it from the store.</param>
+    /// <returns><see langword="true" /> when the oldest live record is old enough; the head is the oldest, so no other record can qualify.</returns>
+    internal bool TryTakeOldest(TimeSpan minimumAge, [MaybeNullWhen(false)] out TKey key)
     {
         while (_heap.TryPeek(out var entry, out _))
         {
             if (_lookup(entry.Key, entry.Sequence, out var age))
             {
-                if (age < _retention)
+                if (age < minimumAge)
                     break;
 
                 _ = _heap.Dequeue();
@@ -113,7 +127,7 @@ internal sealed class GroupOutcomeOrder<TKey>
         if (_heap.Count <= (liveRecordCount * 2) + MinCompactionEntries)
             return;
 
-        var survivors = new List<(Entry Element, long Priority)>(liveRecordCount);
+        var survivors = new List<(Entry Element, (long Birth, long Sequence) Priority)>(liveRecordCount);
         foreach (var (entry, birth) in _heap.UnorderedItems)
         {
             if (_lookup(entry.Key, entry.Sequence, out _))
