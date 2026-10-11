@@ -24,8 +24,8 @@ public sealed class ReplicaPublishBudgetTests : IsolatedStorageTestBase
     private const string GroupId = "n1";
     private const int Writes = 20;
 
-    /// <summary>Leader: one publish after the local append (last log index) and one after the majority (commit index), per write.</summary>
-    private const long LeaderMetaPerWrite = 2;
+    /// <summary>Leader: the local append publishes nothing, as recovery derives the last log index from the log; one publish after the majority (commit index), per write.</summary>
+    private const long LeaderMetaPerWrite = 1;
 
     /// <summary>Follower: one publish per accepted append, which also carries the leader commit index of the previous write.</summary>
     private const long FollowerMetaPerWrite = 1;

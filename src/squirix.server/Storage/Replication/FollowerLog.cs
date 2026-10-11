@@ -759,7 +759,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             var entries = request.Entries;
             var lastVerifiedIndex = entries.Length == 0 ? request.PrevLogIndex : entries.Span[entries.Length - 1].LogIndex;
             if (entries.Length == 0)
-                return await CompleteAppendAsync(journal, owner, request.LeaderCommitIndex, lastVerifiedIndex, false, cancellationToken).ConfigureAwait(false);
+                return await CompleteAppendAsync(journal, owner, request.LeaderCommitIndex, lastVerifiedIndex, cancellationToken).ConfigureAwait(false);
 
             var error = PrepareAppendBatch(journal, owner, in request, out var toAppend, out var truncateAtIndex);
             if (error != null)
@@ -779,8 +779,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // Durable frames are part of the log whatever happens next: a restart recovers them. Cancelling the metadata write behind
             // them would report an append that already happened as refused, so it runs to completion.
             var completion = ownedToAppend != null ? CancellationToken.None : cancellationToken;
-            return await CompleteAppendAsync(journal, owner, request.LeaderCommitIndex, lastVerifiedIndex, ownedToAppend != null || truncateAtIndex != null, completion)
-               .ConfigureAwait(false);
+            return await CompleteAppendAsync(journal, owner, request.LeaderCommitIndex, lastVerifiedIndex, completion).ConfigureAwait(false);
         }
 
         internal static bool IsLogUpToDate(ulong candidateLastTerm, ulong candidateLastIndex, ulong localLastTerm, ulong localLastIndex) =>
@@ -879,7 +878,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             IFollowerLogContext owner,
             ulong leaderCommitIndex,
             ulong lastVerifiedIndex,
-            bool metaDirty,
             CancellationToken cancellationToken)
         {
             var commitAdvanced = false;
@@ -894,11 +892,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 }
             }
 
-            if (commitAdvanced || metaDirty)
+            // A change of the last log index alone publishes nothing: recovery derives it from the log file.
+            if (commitLogical is { } candidate)
             {
-                await PersistMetaOrFailReadinessAsync(journal, owner, commitLogical ?? owner.Meta, cancellationToken).ConfigureAwait(false);
-                if (commitLogical is { } candidate)
-                    owner.Meta = candidate;
+                await PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
+                owner.Meta = candidate;
             }
 
             if (commitAdvanced)
@@ -1638,7 +1636,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // A missing log file simply means the group has never persisted anything beyond the snapshot baseline.
             if (!File.Exists(journal.Paths.LogPath))
             {
-                ResetAndEnsure(owner, snapshotBase);
+                await ResetAndEnsureAsync(journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -1653,7 +1651,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 // An empty file is treated the same as no file at all.
                 if (RandomAccess.GetLength(handle) == 0)
                 {
-                    ResetAndEnsure(owner, snapshotBase);
+                    await ResetAndEnsureAsync(journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
                     return;
                 }
 
@@ -1667,7 +1665,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 // A header-only file carries no frames, so only the snapshot baseline (if any) is durable.
                 if (RandomAccess.GetLength(handle) == GroupLogCodec.LogFileHeader.Length)
                 {
-                    ResetAndEnsure(owner, snapshotBase);
+                    await ResetAndEnsureAsync(journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
                     return;
                 }
 
@@ -1699,7 +1697,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                     return;
                 }
 
-                owner.LastLogIndex = DeriveWalkBaseIndex(firstIndex, snapshotBase);
+                var walkBase = DeriveWalkBaseIndex(firstIndex, snapshotBase);
+                owner.LastLogIndex = walkBase;
 
                 var result = await WalkFramesAsync(journal, owner, handle, cancellationToken).ConfigureAwait(false);
 
@@ -1719,8 +1718,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
                 owner.LogLength = result.LastValidEnd;
                 owner.Meta = owner.Meta with { LastLogIndex = owner.LastLogIndex };
-                PruneAppliedEntries(journal, owner);
                 EnsureCommittedPrefixCovered(owner, snapshotBase);
+
+                // The persisted last log index is not relied on: only a frame the walk found above its base counts as held by the log.
+                await RaiseAppliedToBoundaryAsync(journal, owner, snapshotBase, owner.LastLogIndex > walkBase ? owner.LastLogIndex : 0UL, cancellationToken).ConfigureAwait(false);
+                PruneAppliedEntries(journal, owner);
             }
         }
 
@@ -1931,17 +1933,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 changed = true;
             }
 
-            // The applied watermark is owned by AdvanceAppliedAsync, not by the snapshot boundary. A snapshot carries
-            // only idempotency/commit state, not the application payload, and the installation/recovery log rewrite discards
-            // every frame at or below the LastIncludedIndex. Advancing LastAppliedIndex to the boundary here would skip the
-            // committed-but-unapplied entries still held in the log, so their mutations would never be applied. The state
-            // machine catches up by applying those retained entries through GetCommittedEntriesAsync instead.
-            if (included > candidate.LastAppliedIndex && included > owner.Meta.LastLogIndex)
-            {
-                candidate = candidate with { LastAppliedIndex = included };
-                changed = true;
-            }
-
             // A snapshot is authoritative for the covered prefix: a higher included term advances the durable
             // term and clears any vote cast in the older term before readiness, mirroring InstallAsync.
             if (snapshot.LastIncludedTerm > candidate.CurrentTerm)
@@ -2026,10 +2017,40 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             return ArrayPool<byte>.Shared.Rent(frameLength);
         }
 
-        private static void ResetAndEnsure(IFollowerLogContext owner, ulong snapshotBase)
+        private static async Task ResetAndEnsureAsync(FollowerLogJournal journal, IFollowerLogContext owner, ulong snapshotBase, CancellationToken cancellationToken)
         {
             ResetLogState(owner, snapshotBase);
             EnsureCommittedPrefixCovered(owner, snapshotBase);
+
+            // The log holds no frame, so nothing above the snapshot base is left to apply.
+            await RaiseAppliedToBoundaryAsync(journal, owner, snapshotBase, 0UL, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>Raises the applied watermark to the snapshot boundary when the log holds no frame above the applied watermark that the boundary would skip.</summary>
+        /// <remarks>
+        /// The applied watermark is owned by AdvanceAppliedAsync, not by the snapshot boundary. A snapshot carries only idempotency and commit
+        /// state, not the application payload, so raising the watermark past a frame the log still holds would skip a committed-but-unapplied
+        /// entry whose mutation would never be applied. The boundary is compared against the frames found in the log file, because the
+        /// persisted last log index is not relied on. A retried open reads the metadata from the disk again, so this step is safe to repeat.
+        /// </remarks>
+        /// <param name="journal">The paired in-memory journal state.</param>
+        /// <param name="owner">The log being recovered.</param>
+        /// <param name="snapshotBase">The restored snapshot boundary, or zero when no snapshot is published.</param>
+        /// <param name="highestFrameIndex">The highest frame index found in the log file, or zero when it holds no frame.</param>
+        /// <param name="cancellationToken">A token to observe while persisting metadata.</param>
+        private static async Task RaiseAppliedToBoundaryAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            ulong snapshotBase,
+            ulong highestFrameIndex,
+            CancellationToken cancellationToken)
+        {
+            if (snapshotBase <= owner.Meta.LastAppliedIndex || snapshotBase <= highestFrameIndex)
+                return;
+
+            var candidate = owner.Meta with { LastAppliedIndex = snapshotBase };
+            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
+            owner.Meta = candidate;
         }
 
         private static void ResetLogState(IFollowerLogContext owner, ulong snapshotBase)
@@ -2133,12 +2154,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // moves to the base, as a snapshot installation moves it. Keeping it below would point the applier at entries no frame holds,
             // and its catch-up would refuse the gap forever. The commit index already reaches the base, which the snapshot reconciliation
             // raised it to, so the watermark never passes the commit index.
-            if (snapshotBase > owner.Meta.LastAppliedIndex)
-            {
-                var candidate = owner.Meta with { LastAppliedIndex = snapshotBase };
-                await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
-                owner.Meta = candidate;
-            }
+            await RaiseAppliedToBoundaryAsync(journal, owner, snapshotBase, 0UL, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>Fails recovery for an invalid frame within the committed region.</summary>

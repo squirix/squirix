@@ -9,7 +9,7 @@ namespace Squirix.Server.Storage.Replication;
 /// <param name="ConfigurationGeneration">The configuration generation of the group.</param>
 /// <param name="CurrentTerm">The highest term this node has observed.</param>
 /// <param name="VotedFor">The node voted for in the current term, or an empty string.</param>
-/// <param name="LastLogIndex">The durable last log index.</param>
+/// <param name="LastLogIndex">The last log index at the time of the publish; recovery derives the index from the log file and does not rely on the stored value.</param>
 /// <param name="CommitIndex">The durable commit index.</param>
 /// <param name="LastAppliedIndex">The index last applied to memory by the coordinator.</param>
 [Immutable]
