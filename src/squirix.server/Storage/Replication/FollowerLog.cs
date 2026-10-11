@@ -2026,12 +2026,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             await RaiseAppliedToBoundaryAsync(journal, owner, snapshotBase, 0UL, cancellationToken).ConfigureAwait(false);
         }
 
-        /// <summary>Raises the applied watermark to the snapshot boundary when the log holds no frame above the applied watermark that the boundary would skip.</summary>
+        /// <summary>Raises the applied watermark to the snapshot boundary unless the log holds a frame at or above the boundary.</summary>
         /// <remarks>
         /// The applied watermark is owned by AdvanceAppliedAsync, not by the snapshot boundary. A snapshot carries only idempotency and commit
-        /// state, not the application payload, so raising the watermark past a frame the log still holds would skip a committed-but-unapplied
-        /// entry whose mutation would never be applied. The boundary is compared against the frames found in the log file, because the
-        /// persisted last log index is not relied on. A retried open reads the metadata from the disk again, so this step is safe to repeat.
+        /// state, not the application payload, so a frame the log holds at or above the boundary keeps the watermark where it is and is applied
+        /// on catch-up. Frames below the boundary are covered by the snapshot and are skipped. The boundary is compared against the highest
+        /// frame found in the log file, because the persisted last log index is not relied on. A retried open reads the metadata from the
+        /// disk again, so this step is safe to repeat.
         /// </remarks>
         /// <param name="journal">The paired in-memory journal state.</param>
         /// <param name="owner">The log being recovered.</param>
@@ -2409,10 +2410,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 CurrentTerm = Math.Max(owner.Meta.CurrentTerm, snapshot.LastIncludedTerm),
                 VotedFor = snapshot.LastIncludedTerm > owner.Meta.CurrentTerm ? string.Empty : owner.Meta.VotedFor,
 
-                // The persisting last index must describe the journal the installation leaves behind. When the boundary
+                // The published last index should describe the journal the installation leaves behind. When the boundary
                 // term diverges, the tail is empty, and the rewrite produces a header-only log ending at the snapshot
-                // boundary; keeping the higher pre-install value here would leave recovery reading a metadata index no
-                // durable frame supports.
+                // boundary; keeping the higher pre-install value here would store an index no durable frame supports.
+                // Recovery does not read the stored value; it derives the last index from the log file.
                 LastLogIndex = installedLastIndex,
                 CommitIndex = Math.Max(owner.Meta.CommitIndex, Math.Min(snapshot.CommitIndex, snapshot.LastIncludedIndex)),
 

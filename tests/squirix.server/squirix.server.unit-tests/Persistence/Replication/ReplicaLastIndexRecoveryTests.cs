@@ -99,7 +99,7 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-last-index-above-boundary");
         var composition = GroupComposition.Create(GroupId);
         await SeedUnpublishedTailAsync(dir, composition, 4UL, cancellationToken);
-        await PublishSnapshotAsync(dir, 3UL, cancellationToken);
+        await PublishSnapshotAsync(dir, GroupId, 3UL, cancellationToken);
 
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);
@@ -108,7 +108,7 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
         _ = await Assert.That((status.CommitIndex, status.LastAppliedIndex, status.LastLogIndex)).IsEqualTo((3UL, 0UL, 4UL));
         var pending = await reopened.GetCommittedEntriesAsync(status.LastAppliedIndex, 10, cancellationToken);
         _ = await Assert.That(IndexesOf(pending)).IsEqualTo("1,2,3");
-        _ = await Assert.That((await ReadMetaAsync(dir, cancellationToken)).LastAppliedIndex).IsEqualTo(0UL);
+        _ = await Assert.That((await ReadMetaAsync(dir, GroupId, cancellationToken)).LastAppliedIndex).IsEqualTo(0UL);
     }
 
     /// <summary>A log that ends exactly at the snapshot boundary still holds the entries up to it, so applied is not raised.</summary>
@@ -119,7 +119,7 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-last-index-at-boundary");
         var composition = GroupComposition.Create(GroupId);
         await SeedUnpublishedTailAsync(dir, composition, 3UL, cancellationToken);
-        await PublishSnapshotAsync(dir, 3UL, cancellationToken);
+        await PublishSnapshotAsync(dir, GroupId, 3UL, cancellationToken);
 
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
         await reopened.OpenAsync(cancellationToken);
@@ -138,7 +138,7 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-last-index-below-boundary");
         var composition = GroupComposition.Create(GroupId);
         await SeedUnpublishedTailAsync(dir, composition, 2UL, cancellationToken);
-        await PublishSnapshotAsync(dir, 4UL, cancellationToken);
+        await PublishSnapshotAsync(dir, GroupId, 4UL, cancellationToken);
 
         await using (var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
@@ -147,7 +147,7 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
             _ = await Assert.That((status.CommitIndex, status.LastAppliedIndex, status.LastLogIndex)).IsEqualTo((4UL, 4UL, 2UL));
         }
 
-        _ = await Assert.That((await ReadMetaAsync(dir, cancellationToken)).LastAppliedIndex).IsEqualTo(4UL);
+        _ = await Assert.That((await ReadMetaAsync(dir, GroupId, cancellationToken)).LastAppliedIndex).IsEqualTo(4UL);
     }
 
     /// <summary>A group without a log file is covered by the snapshot, so applied rises to the boundary.</summary>
@@ -177,9 +177,9 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
         await AssertBoundaryRaisedAsync(dir, true, true, cancellationToken);
     }
 
-    private static FollowerLogAppendRequest Append(ulong index, string payload) => FollowerFoundationScenario.Append("leader", index, 1UL, payload);
+    internal static FollowerLogAppendRequest Append(ulong index, string payload) => FollowerFoundationScenario.Append("leader", index, 1UL, payload);
 
-    private static string IndexesOf(IReadOnlyList<FollowerLogEntry> entries)
+    internal static string IndexesOf(IReadOnlyList<FollowerLogEntry> entries)
     {
         var indexes = new List<string>(entries.Count);
         for (var i = 0; i < entries.Count; i++)
@@ -188,14 +188,14 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
         return string.Join(',', indexes);
     }
 
-    private static Task PublishSnapshotAsync(TempDirectory dir, ulong included, CancellationToken cancellationToken) =>
-        new GroupSnapshotStore(dir, GroupId).PublishAsync(
-            new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, included, included, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch),
+    internal static Task PublishSnapshotAsync(TempDirectory dir, string groupId, ulong included, CancellationToken cancellationToken) =>
+        new GroupSnapshotStore(dir, groupId).PublishAsync(
+            new GroupSnapshot(groupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, included, included, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch),
             cancellationToken);
 
-    private static async Task<GroupLogMetadata> ReadMetaAsync(TempDirectory dir, CancellationToken cancellationToken)
+    internal static async Task<GroupLogMetadata> ReadMetaAsync(TempDirectory dir, string groupId, CancellationToken cancellationToken)
     {
-        var encoded = await File.ReadAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
+        var encoded = await File.ReadAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, groupId), cancellationToken);
         return GroupLogCodec.TryDecodeMeta(encoded, out var meta) ? meta : throw new InvalidDataException("The durable metadata payload failed codec validation.");
     }
 
@@ -231,10 +231,14 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
         await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
             await seed.OpenAsync(cancellationToken);
 
+        // The seed open creates an empty log file; the missing-log shape needs it removed, so recovery meets no file at all.
         if (createLog)
             WriteLogFile(dir, withHeader);
+        else
+            File.Delete(GroupStoragePaths.GetLogPath(dir, GroupId));
 
-        await PublishSnapshotAsync(dir, 2UL, cancellationToken);
+        _ = await Assert.That(File.Exists(GroupStoragePaths.GetLogPath(dir, GroupId))).IsEqualTo(createLog);
+        await PublishSnapshotAsync(dir, GroupId, 2UL, cancellationToken);
 
         await using (var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
         {
@@ -243,6 +247,6 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
             _ = await Assert.That((status.CommitIndex, status.LastAppliedIndex, status.LastLogIndex)).IsEqualTo((2UL, 2UL, 2UL));
         }
 
-        _ = await Assert.That((await ReadMetaAsync(dir, cancellationToken)).LastAppliedIndex).IsEqualTo(2UL);
+        _ = await Assert.That((await ReadMetaAsync(dir, GroupId, cancellationToken)).LastAppliedIndex).IsEqualTo(2UL);
     }
 }
