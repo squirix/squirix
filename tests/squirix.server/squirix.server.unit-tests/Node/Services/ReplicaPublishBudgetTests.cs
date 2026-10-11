@@ -70,25 +70,31 @@ public sealed class ReplicaPublishBudgetTests : IsolatedStorageTestBase
             await committer.CommitSetAsync(NewOperationId(), "cache", "warm", Entry("warm"), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             await WaitForFollowersAsync(gateway, 1, cancellationToken);
 
+            var leaderBudget = new FollowerLogDurabilityCounts(LeaderMetaPerWrite, FramesPerWrite, FlushesPerWrite);
+            var followerBudget = new FollowerLogDurabilityCounts(FollowerMetaPerWrite, FramesPerWrite, FlushesPerWrite);
             var leaderBefore = leaderHooks.Snapshot();
             var n2Before = followerHooks["n2"].Snapshot();
             var n3Before = followerHooks["n3"].Snapshot();
 
+            // Each write is checked on its own, so a write over the budget is not hidden by one under it.
+            var index = 1UL;
             for (var i = 0; i < Writes; i++)
             {
                 var key = $"k{i}";
                 await committer.CommitSetAsync(NewOperationId(), "cache", key, Entry(key), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+                index++;
+                await WaitForFollowersAsync(gateway, index, cancellationToken);
+
+                var leaderAfter = leaderHooks.Snapshot();
+                var n2After = followerHooks["n2"].Snapshot();
+                var n3After = followerHooks["n3"].Snapshot();
+                _ = await Assert.That(leaderAfter.Since(in leaderBefore)).IsEqualTo(leaderBudget).Because($"leader, write {i}");
+                _ = await Assert.That(n2After.Since(in n2Before)).IsEqualTo(followerBudget).Because($"n2, write {i}");
+                _ = await Assert.That(n3After.Since(in n3Before)).IsEqualTo(followerBudget).Because($"n3, write {i}");
+                leaderBefore = leaderAfter;
+                n2Before = n2After;
+                n3Before = n3After;
             }
-
-            await WaitForFollowersAsync(gateway, 1 + Writes, cancellationToken);
-
-            var leader = leaderHooks.Snapshot().Since(in leaderBefore);
-            var n2 = followerHooks["n2"].Snapshot().Since(in n2Before);
-            var n3 = followerHooks["n3"].Snapshot().Since(in n3Before);
-
-            _ = await Assert.That(leader).IsEqualTo(new FollowerLogDurabilityCounts(LeaderMetaPerWrite * Writes, FramesPerWrite * Writes, FlushesPerWrite * Writes));
-            _ = await Assert.That(n2).IsEqualTo(new FollowerLogDurabilityCounts(FollowerMetaPerWrite * Writes, FramesPerWrite * Writes, FlushesPerWrite * Writes));
-            _ = await Assert.That(n3).IsEqualTo(new FollowerLogDurabilityCounts(FollowerMetaPerWrite * Writes, FramesPerWrite * Writes, FlushesPerWrite * Writes));
         }
         finally
         {
