@@ -77,7 +77,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     /// that write to the same disk its pace would measure the load of the machine, not the product.
     /// </remarks>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <exception cref="TimeoutException">The writes or the compactions did not reach their counts within the bound.</exception>
+    /// <exception cref="TimeoutException">The writes or the compactions did not reach their counts within twice the bound.</exception>
     [Test]
     [NotInParallel]
     public async Task SteadyLoadCompactsRepeatedly(CancellationToken cancellationToken)
@@ -114,7 +114,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
                 {
                     var fired = Volatile.Read(ref compactions.Value);
                     var state = await DescribeLogsAsync(cluster, cancellationToken);
-                    throw new TimeoutException($"The steady load made {i} of {writes} writes and {fired} of {requiredCompactions} compactions within the bound; {state}.");
+                    throw new TimeoutException($"The steady load made {i} of {writes} writes and {fired} of {requiredCompactions} compactions within twice the bound; {state}.");
                 }
             }
         }
