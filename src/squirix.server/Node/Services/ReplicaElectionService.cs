@@ -170,6 +170,9 @@ internal sealed class ReplicaElectionService : BackgroundService
             case ElectionEvent.TermNotDurable:
                 ServerLog.ReplicaElectionTermNotDurable(_log, groupId, outcome.Term);
                 break;
+            case ElectionEvent.AuthorityTimedOut:
+                ServerLog.ReplicaElectionAuthorityTimedOut(_log, groupId, outcome.Term, outcome.Waited);
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(outcome), outcome.Event, "Unsupported election event.");
         }

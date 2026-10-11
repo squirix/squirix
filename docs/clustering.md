@@ -70,6 +70,9 @@ When a leader goes silent:
 - Without a reachable majority no leader is elected and the group refuses reads and writes (fails closed).
 - A deposed or cut-off former leader steps down and refuses requests; it rejoins as a follower and catches up from the
   new leader's log.
+- A new leader that cannot get a majority to commit an entry of its term within 30 seconds gives the group up and waits
+  a few seconds before it campaigns again, so another member can take it; the wait doubles up to 4 minutes while the
+  same node keeps failing. The group accepts no writes or reads from that leader in the meantime.
 
 What clients see:
 

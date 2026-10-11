@@ -211,6 +211,13 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 4045, Level = LogLevel.Warning, Message = "Replica group {GroupId} could not make term {Term} durable; the step is retried")]
     internal static partial void ReplicaElectionTermNotDurable(ILogger logger, string groupId, ulong term);
 
+    [LoggerMessage(
+        EventId = 4052,
+        Level = LogLevel.Warning,
+        Message =
+            "Replica group {GroupId} leader of term {Term} got no authority within {Waited}; it gives the group up and waits before it campaigns again")]
+    internal static partial void ReplicaElectionAuthorityTimedOut(ILogger logger, string groupId, ulong term, TimeSpan waited);
+
     [LoggerMessage(EventId = 4046, Level = LogLevel.Information, Message = "Replica group elections stopped because the host is shutting down; every group is left a follower without authority")]
     internal static partial void ReplicaElectionStopped(ILogger logger);
 

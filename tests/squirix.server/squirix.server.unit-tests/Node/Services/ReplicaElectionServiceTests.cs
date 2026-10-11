@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
@@ -22,11 +23,23 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
     /// <summary>The event id of a leader whose leader-term entry is committed.</summary>
     private const int AuthorizedEventId = 4040;
 
+    /// <summary>The event id of a leader that gave the group up for want of authority.</summary>
+    private const int AuthorityTimedOutEventId = 4052;
+
     /// <summary>The event id of the elections stopped by the host.</summary>
     private const int StoppedEventId = 4046;
 
     private static readonly string[] Groups = ["n1", "n2", "n3"];
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
+    /// <summary>The quiet timing with an authority deadline that lapses at once, so the first leader tick without authority gives up.</summary>
+    private static readonly ElectionTimerOptions Impatient = new()
+    {
+        ElectionTimeout = TimeSpan.FromHours(1),
+        MaxJitter = TimeSpan.FromHours(1),
+        JitterSeed = 7UL,
+        AuthorityTimeout = TimeSpan.FromMilliseconds(1),
+    };
 
     /// <summary>An election timeout no test run reaches, so only the own group, which needs no election, changes.</summary>
     private static readonly ElectionTimerOptions Quiet = new() { ElectionTimeout = TimeSpan.FromHours(1), MaxJitter = TimeSpan.FromHours(1), JitterSeed = 7UL };
@@ -65,6 +78,33 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         _ = await Assert.That(leadership.Calls).IsEqualTo("promote:n1:1");
     }
 
+    /// <summary>A leader that gets no authority within its deadline gives the group up and logs it once, as a warning, naming the group and the term.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AuthorityTimeoutIsLoggedOnce(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-election-service-deadline");
+        await using var registry = await OpenAsync(dir, cancellationToken, Impatient);
+        var leadership = new Leadership(false);
+        var log = new EventRecordingLogger();
+        using var service = Create(registry, 3, leadership, log);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            await log.WhenLoggedAsync(AuthorityTimedOutEventId, "group n1 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(log.Count(AuthorityTimedOutEventId)).IsEqualTo(1);
+        _ = await Assert.That(log.Find(AuthorityTimedOutEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.FindMessage(AuthorityTimedOutEventId)).Contains("term 1");
+        _ = await Assert.That(registry.StateFor("n1").HasAuthority).IsFalse();
+    }
+
     /// <summary>Groups of two replicas run no election loop: their owner leads them statically, and nothing is promoted.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -90,9 +130,9 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         (Fingerprint, 1UL, "n1"),
         log);
 
-    private static async Task<ReplicaGroupRegistry> OpenAsync(string dir, CancellationToken cancellationToken)
+    private static async Task<ReplicaGroupRegistry> OpenAsync(string dir, CancellationToken cancellationToken, ElectionTimerOptions? election = null)
     {
-        var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1, NullLoggerFactory.Instance) { Election = Quiet };
+        var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1, NullLoggerFactory.Instance) { Election = election ?? Quiet };
         try
         {
             await registry.OpenAsync(cancellationToken);
@@ -116,10 +156,16 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
             Task.FromException<FollowerLogVoteResult>(new IOException("voter unreachable"));
     }
 
-    /// <summary>A leadership whose every promotion is committed at once, recording the promoted terms.</summary>
+    /// <summary>A leadership whose every promotion is committed at once unless it is told otherwise, recording the promoted terms.</summary>
     private sealed class Leadership : IReplicaLeadership
     {
         private readonly ConcurrentQueue<string> _calls = new();
+        private readonly bool _commits;
+
+        internal Leadership(bool commits = true)
+        {
+            _commits = commits;
+        }
 
         internal string Calls => string.Join(',', _calls);
 
@@ -128,7 +174,7 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         public Task<bool> PromoteAsync(string groupId, ulong term, CancellationToken cancellationToken)
         {
             _calls.Enqueue($"promote:{groupId}:{term}");
-            return Task.FromResult(true);
+            return Task.FromResult(_commits);
         }
 
         public Task<bool> RetireAsync(string groupId, CancellationToken cancellationToken)

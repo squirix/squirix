@@ -35,4 +35,7 @@ internal enum ElectionEvent
 
     /// <summary>A term the driver had to make durable could not be persisted; the step is retried.</summary>
     TermNotDurable = 10,
+
+    /// <summary>The leader got no authority within its deadline and gave the group up; the retirement follows like any step-down.</summary>
+    AuthorityTimedOut = 11,
 }
