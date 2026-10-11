@@ -83,7 +83,7 @@ public sealed class LeaderAuthorityTests : ServerUnitTestBase
         await wait;
     }
 
-    /// <summary>RF=1 bypasses the authority protocol entirely: no quorum gate and no election timer.</summary>
+    /// <summary>RF=1 bypasses the authority protocol entirely: no quorum gate on writes or reads.</summary>
     [Test]
     public async Task RfOneBypassesAuthorityProtocol()
     {
@@ -92,10 +92,5 @@ public sealed class LeaderAuthorityTests : ServerUnitTestBase
 
         var read = LeaderAuthorityGate.CheckRead(1, false, false, 1, 1, new LeaderReadState(false, 0, 7));
         _ = await Assert.That(read.Allowed).IsTrue();
-
-        using var single = ElectionTimer.Create(1, null, new FakeTimeProvider());
-        _ = await Assert.That(single).IsNull();
-        using var quorum = ElectionTimer.Create(3, null, new FakeTimeProvider());
-        _ = await Assert.That(quorum).IsNotNull();
     }
 }

@@ -8,7 +8,7 @@ using Squirix.Server.Storage.Replication;
 namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Installs a snapshot, replays its retained tail, and performs final participation verification.</summary>
-[SuppressMessage("Usage", "MA0182:Internal type is apparently never used", Justification = "Test-only activation seam until RF>1 wiring drives repair sessions from the repair service in a follow-up milestone.")]
+[SuppressMessage("Usage", "MA0182:Internal type is apparently never used", Justification = "Used only by tests: snapshot-based catch-up is deferred, and a follower behind the compacted log fails closed.")]
 [Immutable]
 internal sealed class ReplicaSnapshotCatchUpSession
 {
