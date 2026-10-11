@@ -20,13 +20,16 @@ namespace Squirix.Server.Cluster.Replication;
 /// first, then the vote round in the next term. A won term goes to the leadership, which commits a leader-term entry; authority is
 /// granted only once that entry is committed by a majority. A leader heartbeats its followers, retries the promotion until it is
 /// authorized, and steps down on a higher term or once a majority stayed silent for an election timeout, revoking its authority before
-/// it retires. The provisional term one of the group this node owns needs no election: only the owner may lead it, so a log that never
-/// left it is led at term one at once. The leadership reports a failure to promote or retire as <see langword="false" />; anything it
-/// throws faults the step.
+/// it retires. A leader that stays without authority past its deadline steps down the same way and, once its retirement completes,
+/// does not campaign for a little longer than the longest normal timer, so another member can take the group; see
+/// <see cref="AuthorityDeadline" />. The provisional term one of the group this node owns needs no election: only the owner may lead
+/// it, so a log that never left it is led at term one at once. The leadership reports a failure to promote or retire as
+/// <see langword="false" />; anything it throws faults the step.
 /// </para>
 /// </remarks>
 internal sealed class ReplicaGroupElection
 {
+    private readonly AuthorityDeadline _deadline;
     private readonly ReplicaRpcHeader _header;
     private readonly ElectionJitter _jitter;
     private readonly IReplicaLeadership _leadership;
@@ -77,22 +80,30 @@ internal sealed class ReplicaGroupElection
         _round = new ReplicaVoteRound(votes, [.. members], _selfSlot, state);
         _header = header with { Term = 0, LeaderNodeId = string.Empty };
         _jitter = new ElectionJitter(state.Options.JitterSeed, header.GroupId);
+        _deadline = new AuthorityDeadline(state.Clock, state.Options);
         Arm();
+    }
+
+    /// <summary>Why the leader of a term leaves it.</summary>
+    private enum LeaderExit
+    {
+        /// <summary>It stays.</summary>
+        None = 0,
+
+        /// <summary>A higher term was observed, or no majority of followers answered within the election timeout.</summary>
+        Deposed = 1,
+
+        /// <summary>It got no authority within its deadline.</summary>
+        AuthorityTimedOut = 2,
     }
 
     /// <summary>Gets the replica group identifier.</summary>
     internal string GroupId => _header.GroupId;
 
     /// <summary>Gets how long the caller waits before the next step unless the group state wakes it first.</summary>
-    /// <returns>The heartbeat interval while leading, retiring, or not started; otherwise the time left until the election timeout.</returns>
-    internal TimeSpan NextDelay()
-    {
-        if (_retirePending || _state.Role == ReplicaGroupRole.Leader || !_started)
-            return _state.Options.HeartbeatInterval;
-
-        var remaining = _timeout - _state.Clock.GetElapsedTime(Baseline());
-        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
-    }
+    /// <returns>The heartbeat interval while leading, retiring, or not started; otherwise the time left until this node may campaign.</returns>
+    internal TimeSpan NextDelay() =>
+        _retirePending || _state.Role == ReplicaGroupRole.Leader || !_started ? _state.Options.HeartbeatInterval : TimeLeft();
 
     /// <summary>Runs one step of the driver.</summary>
     /// <param name="cancellationToken">Cancellation token; its cancellation ends the step by throwing.</param>
@@ -116,7 +127,7 @@ internal sealed class ReplicaGroupElection
         return true switch
         {
             _ when _state.HighestObservedTerm > status.CurrentTerm => await FollowAsync(_state.HighestObservedTerm, cancellationToken).ConfigureAwait(false),
-            _ when _state.Clock.GetElapsedTime(Baseline()) < _timeout => new ElectionOutcome(ElectionEvent.None, status.CurrentTerm),
+            _ when TimeLeft() > TimeSpan.Zero => new ElectionOutcome(ElectionEvent.None, status.CurrentTerm),
             _ => await CampaignAsync(status, cancellationToken).ConfigureAwait(false),
         };
     }
@@ -195,22 +206,24 @@ internal sealed class ReplicaGroupElection
     private async Task<ElectionOutcome> LeadAsync(ulong term, CancellationToken cancellationToken)
     {
         // A driver stopped meanwhile leaves the group a follower: nothing is promoted.
-        return true switch
-        {
-            _ when !_state.BecomeLeader(term) => new ElectionOutcome(ElectionEvent.None, term),
-            _ when await PromoteAsync(term, cancellationToken).ConfigureAwait(false) => new ElectionOutcome(ElectionEvent.Authorized, term),
-            _ => new ElectionOutcome(ElectionEvent.Elected, term),
-        };
+        if (!_state.BecomeLeader(term))
+            return new ElectionOutcome(ElectionEvent.None, term);
+
+        _deadline.Begin();
+        return await PromoteAsync(term, cancellationToken).ConfigureAwait(false)
+            ? new ElectionOutcome(ElectionEvent.Authorized, term)
+            : new ElectionOutcome(ElectionEvent.Elected, term);
     }
 
-    /// <summary>One leader tick: step down on a higher term or a silent majority, otherwise heartbeat and finish the promotion.</summary>
+    /// <summary>One leader tick: leave on a higher term, a silent majority, or a missed authority deadline, otherwise heartbeat and finish the promotion.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The outcome of the tick.</returns>
     private async Task<ElectionOutcome> LeadStepAsync(CancellationToken cancellationToken)
     {
         var term = _state.Term;
-        if (_state.HighestObservedTerm > term || !_state.HasQuorumContact(_selfSlot, _state.Options.ElectionTimeout))
-            return await StepDownAsync(term, cancellationToken).ConfigureAwait(false);
+        var exit = LeaderVerdict(term);
+        if (exit != LeaderExit.None)
+            return await LeaveAsync(term, exit, cancellationToken).ConfigureAwait(false);
 
         await _leadership.HeartbeatAsync(GroupId, cancellationToken).ConfigureAwait(false);
         return true switch
@@ -219,6 +232,39 @@ internal sealed class ReplicaGroupElection
             _ when await PromoteAsync(term, cancellationToken).ConfigureAwait(false) => new ElectionOutcome(ElectionEvent.Authorized, term),
             _ => new ElectionOutcome(ElectionEvent.PromotionPending, term),
         };
+    }
+
+    /// <summary>Decides whether the leader of a term must leave it.</summary>
+    /// <param name="term">The term led.</param>
+    /// <returns>
+    /// <see cref="LeaderExit.Deposed" /> on a higher term or a silent majority; otherwise <see cref="LeaderExit.AuthorityTimedOut" />
+    /// when the leader got no authority within its deadline, checked after the other two; otherwise <see cref="LeaderExit.None" />.
+    /// </returns>
+    private LeaderExit LeaderVerdict(ulong term)
+    {
+        var deposed = _state.HighestObservedTerm > term || !_state.HasQuorumContact(_selfSlot, _state.Options.ElectionTimeout);
+        return true switch
+        {
+            _ when deposed => LeaderExit.Deposed,
+            _ when _deadline.IsOverdue() => LeaderExit.AuthorityTimedOut,
+            _ => LeaderExit.None,
+        };
+    }
+
+    /// <summary>Leaves the led term; a leader that missed its authority deadline then does not campaign for a while.</summary>
+    /// <param name="term">The term led.</param>
+    /// <param name="exit">Why the leader leaves.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The outcome of the step-down; for a missed deadline it also carries how long the leader waited.</returns>
+    private async Task<ElectionOutcome> LeaveAsync(ulong term, LeaderExit exit, CancellationToken cancellationToken)
+    {
+        if (exit != LeaderExit.AuthorityTimedOut)
+            return await StepDownAsync(term, cancellationToken).ConfigureAwait(false);
+
+        // The abstain starts when the retirement inside the step-down completes, possibly in a later step.
+        var waited = _deadline.GiveUp();
+        _ = await StepDownAsync(term, cancellationToken).ConfigureAwait(false);
+        return new ElectionOutcome(ElectionEvent.SteppedDown, term, FailoverDenial.None, waited);
     }
 
     private ElectionOutcome Lose(ElectionEvent lost, ulong term)
@@ -261,8 +307,12 @@ internal sealed class ReplicaGroupElection
     {
         var started = _state.Clock.GetTimestamp();
         if (await _leadership.PromoteAsync(GroupId, term, cancellationToken).ConfigureAwait(false) && _state.GrantAuthority(term))
+        {
+            _deadline.Granted();
             return true;
+        }
 
+        _deadline.AttemptFailed();
         if (_state.Clock.GetElapsedTime(started) >= _state.Options.HeartbeatInterval)
             _state.RestartQuorumGrace(term);
 
@@ -273,6 +323,7 @@ internal sealed class ReplicaGroupElection
     {
         var retired = await _leadership.RetireAsync(GroupId, cancellationToken).ConfigureAwait(false);
         _retirePending = !retired;
+        _deadline.RetireAnswered(retired);
         return new ElectionOutcome(retired ? ElectionEvent.SteppedDown : ElectionEvent.RetirePending, term);
     }
 
@@ -327,6 +378,15 @@ internal sealed class ReplicaGroupElection
             _state.BecomeFollower(durable, false);
 
         return await RetireAsync(_state.Term, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Gets the time until this node may campaign: the later of the election timeout and the end of the abstain after a given-up leadership.</summary>
+    /// <returns>The time left; zero once this node may campaign.</returns>
+    private TimeSpan TimeLeft()
+    {
+        var timer = _timeout - _state.Clock.GetElapsedTime(Baseline());
+        var abstain = _deadline.AbstainLeft();
+        return timer > abstain ? timer : abstain;
     }
 
     /// <summary>Runs the vote round in a term the pre-vote round found winnable.</summary>
