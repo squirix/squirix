@@ -49,21 +49,8 @@ internal sealed class ReplicaDriverLease
     /// <exception cref="ReplicaDriverLeaseHeldException">A leadership or a state transfer already drives the applier.</exception>
     internal async Task LeadAsync(CancellationToken cancellationToken)
     {
-        Task drained;
-        lock (_sync)
-        {
-            if (_leading)
-                throw new ReplicaDriverLeaseHeldException("The applier is already driven by a leadership.");
-
-            _leading = true;
-            if (_passes == 0)
-                return;
-
-            _drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            drained = _drained.Task;
-        }
-
-        await WaitForPassesAsync(drained, cancellationToken).ConfigureAwait(false);
+        if (!await TryLeadAsync(cancellationToken).ConfigureAwait(false))
+            throw new ReplicaDriverLeaseHeldException("The applier is already driven by a leadership.");
     }
 
     /// <summary>Starts a leadership unless one is already started, without waiting for another leadership to end.</summary>

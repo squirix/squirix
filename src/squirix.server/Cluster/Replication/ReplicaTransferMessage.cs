@@ -5,7 +5,7 @@ namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>One message of a state transfer after the begin, as the receiver handles it.</summary>
 [Immutable]
-internal readonly struct ReplicaTransferMessage
+internal readonly record struct ReplicaTransferMessage
 {
     /// <summary>Gets the kind of the message.</summary>
     internal required ReplicaTransferStep Step { get; init; }

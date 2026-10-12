@@ -16,11 +16,13 @@ internal sealed class ReplicaTransferPin
     private int _holds;
 
     /// <summary>Gets a value indicating whether a transfer session holds the pin.</summary>
-    internal bool IsHeld => Volatile.Read(ref _holds) > 0;
+    internal bool IsHeld => Holds() > 0;
 
     /// <summary>Creates the session of one transfer attempt; it holds nothing until <see cref="Session.Hold" /> runs.</summary>
     /// <returns>The session, which the caller disposes when the attempt ends, whatever way.</returns>
     internal Session Begin() => new(this);
+
+    private int Holds() => Volatile.Read(ref _holds);
 
     /// <summary>The hold of one transfer attempt on a <see cref="ReplicaTransferPin" />.</summary>
     [ThreadSafe]

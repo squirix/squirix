@@ -44,15 +44,9 @@ internal sealed class ReplicaStateChecksum
 
     private void AppendBytes(ReadOnlySpan<byte> bytes)
     {
-        AppendLength(bytes.Length);
-        _crc = Crc32C.Append(_crc, bytes);
-    }
-
-    private void AppendLength(int length)
-    {
         Span<byte> prefix = stackalloc byte[sizeof(int)];
-        BinaryPrimitives.WriteInt32LittleEndian(prefix, length);
-        _crc = Crc32C.Append(_crc, prefix);
+        BinaryPrimitives.WriteInt32LittleEndian(prefix, bytes.Length);
+        _crc = Crc32C.Append(Crc32C.Append(_crc, prefix), bytes);
     }
 
     private void AppendText(string text)

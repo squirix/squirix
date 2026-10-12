@@ -1,16 +1,23 @@
 using System;
+using System.Collections.Frozen;
+using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.Services;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -154,6 +161,81 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
         _ = await Assert.That(await ReadAsync(harness, "g-new-1", cancellationToken)).IsNull().Because("Nothing of the batch was written.");
         _ = await Assert.That(await ReadAsync(harness, "other-1", cancellationToken)).IsNull();
     }
+
+    /// <summary>
+    /// An entry a transfer stores equals, field by field, the entry a follower stores by applying the records of the same writes: value, version,
+    /// tags, absolute deadline, and the relative expiration, which no copy keeps because the leader resolves it into the absolute deadline.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TransferStoresWhatApplyStores(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-state-apply-equal");
+        await using var harness = await OpenAsync(dir, cancellationToken);
+        var now = harness.Clock.GetUtcNow().UtcDateTime;
+        var physical = new PhysicalCache<object?>(harness.Clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var follower = new ClientCache<object?>(physical, physical);
+        var factory = new ReplicaMutationFactory(follower, "g1", 1UL, harness.Clock, NullLogger.Instance);
+        var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["color"] = "red", ["size"] = "m" }.ToFrozenDictionary(StringComparer.Ordinal);
+        var writes = new (string Key, NodeCacheEntry<object?> Entry)[]
+        {
+            ("k-none", new NodeCacheEntry<object?> { Value = "v1" }),
+            ("k-absolute", new NodeCacheEntry<object?> { Value = "v2", ExpiresUtc = now.AddHours(1) }),
+            ("k-relative", new NodeCacheEntry<object?> { Value = "v3", Expiration = TimeSpan.FromMinutes(5) }),
+            ("k-sliding", new NodeCacheEntry<object?> { Value = "v4", Expiration = TimeSpan.FromMinutes(5) }),
+            ("k-tags", new NodeCacheEntry<object?>("v5", 1, now.AddHours(2), TimeSpan.FromMinutes(3), tags)),
+        };
+        var index = 1UL;
+        foreach (var (key, entry) in writes)
+            await ApplyAsync(follower, factory.PrepareSet($"op-{key}", CacheName, key, entry, index++), cancellationToken);
+
+        await ApplyAsync(follower, await factory.PrepareTouchAsync("op-touch", CacheName, "k-sliding", TimeSpan.FromMinutes(10), index, cancellationToken), cancellationToken);
+        var sent = new ReplicaStateEntry[writes.Length];
+        for (var i = 0; i < sent.Length; i++)
+        {
+            var stored = ThrowHelper.Required(await physical.GetEntryAsync(new CacheKey(CacheName, writes[i].Key), cancellationToken), "The follower must hold the entry.");
+            sent[i] = new ReplicaStateEntry(CacheName, Encoding.UTF8.GetBytes(writes[i].Key), ReplicaCacheApplier.EncodeEntry(stored), stored.ExpiresUtc?.Ticks ?? 0L);
+        }
+
+        var totals = TotalsOf(sent);
+        var sequence = await harness.BeginAndUploadAsync(Transfer, 1UL, cancellationToken);
+        sequence = await harness.WipeAllAsync(Transfer, sequence, cancellationToken);
+        sequence = await harness.SendBatchAsync(Transfer, sequence, sent, cancellationToken);
+        var end = await harness.Receiver.EndAsync(harness.HeaderFor(Transfer), sequence, totals.EntryCount, totals.Crc, cancellationToken);
+
+        _ = await Assert.That(end.Success).IsTrue();
+        for (var i = 0; i < writes.Length; i++)
+        {
+            var applied = await physical.GetEntryAsync(new CacheKey(CacheName, writes[i].Key), cancellationToken);
+            var transferred = await ReadAsync(harness, writes[i].Key, cancellationToken);
+            _ = await Assert.That(applied).IsNotNull();
+            _ = await Assert.That(Describe(transferred)).IsEqualTo(Describe(applied)).Because(writes[i].Key);
+        }
+
+        _ = await Assert.That((await physical.GetEntryAsync(new CacheKey(CacheName, "k-sliding"), cancellationToken))?.ExpiresUtc).IsEqualTo(now.AddMinutes(10));
+    }
+
+    private static string Describe(NodeCacheEntry<object?>? entry)
+    {
+        if (entry == null)
+            return "none";
+
+        var text = new StringBuilder();
+        _ = text.Append(entry.Value).Append('|').Append(entry.Version).Append('|').Append(entry.ExpiresUtc?.Ticks).Append('|').Append(entry.Expiration);
+        if (entry.Tags != null)
+        {
+            foreach (var pair in new SortedDictionary<string, string>(entry.Tags, StringComparer.Ordinal))
+                _ = text.Append('|').Append(pair.Key).Append('=').Append(pair.Value);
+        }
+
+        return text.ToString();
+    }
+
+    private static Task ApplyAsync(ILogicalNamespacedCache<object?> cache, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
+        ReplicaCacheApplier.ApplyAsync(
+            cache,
+            ReplicaLogCodec.Decode(mutation.CanonicalPayload).GetValueOrDefault(),
+            cancellationToken);
 
     private static long BytesOf(ILocalCacheStats stats) => stats.EstimatedBytes;
 

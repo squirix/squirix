@@ -70,7 +70,7 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
     /// <summary>Gets or sets the number of wipe replies that ask for another wipe step.</summary>
     internal int WipeSteps
     {
-        get => Volatile.Read(ref _wipesLeft);
+        get => WipesLeft();
         set => Volatile.Write(ref _wipesLeft, value);
     }
 
@@ -128,6 +128,8 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
 
     /// <summary>Lets the held step, and every later one, go on.</summary>
     internal void Release() => _ = _release.TrySetResult();
+
+    private int WipesLeft() => Volatile.Read(ref _wipesLeft);
 
     private async Task<ReplicaTransferReply> StepAsync(string name, CancellationToken cancellationToken)
     {

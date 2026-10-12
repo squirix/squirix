@@ -121,7 +121,6 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<ReplicaGroupRegistry>().GroupIds));
 
         AddReplicaGroupAppliers(services);
-        ReplicaTransferRegistration.Add(services);
 
         // The cluster locator registered the static leader table; an election-led node replaces it with the table of its election state.
         if (LeadsByElection(cluster))
@@ -208,7 +207,10 @@ internal static class ServerHostingComposition
 
     /// <summary>Registers the verification of the followers of the led groups, with its retry schedule.</summary>
     /// <param name="services">DI service collection.</param>
-    private static void AddReplicaGroupReadiness(IServiceCollection services) =>
+    /// <remarks>The readiness service sends the state transfers, so their registrations come with it.</remarks>
+    private static void AddReplicaGroupReadiness(IServiceCollection services)
+    {
+        ReplicaTransferRegistration.Add(services);
         _ = services.AddHostedService(static sp => new ReplicaGroupReadinessService(
             sp.GetRequiredService<ReplicaGroupCommitters>(),
             sp.GetRequiredService<ILogger<ReplicaGroupReadinessService>>(),
@@ -218,6 +220,7 @@ internal static class ServerHostingComposition
         {
             Options = sp.GetService<ReplicaReadinessOptions>() ?? new ReplicaReadinessOptions(),
         });
+    }
 
     /// <summary>Registers the election drivers of the served groups, which hand won terms to the committers.</summary>
     /// <param name="services">DI service collection.</param>
