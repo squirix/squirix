@@ -5,6 +5,7 @@ using BenchmarkDotNet.Attributes;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
@@ -96,7 +97,7 @@ public class FollowerAppendBenchmarks
                 await _log.DisposeAsync().ConfigureAwait(false);
 
             _log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-            await _log.OpenAsync(CancellationToken.None).ConfigureAwait(false);
+            await _log.OpenSeededAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }
 
@@ -111,7 +112,7 @@ public class FollowerAppendBenchmarks
         _nextIndex = 0;
 
         _log = new FollowerLog(_dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await _log.OpenAsync(CancellationToken.None).ConfigureAwait(false);
+        await _log.OpenSeededAsync(CancellationToken.None).ConfigureAwait(false);
 
         for (var i = 0; i < 1_000; i++)
             _ = await AppendEntryAsync(_log).ConfigureAwait(false);

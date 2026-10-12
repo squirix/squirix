@@ -67,7 +67,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(ReplicaLastIndexRecoveryTests.Append(1UL, "a"), cancellationToken);
             _ = await log.AppendAsync(ReplicaLastIndexRecoveryTests.Append(2UL, "b"), cancellationToken);
             _ = await log.AppendAsync(ReplicaLastIndexRecoveryTests.Append(3UL, "c"), cancellationToken);
@@ -101,7 +101,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
         await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
-            await seed.OpenAsync(cancellationToken);
+            await seed.OpenSeededAsync(cancellationToken);
             _ = await seed.AppendAsync(ReplicaLastIndexRecoveryTests.Append(1UL, "a"), cancellationToken);
             _ = await seed.AppendAsync(ReplicaLastIndexRecoveryTests.Append(2UL, "b"), cancellationToken);
         }
@@ -144,7 +144,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
     private static async Task SeedCompactedLogAsync(TempDirectory dir, GroupComposition composition, CancellationToken cancellationToken)
     {
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         for (var index = 1UL; index <= 5UL; index++)
             _ = await log.AppendAsync(ReplicaLastIndexRecoveryTests.Append(index, "e" + index), cancellationToken);
 

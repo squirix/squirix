@@ -65,7 +65,7 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-meta-recovery-publishes");
         var hooks = new CountingFollowerLogFaultHooks();
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks });
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.ObserveTermAsync(3UL, cancellationToken);
 
         var before = hooks.Snapshot();
@@ -114,7 +114,7 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
         var path = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, 1UL, "a"), cancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         }
@@ -154,7 +154,7 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
 
             // The next publishes are the term step, the grant and its mirror.
             failAt = publishes + 3;
@@ -223,7 +223,7 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
     private static async Task GrantVoteAfterTermStepAsync(TempDirectory dir, CancellationToken cancellationToken)
     {
         await using var log = OpenLog(dir);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.ObserveTermAsync(3UL, cancellationToken);
         var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 4UL, 0UL, 0UL), cancellationToken);
         _ = await Assert.That(granted.Granted).IsTrue();

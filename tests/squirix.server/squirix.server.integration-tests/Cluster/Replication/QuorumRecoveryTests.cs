@@ -8,6 +8,7 @@ using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -27,7 +28,7 @@ public sealed class QuorumRecoveryTests : NodeIntegrationTestBase
         using var dir = new TempDirectory("squirix-quorum-recovery");
         await using (var log = Open(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(AppendOne(), cancellationToken);
             _ = await log.AdvanceCommitAsync(1, cancellationToken);
         }

@@ -31,7 +31,7 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         }
@@ -52,7 +52,7 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         }
@@ -75,7 +75,7 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, crashFaults, TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AdvanceCommitAsync(1UL, cancellationToken));
         }
@@ -95,7 +95,7 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);

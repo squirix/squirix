@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -32,7 +33,7 @@ public sealed class FollowerReadinessTests : ServerUnitTestBase
         var polls = StartReadinessPollers(log, gate, 4, cancellationToken);
 
         gate.Set();
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
 
         var undefined = 0;
         for (var i = 0; i < polls.Length; i++)

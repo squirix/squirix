@@ -34,7 +34,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-election-safety-single-vote");
         await using var log = OpenLog(dir);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
 
@@ -84,7 +84,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-election-safety-prevote");
         await using var log = OpenLog(dir);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 5UL, 0UL, 0UL), cancellationToken);
         _ = await Assert.That(granted.Granted).IsTrue();
 
@@ -131,7 +131,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-election-safety-provisional-term");
         await using var log = OpenLog(dir);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
 
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
@@ -161,7 +161,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-election-safety-zero-term");
         await using var log = OpenLog(dir);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
 
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);

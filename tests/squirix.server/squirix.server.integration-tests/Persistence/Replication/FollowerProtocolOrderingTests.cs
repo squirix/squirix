@@ -29,7 +29,7 @@ public sealed class FollowerProtocolOrderingTests : NodeIntegrationTestBase
         using var dir = new TempDirectory("squirix-follower-ordering-conflict");
 
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
 
         // Old leader (term 1) appends an entry at index 1, then crashes before a majority.
         var first = await log.AppendAsync(Append(1UL, 1UL, "x"), cancellationToken);
@@ -54,7 +54,7 @@ public sealed class FollowerProtocolOrderingTests : NodeIntegrationTestBase
         using var dir = new TempDirectory("squirix-follower-ordering-duplicate");
 
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
 
         var batch = Batch([Entry(1UL, 1UL, "a"), Entry(2UL, 1UL, "b")], 0UL, 0UL, 1UL);
         var first = await log.AppendAsync(batch, cancellationToken);
@@ -76,7 +76,7 @@ public sealed class FollowerProtocolOrderingTests : NodeIntegrationTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
 
             var higher = new FollowerLogAppendRequest("leader-1", 9UL, 1UL, 1UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(Entry(2UL, 9UL, "b")));
@@ -99,7 +99,7 @@ public sealed class FollowerProtocolOrderingTests : NodeIntegrationTestBase
         using var dir = new TempDirectory("squirix-follower-ordering-gap");
 
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
 
         var result = await log.AppendAsync(Batch([Entry(1UL, 1UL, "a"), Entry(3UL, 1UL, "c")], 0UL, 0UL, 1UL), cancellationToken);
 

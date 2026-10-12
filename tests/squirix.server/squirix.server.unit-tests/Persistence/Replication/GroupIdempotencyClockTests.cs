@@ -7,6 +7,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -68,7 +69,7 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
         var follower = new FakeTimeProvider(Epoch + AgeAtCapture + TimeSpan.FromHours(3));
 
         await using var source = new FollowerLog(sourceDir, GroupId, composition, NullLogger<FollowerLog>.Instance, Options(leader));
-        await source.OpenAsync(cancellationToken);
+        await source.OpenSeededAsync(cancellationToken);
         _ = await source.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, 1UL, "a"), cancellationToken);
         _ = await source.AdvanceCommitAsync(1UL, cancellationToken);
         Resolve(source.Idempotency);
@@ -78,7 +79,7 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
         bool installed;
         await using (var target = new FollowerLog(targetDir, GroupId, composition, NullLogger<FollowerLog>.Instance, Options(follower)))
         {
-            await target.OpenAsync(cancellationToken);
+            await target.OpenSeededAsync(cancellationToken);
             _ = await target.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, 1UL, "a"), cancellationToken);
             _ = await target.AdvanceCommitAsync(1UL, cancellationToken);
             _ = await target.AdvanceAppliedAsync(1UL, cancellationToken);
@@ -104,7 +105,7 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-idempotency-clock-refused");
         await using (var seed = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System))
-            await seed.OpenAsync(cancellationToken);
+            await seed.OpenSeededAsync(cancellationToken);
 
         var resolvedUtc = Epoch.UtcDateTime;
         var outcome = new GroupIdempotencyRecord("cache", "op", new byte[] { 201 }, new byte[] { 209 }, GroupRecordKind.UserMutation, resolvedUtc, resolvedUtc, 1UL, 1UL);

@@ -33,7 +33,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
 
         var first = await log.AppendAsync(Append(1UL, 1UL, "dup"), cancellationToken);
         var logLength = FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId));
@@ -54,7 +54,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
         _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);
@@ -77,7 +77,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
@@ -104,7 +104,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
         _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);
@@ -137,7 +137,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
@@ -235,7 +235,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         await using (log)
         {
             _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.ReadEntriesAsync(1UL, 1, cancellationToken));
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
         }
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.ReadEntriesAsync(1UL, 1, cancellationToken));
@@ -250,7 +250,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var late = new CancellationTokenSource();
         var hooks = new CancelOnFlush(late);
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, hooks, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         hooks.Arm();
 
         var result = await log.AppendAsync(Append(1UL, 1UL, "a"), late.Token);
@@ -269,7 +269,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
         _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);
@@ -299,7 +299,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
             _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
@@ -309,7 +309,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastAppliedIndex).IsEqualTo(1UL);
             var committed = await log.GetCommittedEntriesAsync(cancellationToken);
             var singleEntry = await Assert.That(committed).HasSingleItem();
@@ -326,7 +326,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
 
         var payload = Encoding.UTF8.GetBytes("abcd");
         var request = new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 1UL, payload)));
@@ -348,7 +348,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
 
         var first = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         var second = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
@@ -378,7 +378,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var faults = FollowerSnapshotScenario.CreateCompactionFaults();
         await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, faults, TimeProvider.System))
         {
-            await seed.OpenAsync(cancellationToken);
+            await seed.OpenSeededAsync(cancellationToken);
             _ = await Assert.That((await seed.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
             _ = await Assert.That((await seed.AdvanceCommitAsync(1UL, cancellationToken)).Success).IsTrue();
 
@@ -388,7 +388,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         }
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await Assert.That(log.SnapshotPath).IsNotNull();
         _ = await Assert.That(FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId)) > GroupLogCodec.LogFileHeader.Length).IsTrue();
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastAppliedIndex).IsEqualTo(1UL);
@@ -409,7 +409,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
@@ -436,7 +436,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
@@ -461,7 +461,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
         _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);
@@ -485,7 +485,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
 
@@ -504,7 +504,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
 
@@ -527,7 +527,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
@@ -549,7 +549,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
 
         var result = await log.AdvanceCommitAsync(9UL, cancellationToken);
@@ -571,7 +571,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AdvanceCommitAsync(1UL, cancellationToken)).Success).IsTrue();
 
@@ -594,7 +594,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(3UL, 2UL, "c", 1UL), cancellationToken)).Success).IsTrue();
@@ -705,7 +705,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(3UL, 2UL, "c", 1UL), cancellationToken)).Success).IsTrue();
@@ -734,7 +734,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
 
@@ -777,7 +777,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AdvanceCommitAsync(2UL, cancellationToken)).Success).IsTrue();
@@ -802,7 +802,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
@@ -823,7 +823,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "one"), cancellationToken);
 
         var gap = await log.AppendAsync(Append(3UL, 1UL, "three"), cancellationToken);
@@ -842,7 +842,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         }
@@ -872,7 +872,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 5UL, "x"), cancellationToken);
 
         var stale = await log.AppendAsync(Append(2UL, 4UL, "y"), cancellationToken);
@@ -897,7 +897,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         // so the base entry is still retained in memory when it restarts with the snapshot published.
         await using (var source = new FollowerLog(sourceDir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
-            await source.OpenAsync(cancellationToken);
+            await source.OpenSeededAsync(cancellationToken);
             _ = await Assert.That((await source.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
             _ = await Assert.That((await source.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken)).Success).IsTrue();
             _ = await Assert.That((await source.AdvanceCommitAsync(2UL, cancellationToken)).Success).IsTrue();
@@ -906,7 +906,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
-            await seed.OpenAsync(cancellationToken);
+            await seed.OpenSeededAsync(cancellationToken);
             _ = await Assert.That((await seed.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
             _ = await Assert.That((await seed.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken)).Success).IsTrue();
             _ = await Assert.That((await seed.AdvanceCommitAsync(2UL, cancellationToken)).Success).IsTrue();
@@ -915,7 +915,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         File.Copy(GroupStoragePaths.GetSnapshotPath(sourceDir, GroupId), GroupStoragePaths.GetSnapshotPath(dir, GroupId));
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await Assert.That(log.SnapshotPath).IsNotNull();
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastAppliedIndex).IsEqualTo(0UL);
 
@@ -941,7 +941,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
 
         var status = await log.GetStatusAsync(cancellationToken);
@@ -964,7 +964,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-log-term-at");
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 2UL, "b", 1UL), cancellationToken);
 
@@ -983,7 +983,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "old"), cancellationToken);
 
         var result = await log.AppendAsync(Append(1UL, 2UL, "new"), cancellationToken);
@@ -1005,7 +1005,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
@@ -1051,7 +1051,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         try
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
             _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);

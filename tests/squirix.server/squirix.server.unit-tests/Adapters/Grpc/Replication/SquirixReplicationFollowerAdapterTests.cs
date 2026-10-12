@@ -328,6 +328,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
         var material = MtlsCertificate.Create(peerCertificate, bundle.Ca);
         var dir = new TempDirectory("squirix-replication-adapter");
+        await SeededLogs.SeedGroupsAsync(dir, [groupId], cancellationToken);
         var registry = new ReplicaGroupRegistry(dir, [groupId], 1, ReadOnlyMemory<byte>.Of(9), topology.ConfigurationGeneration, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         await registry.OpenAsync(cancellationToken);
         var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material, registry, members ?? RocksDoubles.CreateReplicaMembers());

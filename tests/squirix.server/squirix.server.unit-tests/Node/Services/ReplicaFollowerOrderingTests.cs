@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -170,7 +171,7 @@ public sealed class ReplicaFollowerOrderingTests : IsolatedStorageTestBase
             {
                 var log = new FollowerLog(Path.Join(Dir, node), GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
                 followers.Logs[node] = log;
-                await log.OpenAsync(cancellationToken);
+                await log.OpenSeededAsync(cancellationToken);
             }
         }
         catch

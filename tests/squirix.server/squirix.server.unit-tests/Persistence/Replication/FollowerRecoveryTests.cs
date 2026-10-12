@@ -33,7 +33,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
             _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
@@ -60,7 +60,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
             _ = await NodeAsyncAssert.ThrowsAsync<IOException, IReadOnlyList<FollowerLogEntry>>(log.GetCommittedEntriesAsync(cancellationToken));
@@ -81,7 +81,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
             _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);
@@ -110,7 +110,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         }
@@ -133,7 +133,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         }
@@ -156,7 +156,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         }
@@ -178,7 +178,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
             _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);
@@ -201,7 +201,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
             _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);
@@ -228,7 +228,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
 
             // The three-entry batch is durably written, but the append faults right after the write, so the
             // in-memory logical end never advances while the physical file already holds all three frames.
@@ -280,7 +280,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         _ = faults.Setups.OnFlushed().Callback(FailOnce("simulated failure after the durable truncate.", () => armed));
 
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
         _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);
@@ -323,7 +323,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 2UL, "A"), cancellationToken);
@@ -349,7 +349,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
             _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);
@@ -375,7 +375,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);

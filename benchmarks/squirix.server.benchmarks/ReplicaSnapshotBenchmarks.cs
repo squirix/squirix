@@ -7,6 +7,7 @@ using BenchmarkDotNet.Attributes;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
@@ -98,8 +99,8 @@ public class ReplicaSnapshotBenchmarks
         var composition = GroupComposition.Create(GroupId);
         _source = new FollowerLog(_dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         _target = new FollowerLog(_dir2, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await _source.OpenAsync(CancellationToken.None).ConfigureAwait(false);
-        await _target.OpenAsync(CancellationToken.None).ConfigureAwait(false);
+        await _source.OpenSeededAsync(CancellationToken.None).ConfigureAwait(false);
+        await _target.OpenSeededAsync(CancellationToken.None).ConfigureAwait(false);
 
         await SeedSourceLogAsync(_source, true).ConfigureAwait(false);
     }
@@ -131,7 +132,7 @@ public class ReplicaSnapshotBenchmarks
         _dir = new TempDirectory("squirix-replica-snapshot-bench-source");
 
         _source = new FollowerLog(_dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await _source.OpenAsync(CancellationToken.None).ConfigureAwait(false);
+        await _source.OpenSeededAsync(CancellationToken.None).ConfigureAwait(false);
 
         await SeedSourceLogAsync(_source, false).ConfigureAwait(false);
     }
@@ -145,7 +146,7 @@ public class ReplicaSnapshotBenchmarks
         _dir2 = new TempDirectory("squirix-replica-snapshot-bench-target");
 
         _target = new FollowerLog(_dir2, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await _target.OpenAsync(CancellationToken.None).ConfigureAwait(false);
+        await _target.OpenSeededAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>
