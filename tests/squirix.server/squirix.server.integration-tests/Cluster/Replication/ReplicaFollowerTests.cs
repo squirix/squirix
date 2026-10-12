@@ -16,7 +16,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
-/// <summary>Follower replication over real group logs: append, commit, status, and snapshot install.</summary>
+/// <summary>Follower replication over real group logs: append, status, and snapshot install.</summary>
 public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
 {
     private const string GroupId = "follower-service";
@@ -24,42 +24,6 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
 
     /// <summary>The replica set of the group; every candidate of these tests is a member.</summary>
     private static readonly ReplicaMembership Members = new(new ReplicaGroupLocator(new PhysicalNodeRing([GroupId, "node-b", "node-c"]), 3), [GroupId]);
-
-    /// <summary>Commit advances within the durable prefix and refuses beyond it.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task AdvanceCommitAcceptedWithinPrefix(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-commit");
-        await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry, Members);
-        _ = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("node-b", 1UL, 0UL, 0UL, 0UL, Record(1UL, 1UL), Record(2UL, 1UL)), cancellationToken);
-
-        var advanced = await service.AdvanceCommitAsync(GroupId, "node-b", Fingerprint, 1UL, 2UL, 1UL, cancellationToken);
-
-        _ = await Assert.That(advanced.Success).IsTrue();
-        _ = await Assert.That(advanced.CommitIndex).IsEqualTo(2UL);
-
-        var beyond = await service.AdvanceCommitAsync(GroupId, "node-b", Fingerprint, 1UL, 5UL, 1UL, cancellationToken);
-
-        _ = await Assert.That(beyond.Success).IsFalse();
-        _ = await Assert.That(beyond.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
-    }
-
-    /// <summary>Advancing an unserved group is refused without touching storage.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task AdvanceCommitUnknownGroupRefused(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-commit-unknown");
-        await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry, Members);
-
-        var result = await service.AdvanceCommitAsync("missing", "node-b", Fingerprint, 1UL, 1UL, 1UL, cancellationToken);
-
-        _ = await Assert.That(result.Success).IsFalse();
-        _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.NotMember);
-    }
 
     /// <summary>Accepted appends advance the durable log and are visible in status.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

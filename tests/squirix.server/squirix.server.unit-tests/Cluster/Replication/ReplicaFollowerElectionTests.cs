@@ -152,15 +152,13 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         _ = await Assert.That((refused.Granted, refused.RefusalCode)).IsEqualTo((false, RefusalCodes.LeaderContact));
     }
 
-    /// <summary>An accepted commit advance and an installed snapshot are leader contacts too, and their terms are observed.</summary>
+    /// <summary>An installed snapshot is a leader contact too, and its term is observed.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CommitAndSnapshotAreLeaderContacts(CancellationToken cancellationToken)
+    public async Task SnapshotIsLeaderContact(CancellationToken cancellationToken)
     {
-        using var commitDir = new TempDirectory("squirix-follower-election-commit");
         using var snapshotDir = new TempDirectory("squirix-follower-election-snapshot");
         using var sourceDir = new TempDirectory("squirix-follower-election-snapshot-source");
-        await using var committed = await OpenRegistryAsync(commitDir, new FakeTimeProvider(), cancellationToken);
         await using var installed = await OpenRegistryAsync(snapshotDir, new FakeTimeProvider(), cancellationToken);
         var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, [], DateTime.UnixEpoch);
         var upload = await PublishUploadAsync(sourceDir, snapshot, cancellationToken);
@@ -169,13 +167,11 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         _ = await log!.AppendAsync(new FollowerLogAppendRequest("n2", 1UL, 0UL, 0UL, 1UL, entries), cancellationToken);
         _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
 
-        var commit = await new ReplicaFollower(committed, RocksDoubles.CreateReplicaMembers()).AdvanceCommitAsync(GroupId, "n2", Fingerprint, 1UL, 0UL, 3UL, cancellationToken);
         var install = await new ReplicaFollower(installed, RocksDoubles.CreateReplicaMembers()).InstallSnapshotUploadAsync(GroupId, "n2", Fingerprint, 1UL, upload, 4UL, cancellationToken);
 
-        _ = await Assert.That((commit.Success, install.Success)).IsEqualTo((true, true));
-        _ = await Assert.That(committed.StateFor(GroupId).HasRecentLeaderContact(TimeSpan.FromSeconds(1))).IsTrue();
+        _ = await Assert.That(install.Success).IsTrue();
         _ = await Assert.That(installed.StateFor(GroupId).HasRecentLeaderContact(TimeSpan.FromSeconds(1))).IsTrue();
-        _ = await Assert.That((committed.StateFor(GroupId).HighestObservedTerm, installed.StateFor(GroupId).HighestObservedTerm)).IsEqualTo((3UL, 4UL));
+        _ = await Assert.That(installed.StateFor(GroupId).HighestObservedTerm).IsEqualTo(4UL);
     }
 
     /// <summary>A log mismatch still comes from the live leader: it names the leader, which then repairs the follower.</summary>
@@ -248,7 +244,6 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         var append = await follower.AppendAsync(GroupId, unelected, 1UL, new FollowerBatch([], "n2", 3UL, 0UL, 0UL, 0UL), cancellationToken);
         var preVote = await follower.PreVoteAsync(GroupId, unelected, 1UL, ballot, cancellationToken);
         var vote = await follower.RequestVoteAsync(GroupId, unelected, 1UL, ballot, cancellationToken);
-        var commit = await follower.AdvanceCommitAsync(GroupId, "n2", unelected, 1UL, 0UL, 3UL, cancellationToken);
         var upload = new ReplicaSnapshotUpload(ReadOnlyMemory<byte>.Empty, 0U, 1UL, 1UL);
         var install = await follower.InstallSnapshotUploadAsync(GroupId, "n2", unelected, 1UL, upload, 3UL, cancellationToken);
         var status = await follower.GetStatusAsync(GroupId, cancellationToken);
@@ -257,7 +252,6 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         _ = await Assert.That((append.Success, append.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.TopologyMismatch));
         _ = await Assert.That((preVote.Granted, preVote.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.TopologyMismatch));
         _ = await Assert.That((vote.Granted, vote.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.TopologyMismatch));
-        _ = await Assert.That((commit.Success, commit.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.TopologyMismatch));
         _ = await Assert.That((install.Success, install.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.TopologyMismatch));
         _ = await Assert.That((status?.CurrentTerm, status?.VotedFor, status?.LastLogIndex)).IsEqualTo((before?.CurrentTerm, before?.VotedFor, before?.LastLogIndex));
         _ = await Assert.That(status?.CurrentTerm).IsEqualTo(0UL);

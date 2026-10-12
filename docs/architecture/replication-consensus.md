@@ -39,13 +39,13 @@ slot rolls the file back to the previous record. A file written by an earlier bu
 refused at open and left unchanged.
 
 - **Unseeded.** A copy on a fresh disk opens unseeded, the fail-safe value. It refuses pre-votes, votes, appends,
-  commit advances, and snapshot installs with the refusal `unseeded` and adopts no term, so it can never grant a vote
+  and snapshot installs with the refusal `unseeded` and adopts no term, so it can never grant a vote
   that a lost disk would let it grant twice. Its node neither leads it in term one nor campaigns for it
   (`FailoverDenial.Unseeded`), and a static committer does not start over it: reads and writes of the group fail with
   `Unavailable`.
 - **Complete and incomplete.** A complete copy holds the data of the group and takes part as before; an incomplete copy
   is in the middle of receiving it and takes no part either. It refuses pre-votes, votes, appends (probes included),
-  commit advances, and snapshot installs with the refusal `incomplete`, which tells it apart from `unseeded`, adopts no
+  and snapshot installs with the refusal `incomplete`, which tells it apart from `unseeded`, adopts no
   term, and never applies log entries. A leader whose probe meets `incomplete` counts the member as one that answered and
   marks it as catching up, so it stays out of the write quorum; the entry catch-up session ends with the outcome
   `incomplete`, having sent no entries when its first request is the one refused. The bootstrap paths keep refusing such a copy. The offer answers `not-ready`, and the

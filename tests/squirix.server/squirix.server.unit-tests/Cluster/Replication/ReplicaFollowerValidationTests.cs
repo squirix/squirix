@@ -17,20 +17,6 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class ReplicaFollowerValidationTests : ServerUnitTestBase
 {
-    /// <summary>Verifies that commit advance on an unserved group is refused.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task AdvanceOnUnknownGroupIsRefusedAsync(CancellationToken cancellationToken)
-    {
-        await using var registry = CreateClosedRegistry();
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
-
-        var result = await follower.AdvanceCommitAsync("unknown-group", "n2", ReadOnlyMemory<byte>.Empty, 1, 0, 7, cancellationToken);
-
-        _ = await Assert.That(result.Success).IsFalse();
-        _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.NotMember);
-    }
-
     /// <summary>Verifies that appends on an unserved group are refused.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

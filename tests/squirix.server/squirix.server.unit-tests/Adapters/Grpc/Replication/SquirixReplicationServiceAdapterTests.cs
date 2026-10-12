@@ -26,22 +26,6 @@ namespace Squirix.Server.UnitTests.Adapters.Grpc.Replication;
 [Immutable]
 public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 {
-    /// <summary>Verifies that AdvanceReplicaCommit refuses while echoing the term and a zero commit index.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task AdvanceReplicaCommitReturnsNotReadyAsync(CancellationToken cancellationToken)
-    {
-        using var fixture = await CreateAdapterAsync(cancellationToken);
-        var request = new AdvanceReplicaCommitRequest { Header = CreateValidHeader(), CommitIndex = 42 };
-
-        var response = await fixture.Adapter.AdvanceReplicaCommit(request, new TestServerCallContext(null, fixture.CreateHttpContext()));
-
-        _ = await Assert.That(response.Term).IsEqualTo(7UL);
-        _ = await Assert.That(response.CommitIndex).IsEqualTo(0UL);
-        _ = await Assert.That(response.Success).IsFalse();
-        _ = await Assert.That(response.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
-    }
-
     /// <summary>Verifies that the adapter constructor requires a cluster topology.</summary>
     [Test]
     public void ConstructorRequiresCluster()

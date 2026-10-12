@@ -124,7 +124,7 @@ public sealed class UnseededLogTests : ServerUnitTestBase
         _ = await Assert.That((topology.Success, topology.RefusalCode, topology.CurrentTerm, topology.LastLogIndex)).IsEqualTo((false, FollowerLogRefusal.Unseeded, 0UL, 0UL));
     }
 
-    /// <summary>An unseeded log refuses both commit advances and the applied advance.</summary>
+    /// <summary>An unseeded log refuses the commit advance and the applied advance.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task CommitAndAppliedAreRefused(CancellationToken cancellationToken)
@@ -134,11 +134,9 @@ public sealed class UnseededLogTests : ServerUnitTestBase
         await log.OpenAsync(cancellationToken);
 
         var local = await log.AdvanceCommitAsync(1UL, cancellationToken);
-        var leader = await log.AdvanceCommitAsync(1UL, 3UL, cancellationToken);
         var applied = await log.AdvanceAppliedAsync(1UL, cancellationToken);
 
         _ = await Assert.That((local.Success, local.RefusalCode, local.CommitIndex)).IsEqualTo((false, FollowerLogRefusal.Unseeded, 0UL));
-        _ = await Assert.That((leader.Success, leader.RefusalCode, leader.CommitIndex)).IsEqualTo((false, FollowerLogRefusal.Unseeded, 0UL));
         _ = await Assert.That((applied.Success, applied.RefusalCode, applied.AppliedIndex)).IsEqualTo((false, FollowerLogRefusal.Unseeded, 0UL));
     }
 
@@ -195,7 +193,7 @@ public sealed class UnseededLogTests : ServerUnitTestBase
         var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, [], DateTime.UnixEpoch);
 
         _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, 3UL, "a"), cancellationToken);
-        _ = await log.AdvanceCommitAsync(1UL, 3UL, cancellationToken);
+        _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
         _ = await log.InstallSnapshotAsync(snapshot, 3UL, cancellationToken);
         _ = await log.ReconcileTailAsync(1UL, 0UL, 3UL, cancellationToken);

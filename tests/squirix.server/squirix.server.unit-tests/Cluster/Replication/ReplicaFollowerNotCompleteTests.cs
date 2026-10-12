@@ -27,7 +27,7 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
 
     private static readonly byte[] Fingerprint = [9, 8, 7];
 
-    /// <summary>Appends with entries and without, commit advances, installs, pre-votes and votes are refused with the code of the copy state, even when an offer is held.</summary>
+    /// <summary>Appends with entries and without, installs, pre-votes and votes are refused with the code of the copy state, even when an offer is held.</summary>
     /// <param name="incomplete">Whether the copy is planted incomplete; otherwise it is unseeded.</param>
     /// <param name="offered">Whether the planted record holds an offer.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -50,14 +50,12 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
 
         var append = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId, true), cancellationToken);
         var probe = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId, false), cancellationToken);
-        var commit = await follower.AdvanceCommitAsync(GroupId, LeaderId, Fingerprint, 1UL, 0UL, 3UL, cancellationToken);
         var install = await follower.InstallSnapshotUploadAsync(GroupId, LeaderId, Fingerprint, 1UL, upload, 3UL, cancellationToken);
         var preVote = await follower.PreVoteAsync(GroupId, Fingerprint, 1UL, ballot, cancellationToken);
         var vote = await follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, ballot, cancellationToken);
 
         _ = await Assert.That((append.Success, append.RefusalCode, append.CurrentTerm, append.LastLogIndex)).IsEqualTo((false, code, 0UL, 0UL));
         _ = await Assert.That((probe.Success, probe.RefusalCode, probe.CurrentTerm, probe.LastLogIndex)).IsEqualTo((false, code, 0UL, 0UL));
-        _ = await Assert.That((commit.Success, commit.RefusalCode)).IsEqualTo((false, code));
         _ = await Assert.That((install.Success, install.Refusal)).IsEqualTo((false, code));
         _ = await Assert.That((preVote.Granted, preVote.RefusalCode, preVote.CurrentTerm)).IsEqualTo((false, code, 0UL));
         _ = await Assert.That((vote.Granted, vote.RefusalCode, vote.CurrentTerm)).IsEqualTo((false, code, 0UL));

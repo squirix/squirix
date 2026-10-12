@@ -219,15 +219,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    public async Task<FollowerLogCommitResult> AdvanceCommitAsync(ulong commitIndex, ulong leaderTerm, CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-
-        return Refuses ? new FollowerLogCommitResult(false, RefusalCode, _meta.CommitIndex)
-            : await FollowerLogAppend.AdvanceCommitWithTermAsync(_journal, this, commitIndex, leaderTerm, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
     public async Task<FollowerLogAppendResult> AppendAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request.LeaderNodeId);
@@ -731,28 +722,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             owner.Meta = candidate;
             owner.Faults.OnCommitAdvanced();
             return new FollowerLogCommitResult(true, string.Empty, commitIndex);
-        }
-
-        internal static async Task<FollowerLogCommitResult> AdvanceCommitWithTermAsync(
-            FollowerLogJournal journal,
-            IFollowerLogContext owner,
-            ulong commitIndex,
-            ulong leaderTerm,
-            CancellationToken cancellationToken)
-        {
-            // A stale leader term authorizes nothing: it must not expose additional committed entries.
-            if (leaderTerm < owner.Meta.CurrentTerm)
-                return new FollowerLogCommitResult(false, FollowerLogRefusal.StaleTerm, owner.Meta.CommitIndex);
-
-            // A higher leader term is adopted durably, and any previous vote is cleared before any commit-index
-            // evaluation or return path. Without this, a delayed commit request from a higher-term leader would be
-            // answered against an out-of-date in-memory term and the higher term would never be persisted.
-            if (leaderTerm <= owner.Meta.CurrentTerm)
-                return await AdvanceCommitMonotonicAsync(journal, owner, commitIndex, cancellationToken).ConfigureAwait(false);
-            var termCandidate = owner.Meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty };
-            await PersistMetaOrFailReadinessAsync(journal, owner, termCandidate, cancellationToken).ConfigureAwait(false);
-            owner.Meta = termCandidate;
-            return await AdvanceCommitMonotonicAsync(journal, owner, commitIndex, cancellationToken).ConfigureAwait(false);
         }
 
         internal static async Task<FollowerLogAppendResult?> AdvanceTermIfHigherAsync(
