@@ -43,7 +43,7 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
         _ = await Assert.That((status.MemberState, status.BootstrapOffered, status.Readiness)).IsEqualTo(("unseeded", true, "ready"));
     }
 
-    /// <summary>A peer's offer and a peer's status call each wake the first start of the group this node owns.</summary>
+    /// <summary>A peer's offer and a peer's status call each wake the first start of the group this node owns, and record the sender as the peer that called.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task PeerCallsRaiseTheWakeSignal(CancellationToken cancellationToken)
@@ -58,6 +58,8 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
         var afterStatus = await scope.Registry.PeerContact.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((quiet, afterOffer, between, afterStatus)).IsEqualTo((false, true, false, true));
+        var contact = scope.Registry.PeerContact;
+        _ = await Assert.That((contact.Contacted(scope.Header.SenderNodeId), contact.Contacted(scope.Header.LeaderNodeId))).IsEqualTo((true, false));
     }
 
     /// <summary>A member that is not the owner of the group cannot offer: the call is refused as not a member and nothing is recorded.</summary>

@@ -595,7 +595,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     private async Task StoreMetaAsync(GroupLogMetadata candidate, CancellationToken cancellationToken)
     {
         await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
-        _meta = candidate;
+        FollowerLogLifecycle.Assign(ref _meta, ref _lifecycle, in candidate);
     }
 
     /// <summary>Tells whether the log cannot take a snapshot install now or the snapshot boundary lies above the durable applied index.</summary>

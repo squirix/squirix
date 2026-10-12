@@ -212,6 +212,36 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
         _ = await Assert.That(appended.Success).IsTrue();
     }
 
+    /// <summary>The complete flag read without the gate follows the copy: unset while fresh or offered, set by either completion and by reopening a complete copy.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CompleteFlagFollowsTheCopy(CancellationToken cancellationToken)
+    {
+        using var memberDir = new TempDirectory("squirix-bootstrap-flag-member");
+        using var ownerDir = new TempDirectory("squirix-bootstrap-flag-owner");
+        bool fresh;
+        bool offered;
+        bool completed;
+        await using (var member = OpenLog(memberDir))
+        {
+            await member.OpenAsync(cancellationToken);
+            fresh = member.IsComplete;
+            _ = await member.AcceptBootstrapOfferAsync(Fingerprint, 1UL, cancellationToken);
+            offered = member.IsComplete;
+            _ = await member.CompleteIfOfferedAsync(Fingerprint, 1UL, cancellationToken);
+            completed = member.IsComplete;
+        }
+
+        await using var reopened = OpenLog(memberDir);
+        await reopened.OpenAsync(cancellationToken);
+        await using var owner = OpenLog(ownerDir);
+        await owner.OpenAsync(cancellationToken);
+        await owner.CompleteBootstrapAsync(cancellationToken);
+
+        _ = await Assert.That((fresh, offered, completed)).IsEqualTo((false, false, true));
+        _ = await Assert.That((reopened.IsComplete, owner.IsComplete)).IsEqualTo((true, true));
+    }
+
     /// <summary>A fault on the first or the second slot write of the completion fails readiness, a reopen reads a legal state, and a later member call ends complete.</summary>
     /// <param name="failedWrite">The completion write that fails: the first or the second slot.</param>
     /// <param name="reopenedComplete">Whether a reopen reads the complete record, rather than the offered one.</param>
