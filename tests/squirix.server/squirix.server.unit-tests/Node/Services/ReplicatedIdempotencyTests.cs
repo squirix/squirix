@@ -50,7 +50,7 @@ public sealed class ReplicatedIdempotencyTests : DisposableServerUnitTestBase
 
         await using var registry = await ReplicaOwnerTestKit.OpenRegistryAsync(groupDir, cancellationToken);
         await using var journal = await CreateJournalAsync(scenario, persistence, cancellationToken);
-        await using var committer = ReplicaOwnerTestKit.CreateCommitter(registry, new ReplicaOwnerTestKit.ScriptedGateway(), new JournalingCache(journal));
+        await using var committer = ReplicaOwnerTestKit.CreateCommitter(registry, new ReplicaOwnerTestKit.ScriptedGateway(), new JournalingCache(journal), NullLogger<ReplicaGroupCommitter>.Instance);
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
 
         var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(
@@ -84,7 +84,7 @@ public sealed class ReplicatedIdempotencyTests : DisposableServerUnitTestBase
 
         await using var registry = await ReplicaOwnerTestKit.OpenRegistryAsync(groupDir, cancellationToken);
         await using var journal = await CreateJournalAsync(scenario, persistence, cancellationToken);
-        await using var committer = ReplicaOwnerTestKit.CreateCommitter(registry, new ReplicaOwnerTestKit.ScriptedGateway(), new ReplicaOwnerTestKit.StubCache());
+        await using var committer = ReplicaOwnerTestKit.CreateCommitter(registry, new ReplicaOwnerTestKit.ScriptedGateway(), new ReplicaOwnerTestKit.StubCache(), NullLogger<ReplicaGroupCommitter>.Instance);
         var coordinator = new RpcMutationIdempotencyCoordinator(CreateStore(), journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
 
         var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(
@@ -118,7 +118,7 @@ public sealed class ReplicatedIdempotencyTests : DisposableServerUnitTestBase
         await using (var registry = await ReplicaOwnerTestKit.OpenRegistryAsync(groupDir, cancellationToken))
         {
             await using var journal = await CreateJournalAsync(scenario, persistence, cancellationToken);
-            await using var committer = ReplicaOwnerTestKit.CreateCommitter(registry, new ReplicaOwnerTestKit.ScriptedGateway(), new JournalingCache(journal));
+            await using var committer = ReplicaOwnerTestKit.CreateCommitter(registry, new ReplicaOwnerTestKit.ScriptedGateway(), new JournalingCache(journal), NullLogger<ReplicaGroupCommitter>.Instance);
             var coordinator = new RpcMutationIdempotencyCoordinator(CreateStore(), journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
             _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(
                 coordinator.ExecuteAsync(
@@ -139,7 +139,7 @@ public sealed class ReplicatedIdempotencyTests : DisposableServerUnitTestBase
         await using var restartedRegistry = await ReplicaOwnerTestKit.OpenRegistryAsync(groupDir, cancellationToken);
         var before = await StatusAsync(restartedRegistry, cancellationToken);
         await using var restartedJournal = await CreateJournalAsync(scenario, persistence, cancellationToken);
-        await using var restartedCommitter = ReplicaOwnerTestKit.CreateCommitter(restartedRegistry, new ReplicaOwnerTestKit.ScriptedGateway(), new JournalingCache(restartedJournal));
+        await using var restartedCommitter = ReplicaOwnerTestKit.CreateCommitter(restartedRegistry, new ReplicaOwnerTestKit.ScriptedGateway(), new JournalingCache(restartedJournal), NullLogger<ReplicaGroupCommitter>.Instance);
         var restartedCoordinator = new RpcMutationIdempotencyCoordinator(restartedStore, restartedJournal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
 
         var retried = await restartedCoordinator.ExecuteAsync(

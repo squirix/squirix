@@ -69,7 +69,7 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
                  });
         using var dir = new TempDirectory("squirix-owner-applied-wait");
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache.Instance());
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache.Instance(), NullLogger<ReplicaGroupCommitter>.Instance);
 
         var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken);
         await entered.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
@@ -107,7 +107,7 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
                  });
         using var dir = new TempDirectory("squirix-owner-applied-pending");
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache.Instance());
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache.Instance(), NullLogger<ReplicaGroupCommitter>.Instance);
 
         var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken));
         await committer.FlushAppliedAsync(Durable(), cancellationToken);
@@ -188,7 +188,7 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
         await SeedTailAsync(dir, 1, leaderMemory, cancellationToken, "k3");
         var cache = new StubCache();
         await using var restarted = await OpenRegistryAsync(dir, cancellationToken);
-        await using var owner = CreateCommitter(restarted, new ScriptedGateway(), cache);
+        await using var owner = CreateCommitter(restarted, new ScriptedGateway(), cache, NullLogger<ReplicaGroupCommitter>.Instance);
 
         await owner.CommitSetAsync(NewOperationId(), "cache", "k4", Entry("k4"), cancellationToken);
         var added = await owner.CommitTryAddAsync(TailOperationId("k3"), "cache", "k3", Entry("k3"), cancellationToken);
@@ -207,7 +207,7 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
         var cache = new StubCache();
         using var dir = new TempDirectory("squirix-owner-applied-resync");
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache, NullLogger<ReplicaGroupCommitter>.Instance);
         await committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken);
         await committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken);
 

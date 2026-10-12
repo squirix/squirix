@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
@@ -29,7 +30,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         await SeedTailAsync(dir, 1, cancellationToken, "k1");
         var cache = new StubCache();
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache, NullLogger<ReplicaGroupCommitter>.Instance);
 
         var outcome = await committer.VerifyReplicasAsync(cancellationToken);
 
@@ -52,7 +53,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         _ = registry.TryGetLog("n1", out var log);
         _ = log!.Idempotency.Reserve("cache", "filler", [1], GroupRecordKind.UserMutation, 99, 1);
         _ = log.Idempotency.TryResolve("cache", "filler", [1], 99, 1);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache, NullLogger<ReplicaGroupCommitter>.Instance);
 
         var outcome = await committer.VerifyReplicasAsync(cancellationToken);
 
@@ -74,7 +75,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         gateway.Set("n3", FollowerMode.Behind, 1);
         var cache = new StubCache();
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, gateway, cache);
+        await using var committer = CreateCommitter(registry, gateway, cache, NullLogger<ReplicaGroupCommitter>.Instance);
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Pending);
 
         _ = await Assert.That(await committer.CatchUpFollowersAsync(Reporter(), cancellationToken)).IsTrue();
@@ -102,7 +103,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         gateway.Set("n3", FollowerMode.Down);
         var cache = new StubCache();
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, gateway, cache);
+        await using var committer = CreateCommitter(registry, gateway, cache, NullLogger<ReplicaGroupCommitter>.Instance);
 
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Pending);
         var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken));
@@ -130,7 +131,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         await SeedTailAsync(dir, 1, cancellationToken, "k1");
         var cache = new StubCache();
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache, NullLogger<ReplicaGroupCommitter>.Instance);
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.AllReady);
 
         var added = await committer.CommitTryAddAsync(TailOperationId("k1"), "cache", "k1", Entry("k1"), cancellationToken);
@@ -150,7 +151,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         await SeedTailAsync(dir, 1, cancellationToken, "k1");
         var cache = new StubCache();
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache, NullLogger<ReplicaGroupCommitter>.Instance);
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.AllReady);
         _ = await Assert.That(await committer.CommitTryAddAsync(TailOperationId("k1"), "cache", "k1", Entry("k1"), cancellationToken)).IsTrue();
 
@@ -177,7 +178,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         gateway.Set("n3", FollowerMode.Down);
         var cache = new StubCache();
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, gateway, cache);
+        await using var committer = CreateCommitter(registry, gateway, cache, NullLogger<ReplicaGroupCommitter>.Instance);
 
         for (var attempt = 0; attempt < 2; attempt++)
         {
@@ -206,7 +207,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         gateway.Set("n3", FollowerMode.Down);
         var cache = new StubCache();
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, gateway, cache);
+        await using var committer = CreateCommitter(registry, gateway, cache, NullLogger<ReplicaGroupCommitter>.Instance);
 
         var reuse = committer.CommitTryAddAsync(TailOperationId("k1"), "cache", "k1", Entry("other"), cancellationToken);
 
@@ -225,7 +226,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         await SeedTailAsync(dir, 1, cancellationToken, "k1", "k2");
         var cache = new StubCache();
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache, NullLogger<ReplicaGroupCommitter>.Instance);
 
         await committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken);
 
@@ -247,7 +248,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         gateway.Set("n3", FollowerMode.Down);
         var cache = new StubCache();
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, gateway, cache);
+        await using var committer = CreateCommitter(registry, gateway, cache, NullLogger<ReplicaGroupCommitter>.Instance);
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Pending);
 
         _ = await Assert.That(await committer.CatchUpFollowersAsync(Reporter(), cancellationToken)).IsFalse();

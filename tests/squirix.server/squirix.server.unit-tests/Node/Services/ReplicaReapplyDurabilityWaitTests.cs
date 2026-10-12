@@ -41,7 +41,7 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
         var memory = new StubCache();
         var local = CreateJournaledCache(journal, memory);
         await using var registry = await OpenRegistryAsync(GroupDir(), cancellationToken);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), local);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, NullLogger<ReplicaGroupCommitter>.Instance);
         journal.Writer.Flush.Arm();
         FlushState stalled;
         FlushState flushed;
@@ -88,7 +88,7 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
                       ? ValueTask.FromException(new IOException("Injected memory apply failure after the majority."))
                       : journaled.SetEntryAsync(operationId, cacheName, key, entry, token));
         await using var registry = await OpenRegistryAsync(GroupDir(), cancellationToken);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), flaky.Instance());
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), flaky.Instance(), NullLogger<ReplicaGroupCommitter>.Instance);
         var first = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken));
         journal.Writer.Flush.Arm();
         bool flushEntered;
@@ -159,7 +159,7 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
         await using var journal = await CreateWarmJournalAsync(groupCommit, cancellationToken);
         var memory = new StubCache();
         await using var restarted = await OpenRegistryAsync(GroupDir(), cancellationToken);
-        await using var owner = CreateCommitter(restarted, new ScriptedGateway(), CreateJournaledCache(journal, memory));
+        await using var owner = CreateCommitter(restarted, new ScriptedGateway(), CreateJournaledCache(journal, memory), NullLogger<ReplicaGroupCommitter>.Instance);
         journal.Writer.Flush.Arm();
         bool flushEntered;
         try

@@ -60,7 +60,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var local = new ScriptedApplyCache(ApplyMode.Fail);
         var log = new LeakRecordingLogger();
         await using var registry = await OpenRegistryAsync(cancellationToken);
-        await using var committer = CreateCommitter(registry, local, log);
+        await using var committer = CreateCommitter(registry, local, (log, log));
         var cache = new DomainErrorMappingCacheDecorator<object?>(new ReplicatedCache(local, LedGroupsTestKit.LeadOwn(committer)));
 
         var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cache.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken));
@@ -95,7 +95,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var gateway = new StalledGateway();
         var clock = new DueTimerClock(ShortCommitBudget);
         await using var registry = await OpenRegistryAsync(cancellationToken);
-        await using var defaults = CreateCommitter(registry, local, log);
+        await using var defaults = CreateCommitter(registry, local, (log, log));
         await using var committer = new ReplicaGroupCommitter(registry, new TwoNodeLocator(), gateway, local, (OwnedGroup, OwnedGroup), new ReplicaTopologyStamp(Fingerprint, 1), log)
         {
             Clock = TimeProvider.System,
@@ -140,7 +140,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var local = new ScriptedApplyCache(ApplyMode.Stall);
         var log = new LeakRecordingLogger();
         await using var registry = await OpenRegistryAsync(cancellationToken);
-        var committer = CreateCommitter(registry, local, log);
+        var committer = CreateCommitter(registry, local, (log, log));
         try
         {
             var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken);
@@ -173,7 +173,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var log = new LeakRecordingLogger();
         using var loggerFactory = new FixedLoggerFactory(log);
         var registry = await OpenRegistryAsync([OwnedGroup], StallOptions(hooks), loggerFactory, cancellationToken);
-        var committer = CreateCommitter(registry, new ScriptedApplyCache(ApplyMode.Fail), log, new AcceptingGateway(hooks.StallNextMetaWrite));
+        var committer = CreateCommitter(registry, new ScriptedApplyCache(ApplyMode.Fail), (log, log), new AcceptingGateway(hooks.StallNextMetaWrite));
         try
         {
             var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken);
@@ -207,7 +207,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var log = new LeakRecordingLogger();
         using var loggerFactory = new FixedLoggerFactory(log);
         var registry = await OpenRegistryAsync([OwnedGroup], StallOptions(hooks), loggerFactory, cancellationToken);
-        var committer = CreateCommitter(registry, new ScriptedApplyCache(ApplyMode.Fail), log);
+        var committer = CreateCommitter(registry, new ScriptedApplyCache(ApplyMode.Fail), (log, log));
         try
         {
             hooks.StallNextFrameWrite();
@@ -306,7 +306,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     {
         var local = new ScriptedApplyCache(ApplyMode.Fail);
         await using var registry = await OpenRegistryAsync(cancellationToken);
-        await using var committer = CreateCommitter(registry, local);
+        await using var committer = CreateCommitter(registry, local, (new LeakRecordingLogger(), NullLogger<ReplicaGroupCommitter>.Instance));
         var first = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken));
         _ = await Assert.That(first.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
 
@@ -330,7 +330,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     {
         var local = new ScriptedApplyCache(ApplyMode.Fail);
         await using var registry = await OpenRegistryAsync(cancellationToken);
-        await using var committer = CreateCommitter(registry, local);
+        await using var committer = CreateCommitter(registry, local, (new LeakRecordingLogger(), NullLogger<ReplicaGroupCommitter>.Instance));
         await FailFirstWriteThenDropMajorityAsync(committer, registry, cancellationToken);
 
         local.Recover();
@@ -349,7 +349,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     {
         var local = new ScriptedApplyCache(ApplyMode.Fail);
         await using var registry = await OpenRegistryAsync(cancellationToken);
-        await using var committer = CreateCommitter(registry, local);
+        await using var committer = CreateCommitter(registry, local, (new LeakRecordingLogger(), NullLogger<ReplicaGroupCommitter>.Instance));
         await FailFirstWriteThenDropMajorityAsync(committer, registry, cancellationToken);
 
         var refused = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry(), cancellationToken));
@@ -372,7 +372,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var local = new ScriptedApplyCache(ApplyMode.Fail);
         local.Recover();
         await using var registry = await OpenRegistryAsync([OwnedGroup], new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, IdempotencyCapacity = 1 }, NullLoggerFactory.Instance, cancellationToken);
-        await using var committer = CreateCommitter(registry, local);
+        await using var committer = CreateCommitter(registry, local, (new LeakRecordingLogger(), NullLogger<ReplicaGroupCommitter>.Instance));
         var recorded = NewOperationId();
         await committer.CommitSetAsync(recorded, "cache", "k1", Entry(), cancellationToken);
 
@@ -414,15 +414,15 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     private static ReplicaGroupCommitter CreateCommitter(
         ReplicaGroupRegistry registry,
         ILogicalNamespacedCache<object?> local,
-        ILogger<ReplicaGroupCommitter>? log = null,
+        (ILogger<ReplicaGroupCommitter> Committer, ILogger<ReplicaGroupCommitter> Applier) logs,
         IReplicaRpcGateway? gateway = null) =>
-        new(registry, new TwoNodeLocator(), gateway ?? new AcceptingGateway(), local, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), log ?? new LeakRecordingLogger())
+        new(registry, new TwoNodeLocator(), gateway ?? new AcceptingGateway(), local, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), logs.Committer)
         {
             Clock = TimeProvider.System,
             ShutdownTimeProvider = TimeProvider.System,
             BudgetTimeProvider = TimeProvider.System,
             Recovery = RecoveryLifecycle.Recovered(),
-            Applier = new ReplicaGroupApplier(local, log ?? NullLogger<ReplicaGroupCommitter>.Instance, "n1", "n1"),
+            Applier = new ReplicaGroupApplier(local, logs.Applier, "n1", "n1"),
             ShutdownBudget = TimeSpan.FromMilliseconds(200),
         };
 

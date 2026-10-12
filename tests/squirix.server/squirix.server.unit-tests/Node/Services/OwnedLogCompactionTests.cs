@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -88,7 +89,7 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
                  .Callback(static (_, _, _, _, _) => ValueTask.FromException(new IOException("memory apply failed")));
         using var dir = new TempDirectory("squirix-owned-compaction-pending");
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache.Instance());
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache.Instance(), NullLogger<ReplicaGroupCommitter>.Instance);
         var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken));
 
         var outcome = await committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken);

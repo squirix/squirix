@@ -119,7 +119,7 @@ internal static class JournalStallMeasurement
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(SamplePeriodMs), TimeProvider.System, cancellationToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 return;
             }

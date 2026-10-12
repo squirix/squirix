@@ -33,7 +33,7 @@ public sealed class LeaderOutcomeTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-leader-outcome-pin");
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         var cache = new StubCache();
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache, NullLogger<ReplicaGroupCommitter>.Instance);
         await committer.CommitSetAsync(NewOperationId(), CacheName, "k0", Entry("k0"), cancellationToken);
         var log = registry.TryGetLog("n1", out var owned) ? owned : throw new InvalidOperationException("The owned group log is not open.");
         var rebuilt = log.Idempotency.OutcomesRebuilt;
