@@ -44,7 +44,7 @@ public sealed class ReplicaCommitterUnseededTests : ServerUnitTestBase
         var gateway = new ScriptedGateway();
         var cache = new StubCache();
         await using var registry = await OpenUnseededAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, gateway, cache);
+        await using var committer = CreateCommitter(registry, gateway, cache, NullLogger<ReplicaGroupCommitter>.Instance);
 
         for (var attempt = 0; attempt < 2; attempt++)
         {
@@ -104,7 +104,7 @@ public sealed class ReplicaCommitterUnseededTests : ServerUnitTestBase
         var cache = new StubCache();
         await cache.SetEntryAsync(NewOperationId(), CacheName, "k1", Entry("k1"), cancellationToken);
         await using var registry = await OpenUnseededAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache, NullLogger<ReplicaGroupCommitter>.Instance);
         await using var committers = LedGroupsTestKit.LeadOwn(committer);
         var replicated = new ReplicatedCache(cache, committers);
 
