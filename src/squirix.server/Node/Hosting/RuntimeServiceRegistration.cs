@@ -38,7 +38,7 @@ internal static class RuntimeServiceRegistration
                 : SharedClientIdResolver.Instance);
             _ = services.AddSingleton<IBackpressureGate>(static sp => new AdmissionGate(sp.GetRequiredService<AdmissionOptions>(), sp.GetRequiredService<BackpressureMetrics>(), sp.GetRequiredService<TimeProvider>()));
             _ = services.AddSingleton<IMemoryPressureStateEvaluator>(static sp => new StateEvaluator(sp.GetRequiredService<IOptions<PressureOptions>>()));
-            _ = services.AddSingleton<MemoryUsageAccounting>();
+            _ = services.AddSingleton(static sp => new MemoryUsageAccounting(sp.GetRequiredService<ILocalCacheStats>()));
             _ = services.AddSingleton<IMemoryUsageAccounting>(static sp => sp.GetRequiredService<MemoryUsageAccounting>());
             _ = services.AddObservabilityServices();
             _ = services.AddSingleton<IMemoryPressureGate>(static sp => new PressureGate(
@@ -110,6 +110,7 @@ internal static class RuntimeServiceRegistration
                 ServiceLifetime.Singleton));
             _ = services.AddSingleton(static sp => new PhysicalCache<object?>(
                 sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
                 new EvictionOptions { Policy = EvictionPolicyType.Lru },
                 sp.GetRequiredService<CacheExpiryAuthority>()));
             _ = services.AddSingleton<ILocalCache<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());

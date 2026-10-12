@@ -22,7 +22,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     [Test]
     public async Task ConcurrentTouchOnLiveKeyAlwaysSucceeds(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>(TimeProvider.System);
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var key = CacheKey.Default("touch-race");
         await cache.SetAsync(key, new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromHours(1), Version = 1 }, cancellationToken);
 
@@ -46,7 +46,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     public async Task RemoveExpiryClearsOnlyTheExpiryAsync(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1));
-        var cache = new PhysicalCache<string>(clock);
+        var cache = new PhysicalCache<string>(clock, new CacheEntrySizeEstimator<string>());
         await cache.SetAsync(CacheKey.Default("k1"), new NodeCacheEntry<string> { Value = "v", ExpiresUtc = clock.GetUtcNow().UtcDateTime.AddMilliseconds(150), Version = 1 }, cancellationToken);
 
         var entryBefore = await cache.GetEntryAsync(CacheKey.Default("k1"), cancellationToken);
@@ -70,7 +70,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     [Test]
     public async Task RemoveExpiryNonExpiringFalseKeepsLive(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>(TimeProvider.System);
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Version = 1 }, cancellationToken);
 
         _ = await Assert.That(await cache.RemoveExpirationAsync(CacheKey.Default("k"), cancellationToken)).IsFalse();
@@ -85,7 +85,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     [Test]
     public async Task RemoveExpiryReturnsFalseForMissingKey(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<int>(TimeProvider.System);
+        var cache = new PhysicalCache<int>(TimeProvider.System, new CacheEntrySizeEstimator<int>());
         _ = await Assert.That(await cache.RemoveExpirationAsync(CacheKey.Default("missing"), cancellationToken)).IsFalse();
     }
 
@@ -94,7 +94,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     [Test]
     public async Task RemoveExpiryReturnsFalseForPersistent(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>(TimeProvider.System);
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         await cache.SetAsync(
             CacheKey.Default("k"),
             new NodeCacheEntry<string>
@@ -118,7 +118,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     public async Task RemoveExpiryWontResurrectExpiredEntry(CancellationToken cancellationToken)
     {
         var timeProvider = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
 
         await cache.SetAsync(
             CacheKey.Default("k"),

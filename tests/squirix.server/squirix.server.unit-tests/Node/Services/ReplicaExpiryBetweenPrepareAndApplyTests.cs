@@ -161,7 +161,7 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
         internal Owner(ReplicaGroupRegistry registry, FakeTimeProvider clock)
         {
             _clock = clock;
-            _physical = new PhysicalCache<object?>(clock);
+            _physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
             Committer = CreateCommitter(registry, _gateway, new ClientCache<object?>(_physical, _physical), clock);
         }
 

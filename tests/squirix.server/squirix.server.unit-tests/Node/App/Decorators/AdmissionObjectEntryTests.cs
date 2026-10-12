@@ -31,8 +31,9 @@ public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
     [Test]
     public async Task OversizedObjectUsageRejectedPastLimit(CancellationToken cancellationToken)
     {
-        var physical = new PhysicalCache<object?>(TimeProvider.System);
-        var accounting = new MemoryUsageAccounting();
+        var estimator = new ObjectCacheEntrySizeEstimator();
+        var physical = new PhysicalCache<object?>(TimeProvider.System, estimator);
+        var accounting = new MemoryUsageAccounting(physical);
         var options = new PressureOptions
         {
             MaxEstimatedCacheBytes = 400_000,
@@ -40,9 +41,8 @@ public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
             CriticalPressureThresholdPercent = 95,
         };
         var gate = new PressureGate(new StateEvaluator(Options.Create(options)), accounting, Self, _testMeter);
-        var estimator = new ObjectCacheEntrySizeEstimator();
         var inner = new ClientCache<object?>(physical, physical);
-        var cache = new MemoryAdmissionCacheDecorator<object?>(inner, gate, estimator, accounting);
+        var cache = new MemoryAdmissionCacheDecorator<object?>(inner, gate, estimator);
         var entry = new NodeCacheEntry<object?> { Value = new AdmissionDataPayload { Data = new string('y', 250_000) }, Version = 1 };
 
         _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "a", entry, cancellationToken)).IsTrue();

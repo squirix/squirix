@@ -24,7 +24,7 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
     public async Task ClientSetWithoutExpiryClearsTtl(CancellationToken cancellationToken)
     {
         var timeProvider = new FakeTimeProvider();
-        var physical = new PhysicalCache<string>(timeProvider);
+        var physical = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
         var clientCache = new ClientCache<string>(physical, physical);
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["tenant"] = "a" }.ToFrozenDictionary(StringComparer.Ordinal);
         var expiring = new NodeCacheEntry<string>("old", expiration: TimeSpan.FromMinutes(10), tags: tags);
@@ -46,7 +46,7 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
     public async Task ClientUpdateAsyncPreservesExpiry(CancellationToken cancellationToken)
     {
         var timeProvider = new FakeTimeProvider();
-        var physical = new PhysicalCache<string>(timeProvider);
+        var physical = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
         var clientCache = new ClientCache<string>(physical, physical);
         var expires = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(10);
         await clientCache.SetEntryAsync(UnitMutationOpIds.Default, "orders", "k", new NodeCacheEntry<string> { Value = "old", ExpiresUtc = expires }, cancellationToken);
@@ -65,7 +65,7 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
     [Test]
     public async Task UpdateAsyncReturnsFalseForMissingKey(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>(TimeProvider.System);
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var updated = await cache.UpdateAsync(CacheKey.Default("missing"), "new", cancellationToken);
         _ = await Assert.That(updated).IsFalse();
     }
@@ -76,7 +76,7 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
     public async Task UpdateKeepsExpiryOnPhysicalCacheAsync(CancellationToken cancellationToken)
     {
         var timeProvider = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
         var expires = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(5);
         await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "old", ExpiresUtc = expires }, cancellationToken);
 

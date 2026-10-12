@@ -106,7 +106,7 @@ internal sealed class JournalReplayKit
             NullLoggerFactory.Instance,
             clock,
             out _);
-        var physical = new PhysicalCache<string>(clock);
+        var physical = new PhysicalCache<string>(clock, new CacheEntrySizeEstimator<string>());
         var cache = new JournalLoggingCacheDecorator<string>(
             new ClientCache<string>(physical, physical),
             journal,
@@ -154,7 +154,7 @@ internal sealed class JournalReplayKit
         if (compact)
             await JournalCompactor.CompactAsync(Persistence, manifestStore, StoreFactory.CreateReader(), utcNow, expiry == CacheExpiryAuthority.LocalClock ? utcNow : null, cancellationToken);
 
-        var cache = new PhysicalCache<string>(clock, expiry: expiry);
+        var cache = new PhysicalCache<string>(clock, new CacheEntrySizeEstimator<string>(), expiry: expiry);
         var dependencies = new RecoveryDependencies<string>(
             Persistence,
             manifestStore,

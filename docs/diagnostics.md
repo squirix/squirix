@@ -25,12 +25,14 @@ diagnostics surfaces currently exposed by the node host.
 - `clientPool.peers`: configured peer count from topology (`Peers.Length`)
 - `coordination.leases`: `configured`, `active`, `pendingGrants`, `pendingReleases`
 - `coordination.watches`: `configured`, `active`, `droppedEvents`, `bufferedEvents`
-- `memoryPressure.state`: coarse pressure derived from configured limits and **decorator-maintained** approximate
-  accounting — `normal`, `high`, or `critical` (see [configuration.md#memory-pressure-squirixsettingsjson](configuration.md#memory-pressure-squirixsettingsjson)).
-  `LocalCache<T>` does not own this policy.
-- `memoryPressure.maxEstimatedCacheBytes`: resolved estimated byte limit (explicit setting or 80% RAM default)
-- `memoryPressure.estimatedCacheBytes`: current global approximate accounted bytes for the node
-- `memoryPressure.entryCount`: current global approximate accounted live entry count
+- `memoryPressure.state`: coarse pressure derived from configured limits and the approximate byte total the node's local
+  cache records — `normal`, `high`, or `critical` (see [configuration.md#memory-pressure-squirixsettingsjson](configuration.md#memory-pressure-squirixsettingsjson)).
+  The admission policy itself is not owned by the cache.
+- `memoryPressure.maxEstimatedCacheBytes`: resolved estimated byte limit (explicit setting or 80% RAM default); it bounds
+  every copy the node holds
+- `memoryPressure.estimatedCacheBytes`: current approximate bytes of every entry the node holds, follower copies and
+  recovered entries included
+- `memoryPressure.entryCount`: current number of those entries
 - `memoryPressure.rejectedWriteCount`: number of memory admission rejections recorded since process start for this
   accounting instance
 - `memoryPressure.writeRejectionActive`: currently always reported as `true` (not gated on critical pressure).

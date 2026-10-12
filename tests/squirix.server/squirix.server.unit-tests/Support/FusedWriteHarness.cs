@@ -57,7 +57,7 @@ internal sealed class FusedWriteHarness
         Dir = dir;
         Journal = journal;
         Clock = JournalReplayKit.CreateWriteClock(TimeSpan.Zero);
-        Physical = new PhysicalCache<object?>(Clock);
+        Physical = new PhysicalCache<object?>(Clock, new CacheEntrySizeEstimator<object?>());
         Executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
         Cache = new JournalLoggingCacheDecorator<object?>(innerOverride ?? new ClientCache<object?>(Physical, Physical), journal.Journal, Executor, Clock, Physical.RawReader);
         Store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), Self, new IdempotencyMetrics(SharedMeter), Clock);
@@ -202,7 +202,7 @@ internal sealed class FusedWriteHarness
     {
         var persistence = new PersistenceOptions { DataDir = Dir, ManifestRetentionCount = 1, JournalMaxSegmentMb = 1 };
         using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
-        var memory = new PhysicalCache<object?>(Clock);
+        var memory = new PhysicalCache<object?>(Clock, new CacheEntrySizeEstimator<object?>());
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), Self, new IdempotencyMetrics(SharedMeter), Clock);
         var dependencies = new RecoveryDependencies<object?>(persistence, ledger, memory, new AsyncManualResetEvent(true), store, StoreFactory.CreateReader(), Clock);
         await new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, dependencies).StartAsync(cancellationToken);

@@ -163,7 +163,7 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
 
     private static ClientCache<object?> NewCache(TimeProvider clock)
     {
-        var physical = new PhysicalCache<object?>(clock);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
         return new ClientCache<object?>(physical, physical);
     }
 }

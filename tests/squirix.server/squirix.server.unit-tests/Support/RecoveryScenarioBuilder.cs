@@ -20,7 +20,7 @@ internal sealed class RecoveryScenarioBuilder : IDisposable
         DataDir = dir;
         Persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16 };
         Ledger = new Ledger(Persistence, NullLogger<Ledger>.Instance);
-        Cache = new PhysicalCache<object?>(TimeProvider.System);
+        Cache = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>());
     }
 
     /// <summary>Gets the cache populated by recovery.</summary>

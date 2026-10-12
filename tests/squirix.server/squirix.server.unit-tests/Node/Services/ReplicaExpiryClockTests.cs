@@ -81,13 +81,12 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         var clock = new FakeTimeProvider(Start);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var leader = new Leader(registry, clock);
-        var accounting = new MemoryUsageAccounting();
+        var accounting = new MemoryUsageAccounting(leader.Physical);
         var gate = new PressureGate(new StateEvaluator(Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000 })), accounting, "n1", meter);
         var admission = new MemoryAdmissionCacheDecorator<object?>(
             leader.Cache,
             gate,
             new CacheEntrySizeEstimator<object?>(),
-            accounting,
             (cacheName, _, operationId) => registry.HasRecordedOutcome("n1", cacheName, operationId),
             leader.Cache.PeekEntryAsync);
         await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
@@ -215,7 +214,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         var log = new EventRecordingLogger();
         var gateway = new ReplicaCommitterDoubles.ParkingGateway { HeldNode = "n2" };
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
         var committer = CreateCommitter(registry, gateway, new ClientCache<object?>(physical, physical), clock, log, (shutdownClock, budget));
         try
         {
@@ -259,7 +258,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         clock.Advance(Ttl);
         _ = await leader.Cache.GetEntryAsync(CacheName, Key, cancellationToken);
         var records = await RecordsAsync(leader.Registry, cancellationToken);
-        var followerPhysical = new PhysicalCache<object?>(new FakeTimeProvider(Start + (Ttl * 10)), expiry: CacheExpiryAuthority.CommittedRecords);
+        var followerPhysical = new PhysicalCache<object?>(new FakeTimeProvider(Start + (Ttl * 10)), new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
         var follower = new ClientCache<object?>(followerPhysical, followerPhysical);
 
         await ReplicaCacheApplier.ApplyAsync(follower, records[0], cancellationToken);
@@ -380,7 +379,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         internal Leader(ReplicaGroupRegistry registry, FakeTimeProvider clock)
         {
             Registry = registry;
-            Physical = new PhysicalCache<object?>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
+            Physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
             var local = new ClientCache<object?>(Physical, Physical);
             Committer = CreateCommitter(registry, Gateway, local, clock);
             Cache = new ReplicatedCache(local, LeadOwn(Committer));

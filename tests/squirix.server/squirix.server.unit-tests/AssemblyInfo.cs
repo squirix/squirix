@@ -40,6 +40,7 @@ using TUnit.Core;
 [assembly: Rock(typeof(IServerClientPool), BuildType.Create)]
 [assembly: Rock(typeof(IServerCallPolicy), BuildType.Create)]
 [assembly: Rock(typeof(ILocalCacheStats), BuildType.Create)]
+[assembly: Rock(typeof(ICacheEntrySizeEstimator<>), BuildType.Create)]
 [assembly: Rock(typeof(IJournalOperationTracer), BuildType.Create)]
 [assembly: Rock(typeof(IJournalOperationTraceScope), BuildType.Create)]
 [assembly: Rock(typeof(IExclusiveMaintenanceExecutor), BuildType.Create)]

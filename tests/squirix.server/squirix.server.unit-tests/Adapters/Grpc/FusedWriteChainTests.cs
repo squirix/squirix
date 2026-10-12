@@ -79,8 +79,9 @@ public sealed class FusedWriteChainTests : IsolatedStorageTestBase
     private MemoryAdmissionCacheDecorator<object?> CreateChain(JournalLoggingCacheDecorator<object?> journal)
     {
         var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        var accounting = new MemoryUsageAccounting();
+        var estimator = new CacheEntrySizeEstimator<object?>();
+        var accounting = new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator));
         var gate = new PressureGate(new StateEvaluator(options), accounting, "node-a", _testMeter);
-        return new MemoryAdmissionCacheDecorator<object?>(new JournalPayloadPrepareCacheDecorator<object?>(journal), gate, new CacheEntrySizeEstimator<object?>(), accounting);
+        return new MemoryAdmissionCacheDecorator<object?>(new JournalPayloadPrepareCacheDecorator<object?>(journal), gate, estimator);
     }
 }

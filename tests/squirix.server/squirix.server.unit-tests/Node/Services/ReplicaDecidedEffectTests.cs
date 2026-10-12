@@ -344,7 +344,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         internal Harness(FakeTimeProvider clock, CacheExpiryAuthority expiry = CacheExpiryAuthority.LocalClock)
         {
             Clock = clock;
-            _physical = new PhysicalCache<object?>(clock, expiry: expiry);
+            _physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: expiry);
             Cache = new ClientCache<object?>(_physical, _physical);
             Factory = new ReplicaMutationFactory(Cache, "g1", 1UL, clock, NullLogger.Instance);
         }

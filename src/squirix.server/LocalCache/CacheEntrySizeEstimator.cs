@@ -23,7 +23,9 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         n += Encoding.UTF8.GetByteCount(key.Namespace);
         n += Encoding.UTF8.GetByteCount(key.Key);
         n += sizeof(long);
-        n += entry.ExpiresUtc != null ? 16 : 0;
+
+        // A relative expiration becomes a stored deadline when the entry is written, so it counts like one.
+        n += entry.ExpiresUtc != null || entry.Expiration != null ? 16 : 0;
         n += EstimateTagsBytes(entry.Tags);
         n += payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.Value);
         return n;

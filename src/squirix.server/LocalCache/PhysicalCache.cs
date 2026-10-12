@@ -27,6 +27,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 {
     private readonly EvictionOptions _eviction;
     private readonly CacheExpiryAuthority _expiry;
+    private readonly Footprint _footprint;
     private readonly Lock _lock = new();
     private readonly LinkedList<CacheKey> _order = new();
     private readonly Dictionary<CacheKey, Node> _store = [];
@@ -34,14 +35,21 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
     /// <summary>Initializes a new instance of the <see cref="PhysicalCache{T}" /> class.</summary>
     /// <param name="timeProvider">The node clock.</param>
+    /// <param name="estimator">Estimates the bytes of an entry; the cache records the estimate of every entry it stores.</param>
     /// <param name="eviction">The eviction options; unbounded LRU when <see langword="null" />.</param>
     /// <param name="expiry">
     /// Who decides expiry. <see cref="CacheExpiryAuthority.LocalClock" /> treats an entry past its deadline as absent;
     /// <see cref="CacheExpiryAuthority.CommittedRecords" /> keeps it present until a committed record removes it.
     /// </param>
-    internal PhysicalCache(TimeProvider timeProvider, EvictionOptions? eviction = null, CacheExpiryAuthority expiry = CacheExpiryAuthority.LocalClock)
+    internal PhysicalCache(
+        TimeProvider timeProvider,
+        ICacheEntrySizeEstimator<T> estimator,
+        EvictionOptions? eviction = null,
+        CacheExpiryAuthority expiry = CacheExpiryAuthority.LocalClock)
     {
+        ArgumentNullException.ThrowIfNull(estimator);
         _timeProvider = timeProvider;
+        _footprint = new Footprint(estimator);
         _eviction = eviction ?? new EvictionOptions { Policy = EvictionPolicyType.Lru };
         _expiry = expiry;
         RawReader = new PhysicalCacheRawReader(this);
@@ -55,6 +63,8 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 return _store.Count;
         }
     }
+
+    long ILocalCacheStats.EstimatedBytes => _footprint.Read();
 
     internal ILocalCacheRawReader<T> RawReader { get; }
 
@@ -101,14 +111,14 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     {
         cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
-            return ValueTask.FromResult(TryGetLiveLocked(key, out var node) ? new NodeCacheEntry<T>(node.Value, node.Version, node.ExpiresUtc, tags: node.Tags) : null);
+            return ValueTask.FromResult(TryGetLiveLocked(key, true, out var node) ? new NodeCacheEntry<T>(node.Value, node.Version, node.ExpiresUtc, tags: node.Tags) : null);
     }
 
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
-            return ValueTask.FromResult(TryGetLiveLocked(key, out var node) ? new NodeCacheValueResult<T>(true, node.Value) : new NodeCacheValueResult<T>(false, default));
+            return ValueTask.FromResult(TryGetLiveLocked(key, true, out var node) ? new NodeCacheValueResult<T>(true, node.Value) : new NodeCacheValueResult<T>(false, default));
     }
 
     public ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) => SetAsync(key, entry, cancellationToken);
@@ -128,11 +138,16 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
         {
-            if (!TryGetLiveLocked(key, out var node) || node.ExpiresUtc == null)
+            if (!TryGetLiveLocked(key, false, out var node))
                 return ValueTask.FromResult(false);
 
+            var hadDeadline = node.ExpiresUtc != null;
+            if (hadDeadline)
+                _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(node.Value, node.Version, tags: node.Tags)));
+
             node.ExpiresUtc = null;
-            return ValueTask.FromResult(true);
+            TouchOrderLocked(key, node);
+            return ValueTask.FromResult(hadDeadline);
         }
     }
 
@@ -146,8 +161,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     public ValueTask SetAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var (normalized, bytes) = PrepareInsert(key, entry);
         lock (_lock)
-            _ = UpsertLocked(key, entry, false);
+            _ = UpsertLocked(key, normalized, bytes, false);
         return ValueTask.CompletedTask;
     }
 
@@ -156,10 +172,15 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
         {
-            if (!TryGetLiveLocked(key, out var node))
+            if (!TryGetLiveLocked(key, false, out var node))
                 return ValueTask.FromResult(false);
 
-            node.ExpiresUtc = UtcNow.SaturatedAdd(expiration);
+            var expiresUtc = UtcNow.SaturatedAdd(expiration);
+            if (node.ExpiresUtc == null)
+                _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(node.Value, node.Version, expiresUtc, tags: node.Tags)));
+
+            node.ExpiresUtc = expiresUtc;
+            TouchOrderLocked(key, node);
             return ValueTask.FromResult(true);
         }
     }
@@ -167,8 +188,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     public ValueTask<bool> TryAddAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var (normalized, bytes) = PrepareInsert(key, entry);
         lock (_lock)
-            return ValueTask.FromResult(UpsertLocked(key, entry, true));
+            return ValueTask.FromResult(UpsertLocked(key, normalized, bytes, true));
     }
 
     public ValueTask<bool> UpdateAsync(CacheKey key, T? value, CancellationToken cancellationToken)
@@ -176,10 +198,12 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
         {
-            if (!TryGetLiveLocked(key, out var node))
+            if (!TryGetLiveLocked(key, false, out var node))
                 return ValueTask.FromResult(false);
 
+            _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(value, node.Version, node.ExpiresUtc, tags: node.Tags)));
             node.Value = value;
+            TouchOrderLocked(key, node);
             return ValueTask.FromResult(true);
         }
     }
@@ -231,6 +255,25 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// <returns><see langword="false" /> under <see cref="CacheExpiryAuthority.CommittedRecords" />, where only a committed record removes an entry.</returns>
     private bool IsExpiredLocked(Node node) => _expiry == CacheExpiryAuthority.LocalClock && node.ExpiresUtc is { } expires && expires <= UtcNow;
 
+    /// <summary>Resolves the deadline of an entry about to be stored and estimates its bytes, before the cache lock is taken.</summary>
+    /// <param name="key">The key the entry is stored under.</param>
+    /// <param name="candidate">The entry to store.</param>
+    /// <returns>The entry to store and its estimated bytes; the estimator throws before the cache is touched.</returns>
+    private (NodeCacheEntry<T> Entry, long Bytes) PrepareInsert(CacheKey key, NodeCacheEntry<T> candidate)
+    {
+        var version = candidate.Version > 0 ? candidate.Version : 1;
+        var expires = candidate.ExpiresUtc;
+        if (candidate.Expiration is { } expiration)
+        {
+            var relativeDeadline = UtcNow.SaturatedAdd(expiration);
+            if (expires == null || relativeDeadline < expires)
+                expires = relativeDeadline;
+        }
+
+        var normalized = new NodeCacheEntry<T>(candidate.Value, version, expires, candidate.Expiration, candidate.Tags);
+        return (normalized, _footprint.Estimate(key, normalized));
+    }
+
     private (bool Removed, T? Value) RemoveLocked(CacheKey key)
     {
         if (!_store.Remove(key, out var node))
@@ -257,7 +300,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         node.Frequency++;
     }
 
-    private bool TryGetLiveLocked(CacheKey key, [NotNullWhen(true)] out Node? node)
+    private bool TryGetLiveLocked(CacheKey key, bool touchOrder, [NotNullWhen(true)] out Node? node)
     {
         if (!_store.TryGetValue(key, out node))
             return false;
@@ -270,12 +313,17 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return false;
         }
 
-        TouchOrderLocked(key, node);
+        if (touchOrder)
+            TouchOrderLocked(key, node);
+
         return true;
     }
 
+    /// <summary>Releases an entry that left the store: its recorded bytes leave the total and it leaves the eviction order.</summary>
+    /// <param name="node">The entry already removed from, or about to be overwritten in, the store.</param>
     private void UntrackLocked(Node node)
     {
+        _footprint.Release(node);
         if (node.OrderNode == null)
             return;
 
@@ -283,9 +331,8 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         node.OrderNode = null;
     }
 
-    private bool UpsertLocked(CacheKey key, NodeCacheEntry<T> entry, bool insertOnly)
+    private bool UpsertLocked(CacheKey key, NodeCacheEntry<T> normalized, long bytes, bool insertOnly)
     {
-        var normalized = NormalizeExpiration(entry);
         _ = _store.TryGetValue(key, out var node);
         if (node != null && insertOnly && IsExpiredLocked(node))
         {
@@ -297,6 +344,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         {
             node = new Node(normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.Tags);
             _store[key] = node;
+            _footprint.Resize(node, bytes);
 
             if (_eviction.Capacity != null)
             {
@@ -311,24 +359,41 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         if (insertOnly)
             return false;
 
+        _footprint.Resize(node, bytes);
         node.Value = normalized.Value;
         node.ExpiresUtc = normalized.ExpiresUtc;
         node.Version = normalized.Version;
         node.Tags = normalized.Tags;
         TouchOrderLocked(key, node);
         return false;
+    }
 
-        NodeCacheEntry<T> NormalizeExpiration(NodeCacheEntry<T> candidate)
+    /// <summary>The recorded bytes of the stored entries and their running total.</summary>
+    /// <remarks>
+    /// <see cref="Resize" /> and <see cref="Release" /> run only under the cache lock, so the total always equals the sum of
+    /// <see cref="Node.Bytes" /> over the stored entries; <see cref="Read" /> needs no lock.
+    /// </remarks>
+    [ThreadSafe]
+    private sealed class Footprint
+    {
+        private readonly ICacheEntrySizeEstimator<T> _estimator;
+        private long _total;
+
+        internal Footprint(ICacheEntrySizeEstimator<T> estimator)
         {
-            var version = candidate.Version > 0 ? candidate.Version : 1;
-            var expires = candidate.ExpiresUtc;
-            if (candidate.Expiration is not { } expiration)
-                return new NodeCacheEntry<T>(candidate.Value, version, expires, candidate.Expiration, candidate.Tags);
-            var relativeDeadline = UtcNow.SaturatedAdd(expiration);
-            if (expires == null || relativeDeadline < expires)
-                expires = relativeDeadline;
+            _estimator = estimator;
+        }
 
-            return new NodeCacheEntry<T>(candidate.Value, version, expires, candidate.Expiration, candidate.Tags);
+        internal long Estimate(CacheKey key, NodeCacheEntry<T> entry) => _estimator.EstimateBytes(key, entry, false);
+
+        internal long Read() => Volatile.Read(ref _total);
+
+        internal void Release(Node node) => Resize(node, 0);
+
+        internal void Resize(Node node, long bytes)
+        {
+            Volatile.Write(ref _total, _total - node.Bytes + bytes);
+            node.Bytes = bytes;
         }
     }
 
@@ -352,6 +417,8 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             Tags = tags;
         }
 
+        /// <summary>Gets or sets the estimated bytes recorded for this entry; zero once it left the store.</summary>
+        internal long Bytes { get; set; }
         internal DateTime? ExpiresUtc { get; set; }
 
         /// <summary>Gets or sets the access frequency, maintained only for the LFU policy.</summary>

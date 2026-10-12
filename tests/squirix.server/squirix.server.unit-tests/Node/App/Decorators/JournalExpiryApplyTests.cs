@@ -301,7 +301,7 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
             _manifestStore = manifestStore;
             Journal = journal;
             _clock = clock;
-            Physical = new PhysicalCache<string>(clock);
+            Physical = new PhysicalCache<string>(clock, new CacheEntrySizeEstimator<string>());
             Real = new ClientCache<string>(Physical, Physical);
         }
 

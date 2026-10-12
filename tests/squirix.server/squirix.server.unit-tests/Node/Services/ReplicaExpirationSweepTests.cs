@@ -1,11 +1,16 @@
 using System;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App.Decorators;
+using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -40,7 +45,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-expiry-sweep-max");
         var clock = new FakeTimeProvider(Start);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), new ClientCache<object?>(physical, physical), clock);
         await committer.CommitSetAsync(NewOperationId(), CacheName, "a", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
         await committer.CommitSetAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
@@ -64,7 +69,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-expiry-sweep-owned");
         var clock = new FakeTimeProvider(Start);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), new ClientCache<object?>(physical, physical), clock);
         await committer.CommitSetAsync(NewOperationId(), CacheName, "expired", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
         await committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<object?>("v"), cancellationToken);
@@ -80,6 +85,71 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         _ = await Assert.That(await RawAsync(physical, "followed", cancellationToken)).IsNotNull();
     }
 
+    /// <summary>The keys committed with a deadline release their accounted bytes once the sweep expires them; the live key keeps its own.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SweepReleasesBytesOfExpiredKeys(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-expiry-sweep-bytes");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var estimator = new CacheEntrySizeEstimator<object?>();
+        var physical = new PhysicalCache<object?>(clock, estimator, expiry: CacheExpiryAuthority.CommittedRecords);
+        ILocalCacheStats stats = physical;
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), new ClientCache<object?>(physical, physical), clock);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "a", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<object?>("v"), cancellationToken);
+        var liveBytes = estimator.EstimateBytes(new CacheKey(CacheName, "live"), new NodeCacheEntry<object?>("v"), false);
+        var expiringBytes = estimator.EstimateBytes(new CacheKey(CacheName, "a"), new NodeCacheEntry<object?>("v", 1, Start.UtcDateTime + Ttl), false);
+        var before = stats.EstimatedBytes;
+        clock.Advance(Ttl);
+        using var sweep = CreateSweep(committer, physical, new EventRecordingLogger());
+
+        var expired = await sweep.SweepOnceAsync(cancellationToken);
+
+        _ = await Assert.That(expired).IsEqualTo(2);
+        _ = await Assert.That(before).IsEqualTo(liveBytes + (2 * expiringBytes));
+        _ = await Assert.That(stats.EstimatedBytes).IsEqualTo(liveBytes);
+    }
+
+    /// <summary>A write that memory admission refused at the limit is admitted once the sweep expired the keys that filled the cache.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SweepMakesRoomForRefusedWrite(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-expiry-sweep-admission");
+        using var meter = new Meter("squirix-expiry-sweep-admission");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var estimator = new CacheEntrySizeEstimator<object?>();
+        var physical = new PhysicalCache<object?>(clock, estimator, expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<object?>(physical, physical);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, clock);
+        var replicated = new ReplicatedCache(local, LeadOwn(committer));
+        var storedBytes = estimator.EstimateBytes(new CacheKey(CacheName, "a"), new NodeCacheEntry<object?>("v", 1, Start.UtcDateTime + Ttl), false);
+        var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 4 * storedBytes });
+        var gate = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(physical), "n1", meter);
+        var admission = new MemoryAdmissionCacheDecorator<object?>(
+            replicated,
+            gate,
+            estimator,
+            (cacheName, _, operationId) => registry.HasRecordedOutcome("n1", cacheName, operationId),
+            replicated.PeekEntryAsync);
+        foreach (var key in new[] { "a", "b", "c" })
+            await admission.SetEntryAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(
+            admission.SetEntryAsync(NewOperationId(), CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken).AsTask());
+        clock.Advance(Ttl);
+        using var sweep = new ReplicaExpirationSweepService(LeadOwn(committer), physical, LocatorOf("n1"), new EventRecordingLogger()) { MaxPerPass = 10 };
+        _ = await sweep.SweepOnceAsync(cancellationToken);
+        await admission.SetEntryAsync(NewOperationId(), CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+
+        ILocalCacheStats stats = physical;
+        _ = await Assert.That(stats.EstimatedBytes).IsEqualTo(storedBytes);
+    }
+
     /// <summary>
     /// A node leading two groups expires the keys of each through the committer of its group, in one pass, and leaves the key of a group it
     /// only follows in place.
@@ -91,7 +161,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-expiry-sweep-led");
         var clock = new FakeTimeProvider(Start);
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
         var local = new ClientCache<object?>(physical, physical);
         await using var committers = LeadTwo(registry, (new ScriptedGateway(), new ScriptedGateway()), local, clock);
         await committers.For("n1").CommitSetAsync(NewOperationId(), CacheName, "a", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
@@ -117,7 +187,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-expiry-sweep-refused");
         var clock = new FakeTimeProvider(Start);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
         var gateway = new ScriptedGateway();
         await using var committer = CreateCommitter(registry, gateway, new ClientCache<object?>(physical, physical), clock);
         await committer.CommitSetAsync(NewOperationId(), CacheName, "a", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
@@ -147,7 +217,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-expiry-sweep-isolated");
         var clock = new FakeTimeProvider(Start);
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
         var ofN1 = new ScriptedGateway();
         await using var committers = LeadTwo(registry, (ofN1, new ScriptedGateway()), new ClientCache<object?>(physical, physical), clock);
         await committers.For("n1").CommitSetAsync(NewOperationId(), CacheName, "a", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
@@ -174,7 +244,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-expiry-sweep-stop");
         var clock = new DueTimerClock(ReplicaExpirationSweepService.Interval);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), new ClientCache<object?>(physical, physical), clock);
         var log = new EventRecordingLogger();
         using var sweep = CreateSweep(committer, physical, log);
@@ -194,6 +264,13 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         var locator = new INodeLocatorCreateExpectations();
         _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Callback(static (_, key) => string.Equals(key, "followed", StringComparison.Ordinal) ? "n2" : "n1");
         return new ReplicaExpirationSweepService(LeadOwn(committer), physical, locator.Instance(), log) { MaxPerPass = 2 };
+    }
+
+    private static INodeLocator LocatorOf(string owner)
+    {
+        var locator = new INodeLocatorCreateExpectations();
+        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(owner);
+        return locator.Instance();
     }
 
     private static ValueTask<NodeCacheEntry<object?>?> RawAsync(PhysicalCache<object?> physical, string key, CancellationToken cancellationToken) =>

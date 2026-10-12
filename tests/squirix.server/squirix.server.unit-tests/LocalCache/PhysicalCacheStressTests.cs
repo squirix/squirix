@@ -45,7 +45,8 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
         const int workers = 8;
         const int iterations = 25_000;
         var policy = Unsafe.As<int, EvictionPolicyType>(ref policyInt);
-        var cache = new PhysicalCache<string>(TimeProvider.System, new EvictionOptions { Capacity = capacity, Policy = policy });
+        var estimator = new CacheEntrySizeEstimator<string>();
+        var cache = new PhysicalCache<string>(TimeProvider.System, estimator, new EvictionOptions { Capacity = capacity, Policy = policy });
         var keys = CreateKeys(keyCount);
 
         var jobs = new Task[workers];
@@ -74,6 +75,8 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
 
         _ = await Assert.That(maxObserved).IsBetween(0, capacity);
         _ = await Assert.That(EntryCountOf(cache)).IsBetween(0, capacity);
+        _ = await Assert.That(BytesOf(cache)).IsEqualTo(await SumOfLiveEntriesAsync(cache, estimator, cancellationToken));
+        _ = await Assert.That(EntryCountOf(cache)).IsEqualTo(await CountLiveEntriesAsync(cache, cancellationToken));
     }
 
     /// <summary>
@@ -91,7 +94,8 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
         const int workersPerRole = 4;
         const int iterations = 10_000;
         var time = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(time);
+        var estimator = new CacheEntrySizeEstimator<string>();
+        var cache = new PhysicalCache<string>(time, estimator);
         var keys = CreateKeys(keyCount);
         foreach (var key in keys)
             await cache.SetAsync(key, new NodeCacheEntry<string>("v", expiration: TimeSpan.FromHours(1)), cancellationToken);
@@ -124,6 +128,8 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
         _ = await Assert.That(EntryCountOf(cache)).IsEqualTo(keyCount);
         foreach (var key in keys)
             _ = await Assert.That(await cache.GetEntryAsync(key, cancellationToken)).IsNotNull();
+
+        _ = await Assert.That(BytesOf(cache)).IsEqualTo(await SumOfLiveEntriesAsync(cache, estimator, cancellationToken));
     }
 
     private static bool AllCompleted(Task[] jobs)
@@ -136,6 +142,8 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
 
         return true;
     }
+
+    private static long BytesOf(ILocalCacheStats stats) => stats.EstimatedBytes;
 
     private static CacheKey[] CreateKeys(int keyCount)
     {
@@ -184,6 +192,24 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
             var key = s.Keys[(i + (s.Offset * 3)) % s.Keys.Length];
             _ = await s.Cache.RemoveExpirationAsync(key, s.Ct);
         }
+    }
+
+    private static async Task<int> CountLiveEntriesAsync(PhysicalCache<string> cache, CancellationToken cancellationToken)
+    {
+        var count = 0;
+        await foreach (var (_, _) in cache.EnumerateLiveAsync(cancellationToken))
+            count++;
+
+        return count;
+    }
+
+    private static async Task<long> SumOfLiveEntriesAsync(PhysicalCache<string> cache, CacheEntrySizeEstimator<string> estimator, CancellationToken cancellationToken)
+    {
+        long sum = 0;
+        await foreach (var (key, entry) in cache.EnumerateLiveAsync(cancellationToken))
+            sum += estimator.EstimateBytes(key, entry, false);
+
+        return sum;
     }
 
     private static Task RunTouchWorkerAsync(object? state)
