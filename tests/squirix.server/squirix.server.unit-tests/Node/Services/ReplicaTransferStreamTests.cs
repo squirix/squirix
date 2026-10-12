@@ -158,7 +158,8 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
 
         var result = await stream.RunAsync(Snapshot(), walk, cancellationToken);
 
-        _ = await Assert.That((ReplicaTransferOutcomeNames.Of(result.Outcome), result.Reason)).IsEqualTo((expected, code));
+        var reason = string.Equals(expected, "follower_refused", StringComparison.Ordinal) ? code : string.Empty;
+        _ = await Assert.That((ReplicaTransferOutcomeNames.Of(result.Outcome), result.Reason)).IsEqualTo((expected, reason));
         _ = await Assert.That(string.Join(',', gateway.Calls)).IsEqualTo("begin");
         _ = await Assert.That((seen.Count, seen[0].Term)).IsEqualTo((1, term));
     }

@@ -105,14 +105,11 @@ internal sealed class ReplicaTransferStream
 
     private static bool IsTransportFault(Exception exception) => exception is RpcException or IOException or HttpRequestException or TimeoutException or InvalidOperationException;
 
-    private Result? Ended(in ReplicaTransferReply reply)
-    {
-        if (reply.Success)
-            return null;
+    private Result? Ended(in ReplicaTransferReply reply) => reply.Success ? null : Refused(in reply);
 
-        var outcome = reply.Term > _header.Term ? ReplicaTransferOutcome.Superseded : ReplicaTransferOutcome.FollowerRefused;
-        return new Result(outcome, reply.RefusalCode);
-    }
+    private Result Refused(in ReplicaTransferReply reply) => reply.Term > _header.Term
+        ? new Result(ReplicaTransferOutcome.Superseded, string.Empty)
+        : new Result(ReplicaTransferOutcome.FollowerRefused, reply.RefusalCode);
 
     private ReplicaTransferMessage Next(ReplicaTransferStep step, string transferId) =>
         new() { Step = step, GroupId = _header.GroupId, TransferId = transferId, Sequence = ++_sequence };
