@@ -160,7 +160,7 @@ internal sealed class JournalReplayKit
             manifestStore,
             cache,
             new AsyncManualResetEvent(true),
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_meter)),
+            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_meter), TimeProvider.System),
             StoreFactory.CreateReader(),
             clock)
         {

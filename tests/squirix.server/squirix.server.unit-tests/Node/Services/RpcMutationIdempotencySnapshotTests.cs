@@ -66,5 +66,5 @@ public sealed class RpcMutationIdempotencySnapshotTests : DisposableServerUnitTe
         return destination;
     }
 
-    private RpcMutationIdempotencyStore CreateStore() => new(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+    private RpcMutationIdempotencyStore CreateStore() => new(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
 }

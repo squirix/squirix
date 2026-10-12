@@ -18,11 +18,11 @@ internal sealed class RerouteBudget
 
     /// <summary>Initializes a new instance of the <see cref="RerouteBudget" /> class.</summary>
     /// <param name="deadlineUtc">The single absolute deadline for the reroute and its transport retries.</param>
-    /// <param name="timeProvider">The time source reading the clock; <see langword="null" /> selects <see cref="TimeProvider.System" />.</param>
-    internal RerouteBudget(DateTimeOffset deadlineUtc, TimeProvider? timeProvider = null)
+    /// <param name="timeProvider">The time source reading the clock.</param>
+    internal RerouteBudget(DateTimeOffset deadlineUtc, TimeProvider timeProvider)
     {
         DeadlineUtc = deadlineUtc;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        _timeProvider = timeProvider;
     }
 
     /// <summary>Gets the single absolute deadline for the operation.</summary>

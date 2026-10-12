@@ -39,7 +39,7 @@ internal static class NodeEndpointServiceRegistration
                 sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
                 sp.GetRequiredService<PressureOptions>(),
                 sp.GetService<IReplicaStatusSource>(),
-                sp.GetService<TimeProvider>() ?? TimeProvider.System)) : services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new EphemeralHealthReadyDetailsProvider(
+                sp.GetRequiredService<TimeProvider>())) : services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new EphemeralHealthReadyDetailsProvider(
                 sp.GetRequiredService<TopologyOptions>(),
                 sp.GetRequiredService<IMemoryUsageAccounting>(),
                 sp.GetRequiredService<IMemoryPressureStateEvaluator>(),

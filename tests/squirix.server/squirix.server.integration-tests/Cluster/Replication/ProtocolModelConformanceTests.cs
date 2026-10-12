@@ -49,7 +49,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
     public async Task ProductionElectionTraceMatchesModel(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-election-trace");
-        await using var log = new FollowerLog(dir, "election-trace", GroupComposition.Create("election-trace"), NullLogger<FollowerLog>.Instance);
+        await using var log = new FollowerLog(dir, "election-trace", GroupComposition.Create("election-trace"), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenAsync(cancellationToken);
         var votes = new IReplicaVoteGatewayCreateExpectations();
         _ = votes.Setups.PreVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())

@@ -29,5 +29,5 @@ internal static class CallPolicyDefaults
     /// </remarks>
     internal static TimeSpan OperationDeadline => PerAttemptTimeout * (MaxAttempts + 2);
 
-    internal static CallPolicy Create(string peer) => new(PerAttemptTimeout, MaxAttempts, BaseBackoff, MaxBackoff, peer: peer);
+    internal static CallPolicy Create(string peer, TimeProvider timeProvider) => new(timeProvider, PerAttemptTimeout, MaxAttempts, BaseBackoff, MaxBackoff, peer: peer);
 }

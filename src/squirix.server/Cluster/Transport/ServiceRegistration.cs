@@ -40,7 +40,10 @@ internal static class ServiceRegistration
                             sp.GetRequiredService<ServerCallPolicyInstrumentation>(),
                             peer,
                             maxInFlight,
-                            sp.GetService<TimeProvider>())),
+                            sp.GetRequiredService<TimeProvider>())),
+
+                        // The shutdown budget runs on the system clock, so a host clock that never advances cannot park a dispose.
+                        TimeProvider = TimeProvider.System,
                         PeerHandlerFactory = peerHandlerFactory,
                         ForwardConnectTimeout = cluster.ForwardConnectTimeout,
                         Interceptor = sp.GetRequiredService<ClientInterceptor>(),

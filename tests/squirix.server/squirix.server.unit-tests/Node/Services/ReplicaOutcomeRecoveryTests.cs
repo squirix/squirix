@@ -141,7 +141,7 @@ public sealed class ReplicaOutcomeRecoveryTests : ServerUnitTestBase
 
     private static async Task<FollowerLog> OpenAsync(string dir, FakeTimeProvider clock, CancellationToken cancellationToken)
     {
-        var options = new FollowerLogOptions { IdempotencyCapacity = 4, IdempotencyRetention = TimeSpan.FromMinutes(15), TimeProvider = clock };
+        var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, IdempotencyCapacity = 4, IdempotencyRetention = TimeSpan.FromMinutes(15), TimeProvider = clock };
         var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, options);
         try
         {

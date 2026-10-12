@@ -30,7 +30,7 @@ public sealed class ClientPoolChannelReuseTests
             },
         };
 
-        await using var pool = new ClientPool(peers, static _ => new CallPolicy());
+        await using var pool = new ClientPool(peers, static _ => new CallPolicy(TimeProvider.System), TimeProvider.System);
         var first = pool.ForNode("node-a");
 
         for (var i = 0; i < LoopIterationCount; i++)
@@ -47,7 +47,7 @@ public sealed class ClientPoolChannelReuseTests
             new Peer { NodeId = "node-b", Uri = new Uri("https://127.0.0.1:6502") },
         };
 
-        await using var pool = new ClientPool(peers, static _ => new CallPolicy());
+        await using var pool = new ClientPool(peers, static _ => new CallPolicy(TimeProvider.System), TimeProvider.System);
         await SequenceAssert.EqualAsync(ExpectedNodes, pool.BootstrapNodeIds, StringComparer.Ordinal);
 
         var anchor = pool.ForNode("node-a");

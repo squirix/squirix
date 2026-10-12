@@ -440,7 +440,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         return expectations.Instance();
     }
 
-    private RpcMutationIdempotencyStore CreateStore() => new(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+    private RpcMutationIdempotencyStore CreateStore() => new(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
 
     private sealed class ExecFlag
     {

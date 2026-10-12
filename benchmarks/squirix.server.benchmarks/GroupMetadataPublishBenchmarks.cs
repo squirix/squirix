@@ -74,7 +74,7 @@ public class GroupMetadataPublishBenchmarks
         _term = 1;
         Array.Fill(_block, Convert.ToByte('x'));
 
-        _log = new FollowerLog(_dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        _log = new FollowerLog(_dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await _log.OpenAsync(CancellationToken.None).ConfigureAwait(false);
 
         var options = OperatingSystem.IsWindows() ? FileOptions.WriteThrough : FileOptions.None;

@@ -29,10 +29,10 @@ public sealed class RingRefusalCallPolicyTests : DisposableServerUnitTestBase
     {
         await using var policy = new ServerCallPolicy(
             new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter)),
+            TimeProvider.System,
             3,
             64,
             "peer-ring",
-            TimeProvider.System,
             new CallPolicyTimeouts());
         int[] attempts = [0];
 

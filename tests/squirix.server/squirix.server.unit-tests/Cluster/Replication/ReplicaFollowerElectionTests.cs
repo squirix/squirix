@@ -270,7 +270,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-election-cancel-step");
         var hooks = new CancelOnMetaPublishing();
-        await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), Fingerprint, new FollowerLogOptions { FaultHooks = hooks }, cancellationToken);
+        await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), Fingerprint, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }, cancellationToken);
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
         using var caller = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         hooks.Arm(caller);
@@ -347,7 +347,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         FollowerLogOptions? options,
         CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(dir, [GroupId], 3, fingerprint, 1UL, NullLoggerFactory.Instance, options)
+        var registry = new ReplicaGroupRegistry(dir, [GroupId], 3, fingerprint, 1UL, NullLoggerFactory.Instance, options ?? new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System })
         {
             Election = new ElectionTimerOptions { JitterSeed = 1UL },
             ElectionClock = time,

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;
@@ -60,7 +61,7 @@ public sealed class FollowerLogCommittedRangeTests : ServerUnitTestBase
 
     private static async Task<FollowerLog> SeedAsync(string dir, ulong last, ulong commit, CancellationToken cancellationToken)
     {
-        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         try
         {
             await log.OpenAsync(cancellationToken);

@@ -35,7 +35,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     public async Task ConcurrentRemoveDeletesLocalKeyOnce(CancellationToken cancellationToken)
     {
         const string key = "remove-race";
-        var physical = new PhysicalCache<string>();
+        var physical = new PhysicalCache<string>(TimeProvider.System);
         var (cache, inner, accounting, _) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var entry = CreateEntry("v");
 
@@ -64,7 +64,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     public async Task ConcurrentSetMissAccountsOneEntry(CancellationToken cancellationToken)
     {
         const string key = "set-race";
-        var physical = new PhysicalCache<string>();
+        var physical = new PhysicalCache<string>(TimeProvider.System);
         var (cache, inner, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var entry = CreateEntry("v");
         var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
@@ -83,7 +83,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     public async Task ConcurrentTryAddMissAddsSingleEntry(CancellationToken cancellationToken)
     {
         const string key = "try-add-race";
-        var physical = new PhysicalCache<string>();
+        var physical = new PhysicalCache<string>(TimeProvider.System);
         var (cache, inner, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var entry = CreateEntry("v");
         var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
@@ -110,7 +110,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     public async Task ConcurrentUpdateReplacesLocalKeyOnce(CancellationToken cancellationToken)
     {
         const string key = "update-race";
-        var physical = new PhysicalCache<string>();
+        var physical = new PhysicalCache<string>(TimeProvider.System);
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var initial = CreateEntry("a");
         const string updatedValue = "much-longer-value";
@@ -228,7 +228,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     public async Task SetReplaceAccountsValueDeltaForLocalKey(CancellationToken cancellationToken)
     {
         const string key = "set-replace";
-        var physical = new PhysicalCache<string>();
+        var physical = new PhysicalCache<string>(TimeProvider.System);
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var initial = CreateEntry("a");
         var replacement = CreateEntry("much-longer-value");
@@ -294,7 +294,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     public async Task UpdateAccountsValueDeltaForLocalKey(CancellationToken cancellationToken)
     {
         const string key = "update-replace";
-        var physical = new PhysicalCache<string>();
+        var physical = new PhysicalCache<string>(TimeProvider.System);
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var initial = CreateEntry("a");
 

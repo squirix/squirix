@@ -96,7 +96,8 @@ public class JournalLoggingCacheDecoratorBenchmarks
         _decorator = new JournalLoggingCacheDecorator<string>(
             new FakeCache(),
             _host.Coordinator,
-            new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance));
+            new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance),
+            TimeProvider.System);
         _entry = new NodeCacheEntry<string> { Value = "v" };
     }
 

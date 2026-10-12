@@ -179,7 +179,8 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
     private static JournalLoggingCacheDecorator<object?> CreateJournaledCache(StallableJournal journal, ILogicalNamespacedCache<object?> memory) => new(
         memory,
         journal.Journal,
-        new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance));
+        new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance),
+        TimeProvider.System);
 
     private static async Task ReapplyAsync(ReplicaGroupApplier applier, byte[][] payloads, CancellationToken cancellationToken)
     {

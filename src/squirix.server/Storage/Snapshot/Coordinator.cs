@@ -44,7 +44,7 @@ internal sealed class Coordinator
     private readonly TriggerState _triggerState;
     private int _exclusiveOwner;
 
-    internal Coordinator(TriggerOptions opt, IJournalMetrics journal, CoordinatorDependencies deps, TimeProvider? timeProvider = null)
+    internal Coordinator(TriggerOptions opt, IJournalMetrics journal, CoordinatorDependencies deps, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(deps);
         _entryCapture = deps.EntryCapture;
@@ -54,7 +54,7 @@ internal sealed class Coordinator
         _nodeId = deps.NodeId;
         _backgroundSnapshotMemoryThrottle = deps.BackgroundSnapshotMemoryThrottle;
         _telemetry = deps.Telemetry;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        _timeProvider = timeProvider;
         _triggerState = new TriggerState(opt, journal, _timeProvider);
     }
 

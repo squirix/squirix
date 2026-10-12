@@ -128,6 +128,7 @@ internal static class ReplicaGroupCommitterCommits
                 // The coordinator's teardown is part of this committer's dispose, so it never waits longer than this committer's budget.
                 ShutdownBudget = committer.ShutdownBudget < ReplicaCommitCoordinator.DefaultShutdownBudget ? committer.ShutdownBudget : ReplicaCommitCoordinator.DefaultShutdownBudget,
                 BudgetTimeProvider = committer.BudgetTimeProvider,
+                ObserveTimeProvider = committer.BudgetTimeProvider,
                 ShutdownLeakReporter = budget => ServerLog.ReplicaCoordinatorLeakedOnShutdown(logger, budget),
                 AbandonedWorkFaultReporter = error => ServerLog.ReplicaCoordinatorAbandonedWorkFaulted(logger, error),
             };

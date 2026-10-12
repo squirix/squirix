@@ -24,13 +24,13 @@ internal sealed class CallPolicy : ICallPolicy
     private bool _semaphoreDisposed;
 
     internal CallPolicy(
+        TimeProvider timeProvider,
         TimeSpan? timeoutPerAttempt = null,
         int maxAttempts = 3,
         TimeSpan? baseBackoff = null,
         TimeSpan? maxBackoff = null,
         int maxConcurrentPerPeer = 64,
-        string? peer = null,
-        TimeProvider? timeProvider = null)
+        string? peer = null)
     {
         _peer = string.IsNullOrWhiteSpace(peer) ? "unknown" : peer;
         var cap = Math.Max(1, maxConcurrentPerPeer);
@@ -41,7 +41,7 @@ internal sealed class CallPolicy : ICallPolicy
             timeoutPerAttempt ?? TimeSpan.FromMilliseconds(600),
             baseBackoff ?? TimeSpan.FromMilliseconds(50),
             maxBackoff ?? TimeSpan.FromMilliseconds(500));
-        _executor = new CallPolicyExecutor(settings, timeProvider ?? TimeProvider.System, _semaphore, IsDraining);
+        _executor = new CallPolicyExecutor(settings, timeProvider, _semaphore, IsDraining);
     }
 
     public void BeginDrain() => _draining = true;
@@ -82,13 +82,13 @@ internal sealed class CallPolicy : ICallPolicy
             ThrowIfDraining();
             cancellationToken.ThrowIfCancellationRequested(); // Ensure we never continue with a canceled token
 
-            var budgetRemaining = RpcDeadlineContext.GetRemainingBudget();
-            if (budgetRemaining == null)
+            if (RpcDeadlineContext.CurrentBudget is not { } budget)
                 return await _executor.RunQueuedExecutionAsync(action, state, false, cancellationToken, cancellationToken).ConfigureAwait(false);
 
             // The budget counts down on the clock its deadline was pushed with; a spent budget cancels at once.
-            var budgetDelay = budgetRemaining.Value > TimeSpan.Zero ? budgetRemaining.Value : TimeSpan.Zero;
-            using var budgetTimer = new CancellationTokenSource(budgetDelay, RpcDeadlineContext.CurrentClock ?? TimeProvider.System);
+            var budgetRemaining = budget.Remaining;
+            var budgetDelay = budgetRemaining > TimeSpan.Zero ? budgetRemaining : TimeSpan.Zero;
+            using var budgetTimer = new CancellationTokenSource(budgetDelay, budget.Clock);
             using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budgetTimer.Token);
             return await _executor.RunQueuedExecutionAsync(action, state, true, budgetCts.Token, cancellationToken).ConfigureAwait(false);
         }

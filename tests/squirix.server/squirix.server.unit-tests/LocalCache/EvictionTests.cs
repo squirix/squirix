@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -26,7 +27,7 @@ public sealed class EvictionTests : ServerUnitTestBase
     [Test]
     public async Task FifoPolicyEvictsOldestInserted(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<int>(null, new EvictionOptions { Capacity = 2, Policy = EvictionPolicyType.Fifo });
+        var cache = new PhysicalCache<int>(TimeProvider.System, new EvictionOptions { Capacity = 2, Policy = EvictionPolicyType.Fifo });
 
         await cache.SetAsync(CacheKey.Default("a"), new NodeCacheEntry<int> { Value = 1 }, cancellationToken);
         await cache.SetAsync(CacheKey.Default("b"), new NodeCacheEntry<int> { Value = 2 }, cancellationToken);
@@ -50,7 +51,7 @@ public sealed class EvictionTests : ServerUnitTestBase
     [Test]
     public async Task FifoResSetDoesNotRefreshPosition(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<int>(null, new EvictionOptions { Capacity = 2, Policy = EvictionPolicyType.Fifo });
+        var cache = new PhysicalCache<int>(TimeProvider.System, new EvictionOptions { Capacity = 2, Policy = EvictionPolicyType.Fifo });
 
         await cache.SetAsync(CacheKey.Default("a"), new NodeCacheEntry<int> { Value = 1 }, cancellationToken);
         await cache.SetAsync(CacheKey.Default("b"), new NodeCacheEntry<int> { Value = 2 }, cancellationToken);
@@ -74,7 +75,7 @@ public sealed class EvictionTests : ServerUnitTestBase
     [Test]
     public async Task LruPolicyEvictsLeastRecentlyUsed(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<int>(null, new EvictionOptions { Capacity = 2 }); // Policy defaults to LRU
+        var cache = new PhysicalCache<int>(TimeProvider.System, new EvictionOptions { Capacity = 2 }); // Policy defaults to LRU
 
         await cache.SetAsync(CacheKey.Default("a"), new NodeCacheEntry<int> { Value = 1 }, cancellationToken);
         await cache.SetAsync(CacheKey.Default("b"), new NodeCacheEntry<int> { Value = 2 }, cancellationToken);
@@ -98,7 +99,7 @@ public sealed class EvictionTests : ServerUnitTestBase
     [Test]
     public async Task LruResSetRefreshesPosition(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<int>(null, new EvictionOptions { Capacity = 2 });
+        var cache = new PhysicalCache<int>(TimeProvider.System, new EvictionOptions { Capacity = 2 });
 
         await cache.SetAsync(CacheKey.Default("a"), new NodeCacheEntry<int> { Value = 1 }, cancellationToken);
         await cache.SetAsync(CacheKey.Default("b"), new NodeCacheEntry<int> { Value = 2 }, cancellationToken);

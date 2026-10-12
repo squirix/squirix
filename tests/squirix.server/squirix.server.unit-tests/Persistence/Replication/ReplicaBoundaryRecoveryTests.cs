@@ -30,7 +30,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
         await SeedCompactedLogAsync(dir, composition, cancellationToken);
         await ReplicaLastIndexRecoveryTests.PublishSnapshotAsync(dir, GroupId, 9UL, cancellationToken);
 
-        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
 
         var status = await reopened.GetStatusAsync(cancellationToken);
@@ -47,7 +47,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
         await SeedCompactedLogAsync(dir, composition, cancellationToken);
         await ReplicaLastIndexRecoveryTests.PublishSnapshotAsync(dir, GroupId, 6UL, cancellationToken);
 
-        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
 
         var status = await reopened.GetStatusAsync(cancellationToken);
@@ -65,7 +65,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
         var hooks = new CountingFollowerLogFaultHooks();
 
-        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, new FollowerLogOptions { FaultHooks = hooks }))
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }))
         {
             await log.OpenAsync(cancellationToken);
             _ = await log.AppendAsync(ReplicaLastIndexRecoveryTests.Append(1UL, "a"), cancellationToken);
@@ -82,7 +82,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
             _ = await Assert.That(hooks.Snapshot().Since(in before).MetaWrites).IsEqualTo(0L);
         }
 
-        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         var status = await reopened.GetStatusAsync(cancellationToken);
@@ -99,7 +99,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-boundary-raise-fault");
         var composition = GroupComposition.Create(GroupId);
-        await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
+        await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
             await seed.OpenAsync(cancellationToken);
             _ = await seed.AppendAsync(ReplicaLastIndexRecoveryTests.Append(1UL, "a"), cancellationToken);
@@ -118,7 +118,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
         _ = faults.Setups.OnFlushed();
         _ = faults.Setups.OnBeforeMemoryApply();
 
-        await using (var failing = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, new FollowerLogOptions { FaultHooks = faults.Instance() }))
+        await using (var failing = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = faults.Instance() }))
         {
             _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(failing.OpenAsync(cancellationToken));
             _ = await Assert.That(failing.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
@@ -126,7 +126,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
 
         _ = await Assert.That((await ReplicaLastIndexRecoveryTests.ReadMetaAsync(dir, GroupId, cancellationToken)).LastAppliedIndex).IsEqualTo(0UL);
 
-        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         var status = await reopened.GetStatusAsync(cancellationToken);
@@ -143,7 +143,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
     /// <returns>A task that completes once the log is closed.</returns>
     private static async Task SeedCompactedLogAsync(TempDirectory dir, GroupComposition composition, CancellationToken cancellationToken)
     {
-        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenAsync(cancellationToken);
         for (var index = 1UL; index <= 5UL; index++)
             _ = await log.AppendAsync(ReplicaLastIndexRecoveryTests.Append(index, "e" + index), cancellationToken);

@@ -33,15 +33,15 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     private readonly TimeProvider _timeProvider;
 
     /// <summary>Initializes a new instance of the <see cref="PhysicalCache{T}" /> class.</summary>
-    /// <param name="timeProvider">The node clock; the system clock when <see langword="null" />.</param>
+    /// <param name="timeProvider">The node clock.</param>
     /// <param name="eviction">The eviction options; unbounded LRU when <see langword="null" />.</param>
     /// <param name="expiry">
     /// Who decides expiry. <see cref="CacheExpiryAuthority.LocalClock" /> treats an entry past its deadline as absent;
     /// <see cref="CacheExpiryAuthority.CommittedRecords" /> keeps it present until a committed record removes it.
     /// </param>
-    internal PhysicalCache(TimeProvider? timeProvider = null, EvictionOptions? eviction = null, CacheExpiryAuthority expiry = CacheExpiryAuthority.LocalClock)
+    internal PhysicalCache(TimeProvider timeProvider, EvictionOptions? eviction = null, CacheExpiryAuthority expiry = CacheExpiryAuthority.LocalClock)
     {
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        _timeProvider = timeProvider;
         _eviction = eviction ?? new EvictionOptions { Policy = EvictionPolicyType.Lru };
         _expiry = expiry;
         RawReader = new PhysicalCacheRawReader(this);

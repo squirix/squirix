@@ -25,7 +25,7 @@ public sealed class ReplicaFollowerSenderHeartbeatTests : ServerUnitTestBase
     {
         var gateway = new ParkingFollowerGateway();
         var observer = new ReplyLog(1);
-        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 5, 1, HangGuard) { ReplicaIndex = 2, ReplyObserver = (slot, reply) => observer.Record(slot, reply.Success) };
+        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 5, 1, HangGuard) { TimeProvider = TimeProvider.System, ReplicaIndex = 2, ReplyObserver = (slot, reply) => observer.Record(slot, reply.Success) };
         try
         {
             var sent = sender.TryEnqueueHeartbeat(4UL);
@@ -54,7 +54,7 @@ public sealed class ReplicaFollowerSenderHeartbeatTests : ServerUnitTestBase
     {
         var gateway = new ParkingFollowerGateway();
         var observer = new ReplyLog(2);
-        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { ReplicaIndex = 1, ReplyObserver = (slot, reply) => observer.Record(slot, reply.Success) };
+        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, ReplicaIndex = 1, ReplyObserver = (slot, reply) => observer.Record(slot, reply.Success) };
         try
         {
             var idle = sender.TryEnqueueHeartbeat(0UL);
@@ -107,6 +107,7 @@ public sealed class ReplicaFollowerSenderHeartbeatTests : ServerUnitTestBase
         var observed = 0;
         var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard)
         {
+            TimeProvider = TimeProvider.System,
             ReplyObserver = (_, _) =>
             {
                 _ = Interlocked.Increment(ref observed);

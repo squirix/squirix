@@ -129,6 +129,8 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
         local.Recover();
         return new ReplicaGroupCommitter(registry, new TwoNodeLocator(), new AcceptingGateway(), local, (OwnedGroup, OwnedGroup), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
+            Clock = TimeProvider.System,
+            ShutdownTimeProvider = TimeProvider.System,
             Recovery = RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(local, NullLogger.Instance, OwnedGroup, OwnedGroup),
             CommitBudget = ShortCommitBudget,
@@ -144,8 +146,8 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
 
     private async Task<ReplicaGroupRegistry> OpenRegistryAsync(StallableFollowerLogFaultHooks hooks, CancellationToken cancellationToken)
     {
-        var options = new FollowerLogOptions { FaultHooks = hooks, ShutdownBudget = TimeSpan.FromMilliseconds(200) };
-        var registry = new ReplicaGroupRegistry(Dir, [OwnedGroup], 2, Fingerprint, 1, NullLoggerFactory.Instance, options);
+        var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks, ShutdownBudget = TimeSpan.FromMilliseconds(200) };
+        var registry = new ReplicaGroupRegistry(Dir, [OwnedGroup], 2, Fingerprint, 1, NullLoggerFactory.Instance, options) { ElectionClock = TimeProvider.System };
         try
         {
             await registry.OpenAsync(cancellationToken);

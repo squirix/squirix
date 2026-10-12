@@ -50,7 +50,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
             new ReplicaCommitCoordinatorOptions(2, 0, 0, 1),
             pipeline,
             ReplicaFaultHooks.CreateNoOp(),
-            new GroupIdempotencyState(4, TimeSpan.MaxValue))
+            new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System))
         {
             BudgetTimeProvider = budgetClock,
             ObserveTimeProvider = observeClock,
@@ -87,7 +87,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
     public async Task LateAckAfterObserveTimeoutResolves(CancellationToken cancellationToken)
     {
         var pipeline = new ScriptedPipeline(false);
-        var idempotency = new GroupIdempotencyState(4, TimeSpan.MaxValue);
+        var idempotency = new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System);
         var budgetClock = new DueTimerClock(CommitBudget);
         var observeClock = new DueTimerClock(ObserveBound);
         await using var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), idempotency)
@@ -128,10 +128,11 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
     public async Task LateMajorityResolvesPendingApply(CancellationToken cancellationToken)
     {
         var pipeline = new ScriptedPipeline(false);
-        var idempotency = new GroupIdempotencyState(4, TimeSpan.MaxValue);
+        var idempotency = new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System);
         var budgetClock = new DueTimerClock(CommitBudget);
         var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), idempotency)
         {
+            ObserveTimeProvider = TimeProvider.System,
             BudgetTimeProvider = budgetClock,
         };
         var mutation = CreateMutation(1, "00000000000000000000000000000001", 11);
@@ -175,7 +176,8 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
             new ReplicaCommitCoordinatorOptions(2, 0, 0, 1),
             pipeline,
             ReplicaFaultHooks.CreateNoOp(),
-            new GroupIdempotencyState(4, TimeSpan.MaxValue));
+            new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System))
+        { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         pipeline.ReleaseFollower();
         var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(
             coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001", 11), StallTimeout, cancellationToken));

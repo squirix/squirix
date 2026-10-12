@@ -40,7 +40,8 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(50),
             },
-            new BackpressureMetrics(_testMeter));
+            new BackpressureMetrics(_testMeter),
+            TimeProvider.System);
 
         using var held = (await gate.AcquireAsync("cache", CacheOperationNames.Get, "jwt:client-a", cancellationToken)).Lease;
 
@@ -80,7 +81,8 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(50),
             },
-            new BackpressureMetrics(_testMeter));
+            new BackpressureMetrics(_testMeter),
+            TimeProvider.System);
 
         using var held = (await gate.AcquireAsync("cache", CacheOperationNames.Set, "jwt:client-a", cancellationToken)).Lease;
 

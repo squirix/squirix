@@ -48,7 +48,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         _cluster = await BenchmarkNodeCluster.StartAsync(cancellationToken: CancellationToken.None).ConfigureAwait(false);
         _serverPipeline = BenchmarkNodeReadSurface.ForCache(_cluster.Host(), CacheName);
         _rawGrpc = BenchmarkRawGrpcCache.Connect(_cluster.Uri(), CacheName);
-        _clientPool = new ClientPool([new Peer { NodeId = BenchmarkNodeId, Uri = _cluster.Uri() }], static nodeId => new CallPolicy(peer: nodeId));
+        _clientPool = new ClientPool([new Peer { NodeId = BenchmarkNodeId, Uri = _cluster.Uri() }], static nodeId => new CallPolicy(TimeProvider.System, peer: nodeId), TimeProvider.System);
         _ = await _clientPool.WarmUpAsync(CancellationToken.None).ConfigureAwait(false);
         _publicClient = await _cluster.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
         _publicSdk = await _publicClient.Client.GetCacheAsync<string>(CacheName, CancellationToken.None).ConfigureAwait(false);

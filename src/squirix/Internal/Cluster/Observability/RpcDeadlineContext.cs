@@ -13,8 +13,8 @@ internal static class RpcDeadlineContext
     /// <summary>Gets the absolute deadline to hand to gRPC now, rebuilt from the remaining budget; <see langword="null" /> when none is set.</summary>
     internal static DateTime? ForwardDeadlineUtc => Current.Value?.Budget?.ForwardDeadlineUtc;
 
-    /// <summary>Gets the clock the current deadline counts down on, or <see langword="null" /> when no deadline is set.</summary>
-    internal static TimeProvider? CurrentClock => Current.Value?.Budget?.Clock;
+    /// <summary>Gets the budget of the current deadline with the clock it counts down on, or <see langword="null" /> when no deadline is set.</summary>
+    internal static DeadlineBudget? CurrentBudget => Current.Value?.Budget;
 
     /// <summary>Returns the budget left before the current deadline, measured on monotonic time since it was pushed.</summary>
     /// <returns>The remaining budget, negative once the deadline passed; <see langword="null" /> when no deadline is set.</returns>

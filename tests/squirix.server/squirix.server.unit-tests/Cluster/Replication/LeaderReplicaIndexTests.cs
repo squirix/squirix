@@ -49,7 +49,7 @@ public sealed class LeaderReplicaIndexTests : ServerUnitTestBase
     {
         var pipeline = new SlotPipeline(0);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2, 2);
-        await using var coordinator = new ReplicaCommitCoordinator(options, pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue));
+        await using var coordinator = new ReplicaCommitCoordinator(options, pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System)) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
 
         var outcome = await coordinator.CommitAsync(ReplicaMutationTestKit.CreateMutation(), TimeSpan.FromSeconds(30), cancellationToken);
 

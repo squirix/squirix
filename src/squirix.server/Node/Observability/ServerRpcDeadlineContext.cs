@@ -8,8 +8,8 @@ internal static class ServerRpcDeadlineContext
 {
     private static readonly AsyncLocal<Scope?> Current = new();
 
-    /// <summary>Gets the clock the current deadline counts down on, or <see langword="null" /> when no deadline is set.</summary>
-    internal static TimeProvider? CurrentClock => Current.Value?.Budget?.Clock;
+    /// <summary>Gets the budget of the current deadline with the clock it counts down on, or <see langword="null" /> when no deadline is set.</summary>
+    internal static ServerDeadlineBudget? CurrentBudget => Current.Value?.Budget;
 
     private static DateTime? ForwardDeadlineUtc => Current.Value?.Budget?.ForwardDeadlineUtc;
 

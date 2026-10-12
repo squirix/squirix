@@ -21,10 +21,10 @@ internal static class ReplicaCommitTestKit
     internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, GroupIdempotencyState? idempotency = null, TimeSpan? shutdownBudget = null)
     {
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2);
-        var state = idempotency ?? new GroupIdempotencyState(4, TimeSpan.MaxValue);
+        var state = idempotency ?? new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System);
         return shutdownBudget is { } budget
-            ? new ReplicaCommitCoordinator(options, pipeline, ReplicaFaultHooks.CreateNoOp(), state) { ShutdownBudget = budget }
-            : new ReplicaCommitCoordinator(options, pipeline, ReplicaFaultHooks.CreateNoOp(), state);
+            ? new ReplicaCommitCoordinator(options, pipeline, ReplicaFaultHooks.CreateNoOp(), state) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System, ShutdownBudget = budget }
+            : new ReplicaCommitCoordinator(options, pipeline, ReplicaFaultHooks.CreateNoOp(), state) { BudgetTimeProvider = TimeProvider.System, ObserveTimeProvider = TimeProvider.System };
     }
 
     /// <summary>Majority pipeline whose followers acknowledge at once and whose first memory apply fails.</summary>

@@ -31,7 +31,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-install-capacity");
         var composition = GroupComposition.Create(GroupId);
-        var options = new FollowerLogOptions { IdempotencyCapacity = 2 };
+        var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, IdempotencyCapacity = 2 };
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, options);
         await log.OpenAsync(cancellationToken);
@@ -76,7 +76,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         using var sourceDir = new TempDirectory("squirix-install-applied-watermark-source");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var source = new FollowerLog(sourceDir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var source = new FollowerLog(sourceDir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await source.OpenAsync(cancellationToken);
         _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -84,7 +84,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await source.AdvanceCommitAsync(3UL, cancellationToken);
         var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, sourceDir, 3UL, cancellationToken);
 
-        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -109,7 +109,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         using var dir2 = new TempDirectory("squirix-install-boundary-target");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var source = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var source = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await source.OpenAsync(cancellationToken);
         _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -117,7 +117,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await source.AdvanceCommitAsync(3UL, cancellationToken);
         var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 3UL, cancellationToken);
 
-        await using var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await target.OpenAsync(cancellationToken);
         var (beforeMeta, beforeLog) = await ReadDurableStateAsync(dir2, cancellationToken);
 
@@ -143,7 +143,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         using var sourceDir = new TempDirectory("squirix-install-above-applied-source");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var source = new FollowerLog(sourceDir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var source = new FollowerLog(sourceDir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await source.OpenAsync(cancellationToken);
         _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -151,7 +151,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await source.AdvanceCommitAsync(3UL, cancellationToken);
         var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, sourceDir, 3UL, cancellationToken);
 
-        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -183,7 +183,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-replica-idempotency-install");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -216,7 +216,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-install-higher-term");
         var composition = GroupComposition.Create(GroupId);
 
-        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
             await log.OpenAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
@@ -230,7 +230,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
             _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CurrentTerm).IsEqualTo(5UL);
         }
 
-        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
 
         _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).CurrentTerm).IsEqualTo(5UL);
@@ -244,7 +244,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-install-commit-below-included");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -269,7 +269,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-install-outcome-beyond-boundary");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -296,7 +296,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-install-stale-term");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         var second = new FollowerLogAppendRequest(
@@ -329,7 +329,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-install-unresolved-outcome");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -367,7 +367,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-install-zero-term");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -397,7 +397,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         var faults = new ArmableFlushFaultHooks(static () => new InvalidOperationException("injected install rewrite fault"));
-        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, faults))
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, faults, TimeProvider.System))
         {
             await log.OpenAsync(cancellationToken);
 
@@ -423,7 +423,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
         // The durable outcome of the failed installation matters after a crash: reopening the same directory must
         // recover consistent watermarks and the snapshot's idempotency state, never stale prior-state entries.
-        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
         var rs = await reopened.GetStatusAsync(cancellationToken);
 

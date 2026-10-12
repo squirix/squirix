@@ -282,7 +282,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         };
         var pool = new ServerClientPool(
             BuildPeers(3),
-            new ServerClientPoolArgs { PolicyFactory = nodeId => policies[nodeId] },
+            new ServerClientPoolArgs { TimeProvider = TimeProvider.System, PolicyFactory = nodeId => policies[nodeId] },
             new ServerClientPoolMetrics(meter),
             NullLogger<ServerClientPool>.Instance);
         await using (pool)
@@ -312,7 +312,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         };
         var pool = new ServerClientPool(
             BuildPeers(3),
-            new ServerClientPoolArgs { PolicyFactory = nodeId => policies[nodeId] },
+            new ServerClientPoolArgs { TimeProvider = TimeProvider.System, PolicyFactory = nodeId => policies[nodeId] },
             new ServerClientPoolMetrics(meter),
             NullLogger<ServerClientPool>.Instance);
 
@@ -428,6 +428,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         var created = new List<TrackingHandler>();
         var args = new ServerClientPoolArgs
         {
+            TimeProvider = TimeProvider.System,
             PolicyFactory = static _ => new RecordingPolicy(null),
             OwnedHandlerFactory = (_, _, _) => Track(created),
         };
@@ -520,6 +521,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         using var meter = new Meter("Squirix");
         var args = new ServerClientPoolArgs
         {
+            TimeProvider = TimeProvider.System,
             PolicyFactory = static _ => new RecordingPolicy(null),
             ShutdownBudget = TimeSpan.FromMilliseconds(budgetMilliseconds),
         };
@@ -601,6 +603,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         var calls = 0;
         var args = new ServerClientPoolArgs
         {
+            TimeProvider = TimeProvider.System,
             PolicyFactory = _ => ++calls == 2 ? throw new InvalidOperationException("policy failure") : new RecordingPolicy(null),
             OwnedHandlerFactory = (_, _, _) => Track(created),
             MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
@@ -720,6 +723,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         Func<string, HttpMessageHandler>? peerHandlerFactory,
         Func<MtlsCertificate?, string, TrackedConnections, HttpMessageHandler>? ownedHandlerFactory) => new()
         {
+            TimeProvider = TimeProvider.System,
             PolicyFactory = static _ => new RecordingPolicy(null),
             PeerHandlerFactory = peerHandlerFactory,
             OwnedHandlerFactory = ownedHandlerFactory,

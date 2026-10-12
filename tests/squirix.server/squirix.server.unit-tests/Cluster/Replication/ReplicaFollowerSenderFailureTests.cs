@@ -53,7 +53,7 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
     public async Task BacklogBeyondCapFailsAtOnce(CancellationToken cancellationToken)
     {
         var gateway = new ParkingFollowerGateway();
-        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { MaxPendingEntries = 2 };
+        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, MaxPendingEntries = 2 };
         try
         {
             _ = EnqueueAsync(sender, 1);
@@ -82,7 +82,7 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
     public async Task ByteBacklogCapFailsAtOnce(CancellationToken cancellationToken)
     {
         var gateway = new ParkingFollowerGateway();
-        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { MaxPendingBytes = 10 };
+        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, MaxPendingBytes = 10 };
         try
         {
             _ = EnqueueAsync(sender, 1, payloadBytes: 20);
@@ -137,6 +137,7 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
         var reported = TimeSpan.Zero;
         var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard)
         {
+            TimeProvider = TimeProvider.System,
             ShutdownBudget = TimeSpan.FromMilliseconds(100),
             ShutdownLeakReporter = budget => reported = budget,
         };

@@ -39,14 +39,14 @@ internal sealed class ClientPool : IClientPool
     internal ClientPool(
         Peer[] peers,
         Func<string, ICallPolicy> policyFactory,
+        TimeProvider timeProvider,
         HttpMessageHandler? handler = null,
         Interceptor? interceptor = null,
         CallCredentials? callCredentials = null,
-        BootstrapConnectOptions? connectOptions = null,
-        TimeProvider? timeProvider = null)
+        BootstrapConnectOptions? connectOptions = null)
     {
         _connectOptions = connectOptions ?? DefaultConnectOptions;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        _timeProvider = timeProvider;
         _nodeIds = RegisterPeers(peers, policyFactory, handler, GrpcTransportEndpoints.CreateChannelHandler, interceptor, callCredentials);
         BootstrapNodeIds = _nodeIds;
     }
@@ -57,11 +57,12 @@ internal sealed class ClientPool : IClientPool
     /// </summary>
     /// <param name="peers">Bootstrap peers.</param>
     /// <param name="policyFactory">Per-peer call policy factory.</param>
+    /// <param name="timeProvider">The time source of the connect deadlines.</param>
     /// <param name="ownedHandlerFactory">Creates one handler per peer in place of the default transport handler; the pool disposes each one.</param>
-    internal ClientPool(Peer[] peers, Func<string, ICallPolicy> policyFactory, Func<HttpMessageHandler> ownedHandlerFactory)
+    internal ClientPool(Peer[] peers, Func<string, ICallPolicy> policyFactory, TimeProvider timeProvider, Func<HttpMessageHandler> ownedHandlerFactory)
     {
         _connectOptions = DefaultConnectOptions;
-        _timeProvider = TimeProvider.System;
+        _timeProvider = timeProvider;
         _nodeIds = RegisterPeers(peers, policyFactory, null, ownedHandlerFactory, null, null);
         BootstrapNodeIds = _nodeIds;
     }
@@ -225,7 +226,7 @@ internal sealed class ClientPool : IClientPool
     {
         try
         {
-            await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, connectOptions, cancellationToken, _timeProvider).ConfigureAwait(false);
+            await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, connectOptions, _timeProvider, cancellationToken).ConfigureAwait(false);
             ClientPoolMetrics.AddWarmup();
             return null;
         }
@@ -240,12 +241,11 @@ internal sealed class ClientPool : IClientPool
         internal static async ValueTask ConnectWithRetryAsync(
             GrpcChannel channel,
             BootstrapConnectOptions options,
-            CancellationToken cancellationToken,
-            TimeProvider? timeProvider = null)
+            TimeProvider time,
+            CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(channel);
 
-            var time = timeProvider ?? TimeProvider.System;
             var deadlineUtc = time.GetUtcNow() + options.OverallDeadline;
             Exception? lastFailure = null;
             var attempt = 0;

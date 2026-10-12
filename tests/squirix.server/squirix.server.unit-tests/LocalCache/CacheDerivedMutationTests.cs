@@ -65,7 +65,7 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
     [Test]
     public async Task UpdateAsyncReturnsFalseForMissingKey(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>();
+        var cache = new PhysicalCache<string>(TimeProvider.System);
         var updated = await cache.UpdateAsync(CacheKey.Default("missing"), "new", cancellationToken);
         _ = await Assert.That(updated).IsFalse();
     }

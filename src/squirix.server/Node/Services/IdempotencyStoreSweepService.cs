@@ -16,7 +16,7 @@ internal sealed class IdempotencyStoreSweepService : BackgroundService
     private readonly RpcMutationIdempotencyStore _store;
     private readonly TimeProvider _timeProvider;
 
-    public IdempotencyStoreSweepService(RpcMutationIdempotencyStore store, IOptions<IdempotencyOptions> options, ILogger<IdempotencyStoreSweepService> log, TimeProvider? timeProvider = null)
+    public IdempotencyStoreSweepService(RpcMutationIdempotencyStore store, IOptions<IdempotencyOptions> options, ILogger<IdempotencyStoreSweepService> log, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(store);
         _store = store;
@@ -24,7 +24,7 @@ internal sealed class IdempotencyStoreSweepService : BackgroundService
         ArgumentNullException.ThrowIfNull(log);
         _log = log;
         _options = options.Value;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        _timeProvider = timeProvider;
     }
 
     /// <inheritdoc />

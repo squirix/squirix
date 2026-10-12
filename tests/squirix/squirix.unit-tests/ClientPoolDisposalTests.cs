@@ -31,7 +31,7 @@ public sealed class ClientPoolDisposalTests
         using var sink = new MeasurementSink("Squirix");
         var peers = CreatePeers("channel-dispose-failure");
         var created = new List<TrackingHandler>();
-        var pool = new ClientPool(peers, static _ => new CallPolicy(), () => created.Count == 0 ? Track(created, new TrackingHandler(true)) : Track(created, new TrackingHandler()));
+        var pool = new ClientPool(peers, static _ => new CallPolicy(TimeProvider.System), TimeProvider.System, () => created.Count == 0 ? Track(created, new TrackingHandler(true)) : Track(created, new TrackingHandler()));
 
         await pool.DisposeAsync();
 
@@ -46,7 +46,7 @@ public sealed class ClientPoolDisposalTests
     public async Task DisposeReleasesPoolCreatedHandlersAsync()
     {
         var created = new List<TrackingHandler>();
-        var pool = new ClientPool(Peers, static _ => new CallPolicy(), () => Track(created));
+        var pool = new ClientPool(Peers, static _ => new CallPolicy(TimeProvider.System), TimeProvider.System, () => Track(created));
         await pool.DisposeAsync();
 
         _ = await Assert.That(created.Count).IsEqualTo(Peers.Length);
@@ -59,7 +59,7 @@ public sealed class ClientPoolDisposalTests
     public async Task DisposeKeepsCallerSharedHandlerAsync()
     {
         using var shared = new TrackingHandler();
-        var pool = new ClientPool(Peers, static _ => new CallPolicy(), shared);
+        var pool = new ClientPool(Peers, static _ => new CallPolicy(TimeProvider.System), TimeProvider.System, shared);
         await pool.DisposeAsync();
 
         _ = await Assert.That(shared.Disposed).IsFalse();
@@ -85,7 +85,7 @@ public sealed class ClientPoolDisposalTests
         });
         var secondPolicy = second.Instance();
         var created = new List<TrackingHandler>();
-        var pool = new ClientPool(peers, nodeId => string.Equals(nodeId, peers[0].NodeId, StringComparison.Ordinal) ? failingPolicy : secondPolicy, () => Track(created));
+        var pool = new ClientPool(peers, nodeId => string.Equals(nodeId, peers[0].NodeId, StringComparison.Ordinal) ? failingPolicy : secondPolicy, TimeProvider.System, () => Track(created));
 
         await pool.DisposeAsync();
 
@@ -108,7 +108,7 @@ public sealed class ClientPoolDisposalTests
         _ = failing.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
         var failingPolicy = failing.Instance();
         var created = new List<TrackingHandler>();
-        var pool = new ClientPool(peers, nodeId => string.Equals(nodeId, peers[0].NodeId, StringComparison.Ordinal) ? failingPolicy : new CallPolicy(), () => Track(created));
+        var pool = new ClientPool(peers, nodeId => string.Equals(nodeId, peers[0].NodeId, StringComparison.Ordinal) ? failingPolicy : new CallPolicy(TimeProvider.System), TimeProvider.System, () => Track(created));
 
         await pool.DisposeAsync();
 
@@ -132,7 +132,7 @@ public sealed class ClientPoolDisposalTests
             return ValueTask.CompletedTask;
         });
         var policy = expectations.Instance();
-        var pool = new ClientPool(Peers, _ => policy, static () => new TrackingHandler());
+        var pool = new ClientPool(Peers, _ => policy, TimeProvider.System, static () => new TrackingHandler());
 
         await pool.DisposeAsync();
         await pool.DisposeAsync();
@@ -149,7 +149,7 @@ public sealed class ClientPoolDisposalTests
         _ = expectations.Setups.BeginDrain();
         _ = expectations.Setups.DisposeAsync().ReturnValue(new ValueTask(release.Task));
         var policy = expectations.Instance();
-        var pool = new ClientPool([Peers[0]], _ => policy, static () => new TrackingHandler());
+        var pool = new ClientPool([Peers[0]], _ => policy, TimeProvider.System, static () => new TrackingHandler());
 
         var first = StartDisposeAsync(pool);
         var second = StartDisposeAsync(pool);

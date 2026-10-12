@@ -139,7 +139,7 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<ReplicaGroupCommitters>(),
             sp.GetRequiredService<IJournalCoordinator>(),
             sp.GetRequiredService<ILogger<ReplicaApplyService>>(),
-            sp.GetService<TimeProvider>() ?? TimeProvider.System));
+            sp.GetRequiredService<TimeProvider>()));
         _ = services.AddSingleton(new ReplicaLogCompactionOptions());
         _ = services.AddHostedService(static sp => new ReplicaLogCompactionService(
             sp.GetRequiredService<ReplicaGroupCommitters>(),
@@ -148,7 +148,7 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<ReplicationMetrics>(),
             (sp.GetRequiredService<ReplicaGroupAppliers>(), sp.GetRequiredService<ReplicaGroupRegistry>()),
             sp.GetRequiredService<ILogger<ReplicaLogCompactionService>>(),
-            sp.GetService<TimeProvider>() ?? TimeProvider.System));
+            sp.GetRequiredService<TimeProvider>()));
         AddReplicaExpirationSweep(services);
 
         // Network replication is activated here; automatic failover adds the election drivers, which run for groups of three or more.
@@ -189,7 +189,7 @@ internal static class ServerHostingComposition
             ReplicaGroupLogOptions(sp))
         {
             Election = sp.GetService<ElectionTimerOptions>() ?? new ElectionTimerOptions(),
-            ElectionClock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
+            ElectionClock = sp.GetRequiredService<TimeProvider>(),
             QuorumReads = cluster.QuorumReadsEnabled && LeadsByElection(cluster),
         };
     }
@@ -210,7 +210,7 @@ internal static class ServerHostingComposition
         _ = services.AddHostedService(static sp => new ReplicaGroupReadinessService(
             sp.GetRequiredService<ReplicaGroupCommitters>(),
             sp.GetRequiredService<ILogger<ReplicaGroupReadinessService>>(),
-            sp.GetService<TimeProvider>() ?? TimeProvider.System,
+            sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<ReplicaCatchUpMetrics>())
         {
             Options = sp.GetService<ReplicaReadinessOptions>() ?? new ReplicaReadinessOptions(),
@@ -245,7 +245,10 @@ internal static class ServerHostingComposition
         IdempotencyCapacity = PolicyOptions.RfIdempotencyMaxInFlightRecords,
         IdempotencyRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyRetentionTicks),
         IdempotencyMinRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyMinRetentionTicks),
-        TimeProvider = sp.GetService<TimeProvider>(),
+        TimeProvider = sp.GetRequiredService<TimeProvider>(),
+
+        // The shutdown budget runs on the system clock, so a host clock that never advances cannot park a dispose.
+        ShutdownTimeProvider = TimeProvider.System,
     };
 
     /// <summary>Creates the committers of the groups this node leads: the group it owns statically, or the groups the election hands it.</summary>
@@ -256,7 +259,7 @@ internal static class ServerHostingComposition
     {
         var topology = sp.GetRequiredService<TopologyOptions>();
         var owners = sp.GetRequiredService<INodeLocator>();
-        var clock = sp.GetService<TimeProvider>() ?? TimeProvider.System;
+        var clock = sp.GetRequiredService<TimeProvider>();
         if (!LeadsByElection(topology))
         {
             var led = new ReplicaGroupCommitter[1];
@@ -293,7 +296,11 @@ internal static class ServerHostingComposition
         {
             Recovery = sp.GetRequiredService<IJournalCoordinator>(),
             Applier = sp.GetRequiredService<ReplicaGroupAppliers>().For(groupId),
-            Clock = sp.GetService<TimeProvider>() ?? TimeProvider.System,
+            Clock = sp.GetRequiredService<TimeProvider>(),
+
+            // The commit and shutdown budgets run on the system clock, so a host clock that never advances cannot park a commit or a dispose.
+            BudgetTimeProvider = TimeProvider.System,
+            ShutdownTimeProvider = TimeProvider.System,
             Election = election,
 
             // A led group waits at most one maintenance interval for its followers and its commit gate, so a stalled group holds back no other.

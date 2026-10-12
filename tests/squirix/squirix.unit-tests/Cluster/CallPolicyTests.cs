@@ -25,7 +25,7 @@ public sealed class CallPolicyTests
     [Test]
     public async Task BeginDrainRejectsNewCallsAsync()
     {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-drain");
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-drain");
         policy.BeginDrain();
 
         var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, CancellationToken.None));
@@ -47,7 +47,7 @@ public sealed class CallPolicyTests
 
         for (var round = 0; round < rounds; round++)
         {
-            await using var policy = new CallPolicy(TimeSpan.FromSeconds(5), 1, TimeSpan.Zero, TimeSpan.Zero, 1, $"c-race-{round}");
+            await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(5), 1, TimeSpan.Zero, TimeSpan.Zero, 1, $"c-race-{round}");
             using var drained = new ManualResetEventSlim(false);
             var faults = new ConcurrentQueue<string>();
 
@@ -78,7 +78,7 @@ public sealed class CallPolicyTests
     public async Task BudgetExpiresOnPushClock()
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        await using var policy = new CallPolicy(TimeSpan.FromHours(2), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-budget-clock", timeProvider: clock);
+        await using var policy = new CallPolicy(clock, TimeSpan.FromHours(2), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-budget-clock");
         using var scope = RpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -121,7 +121,7 @@ public sealed class CallPolicyTests
     public async Task AttemptTimeoutRunsOnPolicyClock()
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        await using var policy = new CallPolicy(TimeSpan.FromHours(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-attempt-clock", timeProvider: clock);
+        await using var policy = new CallPolicy(clock, TimeSpan.FromHours(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-attempt-clock");
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var call = policy.ExecuteAsync(static (signal, ct) => BlockUntilCanceledAsync(signal, ct), entered, CancellationToken.None).AsTask();
@@ -137,7 +137,7 @@ public sealed class CallPolicyTests
     [Test]
     public async Task ExecuteAsyncStopsNonRetryableRpcAsync()
     {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-stop");
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-stop");
         var box = new IntBox();
         var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(
             policy.ExecuteAsync(
@@ -157,7 +157,7 @@ public sealed class CallPolicyTests
     [Test]
     public async Task ExecuteRetriesUnavailableRpcAsync()
     {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-retry");
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-retry");
         var box = new IntBox();
         var value = await policy.ExecuteAsync(
             static (counter, cancellationToken) =>
@@ -179,7 +179,7 @@ public sealed class CallPolicyTests
     {
         var timeout = TimeSpan.FromSeconds(5);
         var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        await using var policy = new CallPolicy(timeout, 1, TimeSpan.Zero, TimeSpan.Zero, 1, "c-drain-queue", clock);
+        await using var policy = new CallPolicy(clock, timeout, 1, TimeSpan.Zero, TimeSpan.Zero, 1, "c-drain-queue");
         var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var gate = new EnterReleaseGate(firstEntered, releaseFirst);
@@ -212,7 +212,7 @@ public sealed class CallPolicyTests
     [Test]
     public async Task RetriesDeadlineExceededRpcAsync()
     {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-deadline");
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-deadline");
         var box = new IntBox();
         var value = await policy.ExecuteAsync(
             static (counter, cancellationToken) =>
@@ -232,7 +232,7 @@ public sealed class CallPolicyTests
     [Test]
     public async Task RetriesHttpRequestExceptionAsync()
     {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http");
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http");
         var box = new IntBox();
         var value = await policy.ExecuteAsync(
             static (counter, cancellationToken) =>
@@ -252,7 +252,7 @@ public sealed class CallPolicyTests
     [Test]
     public async Task StopsHttpWhenMaxAttemptsIsOneAsync()
     {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http-stop");
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http-stop");
         _ = await AsyncAssert.ThrowsAsync<HttpRequestException, int>(
             policy.ExecuteAsync(static (_, _) => ValueTask.FromException<int>(new HttpRequestException("boom")), 0, CancellationToken.None));
     }

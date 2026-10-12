@@ -190,14 +190,14 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         var persistence = journal.Journal.Options;
         var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
         var deps = new CoordinatorDependencies(
-            new LocalCacheSnapshotCapture<object?>(new PhysicalCache<object?>()),
+            new LocalCacheSnapshotCapture<object?>(new PhysicalCache<object?>(TimeProvider.System)),
             StoreFactory.CreateWriter(persistence),
             journal.Ledger,
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
+            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
             "n",
             new BackgroundSnapshotMemoryThrottle(new StateEvaluator(Options.Create(new PressureOptions())), new MemoryUsageAccounting()),
             null);
-        return new Coordinator(opt, journal.Journal, deps);
+        return new Coordinator(opt, journal.Journal, deps, TimeProvider.System);
     }
 
     /// <summary>A fake clock that signals each timer created on it, so a test advances only once a wait is armed.</summary>

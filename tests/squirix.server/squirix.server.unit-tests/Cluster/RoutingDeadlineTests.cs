@@ -53,7 +53,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         _ = await Assert.That(paced.HasExpired()).IsTrue();
 
         // An expired shared deadline rejects transport attempts before the first try.
-        await using var policy = CreatePolicy(peer: "reroute-deadline", timeProvider: TimeProvider.System);
+        await using var policy = CreatePolicy(TimeProvider.System, peer: "reroute-deadline");
         var attempts = new InvocationCounter();
         using var expired = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddSeconds(-1), TimeProvider.System);
         var expiredBudget = new RerouteBudget(DateTimeOffset.UtcNow.AddSeconds(-1), TimeProvider.System);
@@ -79,10 +79,10 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     {
         var timeProvider = new FakeTimeProvider();
         await using var policy = CreatePolicy(
+            timeProvider,
             new CallPolicyTimeouts(TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(5)),
             2,
-            peer: "reroute-time-provider",
-            timeProvider: timeProvider);
+            peer: "reroute-time-provider");
         var attempts = new InvocationCounter();
         var executeTask = policy.ExecuteAsync(
             attempts,
@@ -124,7 +124,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     public async Task BudgetExpiresOnPushClock(CancellationToken cancellationToken)
     {
         var clock = new SteppedWallClock();
-        await using var policy = CreatePolicy(new CallPolicyTimeouts(TimeSpan.FromHours(2), TimeSpan.Zero, TimeSpan.Zero), 1, peer: "budget-clock", timeProvider: clock);
+        await using var policy = CreatePolicy(clock, new CallPolicyTimeouts(TimeSpan.FromHours(2), TimeSpan.Zero, TimeSpan.Zero), 1, peer: "budget-clock");
         using var scope = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -145,7 +145,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     public async Task BudgetFollowsPushClock(CancellationToken cancellationToken)
     {
         var pushClock = new SteppedWallClock();
-        await using var policy = CreatePolicy(new CallPolicyTimeouts(TimeSpan.FromHours(2), TimeSpan.Zero, TimeSpan.Zero), 1, peer: "budget-push-clock", timeProvider: TimeProvider.System);
+        await using var policy = CreatePolicy(TimeProvider.System, new CallPolicyTimeouts(TimeSpan.FromHours(2), TimeSpan.Zero, TimeSpan.Zero), 1, peer: "budget-push-clock");
         using var scope = ServerRpcDeadlineContext.Push(pushClock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), pushClock);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -163,7 +163,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     public async Task AttemptTimeoutRunsOnPolicyClock(CancellationToken cancellationToken)
     {
         var clock = new SteppedWallClock();
-        await using var policy = CreatePolicy(new CallPolicyTimeouts(TimeSpan.FromHours(1), TimeSpan.Zero, TimeSpan.Zero), 1, peer: "attempt-clock", timeProvider: clock);
+        await using var policy = CreatePolicy(clock, new CallPolicyTimeouts(TimeSpan.FromHours(1), TimeSpan.Zero, TimeSpan.Zero), 1, peer: "attempt-clock");
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var call = policy.ExecuteAsync(entered, static (signal, ct) => BlockUntilCanceledAsync(signal, ct), cancellationToken).AsTask();
@@ -186,16 +186,16 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     }
 
     private ServerCallPolicy CreatePolicy(
+        TimeProvider timeProvider,
         CallPolicyTimeouts? timeouts = null,
         int maxAttempts = 3,
         int maxConcurrentPerPeer = 64,
-        string? peer = null,
-        TimeProvider? timeProvider = null) => new(
+        string? peer = null) => new(
         new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter)),
+        timeProvider,
         maxAttempts,
         maxConcurrentPerPeer,
         peer,
-        timeProvider ?? TimeProvider.System,
         timeouts ?? new CallPolicyTimeouts());
 
     /// <summary>A fake clock whose wall time can step while its monotonic timestamp moves forward only.</summary>

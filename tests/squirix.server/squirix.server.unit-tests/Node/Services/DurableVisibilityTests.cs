@@ -314,7 +314,7 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
         }
     }
 
-    private RpcMutationIdempotencyStore CreateStore() => new(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+    private RpcMutationIdempotencyStore CreateStore() => new(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
 
     /// <summary>Creates a journal whose segment header and a first frame are already durable, so later stalls catch only the frames under test.</summary>
     /// <param name="groupCommit">Whether journal group commit is enabled.</param>

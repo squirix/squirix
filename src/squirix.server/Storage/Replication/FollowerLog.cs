@@ -83,13 +83,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// </summary>
     private int _readiness = FollowerLogReadinessValue.Unknown;
 
-    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, ILogger<FollowerLog> log, FollowerLogOptions? options = null)
+    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, ILogger<FollowerLog> log, FollowerLogOptions options)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
         ArgumentNullException.ThrowIfNull(composition);
         ArgumentNullException.ThrowIfNull(log);
+        ArgumentNullException.ThrowIfNull(options);
         _composition = composition;
-        var settings = options ?? new FollowerLogOptions();
+        var settings = options;
         _faults = settings.FaultHooks ?? DefaultFaults;
         _log = log;
         _shutdownBudget = settings.ShutdownBudget;
@@ -101,13 +102,18 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         _idempotency = new GroupIdempotencyState(
             settings.IdempotencyCapacity,
             settings.IdempotencyRetention ?? GroupIdempotencyState.DefaultRetention,
-            settings.TimeProvider ?? TimeProvider.System,
+            settings.TimeProvider,
             settings.IdempotencyMinRetention);
         Idempotency = _idempotency;
     }
 
-    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, ILogger<FollowerLog> log, IFollowerLogFaultHooks faultHooks)
-        : this(persistenceRoot, groupId, composition, log, new FollowerLogOptions { FaultHooks = faultHooks })
+    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, ILogger<FollowerLog> log, TimeProvider timeProvider)
+        : this(persistenceRoot, groupId, composition, log, new FollowerLogOptions { TimeProvider = timeProvider, ShutdownTimeProvider = timeProvider })
+    {
+    }
+
+    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, ILogger<FollowerLog> log, IFollowerLogFaultHooks faultHooks, TimeProvider timeProvider)
+        : this(persistenceRoot, groupId, composition, log, new FollowerLogOptions { FaultHooks = faultHooks, TimeProvider = timeProvider, ShutdownTimeProvider = timeProvider })
     {
     }
 

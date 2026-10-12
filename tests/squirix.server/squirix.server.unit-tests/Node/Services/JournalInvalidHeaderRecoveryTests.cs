@@ -92,7 +92,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : DisposableServerUnitTest
                 scenario.Ledger,
                 scenario.Cache,
                 gate,
-                new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
+                new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
                 StoreFactory.CreateReader(),
                 TimeProvider.System));
 

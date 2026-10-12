@@ -54,7 +54,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
             NullLoggerFactory.Instance,
             TimeProvider.System,
             out _);
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var attempts = new MutableCount();
         var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
@@ -120,7 +120,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
             TimeProvider.System,
             out _);
 
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var key = CacheKey.Default("guard-key");
         var payload = JournalEntryPayloadKit.EncodePut("v");
@@ -182,7 +182,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
             TimeProvider.System,
             out _);
 
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var attempts = new MutableCount();
 

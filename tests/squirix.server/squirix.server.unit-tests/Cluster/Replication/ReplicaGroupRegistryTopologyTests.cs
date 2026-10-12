@@ -31,10 +31,10 @@ public sealed class ReplicaGroupRegistryTopologyTests : ServerUnitTestBase
     public async Task OpenRecordsConfiguredTopology(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-registry-topology-record");
-        await using (var first = new ReplicaGroupRegistry(dir, [GroupId], 1, Written, 1, NullLoggerFactory.Instance))
+        await using (var first = new ReplicaGroupRegistry(dir, [GroupId], 1, Written, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System })
             await first.OpenAsync(cancellationToken);
 
-        await using var reopened = new ReplicaGroupRegistry(dir, [GroupId], 1, Written, 1, NullLoggerFactory.Instance);
+        await using var reopened = new ReplicaGroupRegistry(dir, [GroupId], 1, Written, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         await reopened.OpenAsync(cancellationToken);
         _ = reopened.TryGetLog(GroupId, out var log);
 
@@ -50,7 +50,7 @@ public sealed class ReplicaGroupRegistryTopologyTests : ServerUnitTestBase
     public async Task ChangedTopologyIsRefused(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-registry-topology-refuse");
-        await using (var written = new ReplicaGroupRegistry(dir, [GroupId], 1, Written, 1, NullLoggerFactory.Instance))
+        await using (var written = new ReplicaGroupRegistry(dir, [GroupId], 1, Written, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System })
         {
             await written.OpenAsync(cancellationToken);
             _ = written.TryGetLog(GroupId, out var writtenLog);
@@ -58,10 +58,10 @@ public sealed class ReplicaGroupRegistryTopologyTests : ServerUnitTestBase
             _ = await writtenLog!.AppendAsync(new FollowerLogAppendRequest(GroupId, 1, 0, 0, 0, ReadOnlyMemory<FollowerLogEntry>.Of(entry)), cancellationToken);
         }
 
-        await using var changed = new ReplicaGroupRegistry(dir, [GroupId], 1, Changed, 2, NullLoggerFactory.Instance);
+        await using var changed = new ReplicaGroupRegistry(dir, [GroupId], 1, Changed, 2, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
 
         var exception = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(changed.OpenAsync(cancellationToken));
-        await using var original = new ReplicaGroupRegistry(dir, [GroupId], 1, Written, 1, NullLoggerFactory.Instance);
+        await using var original = new ReplicaGroupRegistry(dir, [GroupId], 1, Written, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         await original.OpenAsync(cancellationToken);
         _ = original.TryGetLog(GroupId, out var log);
         var status = await log!.GetStatusAsync(cancellationToken);

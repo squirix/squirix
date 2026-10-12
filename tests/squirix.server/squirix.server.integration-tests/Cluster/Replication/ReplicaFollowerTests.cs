@@ -345,7 +345,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
 
     private static async Task<ReplicaGroupRegistry> OpenAsync(TempDirectory dir, string groupId, CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(dir, [groupId], 1, Fingerprint, 1UL, NullLoggerFactory.Instance);
+        var registry = new ReplicaGroupRegistry(dir, [groupId], 1, Fingerprint, 1UL, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         await registry.OpenAsync(cancellationToken);
         return registry;
     }

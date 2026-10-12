@@ -242,7 +242,7 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-elected-failed-noop");
         using var hooks = new StallableFollowerLogFaultHooks();
-        await using var registry = await OpenRegistryAsync(dir, Groups, new FollowerLogOptions { FaultHooks = hooks }, cancellationToken);
+        await using var registry = await OpenRegistryAsync(dir, Groups, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }, cancellationToken);
         var log = await TermAsync(registry, "n2", 1UL, cancellationToken);
         var clock = new FakeTimeProvider();
         _ = await log.AppendAsync(new FollowerLogAppendRequest("n2", 1UL, 0UL, 0UL, 0UL, OlderEntry(1UL, clock)), cancellationToken);

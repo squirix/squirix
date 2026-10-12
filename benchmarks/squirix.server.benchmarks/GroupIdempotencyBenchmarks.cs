@@ -28,7 +28,7 @@ public class GroupIdempotencyBenchmarks
     private string[] _batchIds = [];
     private ulong[] _batchIndexes = [];
     private GroupIdempotencyRecord[] _batchRecords = [];
-    private GroupIdempotencyState _state = new(Capacity, Retention);
+    private GroupIdempotencyState _state = new(Capacity, Retention, TimeProvider.System);
 
     /// <summary>Gets or sets how many resolved, unexpired records the state already holds when the measured operations start.</summary>
     [Params(0, 60000)]
@@ -51,7 +51,7 @@ public class GroupIdempotencyBenchmarks
         var now = DateTime.UtcNow;
 
         // The restore path does not sweep, so the prefill costs one pass instead of one sweep per record.
-        _state = new GroupIdempotencyState(Capacity, Retention);
+        _state = new GroupIdempotencyState(Capacity, Retention, TimeProvider.System);
         _state.BeginOutcomeRebuild();
         var logIndex = 0UL;
         for (var i = 0; i < Prefill; i++)

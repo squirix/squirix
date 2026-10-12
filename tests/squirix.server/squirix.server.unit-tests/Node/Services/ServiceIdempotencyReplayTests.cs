@@ -47,7 +47,7 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
 
         var journalUnixMs = ReadIdempotencyOutcomeUnixMs(scenario.DataDir);
 
-        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
 
         IIdempotencySnapshotExporter exporter = idempotencyStore;
@@ -73,7 +73,7 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
         var persistence = CreatePersistence(scenario.DataDir);
         await WriteStartedMutationAsync(scenario, persistence, false, cancellationToken);
 
-        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
 
         _ = await Assert.That(idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out _)).IsFalse();
@@ -92,7 +92,7 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
         var persistence = CreatePersistence(scenario.DataDir);
         await WriteStartedMutationAsync(scenario, persistence, false, cancellationToken);
 
-        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
 
         var mismatch = NodeExceptionAssert.For<ServerOpIdMismatchException>().Throws(idempotencyStore, static value => _ = value.ReserveIntent(OperationId, "other-fingerprint", null, out _));
@@ -152,7 +152,7 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
             }
         }
 
-        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
 
         _ = await Assert.That(stamped).IsFalse();
@@ -169,7 +169,7 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
         var persistence = CreatePersistence(scenario.DataDir);
         await WriteStartedMutationAsync(scenario, persistence, true, cancellationToken);
 
-        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
 
         var replayed = idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out var response);

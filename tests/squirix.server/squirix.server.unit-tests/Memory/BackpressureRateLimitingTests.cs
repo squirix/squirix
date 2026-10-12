@@ -69,7 +69,8 @@ public sealed class BackpressureRateLimitingTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(100),
             },
-            new BackpressureMetrics(meter));
+            new BackpressureMetrics(meter),
+            TimeProvider.System);
 
         using var first = (await gate.AcquireAsync("grpc", "get", "grpc:client-a", cancellationToken)).Lease;
 
@@ -132,7 +133,8 @@ public sealed class BackpressureRateLimitingTests : DisposableServerUnitTestBase
                 MaxSlowdownDelay = TimeSpan.FromMilliseconds(5),
                 MaxQueueWait = TimeSpan.FromMilliseconds(100),
             },
-            new BackpressureMetrics(meter));
+            new BackpressureMetrics(meter),
+            TimeProvider.System);
 
         using var first = (await gate.AcquireAsync("rest", "put", "rest:client-a", cancellationToken)).Lease;
         using var second = (await gate.AcquireAsync("rest", "put", "rest:client-b", cancellationToken)).Lease;

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -25,18 +26,18 @@ public sealed class ReplicaGroupRegistryValidationTests : ServerUnitTestBase
     /// <summary>Verifies that an out-of-range replica count is rejected.</summary>
     [Test]
     public void BadReplicaCountIsRejected() =>
-        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(0, static count => _ = new ReplicaGroupRegistry("root", SingleGroup, count, Fingerprint(), 1, NullLoggerFactory.Instance));
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(0, static count => _ = new ReplicaGroupRegistry("root", SingleGroup, count, Fingerprint(), 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System });
 
     /// <summary>Verifies that duplicated group identifiers are rejected.</summary>
     [Test]
     public void DuplicateGroupsAreRejected() =>
-        _ = NodeExceptionAssert.For<ArgumentException>().Throws(static () => _ = new ReplicaGroupRegistry("root", ["node-a", "node-a"], 1, Fingerprint(), 1, NullLoggerFactory.Instance));
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(static () => _ = new ReplicaGroupRegistry("root", ["node-a", "node-a"], 1, Fingerprint(), 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System });
 
     /// <summary>Verifies that eligibility lookup before opening is rejected.</summary>
     [Test]
     public async Task EligibilityBeforeOpenIsRejectedAsync()
     {
-        await using var registry = new ReplicaGroupRegistry("test-root", SingleGroup, 1, Fingerprint(), 1, NullLoggerFactory.Instance);
+        await using var registry = new ReplicaGroupRegistry("test-root", SingleGroup, 1, Fingerprint(), 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
 
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(registry, static r => _ = r.EligibilityFor("node-a"));
     }
@@ -44,7 +45,7 @@ public sealed class ReplicaGroupRegistryValidationTests : ServerUnitTestBase
     /// <summary>Verifies that an empty topology fingerprint is rejected.</summary>
     [Test]
     public void EmptyFingerprintIsRejected() => _ = NodeExceptionAssert.For<ArgumentException>()
-                                                                       .Throws(static () => _ = new ReplicaGroupRegistry("root", SingleGroup, 1, ReadOnlyMemory<byte>.Empty, 1, NullLoggerFactory.Instance));
+                                                                       .Throws(static () => _ = new ReplicaGroupRegistry("root", SingleGroup, 1, ReadOnlyMemory<byte>.Empty, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System });
 
     /// <summary>Verifies that an empty persistence root is rejected.</summary>
     [Test]
@@ -53,7 +54,7 @@ public sealed class ReplicaGroupRegistryValidationTests : ServerUnitTestBase
         _ = NodeExceptionAssert.For<ArgumentException>().Throws(
             string.Empty,
             Fingerprint(),
-            static (root, fingerprint) => _ = new ReplicaGroupRegistry(root, SingleGroup, 1, fingerprint, 1, NullLoggerFactory.Instance));
+            static (root, fingerprint) => _ = new ReplicaGroupRegistry(root, SingleGroup, 1, fingerprint, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System });
     }
 
     /// <summary>Verifies that missing group identifiers are rejected.</summary>
@@ -62,7 +63,7 @@ public sealed class ReplicaGroupRegistryValidationTests : ServerUnitTestBase
     {
         IReadOnlyList<string>? groups = null;
 
-        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(groups, static g => _ = new ReplicaGroupRegistry("root", g!, 1, Fingerprint(), 1, NullLoggerFactory.Instance));
+        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(groups, static g => _ = new ReplicaGroupRegistry("root", g!, 1, Fingerprint(), 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System });
     }
 
     /// <summary>Verifies that opening the registry twice is rejected.</summary>
@@ -71,7 +72,7 @@ public sealed class ReplicaGroupRegistryValidationTests : ServerUnitTestBase
     public async Task OpenTwiceIsRejectedAsync(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-registry-open");
-        await using var registry = new ReplicaGroupRegistry(dir, SingleGroup, 1, Fingerprint(), 1, NullLoggerFactory.Instance);
+        await using var registry = new ReplicaGroupRegistry(dir, SingleGroup, 1, Fingerprint(), 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         await registry.OpenAsync(cancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(registry.OpenAsync(cancellationToken));
@@ -81,7 +82,7 @@ public sealed class ReplicaGroupRegistryValidationTests : ServerUnitTestBase
     [Test]
     public async Task UnknownGroupLookupMissesAsync()
     {
-        await using var registry = new ReplicaGroupRegistry("test-root", SingleGroup, 1, Fingerprint(), 1, NullLoggerFactory.Instance);
+        await using var registry = new ReplicaGroupRegistry("test-root", SingleGroup, 1, Fingerprint(), 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
 
         _ = await Assert.That(registry.TryGetLog("unknown-group", out var log)).IsFalse();
         _ = await Assert.That(log).IsNull();

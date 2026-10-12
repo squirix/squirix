@@ -23,7 +23,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     [Test]
     public async Task CallerMutationDoesNotCorruptStoredRecord()
     {
-        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), TimeProvider.System);
         var fingerprint = new byte[] { 1, 2, 3 };
         var outcome = new byte[] { 7, 8, 9 };
 
@@ -44,7 +44,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     [Test]
     public async Task UnresolvedThroughBoundaries()
     {
-        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), TimeProvider.System);
         _ = state.Reserve("client", "resolved", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
         _ = state.TryResolve("client", "resolved", [2], 2UL, 1UL);
         _ = state.Reserve("client", "in-flight", [3], GroupRecordKind.UserMutation, 5UL, 1UL);
@@ -184,7 +184,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     [Test]
     public async Task ResolvedRecordIgnoresReReservation()
     {
-        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), TimeProvider.System);
         _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 4UL, 2UL);
         _ = await Assert.That(state.TryResolve("client", "operation", [7, 8], 4UL, 2UL)).IsTrue();
 
@@ -241,7 +241,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     [Test]
     public void RestoreRejectsUnresolvedRecords()
     {
-        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), TimeProvider.System);
         var memory = ReadOnlyMemory<byte>.Empty;
         var unresolved = new GroupIdempotencyRecord("client", "unresolved", new byte[] { 1 }, memory, GroupRecordKind.UserMutation, DateTime.UnixEpoch, null, 1UL, 1UL);
 
@@ -275,7 +275,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     [Test]
     public async Task RestoredOutcomeKeepsRetainedIdentity()
     {
-        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), TimeProvider.System);
         _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
 
         var restored = state.RestoreOutcome(Outcome("operation", 1UL), TimeSpan.Zero);
@@ -307,7 +307,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     [Test]
     public async Task SameOperationResolvesOrRejects()
     {
-        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), TimeProvider.System);
         _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 4UL, 2UL);
         _ = state.TryResolve("client", "operation", [7, 8], 4UL, 2UL);
 
@@ -327,7 +327,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-replica-idempotency-truncate");
         var faults = new ArmableFlushFaultHooks(static () => new IOException("simulated failure after durable truncate."));
 
-        await using var log = new FollowerLog(dir, "grp-idempotency", GroupComposition.Create("grp-idempotency"), NullLogger<FollowerLog>.Instance, faults);
+        await using var log = new FollowerLog(dir, "grp-idempotency", GroupComposition.Create("grp-idempotency"), NullLogger<FollowerLog>.Instance, faults, TimeProvider.System);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "old"), cancellationToken);

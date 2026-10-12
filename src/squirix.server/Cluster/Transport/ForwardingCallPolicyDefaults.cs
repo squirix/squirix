@@ -30,10 +30,10 @@ internal static class ForwardingCallPolicyDefaults
     /// <param name="instrumentation">Call-policy instrumentation.</param>
     /// <param name="peer">Owner node id used as the metric label.</param>
     /// <param name="maxInFlight">Entry node maximum in-flight operations.</param>
-    /// <param name="timeProvider">Optional time provider.</param>
+    /// <param name="timeProvider">The time source of the call timeouts.</param>
     /// <returns>A single-attempt, non-queuing call policy.</returns>
-    internal static ServerCallPolicy Create(ServerCallPolicyInstrumentation instrumentation, string peer, int maxInFlight, TimeProvider? timeProvider) =>
-        new(instrumentation, MaxAttempts, MaxConcurrentPerPeer(maxInFlight), peer, timeProvider, Timeouts);
+    internal static ServerCallPolicy Create(ServerCallPolicyInstrumentation instrumentation, string peer, int maxInFlight, TimeProvider timeProvider) =>
+        new(instrumentation, timeProvider, MaxAttempts, MaxConcurrentPerPeer(maxInFlight), peer, Timeouts);
 
     /// <summary>Checks the forward connect timeout against the forwarded call it bounds.</summary>
     /// <param name="connectTimeout">The configured forward connect timeout.</param>

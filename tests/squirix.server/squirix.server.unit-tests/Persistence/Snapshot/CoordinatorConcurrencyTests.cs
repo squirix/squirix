@@ -54,7 +54,8 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
                 exporterExpectations.Instance(),
                 "test-node",
                 throttleExpectations.Instance(),
-                null));
+                null),
+            TimeProvider.System);
         var published = new StrongBox<int>(0);
         coordinator.SnapshotCompleted += (_, _) => Interlocked.Increment(ref published.Value);
 

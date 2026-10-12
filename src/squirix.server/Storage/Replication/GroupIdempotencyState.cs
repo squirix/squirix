@@ -128,14 +128,6 @@ internal sealed class GroupIdempotencyState
             });
     }
 
-    /// <summary>Initializes a new instance of the <see cref="GroupIdempotencyState" /> class.</summary>
-    /// <param name="capacity">The maximum number of retained records; new reservations are rejected at capacity.</param>
-    /// <param name="retention">How long a resolved outcome remains retrievable after it is resolved.</param>
-    internal GroupIdempotencyState(int capacity, TimeSpan retention)
-        : this(capacity, retention, TimeProvider.System)
-    {
-    }
-
     /// <summary>Gets the maximum number of retained idempotency records.</summary>
     internal int Capacity { get; }
 

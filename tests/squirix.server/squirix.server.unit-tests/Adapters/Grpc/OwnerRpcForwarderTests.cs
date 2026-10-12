@@ -392,9 +392,9 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
 
     private ServerCallPolicy CreatePolicy() => new(
         new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter)),
+        TimeProvider.System,
         3,
         64,
         Owner,
-        TimeProvider.System,
         new CallPolicyTimeouts(TimeSpan.FromSeconds(1), TimeSpan.Zero, TimeSpan.Zero));
 }

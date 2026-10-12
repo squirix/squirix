@@ -224,7 +224,7 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
     [Test]
     public async Task UnopenedRegistryYieldsNoSnapshots(CancellationToken cancellationToken)
     {
-        await using var registry = new ReplicaGroupRegistry("test-root", ["node-a"], 1, ReadOnlyMemory<byte>.Of(9), 1, NullLoggerFactory.Instance);
+        await using var registry = new ReplicaGroupRegistry("test-root", ["node-a"], 1, ReadOnlyMemory<byte>.Of(9), 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         var source = new ReplicaGroupStatusSource(registry, CreateTopology(1), new MtlsOptions(), "node-a");
 
         var snapshots = await source.GetSnapshotsAsync(cancellationToken);
@@ -253,7 +253,7 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
     private static ReplicaGroupRegistry CreateRegistry(string dir, TopologyOptions topology)
     {
         byte[] fingerprint = [.. TopologyFingerprint.CreateFromTopology(topology, new MtlsOptions()).Bytes];
-        return new ReplicaGroupRegistry(dir, ["node-a"], topology.ReplicaCount, fingerprint, topology.ConfigurationGeneration, NullLoggerFactory.Instance);
+        return new ReplicaGroupRegistry(dir, ["node-a"], topology.ReplicaCount, fingerprint, topology.ConfigurationGeneration, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
     }
 
     private static TopologyOptions CreateTopology(int replicaCount, bool automaticFailover = false) => new([new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6131") }])

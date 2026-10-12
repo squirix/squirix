@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -234,8 +235,9 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
                 .Throws(new ElectionTimerOptions { LeaderWaitTimeoutOverride = value }, ElectionTimerOptions.EnsureValidLeaderWait);
         }
 
-        await using var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1UL, NullLoggerFactory.Instance)
+        await using var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1UL, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System })
         {
+            ElectionClock = TimeProvider.System,
             Election = new ElectionTimerOptions { LeaderWaitTimeoutOverride = Timeout.InfiniteTimeSpan },
         };
         _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(registry, static r => _ = new ReplicaLeaderTable(r, "n1", Ring));
@@ -398,7 +400,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
 
     internal static async Task<ReplicaGroupRegistry> OpenTimedRegistryAsync(TempDirectory dir, TimeProvider time, CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1UL, NullLoggerFactory.Instance) { ElectionClock = time };
+        var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1UL, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = time };
         try
         {
             await registry.OpenAsync(cancellationToken);

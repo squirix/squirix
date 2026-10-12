@@ -111,9 +111,8 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// <remarks>This namespace does not log; the owner turns the report into an error log. Unset, the fault is only observed.</remarks>
     internal Action<Exception>? AbandonedWorkFaultReporter { private get; init; }
 
-    /// <summary>Initializes the time source of the commit budget; the system clock unless set.</summary>
-    /// <remarks>Test seam: production coordinators keep the system clock.</remarks>
-    internal TimeProvider BudgetTimeProvider { private get; init; } = TimeProvider.System;
+    /// <summary>Initializes the time source of the commit budget.</summary>
+    internal required TimeProvider BudgetTimeProvider { private get; init; }
 
     /// <summary>Gets the highest log index this coordinator committed, or the commit index it started from.</summary>
     internal ulong CommitIndex => Volatile.Read(ref _commitIndex);
@@ -125,9 +124,8 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// <remarks>The owner reads it under its commit gate, where no commit body runs, so only background follower observation can change it.</remarks>
     internal bool HasPendingApply => !_pendingApply.IsEmpty;
 
-    /// <summary>Initializes the time source bounding the first wait of background follower observation; the system clock unless set.</summary>
-    /// <remarks>Test seam: production coordinators keep the system clock.</remarks>
-    internal TimeProvider ObserveTimeProvider { private get; init; } = TimeProvider.System;
+    /// <summary>Initializes the time source bounding the first wait of background follower observation.</summary>
+    internal required TimeProvider ObserveTimeProvider { private get; init; }
 
     /// <summary>Initializes the longest dispose wait for owned work to make progress before it is abandoned; 5 seconds unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>

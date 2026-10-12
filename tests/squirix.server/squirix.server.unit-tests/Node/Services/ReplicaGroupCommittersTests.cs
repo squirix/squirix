@@ -70,7 +70,7 @@ public sealed class ReplicaGroupCommittersTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-led-groups-own");
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        await using var own = CreateGroupCommitter(registry, "n1", new ScriptedGateway(), new StubCache(), TimeProvider.System);
+        await using var own = CreateGroupCommitter(registry, "n1", new ScriptedGateway(), new StubCache(), TimeProvider.System, (TimeProvider.System, null));
 
         // The owner lookup has no setups: asking it would fail the test.
         await using var committers = new ReplicaGroupCommitters([own], "n1", new INodeLocatorCreateExpectations().Instance(), TimeProvider.System);
@@ -91,7 +91,7 @@ public sealed class ReplicaGroupCommittersTests : ServerUnitTestBase
         var failure = NodeExceptionAssert.For<ArgumentException>().Throws(
             registry,
             foreign,
-            static (served, applier) => _ = CreateGroupCommitter(served, "n2", new ScriptedGateway(), new StubCache(), TimeProvider.System, applier));
+            static (served, applier) => _ = CreateGroupCommitter(served, "n2", new ScriptedGateway(), new StubCache(), TimeProvider.System, (TimeProvider.System, null), applier));
 
         _ = await Assert.That(failure.Message).Contains("'n1'");
     }

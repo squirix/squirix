@@ -319,6 +319,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     {
         var args = new ServerClientPoolArgs
         {
+            TimeProvider = TimeProvider.System,
             PolicyFactory = static _ => new IdleCallPolicy(),
             OwnedHandlerFactory = (_, _, _) => createHandler(),
             ForwardConnectTimeout = connectTimeout,
@@ -328,10 +329,10 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
 
     private ServerCallPolicy CreatePolicy(TimeSpan perAttempt, int attempts = 3) => new(
         new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter)),
+        TimeProvider.System,
         attempts,
         64,
         Owner,
-        TimeProvider.System,
         new CallPolicyTimeouts(perAttempt, TimeSpan.Zero, TimeSpan.Zero));
 
     /// <summary>A connection that takes every byte written to it and never answers, until it is disposed.</summary>

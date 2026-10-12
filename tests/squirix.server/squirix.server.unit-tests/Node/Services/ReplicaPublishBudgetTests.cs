@@ -65,13 +65,13 @@ public sealed class ReplicaPublishBudgetTests : IsolatedStorageTestBase
                     GroupId,
                     GroupComposition.Create(GroupId),
                     NullLogger<FollowerLog>.Instance,
-                    new FollowerLogOptions { FaultHooks = hooks });
+                    new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks });
                 logs[node] = log;
                 await log.OpenAsync(cancellationToken);
             }
 
             var gateway = new FollowerLogRoutingGateway(logs);
-            await using var registry = await OpenRegistryAsync(Path.Join(dir, "owner"), followers.Length + 1, new FollowerLogOptions { FaultHooks = leaderHooks }, cancellationToken);
+            await using var registry = await OpenRegistryAsync(Path.Join(dir, "owner"), followers.Length + 1, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = leaderHooks }, cancellationToken);
             await using var committer = CreateCommitter(registry, gateway, followers);
 
             // The first write brings the coordinator up and settles the follower handshake; only later writes are measured.
@@ -114,7 +114,7 @@ public sealed class ReplicaPublishBudgetTests : IsolatedStorageTestBase
 
     private static async Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, int replicaCount, FollowerLogOptions options, CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(dir, ["n1"], replicaCount, Fingerprint, 1, NullLoggerFactory.Instance, options);
+        var registry = new ReplicaGroupRegistry(dir, ["n1"], replicaCount, Fingerprint, 1, NullLoggerFactory.Instance, options) { ElectionClock = TimeProvider.System };
         try
         {
             await registry.OpenAsync(cancellationToken);
@@ -140,6 +140,9 @@ public sealed class ReplicaPublishBudgetTests : IsolatedStorageTestBase
             new ReplicaTopologyStamp(Fingerprint, 1),
             NullLogger<ReplicaGroupCommitter>.Instance)
         {
+            Clock = TimeProvider.System,
+            ShutdownTimeProvider = TimeProvider.System,
+            BudgetTimeProvider = TimeProvider.System,
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(cache, NullLogger<ReplicaGroupCommitter>.Instance, "n1", "n1"),
         };

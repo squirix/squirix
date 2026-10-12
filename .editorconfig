@@ -136,6 +136,7 @@ dotnet_diagnostic.SQR0028.severity = error # pass readonly structs larger than 1
 dotnet_diagnostic.SQR0029.severity = error # no non-readonly struct member calls through readonly variables (hidden copy)
 dotnet_diagnostic.SQR0034.severity = error # no global using directives, including generated ones (ImplicitUsings, TUnitImplicitUsings)
 dotnet_diagnostic.SQR0035.severity = error # no primary constructors on classes and structs
+dotnet_diagnostic.SQR0036.severity = error # no TimeProvider.System default for a TimeProvider dependency
 dotnet_diagnostic.SQR0009.severity = warning # drop named args passed in declaration order (prefer positional)
 dotnet_diagnostic.SQR0011.severity = warning # omit args equal to the parameter default
 dotnet_diagnostic.SQR0021.severity = warning # prefer ArgumentException throw helpers over manual guards

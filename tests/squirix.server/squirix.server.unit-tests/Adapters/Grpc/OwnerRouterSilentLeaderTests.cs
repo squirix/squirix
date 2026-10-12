@@ -11,6 +11,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime.Invocation;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -171,7 +172,7 @@ public sealed class OwnerRouterSilentLeaderTests : ServerUnitTestBase
 
     private static async Task<ReplicaGroupRegistry> OpenRegistryAsync(TempDirectory dir, TimeProvider time, CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(dir, [Group], 3, Fingerprint, 1UL, NullLoggerFactory.Instance) { ElectionClock = time };
+        var registry = new ReplicaGroupRegistry(dir, [Group], 3, Fingerprint, 1UL, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = time };
         try
         {
             await registry.OpenAsync(cancellationToken);

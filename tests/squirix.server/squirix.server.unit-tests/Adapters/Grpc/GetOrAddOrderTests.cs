@@ -80,7 +80,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
         _ = ownership.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Self);
         var invocation = new IRemoteInvocationStateCreateExpectations();
         _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(false);
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), Self, new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), Self, new IdempotencyMetrics(_testMeter), TimeProvider.System);
 
         // Nothing is forwarded: the pool and the backpressure gate have no setups.
         return new SquirixServiceAdapter<object?>(

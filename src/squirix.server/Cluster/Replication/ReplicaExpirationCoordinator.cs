@@ -55,9 +55,8 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
     /// <remarks>This namespace does not log; the owner turns the report into an error log. Unset, the leak is not reported.</remarks>
     internal Action<TimeSpan>? ShutdownLeakReporter { private get; init; }
 
-    /// <summary>Initializes the time source of the shutdown budget; the system clock unless set.</summary>
-    /// <remarks>Test seam: production coordinators keep the system clock.</remarks>
-    internal TimeProvider ShutdownTimeProvider { private get; init; } = TimeProvider.System;
+    /// <summary>Initializes the time source of the shutdown budget.</summary>
+    internal required TimeProvider ShutdownTimeProvider { private get; init; }
 
     /// <summary>Refuses new expiries and waits, within the shutdown budget, for the expiries in flight.</summary>
     /// <returns>An asynchronous operation that never fails for an expiry that outlasts the budget.</returns>

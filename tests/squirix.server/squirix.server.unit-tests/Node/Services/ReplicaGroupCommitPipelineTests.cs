@@ -180,7 +180,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         {
             foreach (var node in nodes)
             {
-                var log = new FollowerLog(Path.Join(Dir, node), GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+                var log = new FollowerLog(Path.Join(Dir, node), GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
                 followers[node] = log;
                 await log.OpenAsync(cancellationToken);
             }

@@ -93,7 +93,7 @@ public sealed class JournalDeadlineWaitLogTests : IsolatedStorageTestBase
         var host = new FakeEventLoopHost(new PendingAppendRegistry());
         var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 1024L * 1024L, 1, JournalSegmentProbe.Probe(Dir, 1)), logger, CancellationToken.None);
         if (groupCommit)
-            eventLoop.AttachGroupCommit(new JournalDurabilityGroupCommit(static () => { }, static () => { }, options));
+            eventLoop.AttachGroupCommit(new JournalDurabilityGroupCommit(static () => { }, static () => { }, options, TimeProvider.System));
 
         return new LoopSetup(eventLoop, ring, segmentWriter);
     }

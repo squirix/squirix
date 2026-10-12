@@ -136,6 +136,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
     {
         var args = new ServerClientPoolArgs
         {
+            TimeProvider = TimeProvider.System,
             PolicyFactory = static _ => new IdleCallPolicy(),
             OwnedHandlerFactory = (_, _, _) => handler,
         };

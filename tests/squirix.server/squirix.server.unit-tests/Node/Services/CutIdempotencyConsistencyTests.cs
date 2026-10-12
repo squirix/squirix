@@ -57,7 +57,7 @@ public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBas
             NullLoggerFactory.Instance,
             TimeProvider.System,
             out _);
-        var idempotency = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var idempotency = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         var writer = StoreFactory.CreateWriter(persistence);
 
         await RecordIdempotencyAsync(journal, idempotency, AtFlushOperationId, cancellationToken);
@@ -80,7 +80,7 @@ public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBas
     {
         var awaitingDurability = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var durable = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         var coordinator = new RpcMutationIdempotencyCoordinator(store, StalledDurabilityJournal(awaitingDurability, durable), NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
 
         var write = coordinator.ExecuteAsync(OperationId, "fp", 0, static (_, _) => Task.FromResult(new TryAddAsyncResponse { Added = true }), cancellationToken);

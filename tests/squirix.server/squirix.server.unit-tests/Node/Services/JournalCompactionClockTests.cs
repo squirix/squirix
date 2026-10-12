@@ -126,7 +126,8 @@ public sealed class JournalCompactionClockTests : IsolatedStorageTestBase
                 new IIdempotencySnapshotExporterCreateExpectations().Instance(),
                 "n",
                 new IBackgroundSnapshotMemoryThrottleCreateExpectations().Instance(),
-                null));
+                null),
+            TimeProvider.System);
     }
 
     /// <summary>Waits for the compaction loop to park on the clock, then advances past its wait and waits for the next run.</summary>

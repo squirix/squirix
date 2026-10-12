@@ -47,7 +47,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
         await WritePutAndIdempotencyAsync(persistence, scenario.Ledger, cancellationToken);
         await JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(), DateTime.UtcNow, DateTime.UtcNow, cancellationToken);
 
-        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
 
         var replayed = idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out var response);
@@ -126,7 +126,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
         await JournalCompactor.CompactAsync(persistence, scenario.Ledger, reader, DateTime.UtcNow, DateTime.UtcNow, cancellationToken);
         await AssertStartedFrameHasFingerprintAsync(persistence, await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken), cancellationToken);
 
-        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
 
         _ = await Assert.That(idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out _)).IsFalse();
@@ -169,7 +169,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
 
         await JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(), DateTime.UtcNow, DateTime.UtcNow, cancellationToken);
 
-        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
 
         var replayed = idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out var response);
@@ -246,7 +246,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     private async Task WriteStartedSnapshotAsync(RecoveryScenarioBuilder scenario, PersistenceOptions persistence, ulong nextSequence, CancellationToken cancellationToken)
     {
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         store.RestoreStarted(OperationId, Fingerprint, DateTime.UtcNow);
         var records = new List<PersistedIdempotencyRecord>();
         IIdempotencySnapshotExporter exporter = store;

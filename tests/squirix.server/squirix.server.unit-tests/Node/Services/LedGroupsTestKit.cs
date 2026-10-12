@@ -30,11 +30,11 @@ internal static class LedGroupsTestKit
     /// <param name="gateway">Follower transport double.</param>
     /// <param name="cache">Local cache pipeline.</param>
     /// <param name="clock">The clock of the decisions.</param>
-    /// <param name="applier">The applier of the group; a new one applying to <paramref name="cache" /> when not set.</param>
     /// <param name="seams">
-    /// The time source of the commit budget and of the follower request timeouts, the system clock when not set; and the journal lifecycle
-    /// whose startup gate the committer waits for, an open gate when not set.
+    /// The time source of the commit budget and of the follower request timeouts; and the journal lifecycle whose startup gate the
+    /// committer waits for, an open gate when not set.
     /// </param>
+    /// <param name="applier">The applier of the group; a new one applying to <paramref name="cache" /> when not set.</param>
     /// <returns>The committer.</returns>
     internal static ReplicaGroupCommitter CreateGroupCommitter(
         ReplicaGroupRegistry registry,
@@ -42,14 +42,15 @@ internal static class LedGroupsTestKit
         IReplicaRpcGateway gateway,
         ILogicalNamespacedCache<object?> cache,
         TimeProvider clock,
-        ReplicaGroupApplier? applier = null,
-        (TimeProvider? BudgetClock, IJournalCoordinatorLifecycle? Recovery) seams = default) =>
+        (TimeProvider BudgetClock, IJournalCoordinatorLifecycle? Recovery) seams,
+        ReplicaGroupApplier? applier = null) =>
         new(registry, new RotatingLocator(), gateway, cache, (groupId, "n1"), new ReplicaTopologyStamp(ReplicaOwnerTestKit.Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
+            ShutdownTimeProvider = TimeProvider.System,
             Recovery = seams.Recovery ?? ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             Applier = applier ?? new ReplicaGroupApplier(cache, NullLogger.Instance, groupId, "n1"),
             Clock = clock,
-            BudgetTimeProvider = seams.BudgetClock ?? TimeProvider.System,
+            BudgetTimeProvider = seams.BudgetClock,
         };
 
     /// <summary>Creates the committer of a group on node n1 whose compaction steps wait at most <paramref name="compactionWait" />.</summary>
@@ -67,6 +68,9 @@ internal static class LedGroupsTestKit
         TimeSpan compactionWait) =>
         new(registry, new RotatingLocator(), gateway, cache, (groupId, "n1"), new ReplicaTopologyStamp(ReplicaOwnerTestKit.Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
+            Clock = TimeProvider.System,
+            ShutdownTimeProvider = TimeProvider.System,
+            BudgetTimeProvider = TimeProvider.System,
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(cache, NullLogger.Instance, groupId, "n1"),
             CompactionWaitBudget = compactionWait,
@@ -119,6 +123,8 @@ internal static class LedGroupsTestKit
         ILogger<ReplicaGroupCommitter> log) =>
         new(registry, new RotatingLocator(), gateway, local.Cache, (groupId, "n1"), new ReplicaTopologyStamp(ReplicaOwnerTestKit.Fingerprint, 1), log)
         {
+            Clock = TimeProvider.System,
+            ShutdownTimeProvider = TimeProvider.System,
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             Applier = local.Applier,
             Election = registry.StateFor(groupId),
@@ -168,8 +174,8 @@ internal static class LedGroupsTestKit
         ReplicaGroupAppliers? appliers = null)
     {
         var led = new ReplicaGroupCommitter[2];
-        led[0] = CreateGroupCommitter(registry, "n1", gateways.OfN1, cache, clock, appliers?.For("n1"));
-        led[1] = CreateGroupCommitter(registry, "n2", gateways.OfN2, cache, clock, appliers?.For("n2"));
+        led[0] = CreateGroupCommitter(registry, "n1", gateways.OfN1, cache, clock, (TimeProvider.System, null), appliers?.For("n1"));
+        led[1] = CreateGroupCommitter(registry, "n2", gateways.OfN2, cache, clock, (TimeProvider.System, null), appliers?.For("n2"));
         return new ReplicaGroupCommitters(led, "n1", Owners(), clock);
     }
 

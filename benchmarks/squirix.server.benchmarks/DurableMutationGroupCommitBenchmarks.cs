@@ -107,7 +107,7 @@ public class DurableMutationGroupCommitBenchmarks
         _executor = new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance);
         var idempotencyOptions = new IdempotencyOptions { MaxInFlightRecords = 4_000_000 };
         _coordinator = new RpcMutationIdempotencyCoordinator(
-            new RpcMutationIdempotencyStore(idempotencyOptions, "bench", new IdempotencyMetrics(_meter)),
+            new RpcMutationIdempotencyStore(idempotencyOptions, "bench", new IdempotencyMetrics(_meter), TimeProvider.System),
             _host.Coordinator,
             NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         _putPayload = new byte[PutPayloadBytes];

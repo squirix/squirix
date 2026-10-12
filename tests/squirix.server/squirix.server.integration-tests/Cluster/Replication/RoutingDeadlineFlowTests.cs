@@ -25,7 +25,7 @@ public sealed class RoutingDeadlineFlowTests : NodeIntegrationTestBase
     {
         using var meter = new Meter("test-routing-flow");
         var instrumentation = new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(meter), new ServerRpcTimeoutMetrics(meter));
-        await using var policy = new ServerCallPolicy(instrumentation, 3, 64, "routing-flow", TimeProvider.System, new CallPolicyTimeouts());
+        await using var policy = new ServerCallPolicy(instrumentation, TimeProvider.System, 3, 64, "routing-flow", new CallPolicyTimeouts());
 
         var attempts = new InvocationCounter();
         using var expired = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddSeconds(-1), TimeProvider.System);

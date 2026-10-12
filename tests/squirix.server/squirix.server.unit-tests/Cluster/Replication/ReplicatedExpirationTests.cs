@@ -32,7 +32,8 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         {
             _ = Interlocked.Increment(ref runs);
             return release.Task;
-        });
+        })
+        { ShutdownTimeProvider = TimeProvider.System };
         using var leaving = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         var first = expiration.ExpireAsync("default", "key-a", leaving.Token);
@@ -50,7 +51,7 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
     [Test]
     public async Task SharedRunDropsCallerContext(CancellationToken cancellationToken)
     {
-        await using var expiration = new ReplicaExpirationCoordinator<string>(static (_, _) => Task.FromResult(CallerScope.Value));
+        await using var expiration = new ReplicaExpirationCoordinator<string>(static (_, _) => Task.FromResult(CallerScope.Value)) { ShutdownTimeProvider = TimeProvider.System };
         CallerScope.Value = "caller";
 
         var seen = await expiration.ExpireAsync("default", "key-a", cancellationToken);
@@ -69,7 +70,8 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         {
             _ = Interlocked.Increment(ref runs);
             return string.Equals(cacheName + key, "defaultkey-a", StringComparison.Ordinal) ? release.Task : Task.FromResult<string?>(null);
-        });
+        })
+        { ShutdownTimeProvider = TimeProvider.System };
 
         var first = expiration.ExpireAsync("default", "key-a", cancellationToken);
         var second = expiration.ExpireAsync("default", "key-a", cancellationToken);
@@ -142,7 +144,7 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
     [Test]
     public async Task ExpireAfterDisposeIsRefused()
     {
-        var expiration = new ReplicaExpirationCoordinator<string>(static (_, _) => Task.FromResult<string?>(null));
+        var expiration = new ReplicaExpirationCoordinator<string>(static (_, _) => Task.FromResult<string?>(null)) { ShutdownTimeProvider = TimeProvider.System };
         await expiration.DisposeAsync();
 
         var error = NodeExceptionAssert.For<ObjectDisposedException>().Throws(expiration, static disposed => _ = disposed.ExpireAsync("default", "key-a", CancellationToken.None));
@@ -181,7 +183,7 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
     public async Task FinishedExpiryRunsAgain(CancellationToken cancellationToken)
     {
         var runs = 0;
-        await using var expiration = new ReplicaExpirationCoordinator<string>((_, _) => Task.FromResult(Interlocked.Increment(ref runs) == 1 ? "live" : null));
+        await using var expiration = new ReplicaExpirationCoordinator<string>((_, _) => Task.FromResult(Interlocked.Increment(ref runs) == 1 ? "live" : null)) { ShutdownTimeProvider = TimeProvider.System };
 
         var first = await expiration.ExpireAsync("default", "key-a", cancellationToken);
         var second = await expiration.ExpireAsync("default", "key-a", cancellationToken);

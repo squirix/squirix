@@ -190,7 +190,7 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
     public async Task OversizedSnapshotKeepsLog(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-owned-compaction-oversized");
-        await using var registry = await OpenRegistryAsync(dir, new FollowerLogOptions { MaxSnapshotBytes = 64 }, cancellationToken);
+        await using var registry = await OpenRegistryAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, MaxSnapshotBytes = 64 }, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
         await WriteAsync(committer, 2, cancellationToken);
 

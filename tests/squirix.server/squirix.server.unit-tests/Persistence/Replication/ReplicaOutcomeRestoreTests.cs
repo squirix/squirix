@@ -17,7 +17,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     [Test]
     public async Task RestoredOutcomeEvictsOlderOne()
     {
-        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1), TimeProvider.System);
         state.RestoreFromSnapshot([Outcome("one", 1UL), Outcome("two", 2UL)], DateTime.UnixEpoch, []);
 
         var restored = state.RestoreOutcome(Outcome("five", 5UL), TimeSpan.Zero);
@@ -32,7 +32,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     [Test]
     public async Task NewerOutcomeReplacesReusedIdentity()
     {
-        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), TimeProvider.System);
         state.RestoreFromSnapshot([Outcome("x", 1UL, 1)], DateTime.UnixEpoch, []);
 
         var restored = state.RestoreOutcome(Outcome("x", 5UL, 2), TimeSpan.Zero);
@@ -46,7 +46,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     [Test]
     public async Task RestoredOutcomeNeverEvictsPin()
     {
-        var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), TimeProvider.System);
         _ = state.Reserve("client", "pin", [1], GroupRecordKind.UserMutation, 9UL, 1UL, true);
 
         var restored = state.RestoreOutcome(Outcome("five", 5UL), TimeSpan.Zero);
@@ -62,7 +62,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     [Arguments(true)]
     public async Task ExemptTailPinLeavesCapacityToRebuild(bool leaderTerm)
     {
-        var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), TimeProvider.System);
         _ = state.Reserve("system", "exempt", [1], leaderTerm ? GroupRecordKind.LeaderTerm : GroupRecordKind.Expiration, 9UL, 1UL, true);
         state.BeginOutcomeRebuild();
 
@@ -80,7 +80,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     [Test]
     public async Task RestoredOutcomeNeverEvictsNewerOne()
     {
-        var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), TimeProvider.System);
 
         var first = state.RestoreOutcome(Outcome("five", 5UL), TimeSpan.Zero);
         var second = state.RestoreOutcome(Outcome("four", 4UL), TimeSpan.Zero);
@@ -94,7 +94,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     [Test]
     public async Task RetriedRebuildEvictsOldestIndex()
     {
-        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1), TimeProvider.System);
         state.RestoreFromSnapshot([Outcome("one", 1UL), Outcome("two", 2UL)], DateTime.UnixEpoch, []);
         state.BeginOutcomeRebuild();
         _ = state.RestoreOutcome(Outcome("five", 5UL), TimeSpan.Zero);
@@ -113,7 +113,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     [Test]
     public void RestoreAfterRebuildThrows()
     {
-        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1), TimeProvider.System);
         state.MarkOutcomesRebuilt();
 
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static value => _ = value.RestoreOutcome(Outcome("one", 1UL), TimeSpan.Zero));
@@ -123,7 +123,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     [Test]
     public async Task RebuildTrimsOldestOutcomesPastCapacity()
     {
-        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1), TimeProvider.System);
         state.RestoreFromSnapshot([Outcome("one", 1UL), Outcome("two", 2UL)], DateTime.UnixEpoch, []);
         _ = state.Reserve("client", "pin", [1], GroupRecordKind.UserMutation, 9UL, 1UL, true);
 
@@ -138,7 +138,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     [Test]
     public async Task TrimSeesOutcomesAddedMidRebuild()
     {
-        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1), TimeProvider.System);
         state.RestoreFromSnapshot([Outcome("one", 1UL)], DateTime.UnixEpoch, []);
         _ = state.Reserve("client", "pin-a", [1], GroupRecordKind.UserMutation, 20UL, 1UL, true);
         _ = state.Reserve("client", "pin-b", [1], GroupRecordKind.UserMutation, 21UL, 1UL, true);
@@ -158,7 +158,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     [Test]
     public void CommittedOutcomeRequiresRebuild()
     {
-        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1), TimeProvider.System);
 
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static value => value.RecordCommittedOutcome(Outcome("one", 1UL)));
         state.MarkOutcomesRebuilt();
@@ -185,7 +185,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     [Test]
     public async Task CommittedOutcomeKeepsNewerOne()
     {
-        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1));
+        var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1), TimeProvider.System);
         _ = state.RestoreOutcome(Outcome("x", 9UL, 2), TimeSpan.Zero);
         state.MarkOutcomesRebuilt();
 

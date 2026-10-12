@@ -121,7 +121,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
             ReleaseAndCloseLeakedHandle(log, hooks);
         }
 
-        await using var reopened = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
         var tail = await reopened.GetUncommittedTailAsync(cancellationToken);
 
@@ -271,7 +271,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
     }
 
     private Task<FollowerLog> OpenLogAsync(StallableFollowerLogFaultHooks hooks, ILogger<FollowerLog> logger, CancellationToken cancellationToken) =>
-        OpenLogAsync(new FollowerLogOptions { FaultHooks = hooks, ShutdownBudget = ShutdownBudget }, logger, cancellationToken);
+        OpenLogAsync(new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks, ShutdownBudget = ShutdownBudget }, logger, cancellationToken);
 
     private Task<FollowerLog> OpenLogOnClockAsync(
         StallableFollowerLogFaultHooks hooks,
@@ -279,7 +279,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
         TimeProvider clock,
         CancellationToken cancellationToken) =>
         OpenLogAsync(
-            new FollowerLogOptions { FaultHooks = hooks, ShutdownBudget = ShutdownBudget, ShutdownTimeProvider = clock },
+            new FollowerLogOptions { TimeProvider = TimeProvider.System, FaultHooks = hooks, ShutdownBudget = ShutdownBudget, ShutdownTimeProvider = clock },
             logger,
             cancellationToken);
 

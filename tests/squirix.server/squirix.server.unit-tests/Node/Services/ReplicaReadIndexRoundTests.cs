@@ -70,7 +70,7 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
         var gateway = new HeldGateway();
         var rounds = new ReplicaReadIndexRound(Term, 3, 0);
         var header = new ReplicaRpcHeader("n1", new byte[] { 9, 8, 7 }, 1, Term, "n1", "n1");
-        var sender = new ReplicaFollowerSender(rounds.Observing(gateway, ["n1", "n2", "n3"]), "n2", in header, 0, 0, HangGuard);
+        var sender = new ReplicaFollowerSender(rounds.Observing(gateway, ["n1", "n2", "n3"]), "n2", in header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System };
         try
         {
             var idle = sender.TryEnqueueHeartbeat(0UL);

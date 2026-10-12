@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -79,7 +80,7 @@ public sealed class ReplicaFollowerSenderTests : ServerUnitTestBase
     public async Task EntryCapSplitsBatches(CancellationToken cancellationToken)
     {
         var capped = new ParkingFollowerGateway();
-        var small = new ReplicaFollowerSender(capped, "n2", in Header, 0, 0, HangGuard) { MaxBatchEntries = 2 };
+        var small = new ReplicaFollowerSender(capped, "n2", in Header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, MaxBatchEntries = 2 };
         try
         {
             _ = EnqueueAsync(small, 1);
@@ -113,7 +114,7 @@ public sealed class ReplicaFollowerSenderTests : ServerUnitTestBase
     public async Task ByteCapSplitsBatches(CancellationToken cancellationToken)
     {
         var gateway = new ParkingFollowerGateway();
-        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { MaxBatchBytes = 10 };
+        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, MaxBatchBytes = 10 };
         try
         {
             _ = EnqueueAsync(sender, 1, payloadBytes: 4);
