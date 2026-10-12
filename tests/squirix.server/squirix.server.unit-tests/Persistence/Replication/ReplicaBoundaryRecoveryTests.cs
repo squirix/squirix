@@ -107,7 +107,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
         }
 
         // The metadata already carries the boundary's commit index and term, so the raise is the only publish of the open.
-        var boundaryMeta = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, string.Empty, 4UL, 0UL);
+        var boundaryMeta = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, string.Empty, 4UL, 0UL, GroupMemberState.Complete, false);
         await WriteMetadataAsync(dir, in boundaryMeta, cancellationToken);
         await ReplicaLastIndexRecoveryTests.PublishSnapshotAsync(dir, GroupId, 4UL, cancellationToken);
 

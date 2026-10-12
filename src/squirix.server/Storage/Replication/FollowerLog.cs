@@ -623,7 +623,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             lastLogTerm,
             _meta.CommitIndex,
             _meta.LastAppliedIndex,
-            Readiness);
+            Readiness,
+            _meta.MemberState,
+            _meta.BootstrapOffered);
     }
 
     /// <summary>Returns the term the log retains for an index.</summary>
@@ -1582,7 +1584,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             switch (metaExists)
             {
                 case false when !logExists && !journal.Snapshot.SnapshotExists:
-                    var fresh = new GroupLogMetadata(owner.GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL);
+                    var fresh = new GroupLogMetadata(owner.GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, GroupMemberState.Complete, false);
                     await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, fresh, cancellationToken).ConfigureAwait(false);
                     owner.Meta = fresh;
                     owner.LastLogIndex = 0;
@@ -1594,7 +1596,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 case false when !logExists:
                     // A published snapshot is a durable state even when metadata and the log are absent. Seed recovery with
                     // empty metadata, so RestoreSnapshotBaseAsync validates the snapshot instead of creating a zeroed ready state.
-                    owner.Meta = new GroupLogMetadata(owner.GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL);
+                    owner.Meta = new GroupLogMetadata(owner.GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, GroupMemberState.Complete, false);
                     await FollowerLogRecovery.RecoverLogFileAsync(journal, owner, cancellationToken).ConfigureAwait(false);
                     owner.Durability.Open(journal.Paths.LogPath, owner.LogLength);
                     owner.Readiness = FollowerLogReadiness.Ready;

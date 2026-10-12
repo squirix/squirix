@@ -91,7 +91,7 @@ internal static class GroupMetadataSlots
         var secondValid = TryDecode(second, out var secondSequence, out var secondMeta);
         return (firstValid, secondValid) switch
         {
-            (false, false) => Failure(GroupMetadataReadStatus.Corrupt),
+            (false, false) => Failure(IsEarlierBuild(first) || IsEarlierBuild(second) ? GroupMetadataReadStatus.Unsupported : GroupMetadataReadStatus.Corrupt),
             (true, false) => new GroupMetadataRead(GroupMetadataReadStatus.Valid, firstMeta, 0, firstSequence),
             (false, true) => new GroupMetadataRead(GroupMetadataReadStatus.Valid, secondMeta, 1, secondSequence),
             _ when firstSequence > secondSequence => new GroupMetadataRead(GroupMetadataReadStatus.Valid, firstMeta, 0, firstSequence),
@@ -103,16 +103,30 @@ internal static class GroupMetadataSlots
 
     private static GroupMetadataRead Failure(GroupMetadataReadStatus status) => new(status, default, 0, 0UL);
 
+    /// <summary>Checks whether a slot is well framed and holds a record of an earlier metadata version.</summary>
+    /// <param name="slot">The bytes of the slot.</param>
+    /// <returns><see langword="true" /> when the slot frame is valid and its payload was written by an earlier build.</returns>
+    private static bool IsEarlierBuild(ReadOnlySpan<byte> slot) => TryReadPayload(slot, out _, out var payload) && GroupLogCodec.IsEarlierMetaVersion(payload);
+
     private static bool TryDecode(ReadOnlySpan<byte> slot, out ulong sequence, out GroupLogMetadata meta)
     {
         meta = default;
+        return TryReadPayload(slot, out sequence, out var payload) && GroupLogCodec.TryDecodeMeta(payload, out meta);
+    }
+
+    private static bool TryReadPayload(ReadOnlySpan<byte> slot, out ulong sequence, out ReadOnlySpan<byte> payload)
+    {
+        payload = default;
         sequence = BinaryPrimitives.ReadUInt64LittleEndian(slot[SequenceOffset..]);
         var length = BinaryPrimitives.ReadInt32LittleEndian(slot[LengthOffset..]);
         if (BinaryPrimitives.ReadUInt32LittleEndian(slot) != SlotMagic || slot[sizeof(uint)] != SlotVersion || sequence == 0UL || length < 0 || length > PayloadCapacity)
             return false;
 
         var crcOffset = HeaderSize + length;
-        return Crc32C.Compute(slot[..crcOffset]) == BinaryPrimitives.ReadUInt32LittleEndian(slot[crcOffset..]) &&
-               GroupLogCodec.TryDecodeMeta(slot.Slice(HeaderSize, length), out meta);
+        if (Crc32C.Compute(slot[..crcOffset]) != BinaryPrimitives.ReadUInt32LittleEndian(slot[crcOffset..]))
+            return false;
+
+        payload = slot.Slice(HeaderSize, length);
+        return true;
     }
 }

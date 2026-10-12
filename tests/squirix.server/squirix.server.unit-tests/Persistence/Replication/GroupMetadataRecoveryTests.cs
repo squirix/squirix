@@ -202,7 +202,7 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-meta-recovery-earlier");
         _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, GroupId));
         var path = GroupStoragePaths.GetMetadataPath(dir, GroupId);
-        var meta = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 2UL, string.Empty, 0UL, 0UL);
+        var meta = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 2UL, string.Empty, 0UL, 0UL, GroupMemberState.Complete, false);
         var earlier = new byte[GroupLogCodec.ComputeMetaEncodedLength(in meta)];
         GroupLogCodec.EncodeMeta(in meta, earlier);
         await File.WriteAllBytesAsync(path, earlier, cancellationToken);

@@ -72,7 +72,7 @@ public sealed class LeaderSlotTests : ServerUnitTestBase
     public async Task SendersServeFollowerSlots()
     {
         var header = new ReplicaRpcHeader("n1", Fingerprint, 1, 1, "n2", "n2");
-        var status = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 0, 0, 0, 0, FollowerLogReadiness.Ready);
+        var status = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 0, 0, 0, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete, false);
         var senders = ReplicaFollowerSenders.Create(
             new IReplicaRpcGatewayCreateExpectations().Instance(),
             ["n1", "n2", "n3"],

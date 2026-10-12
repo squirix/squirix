@@ -43,7 +43,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
 
         // Durable metadata that carries an applied watermark above the commit index: the exact incoherent state the guard defends against,
         // where compacting through the commit index would otherwise drop applied frames.
-        var incoherent = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 2UL, 3UL);
+        var incoherent = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 2UL, 3UL, GroupMemberState.Complete, false);
         await GroupMetadataFile.WriteAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), in incoherent, cancellationToken);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
