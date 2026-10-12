@@ -328,7 +328,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         var faults = new ArmableFlushFaultHooks(static () => new IOException("simulated failure after durable truncate."));
 
         await using var log = new FollowerLog(dir, "grp-idempotency", GroupComposition.Create("grp-idempotency"), NullLogger<FollowerLog>.Instance, faults, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "old"), cancellationToken);
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);

@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -29,6 +30,7 @@ public sealed class ReplicaFollowerOrderTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-order");
         using var hooks = new StallableFollowerLogFaultHooks();
+        await SeededLogs.SeedGroupsAsync(dir, [GroupId], cancellationToken);
         await using var registry = new ReplicaGroupRegistry(dir, [GroupId], 1, Fingerprint, 1, NullLoggerFactory.Instance, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }) { ElectionClock = TimeProvider.System };
         await registry.OpenAsync(cancellationToken);
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
@@ -75,7 +76,7 @@ public class GroupMetadataPublishBenchmarks
         Array.Fill(_block, Convert.ToByte('x'));
 
         _log = new FollowerLog(_dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await _log.OpenAsync(CancellationToken.None).ConfigureAwait(false);
+        await _log.OpenSeededAsync(CancellationToken.None).ConfigureAwait(false);
 
         var options = OperatingSystem.IsWindows() ? FileOptions.WriteThrough : FileOptions.None;
         _handle = File.OpenHandle(Path.Join(_dir, "raw.bin"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, options);

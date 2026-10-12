@@ -6,6 +6,7 @@ using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -247,7 +248,7 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         var clock = new FakeTimeProvider(Epoch);
         var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = clock, IdempotencyCapacity = 1, IdempotencyRetention = Retention };
         await using var log = new FollowerLog(dir, "group-eviction", GroupComposition.Create("group-eviction"), NullLogger<FollowerLog>.Instance, options);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         Resolve(log.Idempotency, "first", 1UL);
         clock.Advance(Retention - TimeSpan.FromSeconds(1));
 
@@ -269,7 +270,7 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         var clock = new FakeTimeProvider(Epoch);
         var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = clock, IdempotencyCapacity = 1, IdempotencyRetention = Retention, IdempotencyMinRetention = Floor };
         await using var log = new FollowerLog(dir, "group-eviction", GroupComposition.Create("group-eviction"), NullLogger<FollowerLog>.Instance, options);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         Resolve(log.Idempotency, "first", 1UL);
         clock.Advance(Floor);
 

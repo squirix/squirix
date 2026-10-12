@@ -35,7 +35,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
 
         await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
-            await seed.OpenAsync(cancellationToken);
+            await seed.OpenSeededAsync(cancellationToken);
             _ = await seed.AppendAsync(Append(1UL, "a"), cancellationToken);
             _ = await seed.AppendAsync(Append(2UL, "b"), cancellationToken);
             _ = await seed.AppendAsync(Append(3UL, "c"), cancellationToken);
@@ -47,7 +47,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         await GroupMetadataFile.WriteAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), in incoherent, cancellationToken);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
 
         var status = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
@@ -215,7 +215,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, faults, TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
             _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);
@@ -252,7 +252,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
@@ -282,7 +282,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         var faults = FollowerSnapshotScenario.CreateCompactionFaults();
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, faults, TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await Assert.That((await log.AppendAsync(Append(1UL, "a"), cancellationToken)).Success).IsTrue();
             _ = await Assert.That((await log.AppendAsync(Append(2UL, "b"), cancellationToken)).Success).IsTrue();
             _ = await Assert.That((await log.AdvanceCommitAsync(2UL, cancellationToken)).Success).IsTrue();
@@ -330,7 +330,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         GroupSnapshot snapshot;
         await using (var source = new FollowerLog(sourceDir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
-            await source.OpenAsync(cancellationToken);
+            await source.OpenSeededAsync(cancellationToken);
             _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
             _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
             _ = await source.AppendAsync(Append(3UL, "c"), cancellationToken);
@@ -341,7 +341,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         var faults = FollowerSnapshotScenario.CreateCompactionFaults();
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, faults, TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
             _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
             _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
@@ -375,7 +375,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
             _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
             _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
@@ -458,7 +458,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, options ?? new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System });
         try
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             for (var index = 1UL; index <= LastIndex; index++)
                 _ = await log.AppendAsync(Append(index, Payload(index)), cancellationToken);
 

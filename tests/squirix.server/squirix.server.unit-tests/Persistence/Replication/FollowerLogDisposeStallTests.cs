@@ -288,7 +288,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
         var log = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId), logger, options);
         try
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
         }
         catch
         {

@@ -30,7 +30,7 @@ public sealed class ObserveTermTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-observe-term-higher");
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
 
             var observed = await log.ObserveTermAsync(3UL, cancellationToken);
@@ -53,7 +53,7 @@ public sealed class ObserveTermTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-observe-term-lower");
         await using var log = OpenLog(dir);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 2UL), cancellationToken);
         _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 2UL), cancellationToken);
 
@@ -90,7 +90,7 @@ public sealed class ObserveTermTests : ServerUnitTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
             armed = true;
 
@@ -113,7 +113,7 @@ public sealed class ObserveTermTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-observe-term-disposed");
         var log = OpenLog(dir);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
         await log.DisposeAsync();
 
@@ -150,7 +150,7 @@ public sealed class ObserveTermTests : ServerUnitTestBase
         });
 
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
         armed = true;
 

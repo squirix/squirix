@@ -9,6 +9,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -161,6 +162,7 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
 
     private static async Task<ReplicaGroupRegistry> OpenAsync(string dir, CancellationToken cancellationToken, ElectionTimerOptions? election = null)
     {
+        await SeededLogs.SeedGroupsAsync(dir, Groups, cancellationToken);
         var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System, Election = election ?? Quiet };
         try
         {

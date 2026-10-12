@@ -8,6 +8,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -109,7 +110,7 @@ public sealed class ReplicaGroupApplierTests : ServerUnitTestBase
         var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         try
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance);
             var entries = new FollowerLogEntry[count];
             for (var index = 0; index < entries.Length; index++)

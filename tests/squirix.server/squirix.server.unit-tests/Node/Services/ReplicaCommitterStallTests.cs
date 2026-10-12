@@ -18,6 +18,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -480,6 +481,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 
     private async Task<ReplicaGroupRegistry> OpenRegistryAsync(string[] groupIds, FollowerLogOptions? options, ILoggerFactory loggerFactory, CancellationToken cancellationToken)
     {
+        await SeededLogs.SeedGroupsAsync(Dir, groupIds, cancellationToken);
         var registry = new ReplicaGroupRegistry(Dir, groupIds, 2, Fingerprint, 1, loggerFactory, options ?? new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         try
         {

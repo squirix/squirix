@@ -28,7 +28,7 @@ public sealed class ElectionStateTests : ServerUnitTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
 
             var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
             _ = await Assert.That(granted.Granted).IsTrue();

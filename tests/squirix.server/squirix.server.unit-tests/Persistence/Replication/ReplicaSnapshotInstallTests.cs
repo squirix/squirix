@@ -34,7 +34,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, IdempotencyCapacity = 2 };
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, options);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
@@ -77,7 +77,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var source = new FollowerLog(sourceDir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await source.OpenAsync(cancellationToken);
+        await source.OpenSeededAsync(cancellationToken);
         _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await source.AppendAsync(Append(3UL, "c"), cancellationToken);
@@ -85,7 +85,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, sourceDir, 3UL, cancellationToken);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
@@ -110,7 +110,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var source = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await source.OpenAsync(cancellationToken);
+        await source.OpenSeededAsync(cancellationToken);
         _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await source.AppendAsync(Append(3UL, "c"), cancellationToken);
@@ -118,7 +118,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 3UL, cancellationToken);
 
         await using var target = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await target.OpenAsync(cancellationToken);
+        await target.OpenSeededAsync(cancellationToken);
         var (beforeMeta, beforeLog) = await ReadDurableStateAsync(dir2, cancellationToken);
 
         var result = await target.InstallSnapshotAsync(snapshot, 1UL, cancellationToken);
@@ -144,7 +144,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var source = new FollowerLog(sourceDir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await source.OpenAsync(cancellationToken);
+        await source.OpenSeededAsync(cancellationToken);
         _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await source.AppendAsync(Append(3UL, "c"), cancellationToken);
@@ -152,7 +152,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, sourceDir, 3UL, cancellationToken);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
@@ -184,7 +184,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
@@ -218,7 +218,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
             _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
@@ -245,7 +245,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
@@ -270,7 +270,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
@@ -297,7 +297,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         var second = new FollowerLogAppendRequest(
             "leader",
@@ -330,7 +330,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
@@ -368,7 +368,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
@@ -399,7 +399,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var faults = new ArmableFlushFaultHooks(static () => new InvalidOperationException("injected install rewrite fault"));
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, faults, TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
 
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await Assert.That(log.Idempotency.Reserve("client", "op-A", [1], GroupRecordKind.UserMutation, 1UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);

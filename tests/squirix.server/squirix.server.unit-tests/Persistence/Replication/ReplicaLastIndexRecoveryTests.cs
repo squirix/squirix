@@ -33,7 +33,7 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
 
             // The first append adopts the leader term, which is published; later appends change the last log index only.
             _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
@@ -69,7 +69,7 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
             var before = hooks.Snapshot();
             _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -205,7 +205,7 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
     private static async Task SeedUnpublishedTailAsync(TempDirectory dir, GroupComposition composition, ulong lastIndex, CancellationToken cancellationToken)
     {
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
@@ -226,7 +226,7 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
     {
         var composition = GroupComposition.Create(GroupId);
         await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
-            await seed.OpenAsync(cancellationToken);
+            await seed.OpenSeededAsync(cancellationToken);
 
         // The seed open creates an empty log file; the missing-log shape needs it removed, so recovery meets no file at all.
         if (createLog)

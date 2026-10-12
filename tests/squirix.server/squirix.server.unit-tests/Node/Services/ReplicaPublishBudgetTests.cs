@@ -67,7 +67,7 @@ public sealed class ReplicaPublishBudgetTests : IsolatedStorageTestBase
                     NullLogger<FollowerLog>.Instance,
                     new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks });
                 logs[node] = log;
-                await log.OpenAsync(cancellationToken);
+                await log.OpenSeededAsync(cancellationToken);
             }
 
             var gateway = new FollowerLogRoutingGateway(logs);
@@ -114,6 +114,7 @@ public sealed class ReplicaPublishBudgetTests : IsolatedStorageTestBase
 
     private static async Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, int replicaCount, FollowerLogOptions options, CancellationToken cancellationToken)
     {
+        await SeededLogs.SeedGroupsAsync(dir, ["n1"], cancellationToken);
         var registry = new ReplicaGroupRegistry(dir, ["n1"], replicaCount, Fingerprint, 1, NullLoggerFactory.Instance, options) { ElectionClock = TimeProvider.System };
         try
         {

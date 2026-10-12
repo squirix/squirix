@@ -28,7 +28,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-repair-diverged");
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "committed"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(2UL, 2UL, "diverged"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AdvanceCommitAsync(1UL, cancellationToken)).Success).IsTrue();
@@ -48,7 +48,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-repair-committed");
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "committed"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AdvanceCommitAsync(1UL, cancellationToken)).Success).IsTrue();
 
@@ -67,7 +67,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-repair-noop");
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "committed"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "tail"), cancellationToken)).Success).IsTrue();
 
@@ -91,7 +91,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-repair-stale-term");
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "committed"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "stale"), cancellationToken)).Success).IsTrue();
 
@@ -111,7 +111,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-repair-term");
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "committed"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "stale"), cancellationToken)).Success).IsTrue();
 
@@ -131,7 +131,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-repair-zero");
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "committed"), cancellationToken)).Success).IsTrue();
 
         var reconcile = await log.ReconcileTailAsync(0UL, 0UL, 1UL, cancellationToken);
@@ -150,7 +150,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
         using var dir = new TempDirectory("squirix-repair-restart");
         await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "one"), cancellationToken)).Success).IsTrue();
         }
 
@@ -182,7 +182,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults, TimeProvider.System))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "committed"), cancellationToken)).Success).IsTrue();
             _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "stale"), cancellationToken)).Success).IsTrue();
             _ = await Assert.That((await log.AdvanceCommitAsync(1UL, cancellationToken)).Success).IsTrue();

@@ -11,6 +11,7 @@ using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -50,7 +51,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-election-trace");
         await using var log = new FollowerLog(dir, "election-trace", GroupComposition.Create("election-trace"), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         var votes = new IReplicaVoteGatewayCreateExpectations();
         _ = votes.Setups.PreVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
                  .ReturnValue(Task.FromResult(new FollowerLogVoteResult(true, string.Empty, 0UL)));

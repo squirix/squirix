@@ -7,6 +7,7 @@ using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -27,7 +28,7 @@ public sealed class ElectionPersistenceTests : NodeIntegrationTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);
             _ = await Assert.That(granted.Granted).IsTrue();
@@ -56,7 +57,7 @@ public sealed class ElectionPersistenceTests : NodeIntegrationTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             var first = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 0UL, 0UL), cancellationToken);
             _ = await Assert.That(first.Granted).IsTrue();
             var stepped = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 3UL, 0UL, 0UL), cancellationToken);

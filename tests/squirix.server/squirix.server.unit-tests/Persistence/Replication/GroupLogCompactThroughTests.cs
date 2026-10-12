@@ -221,7 +221,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, options ?? new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System });
         try
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             for (byte index = 1; index <= Committed; index++)
             {
                 _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", index, 1UL, "value-" + index), cancellationToken);

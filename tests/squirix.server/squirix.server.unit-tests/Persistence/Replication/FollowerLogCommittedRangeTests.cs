@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -64,7 +65,7 @@ public sealed class FollowerLogCommittedRangeTests : ServerUnitTestBase
         var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         try
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             for (var index = 1UL; index <= last; index++)
                 _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", index, 1UL, "p" + index), cancellationToken);
 

@@ -11,6 +11,7 @@ using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit.Replication;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -177,6 +178,7 @@ internal static class ReplicaOwnerTestKit
     /// <returns>The opened registry.</returns>
     internal static async Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, string[] groupIds, FollowerLogOptions? options, CancellationToken cancellationToken)
     {
+        await SeededLogs.SeedGroupsAsync(dir, groupIds, cancellationToken);
         var registry = new ReplicaGroupRegistry(dir, groupIds, 3, Fingerprint, 1, NullLoggerFactory.Instance, options ?? new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         try
         {
