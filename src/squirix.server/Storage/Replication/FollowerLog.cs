@@ -1663,13 +1663,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// <param name="journal">The paired in-memory journal state.</param>
         /// <param name="logIndex">The log index; zero is the log origin.</param>
         /// <param name="term">The retained term, or zero when the index is the origin or not retained.</param>
-        /// <returns><see langword="true" /> when the index is the origin, a retained frame, or the snapshot baseline.</returns>
+        /// <returns><see langword="true" /> when the index is the origin of a log never compacted, a retained frame, or the snapshot baseline.</returns>
         private static bool TryGetRetainedTerm(FollowerLogJournal journal, ulong logIndex, out ulong term)
         {
+            // Once a snapshot baseline exists the origin is compacted away: the first retained frame follows the baseline, not the origin.
             if (logIndex == 0UL)
             {
                 term = 0UL;
-                return true;
+                return journal.SnapshotBaseline.LastIncludedIndex == 0UL;
             }
 
             if (journal.TryGetEntryOffset(logIndex, out var location))

@@ -34,87 +34,174 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FollowerEndsWithTheCacheOfTheLeader(CancellationToken cancellationToken)
+    public Task FollowerEndsWithTheCacheOfTheLeader(CancellationToken cancellationToken) => RepairFollowerAsync(false, cancellationToken);
+
+    /// <summary>
+    /// The follower holds a complete copy with an empty log, so the position before the first entry the leader dropped is the origin: the session ends
+    /// as compacted, not as corrupt, and the transfer gives the follower the cache of the leader.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public Task EmptyFollowerEndsWithTheCacheOfTheLeader(CancellationToken cancellationToken) => RepairFollowerAsync(true, cancellationToken);
+
+    /// <summary>
+    /// A key whose expiry the leader committed before the transfer is not brought back by it, and a key whose expiry the leader commits after the
+    /// transferred index is removed by the replayed record, so neither is on the follower once it is admitted.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredKeysStayGone(CancellationToken cancellationToken)
     {
         using var followerDir = new TempDirectory("squirix-e2e-follower");
         using var leaderDir = new TempDirectory("squirix-e2e-leader");
         await using var harness = await ReplicaStateHarness.OpenAsync(followerDir, cancellationToken);
+        await using var rig = new Rig(harness);
+        await rig.OpenAsync(leaderDir, cancellationToken);
+        var past = DateTime.UtcNow.AddHours(-1);
+        await rig.CommitAsync("alive", null, cancellationToken);
+        await rig.CommitAsync("dead", past, cancellationToken);
+        await rig.CommitAsync("late", past, cancellationToken);
+        _ = await rig.Committer.CommitExpiryAsync(CacheName, "dead");
+
+        var pass = rig.StartPassAsync(cancellationToken);
+        await rig.Gateway.EntriesHeld.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        _ = await rig.Committer.CommitExpiryAsync(CacheName, "late");
+        rig.Gateway.ReleaseEntries();
+        var admitted = await pass.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        await CatchUpAppliedAsync(harness, cancellationToken);
+        _ = await Assert.That(admitted).IsTrue();
+        _ = await Assert.That(await rig.Cache.GetEntryAsync(new CacheKey(CacheName, "dead"), cancellationToken)).IsNull();
+        _ = await Assert.That(await rig.Cache.GetEntryAsync(new CacheKey(CacheName, "late"), cancellationToken)).IsNull();
+        _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "dead"), cancellationToken)).IsNull();
+        _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "late"), cancellationToken)).IsNull();
+        _ = await Assert.That((await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "alive"), cancellationToken))?.Value).IsEqualTo("alive");
+    }
+
+    private static async Task RepairFollowerAsync(bool emptyLog, CancellationToken cancellationToken)
+    {
+        using var followerDir = new TempDirectory("squirix-e2e-follower");
+        using var leaderDir = new TempDirectory("squirix-e2e-leader");
+        if (emptyLog)
+            await SeededLogs.SeedGroupsAsync(followerDir, [GroupId], cancellationToken);
+
+        await using var harness = await ReplicaStateHarness.OpenAsync(followerDir, cancellationToken);
         await harness.SeedAsync(cancellationToken, "stale-1");
-        await SeededLogs.SeedGroupsAsync(leaderDir, [GroupId], cancellationToken);
-        await using var registry = await OpenLeaderRegistryAsync(leaderDir, cancellationToken);
-        var leaderCache = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        var local = new ClientCache<object?>(leaderCache, leaderCache);
-        var gateway = new RoutedGateway(harness) { FollowerDown = true };
-        await using var committer = new ReplicaGroupCommitter(registry, new Members(), gateway, local, (GroupId, "n2"), new ReplicaTopologyStamp(TransferFixtures.Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
-        {
-            Clock = TimeProvider.System,
-            ShutdownTimeProvider = TimeProvider.System,
-            BudgetTimeProvider = TimeProvider.System,
-            Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
-            Applier = new ReplicaGroupApplier(local, NullLogger.Instance, GroupId, "n2"),
-        };
-        for (var i = 1; i <= 3; i++)
-            await CommitAsync(committer, $"k{i}", cancellationToken);
+        await using var rig = new Rig(harness);
+        await rig.OpenAsync(leaderDir, cancellationToken);
 
-        await committer.FlushAppliedAsync(Durable(), cancellationToken);
-        _ = registry.TryGetLog(GroupId, out var leaderLog);
-        var compacted = await leaderLog!.CompactThroughAsync((await leaderLog.GetStatusAsync(cancellationToken)).CommitIndex, cancellationToken);
-        await CommitAsync(committer, "k4", cancellationToken);
-        gateway.FollowerDown = false;
-        gateway.HoldEntries = true;
-        var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(GroupId);
-        var transfers = new ReplicaStateTransfers(gateway, new ReplicaGroupEntries(leaderCache, locator.Instance()), Durable(), new ReplicaTransferOptions(), NullLogger<ReplicaStateTransfers>.Instance, null);
-        _ = await committer.VerifyReplicasAsync(cancellationToken);
-
-        var pass = committer.CatchUpFollowersAsync(new ReplicaCatchUpReporter(GroupId, NullLogger.Instance, null), transfers, cancellationToken);
-        await gateway.EntriesHeld.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-        await CommitAsync(committer, "k5", cancellationToken);
-        gateway.ReleaseEntries();
+        var pass = rig.StartPassAsync(cancellationToken);
+        await rig.Gateway.EntriesHeld.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        await rig.CommitAsync("k5", null, cancellationToken);
+        rig.Gateway.ReleaseEntries();
         var admitted = await pass.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
         _ = harness.Registry.TryGetLog(GroupId, out var followerLog);
-        var status = await followerLog!.GetStatusAsync(cancellationToken);
-        await harness.Appliers.For(GroupId).CatchUpAsync(followerLog, status.LastAppliedIndex, status.CommitIndex, cancellationToken);
-        _ = await Assert.That(compacted).IsEqualTo(GroupCompactionOutcome.Compacted);
+        await CatchUpAppliedAsync(harness, cancellationToken);
+        _ = await Assert.That(rig.Compacted).IsEqualTo(GroupCompactionOutcome.Compacted);
         _ = await Assert.That(admitted).IsTrue();
-        _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(1)).IsEqualTo(ReplicaParticipantState.Ready);
-        _ = await Assert.That(followerLog.IsComplete).IsTrue();
+        _ = await Assert.That(rig.Registry.EligibilityFor(GroupId).StateFor(1)).IsEqualTo(ReplicaParticipantState.Ready);
+        _ = await Assert.That(followerLog!.IsComplete).IsTrue();
         _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "stale-1"), cancellationToken)).IsNull();
         for (var i = 1; i <= 5; i++)
         {
-            var leaderEntry = await leaderCache.GetEntryAsync(new CacheKey(CacheName, $"k{i}"), cancellationToken);
+            var leaderEntry = await rig.Cache.GetEntryAsync(new CacheKey(CacheName, $"k{i}"), cancellationToken);
             var followerEntry = await harness.Cache.GetEntryAsync(new CacheKey(CacheName, $"k{i}"), cancellationToken);
             _ = await Assert.That((followerEntry?.Value, followerEntry?.Version)).IsEqualTo((leaderEntry?.Value, leaderEntry?.Version));
             _ = await Assert.That(followerEntry).IsNotNull();
         }
     }
 
-    private static Task CommitAsync(ReplicaGroupCommitter committer, string key, CancellationToken cancellationToken) =>
-        committer.CommitSetAsync(NewOperationId(), CacheName, key, Entry(key), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-
-    private static IJournalDurabilityCoordinator Durable()
+    private static async Task CatchUpAppliedAsync(ReplicaStateHarness harness, CancellationToken cancellationToken)
     {
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
-        return durability.Instance();
+        _ = harness.Registry.TryGetLog(GroupId, out var followerLog);
+        var status = await followerLog!.GetStatusAsync(cancellationToken);
+        await harness.Appliers.For(GroupId).CatchUpAsync(followerLog, status.LastAppliedIndex, status.CommitIndex, cancellationToken);
     }
 
-    private static async Task<ReplicaGroupRegistry> OpenLeaderRegistryAsync(string dir, CancellationToken cancellationToken)
+    /// <summary>The leader n2 of a statically led group over a real log and cache, whose log was compacted past the follower n1 and which holds four committed keys.</summary>
+    private sealed class Rig : IAsyncDisposable
     {
-        var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System };
-        var registry = new ReplicaGroupRegistry(dir, [GroupId], 3, TransferFixtures.Fingerprint, 1UL, NullLoggerFactory.Instance, options) { ElectionClock = TimeProvider.System };
-        try
+        private ReplicaGroupCommitter? _committer;
+        private ReplicaGroupRegistry? _registry;
+        private ReplicaStateTransfers? _transfers;
+
+        internal Rig(ReplicaStateHarness harness)
         {
-            await registry.OpenAsync(cancellationToken);
-        }
-        catch
-        {
-            await registry.DisposeAsync();
-            throw;
+            Cache = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+            Gateway = new RoutedGateway(harness) { FollowerDown = true };
         }
 
-        return registry;
+        internal PhysicalCache<object?> Cache { get; }
+
+        internal GroupCompactionOutcome Compacted { get; private set; }
+
+        internal ReplicaGroupCommitter Committer => _committer ?? ThrowNotOpen<ReplicaGroupCommitter>();
+
+        internal RoutedGateway Gateway { get; }
+
+        internal ReplicaGroupRegistry Registry => _registry ?? ThrowNotOpen<ReplicaGroupRegistry>();
+
+        public async ValueTask DisposeAsync()
+        {
+            if (_committer != null)
+                await _committer.DisposeAsync();
+
+            if (_registry != null)
+                await _registry.DisposeAsync();
+        }
+
+        /// <summary>Opens the leader, commits k1 to k3 with the follower down, compacts the log through them, commits k4, and brings the follower up with its first entries message held.</summary>
+        /// <param name="leaderDir">The data directory of the leader.</param>
+        /// <param name="cancellationToken">The test cancellation token.</param>
+        /// <returns>An asynchronous operation.</returns>
+        internal async Task OpenAsync(string leaderDir, CancellationToken cancellationToken)
+        {
+            await SeededLogs.SeedGroupsAsync(leaderDir, [GroupId], cancellationToken);
+            var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System };
+            _registry = new ReplicaGroupRegistry(leaderDir, [GroupId], 3, TransferFixtures.Fingerprint, 1UL, NullLoggerFactory.Instance, options) { ElectionClock = TimeProvider.System };
+            await _registry.OpenAsync(cancellationToken);
+            var local = new ClientCache<object?>(Cache, Cache);
+            _committer = new ReplicaGroupCommitter(_registry, new Members(), Gateway, local, (GroupId, "n2"), new ReplicaTopologyStamp(TransferFixtures.Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+            {
+                Clock = TimeProvider.System,
+                ShutdownTimeProvider = TimeProvider.System,
+                BudgetTimeProvider = TimeProvider.System,
+                Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+                Applier = new ReplicaGroupApplier(local, NullLogger.Instance, GroupId, "n2"),
+            };
+            for (var i = 1; i <= 3; i++)
+                await CommitAsync($"k{i}", null, cancellationToken);
+
+            await _committer.FlushAppliedAsync(Durable(), cancellationToken);
+            _ = _registry.TryGetLog(GroupId, out var leaderLog);
+            Compacted = await leaderLog!.CompactThroughAsync((await leaderLog.GetStatusAsync(cancellationToken)).CommitIndex, cancellationToken);
+            await CommitAsync("k4", null, cancellationToken);
+            Gateway.FollowerDown = false;
+            Gateway.HoldEntries = true;
+            var locator = new INodeLocatorCreateExpectations();
+            _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(GroupId);
+            _transfers = new ReplicaStateTransfers(Gateway, new ReplicaGroupEntries(Cache, locator.Instance()), Durable(), new ReplicaTransferOptions(), NullLogger<ReplicaStateTransfers>.Instance, null);
+            _ = await _committer.VerifyReplicasAsync(cancellationToken);
+        }
+
+        internal Task CommitAsync(string key, DateTime? expiresUtc, CancellationToken cancellationToken) =>
+            Committer.CommitSetAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<object?>(key, 1, expiresUtc), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        /// <summary>Starts a catch-up pass of the followers, which repairs the follower n1 by a transfer.</summary>
+        /// <param name="cancellationToken">The test cancellation token.</param>
+        /// <returns>The pass, which completes with whether the follower was admitted.</returns>
+        internal Task<bool> StartPassAsync(CancellationToken cancellationToken) =>
+            Committer.CatchUpFollowersAsync(new ReplicaCatchUpReporter(GroupId, NullLogger.Instance, null), _transfers, cancellationToken);
+
+        private static T ThrowNotOpen<T>() => throw new InvalidOperationException("The leader is not open.");
+
+        private static IJournalDurabilityCoordinator Durable()
+        {
+            var durability = new IJournalDurabilityCoordinatorCreateExpectations();
+            _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+            return durability.Instance();
+        }
     }
 
     /// <summary>The members of the group: the leader n2, the repaired follower n1 and a healthy follower n3.</summary>

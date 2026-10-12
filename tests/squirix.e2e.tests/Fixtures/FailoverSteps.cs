@@ -76,13 +76,15 @@ internal static class FailoverSteps
     /// <param name="fabric">An optional fabric the nodes dial each other through, which must outlive the cluster.</param>
     /// <param name="services">An optional hook that registers additional services on a node, receiving the node identifier.</param>
     /// <param name="replicaCount">The replica factor.</param>
+    /// <param name="compaction">The retained entries at which a group log is compacted and the delay between two compaction passes; the product defaults when not set.</param>
     /// <returns>The options.</returns>
     internal static MultiNodeStartOptions Options(
         string testName,
         Func<string, TimeProvider?>? nodeClock = null,
         PartitionFabric? fabric = null,
         Action<string, IServiceCollection>? services = null,
-        int replicaCount = 3)
+        int replicaCount = 3,
+        (int Entries, TimeSpan Interval)? compaction = null)
     {
         return new MultiNodeStartOptions
         {
@@ -92,6 +94,8 @@ internal static class FailoverSteps
             NodeClock = nodeClock,
             PartitionFabric = fabric,
             ServicesConfigure = services,
+            ReplicaLogCompactionEntries = compaction?.Entries,
+            ReplicaLogCompactionInterval = compaction?.Interval,
         };
     }
 

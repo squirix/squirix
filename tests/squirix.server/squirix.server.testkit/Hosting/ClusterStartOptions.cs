@@ -52,6 +52,12 @@ public class ClusterStartOptions
     /// </summary>
     public bool QuorumReadsEnabled { get; init; }
 
+    /// <summary>Gets the number of retained entries at which a replica group log is compacted; the product default when <see langword="null" />. Needs <see cref="DataDir" />.</summary>
+    public int? ReplicaLogCompactionEntries { get; init; }
+
+    /// <summary>Gets the delay between two passes that compact the replica group logs of the node; the product default when <see langword="null" />.</summary>
+    public TimeSpan? ReplicaLogCompactionInterval { get; init; }
+
     /// <summary>Gets the replica factor including the original owner.</summary>
     public int ReplicaCount { get; init; } = 1;
 

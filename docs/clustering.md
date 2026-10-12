@@ -99,6 +99,12 @@ When a leader goes silent:
 - Without a reachable majority no leader is elected and the group refuses reads and writes (fails closed).
 - A deposed or cut-off former leader steps down and refuses requests; when it kept its data directory it rejoins as a
   follower and catches up from the new leader's log.
+- A follower that needs log entries the leader already compacted is repaired by a state transfer: the leader sends it
+  the data of the group at its applied index, and the follower then catches up from the log. No operator action is
+  needed. While the transfer runs the copy of the follower is marked incomplete and the follower stays out of the write
+  quorum; it counts again once it caught up. See
+  [state transfer](architecture/replication-consensus.md#state-transfer) and the
+  [runbook](operational-runbook.md#state-transfer).
 - A new leader that cannot get a majority to commit an entry of its term within 30 seconds steps down and does not
   campaign for a few seconds, so another member can take the group; while the same node keeps being elected without
   getting authority, the 30 seconds double up to 4 minutes. The group accepts no writes or reads from that leader in
@@ -126,10 +132,6 @@ What clients see:
 Known limits:
 
 - RF=2 never promotes after losing a member; RF=1 never elects.
-- A follower that fell behind the compacted part of the leader's log is not repaired from a snapshot. It stays out of
-  the write quorum; the group continues on the remaining majority with less fault margin. The leader logs a warning
-  (`needs entries the leader already compacted`) and counts `squirix_replication_catch_up_sessions_total` with
-  `outcome="compacted"`. There is no operator repair for it in this release.
 - A member that came back on an empty data directory holds an unseeded copy that nothing repairs
   ([Starting a replica group](#starting-a-replica-group)). With automatic failover its absence costs the group one vote:
   with two such members of three, or three of five, no leader is elected and the group refuses reads and writes.

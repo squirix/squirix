@@ -6,9 +6,11 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Diagnostics;
 using Squirix.Server.TestKit.IO;
@@ -498,8 +500,27 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             Certificate = mtlsMaterial,
             TimeProvider = startOptions?.TimeProvider,
             ElectionTiming = startOptions?.ElectionTiming,
-            ServicesConfigure = startOptions?.ServicesConfigure,
+            ServicesConfigure = WithCompactionInterval(startOptions?.ServicesConfigure, startOptions?.ReplicaLogCompactionInterval),
             TrackRequests = startOptions?.TrackRequests ?? false,
+        };
+    }
+
+    /// <summary>Adds the replacement of the compaction schedule of the node to a services hook.</summary>
+    /// <param name="configure">The hook of the caller, if any.</param>
+    /// <param name="interval">The delay between two compaction passes; none replaces nothing.</param>
+    /// <returns>The hook to run after the server composition.</returns>
+    private static Action<IServiceCollection>? WithCompactionInterval(Action<IServiceCollection>? configure, TimeSpan? interval)
+    {
+        return interval is not { } delay ? configure : services =>
+        {
+            configure?.Invoke(services);
+            for (var i = services.Count - 1; i >= 0; i--)
+            {
+                if (services[i].ServiceType == typeof(ReplicaLogCompactionOptions))
+                    services.RemoveAt(i);
+            }
+
+            _ = services.AddSingleton(new ReplicaLogCompactionOptions { Interval = delay });
         };
     }
 
@@ -520,6 +541,8 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
                 throw new ArgumentException("DataDir must be non-empty when persistence is enabled.", nameof(options));
 
             persistenceOptions = new PersistenceOptions { DataDir = dataDir };
+            if (options?.ReplicaLogCompactionEntries is { } entries)
+                persistenceOptions = persistenceOptions with { ReplicaLogCompactionEntries = entries };
         }
 
         var callerOwnedIdentity = identity != null;

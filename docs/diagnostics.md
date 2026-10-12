@@ -148,6 +148,26 @@ The gauge `squirix_replication_role` (labels `node`, `group`) reports the role o
 automatic failover the owner of a group reports `4` and every other member `0`. The replica status role names map as
 follows: `follower` is `0`, `candidate` covers `1`, `2` and `3`, and `leader` is `4`.
 
+### State transfer metrics and events
+
+The leader counts every state transfer it attempts, and every capture it declines, in
+`squirix_replication_state_transfers_total` (labels `node`, `group`, `outcome`, `reason`). `outcome` is `transferred`,
+`capture_not_leading`, `capture_pending_apply`, `capture_unresolved_outcome`, `capture_nothing_applied`,
+`capture_not_ready`, `capture_snapshot_too_large`, `follower_refused`, `unreachable`, `superseded`, or `aborted`;
+`reason` is the refusal code of the follower for `follower_refused` and empty otherwise.
+
+Log events, in the `Squirix.Server` categories of the sender and the receiver:
+
+- `4068` (information): the leader starts a transfer to a follower.
+- `4069` (information): the leader ended the transfer, with the outcome, the duration, the entries and the bytes.
+- `4070` (debug): the leader did not start a transfer and retries on the next pass.
+- `4064` (information): the follower began receiving a transfer.
+- `4065` (information): the follower completed the copy at the transferred index.
+- `4066` (warning): the follower dropped the transfer; the copy stays as it is.
+- `4067` (debug): the follower refused a transfer message, with the refusal code.
+
+See the [runbook](operational-runbook.md#state-transfer) for what to do when transfers keep failing.
+
 Memory-pressure metrics remain owned by `MemoryPressureMetricsService`, `Gate`, and memory-pressure
 components; they are not part of the generic operation observability model. journal, snapshot, compaction, recovery,
 manifest, and storage health metrics remain owned by the storage layer (`JournalCoordinator`, `JournalReader`,
