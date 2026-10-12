@@ -11,6 +11,8 @@ namespace Squirix.Server.Storage.Replication;
 /// <param name="VotedFor">The node voted for in the current term, or an empty string.</param>
 /// <param name="CommitIndex">The durable commit index.</param>
 /// <param name="LastAppliedIndex">The index last applied to memory by the coordinator.</param>
+/// <param name="MemberState">Whether this copy holds the data of the group.</param>
+/// <param name="BootstrapOffered">Whether the owner of the group offered this copy a place in the first start of the group; meaningful only while the copy is unseeded.</param>
 [Immutable]
 internal readonly record struct GroupLogMetadata(
     string GroupId,
@@ -19,4 +21,6 @@ internal readonly record struct GroupLogMetadata(
     ulong CurrentTerm,
     string VotedFor,
     ulong CommitIndex,
-    ulong LastAppliedIndex);
+    ulong LastAppliedIndex,
+    GroupMemberState MemberState,
+    bool BootstrapOffered);

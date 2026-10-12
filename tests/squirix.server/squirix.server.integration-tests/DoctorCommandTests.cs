@@ -146,7 +146,7 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         await new ActivatedTopologyStampStore(dataDir).PublishAsync(
             new ActivatedTopologyStamp { Generation = 5, Fingerprint = new ReadOnlyMemory<byte>(expectedBytes), ReplicaCount = 2 },
             cancellationToken);
-        var meta = new GroupLogMetadata("n1", new ReadOnlyMemory<byte>(expectedBytes), 5, 9, string.Empty, 10, 7);
+        var meta = new GroupLogMetadata("n1", new ReadOnlyMemory<byte>(expectedBytes), 5, 9, string.Empty, 10, 7, GroupMemberState.Complete, false);
         _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dataDir, "n1"));
         await GroupMetadataFile.WriteAsync(GroupStoragePaths.GetMetadataPath(dataDir, "n1"), in meta, cancellationToken);
 

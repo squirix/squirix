@@ -70,6 +70,8 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var response = await follower.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, follower.HttpContext));
 
         _ = await Assert.That(response.Readiness).IsEqualTo("ready");
+        _ = await Assert.That(response.MemberState).IsEqualTo("complete");
+        _ = await Assert.That(response.BootstrapOffered).IsFalse();
         _ = await Assert.That(response.LastLogIndex).IsEqualTo(0UL);
         _ = await Assert.That(response.CommitIndex).IsEqualTo(0UL);
         _ = await Assert.That(response.RefusalCode).IsEqualTo(string.Empty);

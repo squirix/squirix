@@ -19,8 +19,8 @@ public sealed class ReplicaSlotResetTests
     public async Task LeaderWithShorterTailIsMarkedReady()
     {
         var eligibility = new ReplicaEligibility(3);
-        var earlier = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 9, 1, 9, 0, FollowerLogReadiness.Ready);
-        var shorter = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 3, 1, 3, 0, FollowerLogReadiness.Ready);
+        var earlier = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 9, 1, 9, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete, false);
+        var shorter = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 3, 1, 3, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete, false);
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, 0, in earlier, Fingerprint, 1);
 
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, 0, in shorter, Fingerprint, 1);
@@ -34,8 +34,8 @@ public sealed class ReplicaSlotResetTests
     public async Task LeaderWithLogNotReadyLeavesQuorum()
     {
         var eligibility = new ReplicaEligibility(3);
-        var ready = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 3, 1, 3, 0, FollowerLogReadiness.Ready);
-        var failed = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 3, 1, 3, 0, FollowerLogReadiness.Failed);
+        var ready = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 3, 1, 3, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete, false);
+        var failed = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 3, 1, 3, 0, FollowerLogReadiness.Failed, GroupMemberState.Complete, false);
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, 0, in ready, Fingerprint, 1);
 
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, 0, in failed, Fingerprint, 1);
@@ -49,7 +49,7 @@ public sealed class ReplicaSlotResetTests
     public async Task UnverifyForgetsCatchingUpFollower()
     {
         var eligibility = new ReplicaEligibility(3);
-        var leader = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 4, 1, 4, 4, FollowerLogReadiness.Ready);
+        var leader = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 4, 1, 4, 4, FollowerLogReadiness.Ready, GroupMemberState.Complete, false);
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, 0, in leader, Fingerprint, 1);
         var hint = new ReplicaProgress(8, 7, 0, 0, 0, Fingerprint, 1, 0);
         _ = await Assert.That(eligibility.TryMarkCatchingUp(1, in hint)).IsTrue();

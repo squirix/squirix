@@ -333,7 +333,7 @@ public sealed class GroupMetadataStoreTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(expected, actual);
     }
 
-    private static GroupLogMetadata Meta(ulong term) => new(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, term, string.Empty, 0UL, 0UL);
+    private static GroupLogMetadata Meta(ulong term) => new(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, term, string.Empty, 0UL, 0UL, GroupMemberState.Complete, false);
 
     private static GroupMetadataStore NewStore(string dir, IFollowerLogFaultHooks hooks) =>
         new(GroupStoragePaths.GetMetadataPath(dir, GroupId), GroupStoragePaths.GetMetadataTempPath(dir, GroupId), GroupId, hooks, NullLogger.Instance);

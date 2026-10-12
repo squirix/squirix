@@ -329,7 +329,7 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     private static Task WriteGroupMetadataAsync(string dir, string groupId, ReadOnlyMemory<byte> fingerprint, ulong generation, CancellationToken cancellationToken)
     {
-        var meta = new GroupLogMetadata(groupId, fingerprint, generation, 9, string.Empty, 10, 7);
+        var meta = new GroupLogMetadata(groupId, fingerprint, generation, 9, string.Empty, 10, 7, GroupMemberState.Complete, false);
         _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, groupId));
         return GroupMetadataFile.WriteAsync(GroupStoragePaths.GetMetadataPath(dir, groupId), in meta, cancellationToken);
     }

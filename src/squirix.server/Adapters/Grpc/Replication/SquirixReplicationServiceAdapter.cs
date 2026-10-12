@@ -134,6 +134,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             RefusalCode = string.Empty,
             LastLogTerm = current.LastLogTerm,
             AppliedIndex = current.LastAppliedIndex,
+            MemberState = GroupMemberStateNames.Of(current.MemberState),
+            BootstrapOffered = current.BootstrapOffered,
         };
     }
 

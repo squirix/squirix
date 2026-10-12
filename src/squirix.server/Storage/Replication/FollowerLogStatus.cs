@@ -14,6 +14,8 @@ namespace Squirix.Server.Storage.Replication;
 /// <param name="CommitIndex">The durable commit index.</param>
 /// <param name="LastAppliedIndex">The index last applied to memory by the coordinator.</param>
 /// <param name="Readiness">The durability readiness state of the log.</param>
+/// <param name="MemberState">Whether this copy holds the data of the group.</param>
+/// <param name="BootstrapOffered">Whether the owner of the group offered this copy a place in the first start of the group; meaningful only while the copy is unseeded.</param>
 [Immutable]
 internal readonly record struct FollowerLogStatus(
     string GroupId,
@@ -25,7 +27,9 @@ internal readonly record struct FollowerLogStatus(
     ulong LastLogTerm,
     ulong CommitIndex,
     ulong LastAppliedIndex,
-    FollowerLogReadiness Readiness)
+    FollowerLogReadiness Readiness,
+    GroupMemberState MemberState,
+    bool BootstrapOffered)
 {
     /// <summary>Checks whether a leader topology disagrees with this log.</summary>
     /// <param name="fingerprint">Leader topology fingerprint.</param>

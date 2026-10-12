@@ -76,7 +76,7 @@ public sealed class GroupMetadataFileShapeTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataTempPath(dir, GroupId), [1, 2, 3], cancellationToken);
         using var store = NewStore(dir);
 
-        store.Publish(new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 5UL, string.Empty, 0UL, 0UL));
+        store.Publish(new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 5UL, string.Empty, 0UL, 0UL, GroupMemberState.Complete, false));
 
         var read = GroupMetadataStore.Read(path);
         _ = await Assert.That((read.Status, read.Sequence, read.Metadata.CurrentTerm)).IsEqualTo((GroupMetadataReadStatus.Valid, 1UL, 5UL));
