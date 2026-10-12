@@ -190,11 +190,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     private bool IsOpen => !IsDisposed && Readiness == FollowerLogReadiness.Ready;
 
     /// <summary>
-    /// Gets the refusal marker of a refused call: <see cref="FollowerLogRefusal.Unseeded" /> for an open log whose copy is not complete,
-    /// otherwise <see cref="FollowerLogRefusal.NotReady" />.
+    /// Gets the refusal marker of a refused call: <see cref="FollowerLogRefusal.Incomplete" /> for an open log whose copy is marked incomplete,
+    /// <see cref="FollowerLogRefusal.Unseeded" /> for any other open log whose copy is not complete, otherwise <see cref="FollowerLogRefusal.NotReady" />.
     /// </summary>
     /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
-    private string RefusalCode => IsOpen && _meta.MemberState != GroupMemberState.Complete ? FollowerLogRefusal.Unseeded : FollowerLogRefusal.NotReady;
+    private string RefusalCode => IsOpen && _meta.MemberState != GroupMemberState.Complete ? FollowerLogBootstrap.NotCompleteRefusal(_meta.MemberState) : FollowerLogRefusal.NotReady;
 
     /// <summary>Gets a value indicating whether a call that mutates the log, the term or the vote, or answers a vote, is refused.</summary>
     /// <remarks>Callers hold <c language="csharp">_gate</c>. Only a complete copy of an open log takes such a call.</remarks>
@@ -1560,11 +1560,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 return null;
 
             if (meta.MemberState != GroupMemberState.Unseeded || !meta.BootstrapOffered)
-                return FollowerLogRefusal.Unseeded;
+                return NotCompleteRefusal(meta.MemberState);
 
             await StoreAsync(journal, owner, meta with { MemberState = GroupMemberState.Complete }, cancellationToken).ConfigureAwait(false);
             return null;
         }
+
+        /// <summary>Gets the refusal marker of a copy that is not complete.</summary>
+        /// <param name="state">The member state of the copy.</param>
+        /// <returns><see cref="FollowerLogRefusal.Incomplete" /> for an incomplete copy, otherwise <see cref="FollowerLogRefusal.Unseeded" />.</returns>
+        internal static string NotCompleteRefusal(GroupMemberState state) =>
+            state == GroupMemberState.Incomplete ? FollowerLogRefusal.Incomplete : FollowerLogRefusal.Unseeded;
 
         private static async Task StoreAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupLogMetadata candidate, CancellationToken cancellationToken)
         {

@@ -138,7 +138,7 @@ internal sealed class ReplicaVerificationProbe
         var slots = new ReplicaSlots(LeaderReplicaIndex);
         for (var i = 0; i < probed.Length; i++)
         {
-            answered[i] = slots.IsFollower(i) && (probed[i].Kind == ReplicaProbeKind.Accepted || probed[i].Kind == ReplicaProbeKind.LogMismatch);
+            answered[i] = slots.IsFollower(i) && probed[i].Answered;
             anyAnswered |= answered[i];
         }
 

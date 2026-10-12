@@ -92,6 +92,12 @@ internal sealed class ReplicaEntryCatchUpSession
             _ => null,
         };
 
+    /// <summary>Maps a refusal that is neither a log mismatch nor a stale term to the outcome that ends the session.</summary>
+    /// <param name="refusalCode">The refusal code of the follower.</param>
+    /// <returns><see cref="ReplicaCatchUpOutcome.Incomplete" /> for an incomplete copy, otherwise <see cref="ReplicaCatchUpOutcome.Refused" />.</returns>
+    private static ReplicaCatchUpOutcome RefusedOutcome(string? refusalCode) =>
+        string.Equals(refusalCode, RefusalCodes.Incomplete, StringComparison.Ordinal) ? ReplicaCatchUpOutcome.Incomplete : ReplicaCatchUpOutcome.Refused;
+
     /// <summary>Applies the follower's answer: advances on a success, backs up on a log mismatch, ends on any other refusal.</summary>
     /// <param name="lease">The lease, told what the follower now holds.</param>
     /// <param name="state">The session position.</param>
@@ -128,7 +134,7 @@ internal sealed class ReplicaEntryCatchUpSession
                 state.FollowerTerm = result.CurrentTerm;
                 return ReplicaCatchUpOutcome.StaleTerm;
             default:
-                return ReplicaCatchUpOutcome.Refused;
+                return RefusedOutcome(result.RefusalCode);
         }
     }
 

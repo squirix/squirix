@@ -96,7 +96,7 @@ internal sealed class ReplicaFollower
         if (status.IsTopologyMismatch(fp, gen))
             return new FollowerLogCommitResult(false, FollowerLogRefusal.TopologyMismatch, status.CommitIndex);
 
-        var refusal = await RefuseUnseededAsync(log, fp, gen, cancellationToken).ConfigureAwait(false);
+        var refusal = await RefuseNotCompleteAsync(log, fp, gen, cancellationToken).ConfigureAwait(false);
         if (refusal != null)
             return new FollowerLogCommitResult(false, refusal, 0);
 
@@ -127,7 +127,7 @@ internal sealed class ReplicaFollower
             return new FollowerLogAppendResult(false, FollowerLogRefusal.NotMember, 0, 0);
 
         // The call of a member completes a copy that holds an offer; the topology is checked again under the log gate.
-        var refusal = await RefuseUnseededAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
+        var refusal = await RefuseNotCompleteAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
         if (refusal != null)
             return new FollowerLogAppendResult(false, refusal, 0, 0);
 
@@ -236,7 +236,7 @@ internal sealed class ReplicaFollower
         if (status.IsTopologyMismatch(fingerprint, generation))
             return new FollowerLogVoteResult(false, FollowerLogRefusal.TopologyMismatch, 0UL);
 
-        var refusal = await RefuseUnseededAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
+        var refusal = await RefuseNotCompleteAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
         if (refusal != null)
             return new FollowerLogVoteResult(false, refusal, 0UL);
 
@@ -279,7 +279,7 @@ internal sealed class ReplicaFollower
             return new FollowerLogVoteResult(false, FollowerLogRefusal.TopologyMismatch, 0UL);
 
         // A refusal here, a copy that is not complete included, reaches neither the log nor the election state.
-        var refusal = await RefuseUnseededAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
+        var refusal = await RefuseNotCompleteAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
         if (refusal != null)
             return new FollowerLogVoteResult(false, refusal, 0UL);
 
@@ -332,17 +332,19 @@ internal sealed class ReplicaFollower
     /// <param name="generation">Caller configuration generation.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// <see cref="FollowerLogRefusal.Unseeded" /> when the copy is not complete; otherwise <see langword="null" />, also when the log refused for
+    /// <see cref="FollowerLogRefusal.Unseeded" /> or <see cref="FollowerLogRefusal.Incomplete" />, the code of its state, when the copy is not complete; otherwise <see langword="null" />, also when the log refused for
     /// another reason, because the log call that follows refuses such a call itself with its durable term and indexes.
     /// </returns>
     /// <remarks>A complete copy is recognized without taking the log gate.</remarks>
-    private static async ValueTask<string?> RefuseUnseededAsync(IFollowerLog log, ReadOnlyMemory<byte> fingerprint, ulong generation, CancellationToken cancellationToken)
+    private static async ValueTask<string?> RefuseNotCompleteAsync(IFollowerLog log, ReadOnlyMemory<byte> fingerprint, ulong generation, CancellationToken cancellationToken)
     {
         if (log.IsComplete)
             return null;
 
         var refusal = await log.CompleteIfOfferedAsync(fingerprint, generation, cancellationToken).ConfigureAwait(false);
-        return string.Equals(refusal, FollowerLogRefusal.Unseeded, StringComparison.Ordinal) ? refusal : null;
+        return string.Equals(refusal, FollowerLogRefusal.Unseeded, StringComparison.Ordinal) || string.Equals(refusal, FollowerLogRefusal.Incomplete, StringComparison.Ordinal)
+            ? refusal
+            : null;
     }
 
     /// <summary>Installs a validated snapshot into a group log and wakes the group's apply loop when it was installed.</summary>
@@ -364,7 +366,7 @@ internal sealed class ReplicaFollower
         ulong leaderTerm,
         CancellationToken cancellationToken)
     {
-        var refusal = await RefuseUnseededAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
+        var refusal = await RefuseNotCompleteAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
         if (refusal != null)
             return GroupSnapshotInstallResult.Refused(refusal);
 

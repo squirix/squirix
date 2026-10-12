@@ -25,6 +25,14 @@ public sealed class RefusalMirrorTests : ServerUnitTestBase
     [Test]
     public async Task ChecksumMismatchMirrors() => _ = await Assert.That(FollowerLogRefusal.ChecksumMismatch).IsEqualTo(RefusalCodes.ChecksumMismatch);
 
+    /// <summary>Incomplete marker matches across both namespaces and differs from the unseeded marker.</summary>
+    [Test]
+    public async Task IncompleteMirrors()
+    {
+        _ = await Assert.That(FollowerLogRefusal.Incomplete).IsEqualTo(RefusalCodes.Incomplete);
+        _ = await Assert.That(FollowerLogRefusal.Incomplete).IsNotEqualTo(FollowerLogRefusal.Unseeded);
+    }
+
     /// <summary>Log-mismatch marker matches across both namespaces.</summary>
     [Test]
     public async Task LogMismatchMirrors() => _ = await Assert.That(FollowerLogRefusal.LogMismatch).IsEqualTo(RefusalCodes.LogMismatch);

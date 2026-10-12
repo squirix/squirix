@@ -63,5 +63,7 @@ internal sealed class ReplicaAnsweringFollowers
     }
 
     private static bool AnsweredFromLog(in FollowerLogAppendResult reply) =>
-        reply.Success || string.Equals(reply.RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal);
+        reply.Success ||
+        string.Equals(reply.RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal) ||
+        string.Equals(reply.RefusalCode, FollowerLogRefusal.Incomplete, StringComparison.Ordinal);
 }

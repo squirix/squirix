@@ -260,6 +260,44 @@ public sealed class ReplicaReadinessProbeTests
         _ = await Assert.That(state.HasQuorumContact(0, options.ElectionTimeout)).IsTrue();
     }
 
+    /// <summary>
+    /// A follower that answers incomplete answered the probe and needs a repair: its slot is marked catching up and stays out of the write quorum,
+    /// while an unseeded follower is a plain refusal that marks nothing.
+    /// </summary>
+    /// <returns>An asynchronous operation.</returns>
+    [Test]
+    public async Task IncompleteAnswerNeedsRepair()
+    {
+        var followers = new ScriptedFollowers();
+        followers.Answer("n2", new FollowerLogAppendResult(false, RefusalCodes.Incomplete, 0, 0));
+        followers.Answer("n3", new FollowerLogAppendResult(false, RefusalCodes.Unseeded, 0, 0));
+        var eligibility = ReadyLeader(3);
+        var leader = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete);
+
+        var results = await ProbeAsync(followers, [false, true, true], int.MaxValue, CancellationToken.None);
+        ReplicaReadinessProbe.ApplyAll(eligibility, 0, results, in leader, Fingerprint, 1, null);
+
+        _ = await Assert.That((results[1].Kind, results[2].Kind)).IsEqualTo((ReplicaProbeKind.Incomplete, ReplicaProbeKind.Refused));
+        _ = await Assert.That((results[1].Answered, results[2].Answered)).IsEqualTo((true, false));
+        _ = await Assert.That((eligibility.StateFor(1), eligibility.StateFor(2))).IsEqualTo((ReplicaParticipantState.CatchingUp, ReplicaParticipantState.Recovering));
+        _ = await Assert.That((eligibility.CanCountInWriteQuorum(1), eligibility.CanCountInWriteQuorum(2))).IsEqualTo((false, false));
+    }
+
+    /// <summary>An incomplete answer counts toward the answers the verification waits for, so the probes still pending are given up.</summary>
+    /// <returns>An asynchronous operation.</returns>
+    [Test]
+    public async Task IncompleteAnswerCountsTowardBudget()
+    {
+        var followers = new ScriptedFollowers();
+        followers.Answer("n2", new FollowerLogAppendResult(false, RefusalCodes.Incomplete, 0, 0));
+        var silent = followers.Hang("n3");
+
+        var results = await ProbeAsync(followers, [false, true, true], 1, CancellationToken.None);
+
+        _ = await Assert.That((results[1].Kind, results[2].Kind)).IsEqualTo((ReplicaProbeKind.Incomplete, ReplicaProbeKind.Unreachable));
+        _ = await Assert.That(silent.Task.IsCanceled).IsTrue();
+    }
+
     private static ReplicaEligibility ReadyLeader(int replicaCount)
     {
         var eligibility = new ReplicaEligibility(replicaCount);

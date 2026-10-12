@@ -14,6 +14,7 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
@@ -434,6 +435,81 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         _ = await Assert.That((appliers.For("n2").AppliedIndex, appliers.For("n3").AppliedIndex)).IsEqualTo((0UL, 1UL));
     }
 
+    /// <summary>A group whose copy is unseeded or incomplete applies none of its committed entries, while the other groups go on.</summary>
+    /// <param name="incomplete">Whether the copy of group n2 is planted incomplete; otherwise it is unseeded.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task NotCompleteCopyAppliesNothing(bool incomplete, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-apply-service-not-complete");
+        await using var registry = await OpenNotCompleteAsync(dir, incomplete ? GroupMemberState.Incomplete : GroupMemberState.Unseeded, cancellationToken);
+        var cache = new StubCache();
+        using var meter = new Meter("test");
+        var appliers = CreateAppliers(registry, cache, meter);
+        using var service = new ReplicaApplyService(
+            registry,
+            appliers,
+            LeadOwnGroup(registry, appliers),
+            ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            NullLogger<ReplicaApplyService>.Instance,
+            new FakeTimeProvider());
+        var other = WhenAppliedAsync(cache, 1);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            await other.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            registry.ApplySignalFor("n2").Notify();
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        await SequenceAssert.EqualAsync(["m1"], cache.Applied.ToArray(), StringComparer.Ordinal);
+        _ = await Assert.That((appliers.For("n2").AppliedIndex, appliers.For("n3").AppliedIndex)).IsEqualTo((0UL, 1UL));
+    }
+
+    /// <summary>An unseeded copy applies its committed entries once it becomes complete, and none before.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CopyAppliesOnceComplete(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-apply-service-completes");
+        await using var registry = await OpenNotCompleteAsync(dir, GroupMemberState.Unseeded, cancellationToken);
+        var cache = new StubCache();
+        using var meter = new Meter("test");
+        var appliers = CreateAppliers(registry, cache, meter);
+        using var service = new ReplicaApplyService(
+            registry,
+            appliers,
+            LeadOwnGroup(registry, appliers),
+            ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            NullLogger<ReplicaApplyService>.Instance,
+            new FakeTimeProvider());
+        var other = WhenAppliedAsync(cache, 1);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            await other.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            var all = WhenAppliedAsync(cache, 3);
+            _ = registry.TryGetLog("n2", out var log);
+            await log!.CompleteBootstrapAsync(cancellationToken);
+            registry.ApplySignalFor("n2").Notify();
+            await all.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        await SequenceAssert.EqualAsync(["m1", "k1", "k2"], cache.Applied.ToArray(), StringComparer.Ordinal);
+        _ = await Assert.That(appliers.For("n2").AppliedIndex).IsEqualTo(2UL);
+    }
+
     /// <summary>Leads the own group n1 with a committer driving the applier of that group.</summary>
     /// <param name="registry">The registry of node n1.</param>
     /// <param name="appliers">The appliers of the served groups.</param>
@@ -443,6 +519,37 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         var led = new ReplicaGroupCommitter[1];
         led[0] = CreateGroupCommitter(registry, "n1", new ScriptedGateway(), new StubCache(), TimeProvider.System, (TimeProvider.System, null), appliers.For("n1"));
         return new ReplicaGroupCommitters(led, "n1", Owners(), TimeProvider.System);
+    }
+
+    /// <summary>Opens a registry whose group n2 holds committed entries under a copy of the given state and whose group n3 is complete.</summary>
+    /// <param name="dir">Node data directory.</param>
+    /// <param name="state">The member state planted for group n2.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The opened registry.</returns>
+    private static async Task<ReplicaGroupRegistry> OpenNotCompleteAsync(string dir, GroupMemberState state, CancellationToken cancellationToken)
+    {
+        await using (var seeded = await OpenRegistryAsync(dir, Groups, null, cancellationToken))
+        {
+            await SeedAsync(seeded, "n2", 2UL, cancellationToken, "k1", "k2");
+            await SeedAsync(seeded, "n3", 1UL, cancellationToken, "m1");
+        }
+
+        var path = GroupStoragePaths.GetMetadataPath(dir, "n2");
+        var planted = (await GroupMetadataFile.ReadAsync(path, cancellationToken)) with { MemberState = state };
+        await GroupMetadataFile.WriteAsync(path, in planted, cancellationToken);
+        var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System };
+        var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1, NullLoggerFactory.Instance, options) { ElectionClock = TimeProvider.System };
+        try
+        {
+            await registry.OpenAsync(cancellationToken);
+        }
+        catch
+        {
+            await registry.DisposeAsync();
+            throw;
+        }
+
+        return registry;
     }
 
     private static ReplicaGroupAppliers CreateAppliers(ReplicaGroupRegistry registry, ILogicalNamespacedCache<object?> cache, Meter meter) => new(

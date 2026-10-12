@@ -14,4 +14,7 @@ internal enum ReplicaProbeKind
 
     /// <summary>The follower lacks the named entry or holds a different term at it.</summary>
     LogMismatch = 3,
+
+    /// <summary>The follower answered that its copy is incomplete: it is reachable and needs a repair, and it takes no entries until then.</summary>
+    Incomplete = 4,
 }

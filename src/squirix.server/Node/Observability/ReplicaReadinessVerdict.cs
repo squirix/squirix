@@ -20,4 +20,7 @@ internal enum ReplicaReadinessVerdict
 
     /// <summary>The copy of the group on this node is not complete: it votes for nobody and takes no entries.</summary>
     Unseeded = 5,
+
+    /// <summary>The copy of the group on this node is marked incomplete: it votes for nobody and takes no entries until a state transfer repairs it.</summary>
+    Incomplete = 6,
 }

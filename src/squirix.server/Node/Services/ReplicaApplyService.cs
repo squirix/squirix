@@ -173,7 +173,7 @@ internal sealed class ReplicaApplyService : BackgroundService
         }
     }
 
-    /// <summary>Applies the committed entries of a ready group log that memory lacks.</summary>
+    /// <summary>Applies the committed entries of a ready group log that memory lacks; a copy that is not complete applies nothing.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="applier">The group applier.</param>
     /// <param name="log">The group log.</param>
@@ -187,7 +187,7 @@ internal sealed class ReplicaApplyService : BackgroundService
     private async Task CatchUpAsync(string groupId, ReplicaGroupApplier applier, IFollowerLog log, CancellationToken stoppingToken)
     {
         var status = await log.GetStatusAsync(stoppingToken).ConfigureAwait(false);
-        if (status.Readiness != FollowerLogReadiness.Ready)
+        if (status.Readiness != FollowerLogReadiness.Ready || status.MemberState != GroupMemberState.Complete)
             return;
 
         if (!log.Idempotency.OutcomesRebuilt)
