@@ -26,9 +26,8 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
     internal static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);
 
     private readonly ReplicaGroupCommitters _committers;
-    private readonly INodeLocator _locator;
+    private readonly ReplicaGroupEntries _entries;
     private readonly ILogger<ReplicaExpirationSweepService> _log;
-    private readonly ILocalCacheSnapshotReader<object?> _reader;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaExpirationSweepService" /> class.</summary>
     /// <param name="committers">The committers of the led groups; their clock decides expiry and times the passes.</param>
@@ -46,8 +45,7 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
         ArgumentNullException.ThrowIfNull(locator);
         ArgumentNullException.ThrowIfNull(log);
         _committers = committers;
-        _reader = reader;
-        _locator = locator;
+        _entries = new ReplicaGroupEntries(reader, locator);
         _log = log;
         MaxPerPass = 1024;
     }
@@ -73,23 +71,18 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
         var expired = 0;
         var now = _committers.Clock.GetUtcNow().UtcDateTime;
         HashSet<string>? failed = null;
-        await foreach (var (key, entry) in _reader.EnumerateLiveAsync(cancellationToken).ConfigureAwait(false))
+        await foreach (var (owner, cacheName, key, _) in _entries.EnumerateAsync(null, now, cancellationToken).ConfigureAwait(false))
         {
-            if (expired == MaxPerPass)
-                break;
-
-            if (entry.ExpiresUtc is not { } deadline || deadline.Ticks > now.Ticks)
-                continue;
-
             // A key of a group this node only follows, or leads without authority, is expired by the leader of its group, never here.
-            var owner = _locator.GetOwner(key.Namespace, key.Key);
             if (failed?.Contains(owner) == true || _committers.FindAuthorized(owner) is not { } committer)
                 continue;
 
             try
             {
-                _ = await committer.ExpireAsync(key.Namespace, key.Key, cancellationToken).ConfigureAwait(false);
+                _ = await committer.ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
                 expired++;
+                if (expired == MaxPerPass)
+                    break;
             }
             catch (Exception error) when (!cancellationToken.IsCancellationRequested)
             {
