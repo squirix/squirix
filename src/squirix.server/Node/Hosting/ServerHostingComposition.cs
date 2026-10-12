@@ -121,6 +121,7 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<ReplicaGroupRegistry>().GroupIds));
 
         AddReplicaGroupAppliers(services);
+        ReplicaTransferRegistration.Add(services);
 
         // The cluster locator registered the static leader table; an election-led node replaces it with the table of its election state.
         if (LeadsByElection(cluster))

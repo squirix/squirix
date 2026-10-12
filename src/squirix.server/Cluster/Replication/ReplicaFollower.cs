@@ -19,7 +19,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// refused before the log is reached, and so is an append from a leader outside it. The owner of a group offers an unseeded copy a place
 /// in the first start of the group. The call of a member of the group completes a copy that holds an offer before the log serves it; a copy
 /// that is not complete refuses every append with term zero and posts nothing to the election state, and an unseeded copy refuses ballots
-/// the same way, while an incomplete copy keeps its term, its vote and its log and so answers ballots like a complete one. Any other refusal
+/// the same way, while an incomplete copy keeps its term, its vote and its log and so answers ballots like a complete one. A group that holds a
+/// state transfer refuses an offer as transfer-busy; its copy is complete or incomplete, never unseeded, so no member call completes an offer meanwhile. Any other refusal
 /// is the log's own, with its durable term.
 /// </remarks>
 [Immutable]
@@ -65,7 +66,10 @@ internal sealed class ReplicaFollower
         if (!TryGetLog(groupId, out var log) || !string.Equals(groupId, senderNodeId, StringComparison.Ordinal) || !_members.IsMember(groupId, senderNodeId))
             return new ReplicaBootstrapOfferResult(false, null, FollowerLogRefusal.NotMember);
 
-        var refusal = await log.AcceptBootstrapOfferAsync(fingerprint, generation, cancellationToken).ConfigureAwait(false);
+        // A group that holds a state transfer takes no part in a first start: the transfer repairs a copy that holds data.
+        var refusal = _groups.TransferHoldFor(groupId).IsHeld
+            ? RefusalCodes.TransferBusy
+            : await log.AcceptBootstrapOfferAsync(fingerprint, generation, cancellationToken).ConfigureAwait(false);
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         return new ReplicaBootstrapOfferResult(refusal == null, status.MemberState, refusal ?? string.Empty);
     }

@@ -131,6 +131,13 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
     internal ReplicaGroupState StateFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Election;
 
+    /// <summary>Gets the hold a state transfer sets on a served group.</summary>
+    /// <param name="id">Replica group identifier.</param>
+    /// <returns>The transfer hold.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the registry is not opened.</exception>
+    /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
+    internal ReplicaTransferHold TransferHoldFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Transfer;
+
     /// <summary>Gets the election state of a served group, if the registry is opened and serves it.</summary>
     /// <param name="id">Replica group identifier.</param>
     /// <param name="state">The election state when this node serves the group; otherwise <see langword="null" />.</param>
@@ -239,7 +246,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
                     _ = eligibility.TryMarkReady(r, in zero, in zero);
             }
 
-            var state = new GroupState(log, eligibility, new ReplicaApplySignal(), new ReplicaGroupState(_replicaCount, Election, ElectionClock));
+            var state = new GroupState(log, eligibility, new ReplicaApplySignal(), new ReplicaGroupState(_replicaCount, Election, ElectionClock), new ReplicaTransferHold());
             log = null;
             return state;
         }
@@ -288,5 +295,5 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     }
 
     [Immutable]
-    private readonly record struct GroupState(FollowerLog Log, ReplicaEligibility Eligibility, ReplicaApplySignal Signal, ReplicaGroupState Election);
+    private readonly record struct GroupState(FollowerLog Log, ReplicaEligibility Eligibility, ReplicaApplySignal Signal, ReplicaGroupState Election, ReplicaTransferHold Transfer);
 }
