@@ -9,7 +9,7 @@ namespace Squirix.Server.Node.Services;
 /// <summary>Queues a follower that is out of the write quorum for repair as soon as it answers the leader from its log.</summary>
 /// <remarks>
 /// A follower that was unreachable is verified again only by the readiness service, whose retries back off to several seconds. Its first
-/// answer to a heartbeat or an append (accepted, or a log mismatch the leader repairs) proves it reachable, so it is queued at once. A
+/// answer to a heartbeat or an append (accepted, a log mismatch the leader repairs, or an incomplete copy it reports) proves it reachable, so it is queued at once. A
 /// follower that keeps answering without becoming ready is queued at most once per interval, so its repair is retried without spinning.
 /// A quarantined follower waits for an explicit recovery, and a log that is not ready cannot be verified, so neither is queued. Runs on
 /// the follower reply paths; it never waits and never throws.

@@ -27,6 +27,6 @@ internal enum ReplicaCatchUpOutcome
     /// <summary>The sender behind the lease closed or started draining, so the session stopped.</summary>
     Aborted = 7,
 
-    /// <summary>The follower answered that its copy is incomplete: it takes no entries until a state transfer repairs it, and nothing was sent.</summary>
+    /// <summary>The follower answered that its copy is incomplete: it takes no entries until a state transfer repairs it. The first request is refused, so nothing was sent; a copy that turned incomplete mid-session ends it after the entries already accepted.</summary>
     Incomplete = 8,
 }

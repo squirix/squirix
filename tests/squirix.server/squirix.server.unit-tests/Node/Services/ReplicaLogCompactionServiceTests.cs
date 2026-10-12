@@ -227,6 +227,30 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         _ = await Assert.That((compacted, after.SnapshotIndex, after.RetainedEntries)).IsEqualTo((ReplicaLogCompactionOutcome.Compacted, 3UL, 1));
     }
 
+    /// <summary>A follower group copy that is not complete never applies, so its compaction reports not ready instead of waiting for an apply that cannot come.</summary>
+    /// <param name="incomplete">Whether the copy is planted incomplete; otherwise it is unseeded.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task NotCompleteFollowerCompactionIsNotReady(bool incomplete, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-maintenance-follower-not-complete");
+        await using (var seeded = await OpenRegistryAsync(dir, ["n1", "n2", "n3"], null, cancellationToken))
+        {
+            var log = await SeedAsync(seeded, "n2", 4, 3UL, cancellationToken);
+            _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
+        }
+
+        var state = incomplete ? GroupMemberState.Incomplete : GroupMemberState.Unseeded;
+        await using var registry = await PlantedCopyTestKit.ReopenWithStateAsync(dir, ["n1", "n2", "n3"], "n2", (state, false), cancellationToken);
+        _ = registry.TryGetLog("n2", out var reopened);
+
+        var outcome = await ReplicaLogCompactionStep.RunFollowerAsync(reopened!, new ReplicaLogCompactionPolicy(long.MaxValue, 2), cancellationToken);
+
+        _ = await Assert.That(outcome).IsEqualTo(ReplicaLogCompactionOutcome.NotReady);
+    }
+
     /// <summary>A follower group whose maintenance keeps failing the same way is logged once, and again after a pass succeeded in between.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

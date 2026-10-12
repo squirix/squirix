@@ -54,6 +54,21 @@ public sealed class ReplicaAnsweringFollowersTests : ServerUnitTestBase
         _ = await Assert.That(await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken)).IsFalse();
     }
 
+    /// <summary>An incomplete follower is queued for repair, and an unseeded one is not.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task IncompleteFollowerIsQueued(CancellationToken cancellationToken)
+    {
+        var (answering, repairs, _, _) = Create();
+
+        answering.Observe(1, new FollowerLogAppendResult(false, FollowerLogRefusal.Unseeded, 0UL, 0UL));
+        var unseeded = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
+        answering.Observe(1, new FollowerLogAppendResult(false, FollowerLogRefusal.Incomplete, 0UL, 0UL));
+        var incomplete = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That((unseeded, incomplete)).IsEqualTo((false, true));
+    }
+
     /// <summary>A follower that keeps answering without becoming ready is queued again only once the interval elapsed.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

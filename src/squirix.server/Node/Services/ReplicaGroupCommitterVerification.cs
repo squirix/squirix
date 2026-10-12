@@ -26,8 +26,8 @@ internal static class ReplicaGroupCommitterVerification
 
         /// <summary>Verifies non-ready replica slots against the leader log, optionally ending the follower probing once a majority answered.</summary>
         /// <param name="untilMajority">
-        /// Whether to give up the probes of silent followers once enough followers answered from their logs to form a majority with the
-        /// slots that count; otherwise every follower is awaited, a silent one for its whole probe timeout.
+        /// Whether to give up the probes of silent followers once enough followers accepted the probe or reported a log mismatch to form a
+        /// majority with the slots that count (an incomplete follower does not count); otherwise every follower is awaited, a silent one for its whole probe timeout.
         /// </param>
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>The verification state, as for <see cref="VerifyReplicasAsync(ReplicaGroupCommitter, CancellationToken)" />.</returns>

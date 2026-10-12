@@ -154,7 +154,10 @@ internal static class ReplicaReadinessProbe
     /// <param name="members">Ordered group members, in slot order.</param>
     /// <param name="header">Replication envelope identity.</param>
     /// <param name="leader">Leader log status naming the entry the followers must hold.</param>
-    /// <param name="budget">Per-probe timeout and the answers after which the probes still pending are given up.</param>
+    /// <param name="budget">
+    /// Per-probe timeout and the answers after which the probes still pending are given up. Only an accepted probe and a log mismatch count: an
+    /// incomplete follower answered but cannot take part in a majority, so it does not end the round.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Per-slot outcomes; unselected and given-up slots carry the default unreachable verdict.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="budget" /> asks for fewer than one answer.</exception>
@@ -193,7 +196,7 @@ internal static class ReplicaReadinessProbe
             if (finished.IsFaulted)
                 break;
 
-            if (finished.IsCompletedSuccessfully && await finished.ConfigureAwait(false) is { Answered: true })
+            if (finished.IsCompletedSuccessfully && await finished.ConfigureAwait(false) is { Kind: ReplicaProbeKind.Accepted or ReplicaProbeKind.LogMismatch })
                 answers++;
         }
 

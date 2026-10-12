@@ -93,8 +93,8 @@ internal sealed class ReplicaVerificationProbe
     /// <param name="log">The group log.</param>
     /// <param name="leaderTerm">The term this node leads the group in when it won it by election; zero when it leads its own group statically, in term one.</param>
     /// <param name="untilMajority">
-    /// Whether the probing may end once enough followers answered from their logs to form a majority with the slots that count, giving up
-    /// the probes of the followers still silent; otherwise it awaits every probe.
+    /// Whether the probing may end once enough followers accepted the probe or reported a log mismatch to form a majority with the slots that
+    /// count, giving up the probes of the followers still silent; an incomplete follower does not count. Otherwise it awaits every probe.
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The final verification state, or the probing the admission under the commit gate continues from.</returns>

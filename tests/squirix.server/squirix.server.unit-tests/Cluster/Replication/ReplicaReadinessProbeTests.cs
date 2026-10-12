@@ -283,19 +283,29 @@ public sealed class ReplicaReadinessProbeTests
         _ = await Assert.That((eligibility.CanCountInWriteQuorum(1), eligibility.CanCountInWriteQuorum(2))).IsEqualTo((false, false));
     }
 
-    /// <summary>An incomplete answer counts toward the answers the verification waits for, so the probes still pending are given up.</summary>
+    /// <summary>
+    /// An incomplete answer does not count toward the answers that end the round, because such a follower cannot form a majority: in a group of
+    /// three the round still waits for the healthy follower, which is then verified, while the incomplete slot stays out of the quorum.
+    /// </summary>
     /// <returns>An asynchronous operation.</returns>
     [Test]
-    public async Task IncompleteAnswerCountsTowardBudget()
+    public async Task IncompleteAnswerDoesNotEndRound()
     {
         var followers = new ScriptedFollowers();
         followers.Answer("n2", new FollowerLogAppendResult(false, RefusalCodes.Incomplete, 0, 0));
-        var silent = followers.Hang("n3");
+        var healthy = followers.Hang("n3");
+        var eligibility = ReadyLeader(3);
+        var leader = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete);
 
-        var results = await ProbeAsync(followers, [false, true, true], 1, CancellationToken.None);
+        var probing = ProbeAsync(followers, [false, true, true], eligibility.AnswersForMajority(0), CancellationToken.None);
+        var pendingBefore = !probing.IsCompleted;
+        healthy.SetResult(new FollowerLogAppendResult(true, string.Empty, 1, 3));
+        var results = await probing;
+        ReplicaReadinessProbe.ApplyAll(eligibility, 0, results, in leader, Fingerprint, 1, null);
 
-        _ = await Assert.That((results[1].Kind, results[2].Kind)).IsEqualTo((ReplicaProbeKind.Incomplete, ReplicaProbeKind.Unreachable));
-        _ = await Assert.That(silent.Task.IsCanceled).IsTrue();
+        _ = await Assert.That(pendingBefore).IsTrue();
+        _ = await Assert.That((results[1].Kind, results[2].Kind)).IsEqualTo((ReplicaProbeKind.Incomplete, ReplicaProbeKind.Accepted));
+        _ = await Assert.That((eligibility.CanCountInWriteQuorum(1), eligibility.CanCountInWriteQuorum(2))).IsEqualTo((false, true));
     }
 
     private static ReplicaEligibility ReadyLeader(int replicaCount)

@@ -46,6 +46,9 @@ internal static class ReplicaOwnerTestKit
 
         /// <summary>Answers a batch with entries only by observing its cancellation, as a follower that is slow but not down.</summary>
         Silent = 7,
+
+        /// <summary>Refuses every batch as an incomplete copy, before its log, with term zero.</summary>
+        Incomplete = 8,
     }
 
     internal static string NewOperationId() => Guid.NewGuid().ToString("N");
@@ -374,6 +377,7 @@ internal static class ReplicaOwnerTestKit
                 FollowerMode.BehindLonger => Task.FromResult(
                     batch.Records.Count == 0 ? new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, batch.LeaderTerm, 0)
                         : new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last + 5)),
+                FollowerMode.Incomplete => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.Incomplete, 0, 0)),
                 _ => throw new ArgumentOutOfRangeException(nameof(nodeId)),
             };
         }

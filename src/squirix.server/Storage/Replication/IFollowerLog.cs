@@ -206,8 +206,8 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <param name="configurationGeneration">Caller configuration generation.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// <see langword="null" /> when the copy is complete, now or already; <see cref="FollowerLogRefusal.Unseeded" /> for a copy without an offer and for
-    /// an incomplete one; <see cref="FollowerLogRefusal.TopologyMismatch" /> when the topology disagrees with the log;
+    /// <see langword="null" /> when the copy is complete, now or already; <see cref="FollowerLogRefusal.Unseeded" /> for an unseeded copy without an offer;
+    /// <see cref="FollowerLogRefusal.Incomplete" /> for an incomplete one; <see cref="FollowerLogRefusal.TopologyMismatch" /> when the topology disagrees with the log;
     /// <see cref="FollowerLogRefusal.NotReady" /> when the log is disposed or not ready.
     /// </returns>
     /// <remarks>

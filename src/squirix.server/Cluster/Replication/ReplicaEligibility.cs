@@ -43,7 +43,10 @@ internal sealed class ReplicaEligibility
         return true;
     }
 
-    /// <summary>Returns how many probe answers from the log of a follower complete a write majority together with the slots that already count.</summary>
+    /// <summary>
+    /// Returns how many probe answers complete a write majority together with the slots that already count. Only an accepted probe and a log
+    /// mismatch are such answers; an incomplete follower answered but cannot form a majority.
+    /// </summary>
     /// <param name="leaderReplicaIndex">Zero-based slot of the leader.</param>
     /// <returns>
     /// The answers still needed, or <see cref="int.MaxValue" /> when the slots that count already form a majority, so the probes of the
