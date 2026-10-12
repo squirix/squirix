@@ -105,7 +105,9 @@ elects a replacement.
   revoked before the leader retires its pipeline. A leader that got no authority within 30 seconds of its first promotion
   attempt steps down the same way, and its node does not campaign for the election timeout plus the largest jitter plus
   two vote timeouts after the retirement completed, so another member can take the group. While the same node keeps
-  being elected without authority, the 30 seconds double, up to 240 seconds; getting authority restarts them.
+  being elected without authority, the 30 seconds double, up to 240 seconds; getting authority restarts them. A state
+  transfer that keeps failing at its last step holds that deadline only while its steps are accepted, so the leader still
+  gives up within about two attempts.
 - **Repair.** A follower out of the write quorum that answers a heartbeat or an append from its log is queued for repair
   at once, at most once per election timeout, instead of waiting for the readiness retry.
 - **Status.** While a driver runs, the replica status reports a node as leader only with authority, its majority contact

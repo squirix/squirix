@@ -217,8 +217,10 @@ internal sealed class ReplicaTransferStream
         {
             // A call canceled by the pass surfaces as a transport fault too; the cancellation wins and no abort is sent.
             cancellationToken.ThrowIfCancellationRequested();
+
+            // A drain cancels the call in flight, which surfaces as a transport fault: the follower was not at fault.
             await AbortAsync(transferId).ConfigureAwait(false);
-            return new Result(ReplicaTransferOutcome.Unreachable, string.Empty);
+            return new Result(Draining.IsCancellationRequested ? ReplicaTransferOutcome.Aborted : ReplicaTransferOutcome.Unreachable, string.Empty);
         }
         catch (OperationCanceledException) when (Draining.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {

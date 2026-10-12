@@ -85,6 +85,37 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
         _ = await Assert.That((status.CurrentTerm, status.VotedFor, scope.Leadership.Calls)).IsEqualTo((2UL, "n3", string.Empty));
     }
 
+    /// <summary>A copy marked incomplete between the check that opens the vote round and the own vote gives the round up: no vote is asked and nothing is led.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CopyMarkedDuringSelfVoteLosesRound(CancellationToken cancellationToken)
+    {
+        var marked = 0;
+        var log = new IFollowerLogCreateExpectations();
+        _ = log.Setups.GetStatusAsync(Arg.Any<CancellationToken>())
+               .Callback(_ => new ValueTask<FollowerLogStatus>(Status("n2", FollowerLogReadiness.Ready, Volatile.Read(ref marked) == 0 ? GroupMemberState.Complete : GroupMemberState.Incomplete)));
+        _ = log.Setups.RequestVoteAsync(Arg.Any<ElectionVoteRequest>(), Arg.Any<CancellationToken>())
+               .Callback(
+                   (_, _) =>
+                   {
+                       Volatile.Write(ref marked, 1);
+                       return Task.FromResult(new FollowerLogVoteResult(true, string.Empty, 2UL));
+                   });
+        var time = new FakeTimeProvider();
+        var state = new ReplicaGroupState(3, Options, time);
+        var votes = new ScriptedVotes(Grant);
+        var leadership = new RecordingLeadership(state);
+        var election = new ReplicaGroupElection(state, log.Instance(), votes, leadership, Three, Header("n2"));
+        _ = await election.StepAsync(cancellationToken);
+        time.Advance(Options.ElectionTimeout);
+
+        var outcome = await election.StepAsync(cancellationToken);
+
+        _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.VoteLost, 2UL));
+        _ = await Assert.That((state.Role, leadership.Calls)).IsEqualTo((ReplicaGroupRole.Follower, string.Empty));
+        _ = await Assert.That(Array.Exists(votes.Calls, static call => !call.PreVote)).IsFalse().Because("No vote is asked for a round the copy gave up.");
+    }
+
     /// <summary>A higher term posted while the vote round ran beats the grants: the candidate follows it and promotes nothing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -178,8 +209,8 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
 
     private static ReplicaRpcHeader Header(string groupId) => new(groupId, ReadOnlyMemory<byte>.Empty, 1UL, 0UL, string.Empty, "n1");
 
-    private static FollowerLogStatus Status(string groupId, FollowerLogReadiness readiness) =>
-        new(groupId, ReadOnlyMemory<byte>.Empty, 1UL, 0UL, string.Empty, 0UL, 0UL, 0UL, 0UL, readiness, GroupMemberState.Complete);
+    private static FollowerLogStatus Status(string groupId, FollowerLogReadiness readiness, GroupMemberState memberState = GroupMemberState.Complete) =>
+        new(groupId, ReadOnlyMemory<byte>.Empty, 1UL, 0UL, string.Empty, 0UL, 0UL, 0UL, 0UL, readiness, memberState);
 
     /// <summary>Voters whose first pre-vote makes the candidate log vote for another candidate in the proposed term, then grant.</summary>
     [ThreadSafe]

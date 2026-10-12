@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -152,6 +153,41 @@ public sealed class StateInstallCrashTests : ServerUnitTestBase
             _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Incomplete);
             await AssertAppendsRefusedAsync(reopened, 2UL, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// A snapshot published beside an old log that is longer than the snapshot index leaves the copy incomplete, whether the old log holds the
+    /// term of the snapshot at that index or another one, and the copy refuses appends.
+    /// </summary>
+    /// <param name="diverging">Whether the old log holds another term than the snapshot at the snapshot index.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task LongerOldLogKeepsCopyIncomplete(bool diverging, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-transfer-longer-log");
+        using var sourceDir = new TempDirectory("squirix-transfer-longer-log-source");
+        var snapshot = await StateInstallScenario.LeaderSnapshotAsync(sourceDir, cancellationToken);
+        var term = diverging ? 2UL : 1UL;
+        await using (var log = StateInstallScenario.NewLog(dir))
+        {
+            await StateInstallScenario.OpenBehindAsync(log, cancellationToken);
+            var beyond = new[] { new FollowerLogEntry(3UL, term, Encoding.UTF8.GetBytes("c")), new FollowerLogEntry(4UL, term, Encoding.UTF8.GetBytes("d")) };
+            _ = await log.AppendAsync(new FollowerLogAppendRequest("leader", term, 2UL, 1UL, 0UL, beyond), cancellationToken);
+            _ = await Assert.That(await FollowerSnapshotScenario.BeginAsync(log, StateInstallScenario.SnapshotIndex, term, cancellationToken)).IsNull();
+        }
+
+        await new GroupSnapshotStore(dir, GroupId).PublishAsync(snapshot, cancellationToken);
+
+        await using var reopened = StateInstallScenario.NewLog(dir);
+        await reopened.OpenAsync(cancellationToken);
+        var durable = await GroupMetadataFile.ReadAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+
+        _ = await Assert.That((reopened.Readiness, durable.MemberState, status.MemberState)).IsEqualTo((FollowerLogReadiness.Ready, GroupMemberState.Incomplete, GroupMemberState.Incomplete));
+        var append = await reopened.AppendAsync(new FollowerLogAppendRequest("leader", term, status.LastLogIndex, status.LastLogTerm, 0UL, ReadOnlyMemory<FollowerLogEntry>.Empty), cancellationToken);
+        _ = await Assert.That((append.Success, append.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.Incomplete));
     }
 
     /// <summary>Damage to either slot after a durable begin does not remove the mark.</summary>

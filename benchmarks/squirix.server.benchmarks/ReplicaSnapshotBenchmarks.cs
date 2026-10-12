@@ -123,7 +123,7 @@ public class ReplicaSnapshotBenchmarks
         var target = ThrowHelper.Required(_target, "Benchmark target log was not initialized.");
         await SeedSourceLogAsync(target, false).ConfigureAwait(false);
         var status = await target.GetStatusAsync(CancellationToken.None).ConfigureAwait(false);
-        var refusal = await target.BeginStateInstallAsync(1UL, SnapshotIndex, status.TopologyFingerprint, status.ConfigurationGeneration, CancellationToken.None).ConfigureAwait(false);
+        var refusal = await target.BeginStateInstallAsync(1UL, SnapshotIndex, status.TopologyFingerprint, status.ConfigurationGeneration, _snapshot, CancellationToken.None).ConfigureAwait(false);
         if (refusal != null)
             throw new InvalidOperationException($"Beginning the state install was refused: {refusal}.");
     }

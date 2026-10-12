@@ -46,14 +46,14 @@ internal sealed class ReplicaDriverLease
     /// <summary>Starts a leadership: no new pass enters, and the running passes are waited for.</summary>
     /// <param name="cancellationToken">Cancels the wait for the running passes; the leadership is then not started.</param>
     /// <returns>A task that completes once no pass runs and the caller drives the applier alone.</returns>
-    /// <exception cref="InvalidOperationException">A leadership is already started.</exception>
+    /// <exception cref="ReplicaDriverLeaseHeldException">A leadership or a state transfer already drives the applier.</exception>
     internal async Task LeadAsync(CancellationToken cancellationToken)
     {
         Task drained;
         lock (_sync)
         {
             if (_leading)
-                throw new InvalidOperationException("The applier is already driven by a leadership.");
+                throw new ReplicaDriverLeaseHeldException("The applier is already driven by a leadership.");
 
             _leading = true;
             if (_passes == 0)

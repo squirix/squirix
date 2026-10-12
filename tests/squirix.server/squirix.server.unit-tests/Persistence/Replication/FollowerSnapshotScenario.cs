@@ -53,8 +53,20 @@ internal static class FollowerSnapshotScenario
     /// <returns>The completion outcome, or the refusal of the begin step.</returns>
     internal static async Task<GroupSnapshotInstallResult> InstallAsync(FollowerLog log, GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken)
     {
-        var refusal = await BeginAsync(log, snapshot.LastIncludedIndex, leaderTerm, cancellationToken);
+        var refusal = await BeginAsync(log, snapshot, leaderTerm, cancellationToken);
         return refusal != null ? GroupSnapshotInstallResult.Refused(refusal) : await log.CompleteStateInstallAsync(snapshot, leaderTerm, cancellationToken);
+    }
+
+    /// <summary>Marks the copy incomplete for a state transfer of a snapshot, under the topology the log already holds.</summary>
+    /// <param name="log">The open log.</param>
+    /// <param name="snapshot">The snapshot the transfer will complete at.</param>
+    /// <param name="leaderTerm">The term of the leader that sends the state.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns><see langword="null" /> once the copy is incomplete; otherwise the refusal.</returns>
+    internal static async Task<string?> BeginAsync(FollowerLog log, GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken)
+    {
+        var status = await log.GetStatusAsync(cancellationToken);
+        return await log.BeginStateInstallAsync(leaderTerm, snapshot.LastIncludedIndex, status.TopologyFingerprint, status.ConfigurationGeneration, snapshot, cancellationToken);
     }
 
     /// <summary>Marks the copy incomplete for a state transfer under the topology the log already holds.</summary>
@@ -66,7 +78,8 @@ internal static class FollowerSnapshotScenario
     internal static async Task<string?> BeginAsync(FollowerLog log, ulong index, ulong leaderTerm, CancellationToken cancellationToken)
     {
         var status = await log.GetStatusAsync(cancellationToken);
-        return await log.BeginStateInstallAsync(leaderTerm, index, status.TopologyFingerprint, status.ConfigurationGeneration, cancellationToken);
+        var snapshot = new GroupSnapshot(log.GroupId, status.TopologyFingerprint, status.ConfigurationGeneration, 1UL, index, index, [], DateTime.UnixEpoch);
+        return await BeginAsync(log, snapshot, leaderTerm, cancellationToken);
     }
 
     private static async Task AdvanceAppliedAsync(FollowerLog log, ulong index, CancellationToken cancellationToken)

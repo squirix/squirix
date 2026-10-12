@@ -236,7 +236,7 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
         internal bool HoldEntries { get; set; }
 
         public Task<ReplicaTransferReply> AbortAsync(string nodeId, ReplicaRpcHeader header, string transferId, CancellationToken cancellationToken) =>
-            _harness.Receiver.AbortAsync(header.GroupId, transferId, cancellationToken);
+            _harness.Receiver.AbortAsync(SenderOf(in header, transferId), cancellationToken);
 
         public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
@@ -261,7 +261,7 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
         }
 
         public Task<ReplicaTransferReply> BeginAsync(string nodeId, ReplicaRpcHeader header, string transferId, ReplicaTransferBaseline baseline, CancellationToken cancellationToken) =>
-            _harness.Receiver.BeginAsync(new ReplicaTransferHeader(header.GroupId, transferId, header.LeaderNodeId, header.Term), baseline, cancellationToken);
+            _harness.Receiver.BeginAsync(SenderOf(in header, transferId), baseline, cancellationToken);
 
         public async Task<ReplicaTransferReply> SendAsync(string nodeId, ReplicaRpcHeader header, ReplicaTransferMessage message, CancellationToken cancellationToken)
         {
@@ -269,9 +269,9 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
             switch (message.Step)
             {
                 case ReplicaTransferStep.Snapshot:
-                    return await receiver.SnapshotAsync(message.GroupId, message.TransferId, message.Sequence, message.Offset, message.Chunk, cancellationToken).ConfigureAwait(false);
+                    return await receiver.SnapshotAsync(SenderOf(in header, message.TransferId), message.Sequence, message.Offset, message.Chunk, cancellationToken).ConfigureAwait(false);
                 case ReplicaTransferStep.Wipe:
-                    return await receiver.WipeAsync(message.GroupId, message.TransferId, message.Sequence, cancellationToken).ConfigureAwait(false);
+                    return await receiver.WipeAsync(SenderOf(in header, message.TransferId), message.Sequence, cancellationToken).ConfigureAwait(false);
                 case ReplicaTransferStep.Entries:
                     if (HoldEntries)
                     {
@@ -280,14 +280,16 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
                         await _entriesRelease.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
                     }
 
-                    return await receiver.EntriesAsync(message.GroupId, message.TransferId, message.Sequence, message.Entries, cancellationToken).ConfigureAwait(false);
+                    return await receiver.EntriesAsync(SenderOf(in header, message.TransferId), message.Sequence, message.Entries, cancellationToken).ConfigureAwait(false);
                 case ReplicaTransferStep.End:
-                    return await receiver.EndAsync(message.GroupId, message.TransferId, message.Sequence, message.EntryCount, message.EntriesCrc, cancellationToken).ConfigureAwait(false);
+                    return await receiver.EndAsync(SenderOf(in header, message.TransferId), message.Sequence, message.EntryCount, message.EntriesCrc, cancellationToken).ConfigureAwait(false);
                 default:
                     throw new ArgumentOutOfRangeException(nameof(message), message.Step, "Unsupported transfer step.");
             }
         }
 
         internal void ReleaseEntries() => _ = _entriesRelease.TrySetResult();
+
+        private static ReplicaTransferHeader SenderOf(in ReplicaRpcHeader header, string transferId) => new(header.GroupId, transferId, header.LeaderNodeId, header.Term);
     }
 }

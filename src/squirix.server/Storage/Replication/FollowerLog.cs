@@ -405,10 +405,22 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    public async Task<string?> BeginStateInstallAsync(ulong leaderTerm, ulong index, ReadOnlyMemory<byte> fingerprint, ulong generation, CancellationToken cancellationToken)
+    public async Task<string?> BeginStateInstallAsync(
+        ulong leaderTerm,
+        ulong index,
+        ReadOnlyMemory<byte> fingerprint,
+        ulong generation,
+        GroupSnapshot snapshot,
+        CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return await FollowerLogStateInstall.BeginAsync(_journal, this, IsOpen, CaptureStatus().IsTopologyMismatch(fingerprint, generation), (leaderTerm, index), cancellationToken)
+        return await FollowerLogStateInstall.BeginAsync(
+                                                _journal,
+                                                this,
+                                                IsOpen,
+                                                CaptureStatus().IsTopologyMismatch(fingerprint, generation),
+                                                (leaderTerm, index, snapshot),
+                                                cancellationToken)
                                             .ConfigureAwait(false);
     }
 
@@ -2635,15 +2647,16 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             IFollowerLogContext owner,
             bool open,
             bool topologyMismatch,
-            (ulong LeaderTerm, ulong Index) transfer,
+            (ulong LeaderTerm, ulong Index, GroupSnapshot Snapshot) transfer,
             CancellationToken cancellationToken)
         {
+            // The snapshot is checked before the copy is marked, so one the completion would refuse costs the copy nothing.
             var meta = owner.Meta;
             var refusal = (open, topologyMismatch) switch
             {
                 (false, _) => FollowerLogRefusal.NotReady,
                 (true, true) => FollowerLogRefusal.TopologyMismatch,
-                _ => RefuseTransfer(in meta, transfer.LeaderTerm, transfer.Index),
+                _ => RefuseTransfer(in meta, transfer.LeaderTerm, transfer.Index) ?? RefuseSnapshot(journal, owner, in transfer.Snapshot),
             };
             if (refusal != null)
                 return refusal;
@@ -2685,15 +2698,16 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // The snapshot is published first. If that fails, the old metadata and log remain authoritative; once it is durable, a failure
             // of any later step leaves the copy incomplete, and recovery restores the baseline from the snapshot on the next open.
             await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
-            await ReplaceStateAsync(journal, owner, snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
+            await ReplaceStateAsync(journal, owner, snapshot, leaderTerm).ConfigureAwait(false);
             return GroupSnapshotInstallResult.Installed;
         }
 
-        private static async Task ReplaceStateAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken)
+        private static async Task ReplaceStateAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupSnapshot snapshot, ulong leaderTerm)
         {
             try
             {
-                await ReplaceLogAndStoreAsync(journal, owner, snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
+                // Past the publish there is no way back: a caller's cancellation must not fail the log half way through.
+                await ReplaceLogAndStoreAsync(journal, owner, snapshot, leaderTerm, CancellationToken.None).ConfigureAwait(false);
             }
             catch
             {
@@ -2737,6 +2751,18 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 _ when leaderTerm < meta.CurrentTerm => FollowerLogRefusal.StaleTerm,
                 _ when meta.MemberState == GroupMemberState.Unseeded => FollowerLogRefusal.Unseeded,
                 _ when index < meta.CommitIndex => FollowerLogRefusal.NotReady,
+                _ => null,
+            };
+        }
+
+        private static string? RefuseSnapshot(FollowerLogJournal journal, IFollowerLogContext owner, in GroupSnapshot snapshot)
+        {
+            var topologyMismatch = FollowerLogSnapshot.SnapshotTopologyMismatch(owner, in snapshot);
+            return true switch
+            {
+                _ when !string.Equals(snapshot.GroupId, owner.GroupId, StringComparison.Ordinal) => FollowerLogRefusal.NotMember,
+                _ when topologyMismatch != null => topologyMismatch,
+                _ when IsMalformed(owner, in snapshot) || !journal.Snapshot.Fits(snapshot) => FollowerLogRefusal.NotReady,
                 _ => null,
             };
         }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
@@ -50,6 +51,9 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
 
     /// <summary>Gets or sets the step the gateway holds until <see cref="Release" /> runs or the call is canceled.</summary>
     internal string? HoldAt { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether a held step that is canceled fails in transport, as a call canceled mid-flight does on a real channel.</summary>
+    internal bool CancelFailsInTransport { get; set; }
 
     /// <summary>Gets or sets the step the gateway fails in transport.</summary>
     internal string? FailAt { get; set; }
@@ -134,7 +138,14 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
         if (string.Equals(HoldAt, name, StringComparison.Ordinal))
         {
             _ = _held.TrySetResult();
-            await _release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await _release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException canceled) when (CancelFailsInTransport && cancellationToken.IsCancellationRequested)
+            {
+                throw new IOException($"Injected transport failure of a canceled call at {name}.", canceled);
+            }
         }
 
         if (string.Equals(RefuseAt, name, StringComparison.Ordinal))

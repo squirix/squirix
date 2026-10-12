@@ -38,6 +38,15 @@ internal sealed class RecordingStateSink : IReplicaStateSink
     /// <summary>Gets or sets a value indicating whether <see cref="EnterAsync" /> enters the group; <see langword="false" /> models a node that leads it.</summary>
     internal bool Enters { get; set; } = true;
 
+    /// <summary>Gets or sets the point where <see cref="EnterAsync" /> waits after it took the group, before it returns.</summary>
+    internal SinkHold? EnterHold { get; set; }
+
+    /// <summary>Gets or sets the fault the next wipe step throws, once, after it was recorded.</summary>
+    internal Exception? WipeFault { get; set; }
+
+    /// <summary>Gets or sets the point where a wipe step waits, honoring the token of the step.</summary>
+    internal SinkHold? WipeHold { get; set; }
+
     /// <summary>Gets a value indicating whether the group was entered and not left.</summary>
     internal bool Held { get; private set; }
 
@@ -53,13 +62,16 @@ internal sealed class RecordingStateSink : IReplicaStateSink
     /// <summary>Gets the member state of both metadata slots at the first wipe step; <see langword="null" /> before it.</summary>
     internal (GroupMemberState First, GroupMemberState Second)? SlotsAtFirstWipe { get; private set; }
 
-    public ValueTask<bool> EnterAsync(string groupId, CancellationToken cancellationToken)
+    public async ValueTask<bool> EnterAsync(string groupId, CancellationToken cancellationToken)
     {
         Record("enter");
         Held = Enters;
         _count = 0UL;
         _crc = 0U;
-        return ValueTask.FromResult(Enters);
+        if (EnterHold is { } hold)
+            await hold.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        return Enters;
     }
 
     public void Leave(string groupId)
@@ -85,6 +97,15 @@ internal sealed class RecordingStateSink : IReplicaStateSink
     {
         SlotsAtFirstWipe ??= TransferFixtures.SlotStates(await GroupMetadataFile.ReadBytesAsync(GroupStoragePaths.GetMetadataPath(_dir, groupId), cancellationToken).ConfigureAwait(false));
         Record("wipe");
+        if (WipeHold is { } hold)
+            await hold.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        if (WipeFault is { } fault)
+        {
+            WipeFault = null;
+            throw fault;
+        }
+
         var examined = Math.Min(maxExamined, Keys);
         Keys -= examined;
         return examined == maxExamined;
@@ -125,5 +146,27 @@ internal sealed class RecordingStateSink : IReplicaStateSink
     {
         lock (_sync)
             _calls.Add(call);
+    }
+
+    /// <summary>A point a sink call waits at until the test releases it, so the test can act while the call is inside the sink.</summary>
+    internal sealed class SinkHold
+    {
+        private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Gets a task that completes once a call waits at the point.</summary>
+        internal Task Reached => _reached.Task;
+
+        /// <summary>Lets the waiting call go on.</summary>
+        internal void Release() => _ = _released.TrySetResult();
+
+        /// <summary>Waits until the test releases the point, or the token is cancelled.</summary>
+        /// <param name="cancellationToken">The token of the call.</param>
+        /// <returns>A task that completes when the point is released.</returns>
+        internal Task WaitAsync(CancellationToken cancellationToken)
+        {
+            _ = _reached.TrySetResult();
+            return _released.Task.WaitAsync(cancellationToken);
+        }
     }
 }

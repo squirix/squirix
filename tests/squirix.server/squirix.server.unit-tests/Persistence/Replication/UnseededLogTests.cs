@@ -157,7 +157,7 @@ public sealed class UnseededLogTests : ServerUnitTestBase
         var compaction = await log.CompactThroughAsync(1UL, cancellationToken);
 
         _ = await Assert.That(begin).IsEqualTo(FollowerLogRefusal.Unseeded);
-        _ = await Assert.That((complete.Success, complete.Refusal)).IsEqualTo((false, FollowerLogRefusal.NotReady));
+        _ = await Assert.That((complete.Success, complete.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.NotReady));
         _ = await Assert.That(capture.Outcome).IsEqualTo(GroupSnapshotCaptureOutcome.NotComplete);
         _ = await Assert.That((reconcile.Success, reconcile.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.Unseeded));
         _ = await Assert.That(compaction).IsEqualTo(GroupCompactionOutcome.NotReady);

@@ -1,3 +1,5 @@
+using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Cluster.Replication;
@@ -18,4 +20,22 @@ internal static class ElectionHold
         _ when status.MemberState != GroupMemberState.Complete => new ElectionOutcome(ElectionEvent.Denied, status.CurrentTerm, FailoverDenial.Unseeded),
         _ => null,
     };
+
+    /// <summary>Tells whether the own vote of a round stands after it was cast under the log gate.</summary>
+    /// <param name="log">The group log.</param>
+    /// <param name="self">The own vote.</param>
+    /// <param name="term">The term of the round.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>
+    /// <see langword="true" /> when the vote was granted in <paramref name="term" /> and the copy is still ready and complete; a copy marked
+    /// incomplete between the check that opened the round and the vote gives the round up.
+    /// </returns>
+    internal static async Task<bool> SelfVoteStandsAsync(IFollowerLog log, FollowerLogVoteResult self, ulong term, CancellationToken cancellationToken)
+    {
+        if (!self.Granted || self.CurrentTerm != term)
+            return false;
+
+        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        return OnStart(in status) == null;
+    }
 }

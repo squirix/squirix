@@ -26,7 +26,10 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
 
     private static readonly byte[] Fingerprint = [9, 8, 7];
 
-    /// <summary>Appends with entries and without are refused with the code of the copy state, even when an offer is held, and nothing on disk changes.</summary>
+    /// <summary>
+    /// Appends with entries and without are refused with the code of the copy state, even when an offer is held, and nothing on disk changes;
+    /// an incomplete copy answers with its durable term, an unseeded one with term zero.
+    /// </summary>
     /// <param name="incomplete">Whether the copy is planted incomplete; otherwise it is unseeded.</param>
     /// <param name="offered">Whether the planted record holds an offer.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -38,8 +41,9 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
     {
         var state = incomplete ? GroupMemberState.Incomplete : GroupMemberState.Unseeded;
         var code = incomplete ? FollowerLogRefusal.Incomplete : FollowerLogRefusal.Unseeded;
+        var term = incomplete ? 3UL : 0UL;
         using var dir = new TempDirectory("squirix-follower-not-complete");
-        await using var registry = await OpenRegistryAsync(dir, state, offered, cancellationToken);
+        await using var registry = await OpenRegistryAsync(dir, state, offered, term, cancellationToken);
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
         var path = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
@@ -47,8 +51,8 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
         var append = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId, true), cancellationToken);
         var probe = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId, false), cancellationToken);
 
-        _ = await Assert.That((append.Success, append.RefusalCode, append.CurrentTerm, append.LastLogIndex)).IsEqualTo((false, code, 0UL, 0UL));
-        _ = await Assert.That((probe.Success, probe.RefusalCode, probe.CurrentTerm, probe.LastLogIndex)).IsEqualTo((false, code, 0UL, 0UL));
+        _ = await Assert.That((append.Success, append.RefusalCode, append.CurrentTerm, append.LastLogIndex)).IsEqualTo((false, code, term, 0UL));
+        _ = await Assert.That((probe.Success, probe.RefusalCode, probe.CurrentTerm, probe.LastLogIndex)).IsEqualTo((false, code, term, 0UL));
         var after = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
         await SequenceAssert.EqualAsync(before, after);
         _ = await Assert.That((await follower.GetStatusAsync(GroupId, cancellationToken))?.MemberState).IsEqualTo(state);
@@ -60,7 +64,7 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
     public async Task UnseededCopyRefusesBallots(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-unseeded-ballots");
-        await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Unseeded, false, cancellationToken);
+        await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Unseeded, false, 0UL, cancellationToken);
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
         var path = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
@@ -84,7 +88,7 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
     public async Task IncompleteCopyAnswersBallots(bool offered, CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-incomplete-ballots");
-        await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Incomplete, offered, cancellationToken);
+        await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Incomplete, offered, 0UL, cancellationToken);
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
         var ballot = new ElectionVoteRequest("n3", 5UL, 0UL, 0UL);
 
@@ -99,13 +103,55 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
         _ = await Assert.That((durable.MemberState, durable.CurrentTerm, durable.VotedFor)).IsEqualTo((GroupMemberState.Incomplete, 5UL, "n3"));
     }
 
+    /// <summary>
+    /// An incomplete copy that voted in a higher term answers an append of the older term with the incomplete code and its own term, which the
+    /// leader's election state observes like any reply.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task IncompleteCopyReportsItsHigherTerm(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-incomplete-term");
+        await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Incomplete, false, 1UL, cancellationToken);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var vote = await follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 2UL, 0UL, 0UL), cancellationToken);
+
+        var append = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId, false), cancellationToken);
+
+        _ = await Assert.That((vote.Granted, vote.CurrentTerm)).IsEqualTo((true, 2UL));
+        _ = await Assert.That((append.Success, append.RefusalCode, append.CurrentTerm)).IsEqualTo((false, FollowerLogRefusal.Incomplete, 2UL));
+        var leader = new ReplicaGroupState(3, registry.StateFor(GroupId).Options, TimeProvider.System);
+        leader.RecordFollowerReply(1, in append);
+        _ = await Assert.That(leader.HighestObservedTerm).IsEqualTo(2UL);
+    }
+
+    /// <summary>A heartbeat of the current leader that an incomplete copy refuses as incomplete is a leader contact: the copy then refuses a pre-vote.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HeartbeatKeepsIncompleteCopyFromPreVote(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-incomplete-contact");
+        await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Incomplete, false, 1UL, cancellationToken);
+        registry.StateFor(GroupId).SetElectionDriven(true);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var ballot = new ElectionVoteRequest("n3", 2UL, 0UL, 0UL);
+        var before = await follower.PreVoteAsync(GroupId, Fingerprint, 1UL, ballot, cancellationToken);
+
+        var heartbeat = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId, false), cancellationToken);
+        var after = await follower.PreVoteAsync(GroupId, Fingerprint, 1UL, ballot, cancellationToken);
+
+        _ = await Assert.That(before.Granted).IsTrue().Because("Without a leader contact the pre-vote is answered from the log.");
+        _ = await Assert.That(heartbeat.RefusalCode).IsEqualTo(FollowerLogRefusal.Incomplete);
+        _ = await Assert.That((after.Granted, after.RefusalCode)).IsEqualTo((false, RefusalCodes.LeaderContact));
+    }
+
     /// <summary>An offer to an incomplete copy is refused, reports the incomplete state, and changes nothing on disk.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task OfferToIncompleteCopyIsRefused(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-incomplete-offer");
-        await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Incomplete, true, cancellationToken);
+        await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Incomplete, true, 0UL, cancellationToken);
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
         var path = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
@@ -117,10 +163,10 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(before, after);
     }
 
-    private static async Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, GroupMemberState state, bool offered, CancellationToken cancellationToken)
+    private static async Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, GroupMemberState state, bool offered, ulong term, CancellationToken cancellationToken)
     {
         _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, GroupId));
-        var meta = new GroupLogMetadata(GroupId, Fingerprint, 1UL, 0UL, string.Empty, 0UL, 0UL, state, offered);
+        var meta = new GroupLogMetadata(GroupId, Fingerprint, 1UL, term, string.Empty, 0UL, 0UL, state, offered);
         await GroupMetadataFile.WriteAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), in meta, cancellationToken);
         var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System };
         var registry = new ReplicaGroupRegistry(dir, [GroupId], 3, Fingerprint, 1UL, NullLoggerFactory.Instance, options) { ElectionClock = TimeProvider.System };

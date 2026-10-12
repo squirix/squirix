@@ -81,12 +81,15 @@ internal sealed class ReplicaTransferReceiver : IDisposable
     }
 
     /// <summary>Aborts the transfer the group holds; the copy stays as it is.</summary>
-    /// <param name="groupId">Replica group identifier.</param>
-    /// <param name="transferId">The transfer to abort.</param>
+    /// <param name="header">The transfer to abort, with its verified sender and term.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Accepted when the transfer was dropped or the group holds none; refused as stale when the group holds another transfer.</returns>
-    internal async Task<ReplicaTransferReply> AbortAsync(string groupId, string transferId, CancellationToken cancellationToken)
+    /// <returns>
+    /// Accepted when the transfer was dropped or the group holds none; refused as stale when the group holds another transfer, or the same
+    /// transfer of another sender or term.
+    /// </returns>
+    internal async Task<ReplicaTransferReply> AbortAsync(ReplicaTransferHeader header, CancellationToken cancellationToken)
     {
+        var groupId = header.GroupId;
         if (!TryResolve(groupId, out var slot, out var log))
             return Refuse(groupId, 0UL, RefusalCodes.NotMember);
 
@@ -97,7 +100,7 @@ internal sealed class ReplicaTransferReceiver : IDisposable
             if (slot.Current is not { } held)
                 return ReplicaTransferReply.Accepted(term);
 
-            if (!string.Equals(held.Header.TransferId, transferId, StringComparison.Ordinal))
+            if (held.Header != header)
                 return Refuse(groupId, term, RefusalCodes.TransferStale);
 
             _ = slot.Drop(held, ReplicaTransferEnd.Aborted);
@@ -114,7 +117,8 @@ internal sealed class ReplicaTransferReceiver : IDisposable
     /// <param name="baseline">The point the transfer is taken at and the snapshot image that goes with it.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// Accepted once the group is held; otherwise the refusal: not-member, topology-mismatch, stale-term, unseeded, not-ready (also while this node leads the group,
+    /// Accepted once the group is held; otherwise the refusal: not-member, topology-mismatch, stale-term (also when another leader is known for the term),
+    /// checksum-mismatch (also for a declared index term of zero or above the sender's term), unseeded, not-ready (also while this node leads the group,
     /// the log is not ready or the index is below the durable commit index) or transfer-busy. Nothing durable is written.
     /// </returns>
     internal async Task<ReplicaTransferReply> BeginAsync(ReplicaTransferHeader header, ReplicaTransferBaseline baseline, CancellationToken cancellationToken)
@@ -129,8 +133,8 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         try
         {
             var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-            var leads = _registry.TryGetState(header.GroupId, out var election) && election.Role == ReplicaGroupRole.Leader;
-            var refusal = ReplicaTransferAdmission.Refusal(in header, in baseline, in status, leads) ?? ReplaceHeld(slot, in header);
+            var view = _registry.TryGetState(header.GroupId, out var election) ? election.ReadRoute() : default;
+            var refusal = ReplicaTransferAdmission.Refusal(in header, in baseline, in status, in view) ?? ReplaceHeld(slot, in header);
             if (refusal == null && !await _sink.EnterAsync(header.GroupId, cancellationToken).ConfigureAwait(false))
                 refusal = RefusalCodes.NotReady;
 
@@ -150,26 +154,36 @@ internal sealed class ReplicaTransferReceiver : IDisposable
     }
 
     /// <summary>Writes a batch of entries through the sink.</summary>
-    /// <param name="groupId">Replica group identifier.</param>
-    /// <param name="transferId">The transfer the batch belongs to.</param>
+    /// <param name="header">The transfer the batch belongs to, with its verified sender and term.</param>
     /// <param name="sequence">The sequence number of the message.</param>
     /// <param name="entries">The entries, in the order the leader sends them.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Accepted, or the refusal; a batch that does not decode ends the transfer as checksum-mismatch.</returns>
-    internal Task<ReplicaTransferReply> EntriesAsync(string groupId, string transferId, int sequence, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken) =>
-        StepAsync(new ReplicaTransferMessage { Step = ReplicaTransferStep.Entries, GroupId = groupId, TransferId = transferId, Sequence = sequence, Entries = entries }, cancellationToken);
+    internal Task<ReplicaTransferReply> EntriesAsync(in ReplicaTransferHeader header, int sequence, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken) =>
+        StepAsync(
+            header,
+            new ReplicaTransferMessage { Step = ReplicaTransferStep.Entries, GroupId = header.GroupId, TransferId = header.TransferId, Sequence = sequence, Entries = entries },
+            cancellationToken);
 
     /// <summary>Ends the transfer: compares the count and the checksum of the entries, awaits the journal barrier and completes the copy at the transferred index.</summary>
-    /// <param name="groupId">Replica group identifier.</param>
-    /// <param name="transferId">The transfer to end.</param>
+    /// <param name="header">The transfer to end, with its verified sender and term.</param>
     /// <param name="sequence">The sequence number of the message.</param>
     /// <param name="entryCount">The number of entries the leader sent.</param>
     /// <param name="entriesCrc">The CRC32C the leader computed over the entries.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Accepted once the copy is complete; checksum-mismatch ends the transfer and the copy stays incomplete.</returns>
-    internal Task<ReplicaTransferReply> EndAsync(string groupId, string transferId, int sequence, ulong entryCount, uint entriesCrc, CancellationToken cancellationToken) =>
+    internal Task<ReplicaTransferReply> EndAsync(in ReplicaTransferHeader header, int sequence, ulong entryCount, uint entriesCrc, CancellationToken cancellationToken) =>
         StepAsync(
-            new ReplicaTransferMessage { Step = ReplicaTransferStep.End, GroupId = groupId, TransferId = transferId, Sequence = sequence, EntryCount = entryCount, EntriesCrc = entriesCrc },
+            header,
+            new ReplicaTransferMessage
+            {
+                Step = ReplicaTransferStep.End,
+                GroupId = header.GroupId,
+                TransferId = header.TransferId,
+                Sequence = sequence,
+                EntryCount = entryCount,
+                EntriesCrc = entriesCrc,
+            },
             cancellationToken);
 
     /// <summary>Ends the transfer the group holds because this node starts leading the group; the copy stays as it is.</summary>
@@ -183,9 +197,10 @@ internal sealed class ReplicaTransferReceiver : IDisposable
     /// </remarks>
     internal async Task ReleaseAsync(string groupId, CancellationToken cancellationToken)
     {
-        if (!_slots.TryGetValue(groupId, out var slot) || slot.Current == null)
+        if (!_slots.TryGetValue(groupId, out var slot))
             return;
 
+        // The gate is taken before the ticket is looked at: a begin that holds the apply driver but has not opened its ticket is not missed.
         await slot.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -199,26 +214,36 @@ internal sealed class ReplicaTransferReceiver : IDisposable
     }
 
     /// <summary>Buffers a chunk of the published snapshot image; the last chunk decodes and checks it.</summary>
-    /// <param name="groupId">Replica group identifier.</param>
-    /// <param name="transferId">The transfer the chunk belongs to.</param>
+    /// <param name="header">The transfer the chunk belongs to, with its verified sender and term.</param>
     /// <param name="sequence">The sequence number of the message.</param>
     /// <param name="offset">The offset of the chunk in the image.</param>
     /// <param name="chunk">The bytes of the chunk.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Accepted, or the refusal; a malformed image ends the transfer as checksum-mismatch and the copy is untouched.</returns>
-    internal Task<ReplicaTransferReply> SnapshotAsync(string groupId, string transferId, int sequence, long offset, ReadOnlyMemory<byte> chunk, CancellationToken cancellationToken) =>
+    internal Task<ReplicaTransferReply> SnapshotAsync(in ReplicaTransferHeader header, int sequence, long offset, ReadOnlyMemory<byte> chunk, CancellationToken cancellationToken) =>
         StepAsync(
-            new ReplicaTransferMessage { Step = ReplicaTransferStep.Snapshot, GroupId = groupId, TransferId = transferId, Sequence = sequence, Offset = offset, Chunk = chunk },
+            header,
+            new ReplicaTransferMessage
+            {
+                Step = ReplicaTransferStep.Snapshot,
+                GroupId = header.GroupId,
+                TransferId = header.TransferId,
+                Sequence = sequence,
+                Offset = offset,
+                Chunk = chunk,
+            },
             cancellationToken);
 
     /// <summary>Removes keys of the group, a bounded number per call; the first call marks the copy incomplete before any key is removed.</summary>
-    /// <param name="groupId">Replica group identifier.</param>
-    /// <param name="transferId">The transfer the step belongs to.</param>
+    /// <param name="header">The transfer the step belongs to, with its verified sender and term.</param>
     /// <param name="sequence">The sequence number of the message.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Accepted with <see cref="ReplicaTransferReply.More" /> set until the group has no key left; otherwise the refusal of the copy or of the transfer.</returns>
-    internal Task<ReplicaTransferReply> WipeAsync(string groupId, string transferId, int sequence, CancellationToken cancellationToken) =>
-        StepAsync(new ReplicaTransferMessage { Step = ReplicaTransferStep.Wipe, GroupId = groupId, TransferId = transferId, Sequence = sequence }, cancellationToken);
+    internal Task<ReplicaTransferReply> WipeAsync(in ReplicaTransferHeader header, int sequence, CancellationToken cancellationToken) =>
+        StepAsync(
+            header,
+            new ReplicaTransferMessage { Step = ReplicaTransferStep.Wipe, GroupId = header.GroupId, TransferId = header.TransferId, Sequence = sequence },
+            cancellationToken);
 
     /// <summary>Takes over a group whose held transfer is of a lower term or has been silent for the idle timeout.</summary>
     /// <param name="slot">The install gate of the group, whose message gate the caller holds.</param>
@@ -334,7 +359,7 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         return ReplicaTransferReply.Refused(term, refusalCode);
     }
 
-    private async Task<ReplicaTransferReply> StepAsync(ReplicaTransferMessage message, CancellationToken cancellationToken)
+    private async Task<ReplicaTransferReply> StepAsync(ReplicaTransferHeader header, ReplicaTransferMessage message, CancellationToken cancellationToken)
     {
         if (!TryResolve(message.GroupId, out var slot, out var log))
             return Refuse(message.GroupId, 0UL, RefusalCodes.NotMember);
@@ -343,7 +368,7 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         try
         {
             var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-            if (slot.Admit(message.TransferId, message.Sequence) is not { } ticket)
+            if (slot.Admit(in header, message.Sequence) is not { } ticket)
                 return Refuse(message.GroupId, status.CurrentTerm, RefusalCodes.TransferStale);
 
             var reply = default(ReplicaTransferReply);
@@ -395,7 +420,7 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         if (!ticket.InstallBegun)
         {
             var baseline = ticket.Baseline;
-            var refusal = await group.Log.BeginStateInstallAsync(ticket.Header.LeaderTerm, baseline.Index, baseline.Fingerprint, baseline.Generation, cancellationToken).ConfigureAwait(false);
+            var refusal = await group.Log.BeginStateInstallAsync(ticket.Header.LeaderTerm, baseline.Index, baseline.Fingerprint, baseline.Generation, ticket.Snapshot, cancellationToken).ConfigureAwait(false);
             if (refusal != null)
                 return Fail(group.Slot, ticket, refusal, term);
 

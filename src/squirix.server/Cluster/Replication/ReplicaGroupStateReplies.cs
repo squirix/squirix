@@ -13,9 +13,9 @@ internal static class ReplicaGroupStateReplies
         /// <param name="reply">The reply.</param>
         /// <remarks>
         /// Only an answer from the follower's log is a contact: accepted, a log mismatch the leader repairs, a log not ready yet, or a copy that
-        /// is incomplete and awaits a state transfer, which is alive and has not moved to a higher term. A refusal before the log (another
-        /// topology, another membership) proves nothing, and its term is still observed. A contact never counts toward a commit or a read
-        /// index confirmation.
+        /// is incomplete and awaits a state transfer, which is alive; its reply carries the durable term of the copy, and a higher term is
+        /// observed like in any other reply. A refusal before the log (another topology, another membership) proves nothing, and its term is
+        /// still observed. A contact never counts toward a commit or a read index confirmation.
         /// </remarks>
         internal void RecordFollowerReply(int replicaIndex, in FollowerLogAppendResult reply)
         {

@@ -413,7 +413,7 @@ internal sealed class ReplicaGroupElection
             return Lose(ElectionEvent.TermNotDurable, current.CurrentTerm);
         }
 
-        if (!self.Granted || self.CurrentTerm != term)
+        if (!await ElectionHold.SelfVoteStandsAsync(_log, self, term, cancellationToken).ConfigureAwait(false))
         {
             _state.ObserveHigherTerm(self.CurrentTerm);
             return Lose(ElectionEvent.VoteLost, Math.Max(current.CurrentTerm, self.CurrentTerm));

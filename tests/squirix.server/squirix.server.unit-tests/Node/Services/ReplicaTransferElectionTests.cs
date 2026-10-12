@@ -192,6 +192,33 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         _ = await Assert.That(begin.Success).IsTrue().Because("The group is free for another transfer.");
     }
 
+    /// <summary>
+    /// A promotion that meets the applier lease held, as by a transfer being received, is a retryable fault and not an exception that ends the
+    /// election loop: it reports no authority, holds no tenure, and starts leading once the lease is free.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PromotionRetriesWhileLeaseIsHeld(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-transfer-lease-held");
+        await using var registry = await OpenCompactedAsync(dir, new FakeTimeProvider(), cancellationToken);
+        var gateway = new ScriptedGateway();
+        gateway.Set("n2", FollowerMode.Match);
+        gateway.Set("n3", FollowerMode.Match);
+        await using var committer = Elected(registry, GroupId, gateway);
+        var lease = committer.Applier.DriverLease;
+        _ = await Assert.That(await lease.TryLeadAsync(cancellationToken)).IsTrue();
+
+        var whileHeld = await committer.PromoteAsync(2UL, cancellationToken);
+        var tenureWhileHeld = committer.Tenure;
+        lease.EndLeading();
+        _ = await committer.PromoteAsync(2UL, cancellationToken);
+
+        _ = await Assert.That(whileHeld).IsFalse();
+        _ = await Assert.That(tenureWhileHeld).IsNull();
+        _ = await Assert.That(committer.Tenure).IsNotNull().Because("The retry started the leadership.");
+    }
+
     /// <summary>The step that runs before a leadership starts is given the group, and runs before the committer holds a tenure.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

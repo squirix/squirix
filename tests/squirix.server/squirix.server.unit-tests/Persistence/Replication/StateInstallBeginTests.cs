@@ -28,7 +28,7 @@ public sealed class StateInstallBeginTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-begin-not-open");
         await using var log = StateInstallScenario.NewLog(dir);
 
-        var refusal = await log.BeginStateInstallAsync(1UL, 1UL, ReadOnlyMemory<byte>.Empty, 0UL, cancellationToken);
+        var refusal = await log.BeginStateInstallAsync(1UL, 1UL, ReadOnlyMemory<byte>.Empty, 0UL, default, cancellationToken);
 
         _ = await Assert.That(refusal).IsEqualTo(FollowerLogRefusal.NotReady);
         _ = await Assert.That(File.Exists(GroupStoragePaths.GetMetadataPath(dir, StateInstallScenario.GroupId))).IsFalse();
@@ -45,8 +45,8 @@ public sealed class StateInstallBeginTests : ServerUnitTestBase
         await log.AdoptTopologyAsync(Fingerprint, 2UL, cancellationToken);
         var before = await ReadMetaAsync(dir, cancellationToken);
 
-        var other = await log.BeginStateInstallAsync(1UL, 2UL, new byte[] { 4 }, 2UL, cancellationToken);
-        var older = await log.BeginStateInstallAsync(1UL, 2UL, Fingerprint, 1UL, cancellationToken);
+        var other = await log.BeginStateInstallAsync(1UL, 2UL, new byte[] { 4 }, 2UL, default, cancellationToken);
+        var older = await log.BeginStateInstallAsync(1UL, 2UL, Fingerprint, 1UL, default, cancellationToken);
 
         _ = await Assert.That((other, older)).IsEqualTo((FollowerLogRefusal.TopologyMismatch, FollowerLogRefusal.TopologyMismatch));
         await AssertUnchangedAsync(dir, before, cancellationToken);

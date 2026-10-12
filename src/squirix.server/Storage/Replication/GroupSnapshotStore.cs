@@ -54,6 +54,9 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     internal bool SnapshotExists => File.Exists(_snapshotPath);
 
     /// <inheritdoc />
+    bool IFollowerLogSnapshotStore.Fits(GroupSnapshot snapshot) => Fits(in snapshot);
+
+    /// <inheritdoc />
     Task IFollowerLogSnapshotStore.PublishAsync(GroupSnapshot snapshot, CancellationToken cancellationToken) => PublishAsync(snapshot, cancellationToken);
 
     /// <inheritdoc />
@@ -117,6 +120,17 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         GroupSnapshotEncoder.EncodeSnapshot(destination.Slice(headerLen, payloadLength), in snapshot);
         var crc = Crc32C.Compute(destination.Slice(headerLen, payloadLength));
         BinaryPrimitives.WriteUInt32LittleEndian(destination[(headerLen + payloadLength)..], crc);
+    }
+
+    /// <summary>Tells, without writing, whether the published file image of a snapshot stays within the configured maximum size.</summary>
+    /// <param name="snapshot">The snapshot whose committed outcomes are already materialized.</param>
+    /// <returns><see langword="true" /> when <see cref="PublishAsync" /> would not refuse the snapshot for its size.</returns>
+    internal bool Fits(in GroupSnapshot snapshot)
+    {
+        long fileLength = GroupSnapshotCodec.SnapshotHeaderByteCount;
+        fileLength += GroupSnapshotCodec.ComputeSnapshotEncodedLength(in snapshot);
+        fileLength += GroupSnapshotCodec.Crc32ByteCount;
+        return fileLength <= _maxSnapshotBytes;
     }
 
     /// <summary>Writes a snapshot to a temp file, flushes it, and atomically publishes it.</summary>

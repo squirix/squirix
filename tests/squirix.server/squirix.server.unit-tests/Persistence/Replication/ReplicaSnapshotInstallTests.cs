@@ -404,28 +404,147 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await Assert.That(recovered.OutcomePayload.Span is [8]).IsTrue().Because("The recovered op-B outcome payload diverges from the snapshot outcome.");
     }
 
-    /// <summary>A snapshot too large to publish fails before anything is written: the copy stays incomplete and the log stays ready.</summary>
+    /// <summary>A snapshot too large to publish fails before anything is written at the completion: the copy stays incomplete and the log stays ready.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task OversizedSnapshotLeavesCopyIncomplete(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-install-oversized");
-        var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, MaxSnapshotBytes = 64 };
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, options);
+        await using var log = OpenLimited(dir, 400);
         await log.OpenSeededAsync(cancellationToken);
         _ = await Assert.That(await FollowerSnapshotScenario.BeginAsync(log, 1UL, 1UL, cancellationToken)).IsNull();
+
+        _ = await NodeAsyncAssert.ThrowsAsync<GroupSnapshotTooLargeException>(log.CompleteStateInstallAsync(Large(), 1UL, cancellationToken));
+
+        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Incomplete);
+        _ = await Assert.That(new GroupSnapshotStore(dir, GroupId).SnapshotExists).IsFalse();
+    }
+
+    /// <summary>A snapshot the log cannot publish is refused when the copy would be marked: the copy stays complete and its metadata keeps its bytes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OversizedSnapshotIsRefusedBeforeTheMark(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-install-oversized-begin");
+        await using var log = OpenLimited(dir, 400);
+        await log.OpenSeededAsync(cancellationToken);
+        var before = await GroupMetadataFile.ReadBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
+
+        var refusal = await FollowerSnapshotScenario.BeginAsync(log, Large(), 1UL, cancellationToken);
+
+        _ = await Assert.That(refusal).IsEqualTo(FollowerLogRefusal.NotReady);
+        _ = await Assert.That(log.IsComplete).IsTrue();
+        var after = await GroupMetadataFile.ReadBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
+        await SequenceAssert.EqualAsync(before, after);
+    }
+
+    /// <summary>A snapshot that fails an eligibility check of the completion is refused when the copy would be marked: the copy stays complete and untouched.</summary>
+    /// <param name="check">The check under test.</param>
+    /// <param name="expected">The refusal the begin gives.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments("other-group", "not-member")]
+    [Arguments("zero-index", "not-ready")]
+    [Arguments("zero-term", "not-ready")]
+    [Arguments("commit-below-index", "not-ready")]
+    [Arguments("below-durable-commit", "not-ready")]
+    public async Task IneligibleSnapshotIsRefusedBeforeTheMark(string check, string expected, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-install-ineligible");
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await log.OpenSeededAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+        _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
+        _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+        _ = await log.AdvanceAppliedAsync(2UL, cancellationToken);
+        var status = await log.GetStatusAsync(cancellationToken);
+        var valid = new GroupSnapshot(GroupId, status.TopologyFingerprint, status.ConfigurationGeneration, 1UL, 3UL, 3UL, [], DateTime.UnixEpoch);
+        var snapshot = check switch
+        {
+            "other-group" => valid with { GroupId = "other" },
+            "zero-index" => valid with { LastIncludedIndex = 0UL, CommitIndex = 0UL },
+            "zero-term" => valid with { LastIncludedTerm = 0UL },
+            "commit-below-index" => valid with { CommitIndex = 2UL },
+            _ => valid with { LastIncludedIndex = 1UL, CommitIndex = 1UL },
+        };
+        var before = await GroupMetadataFile.ReadBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
+
+        var refusal = await log.BeginStateInstallAsync(1UL, 3UL, status.TopologyFingerprint, status.ConfigurationGeneration, snapshot, cancellationToken);
+
+        _ = await Assert.That(refusal).IsEqualTo(expected);
+        _ = await Assert.That(log.IsComplete).IsTrue();
+        var after = await GroupMetadataFile.ReadBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
+        await SequenceAssert.EqualAsync(before, after);
+    }
+
+    /// <summary>A cancellation after the snapshot is published does not fail the log: the completion runs to its end and the copy is complete.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancellationAfterPublishStillCompletes(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-install-cancel-after");
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var faults = new StateInstallFaultHooks();
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults, TimeProvider.System);
+        await log.OpenSeededAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+        _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
+        _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
+        var status = await log.GetStatusAsync(cancellationToken);
+        var snapshot = new GroupSnapshot(GroupId, status.TopologyFingerprint, status.ConfigurationGeneration, 1UL, 2UL, 2UL, [], DateTime.UnixEpoch);
+        _ = await Assert.That(await FollowerSnapshotScenario.BeginAsync(log, snapshot, 1UL, cancellationToken)).IsNull();
+        faults.CancelOnNextFlush(cancel);
+
+        var result = await log.CompleteStateInstallAsync(snapshot, 1UL, cancel.Token);
+
+        _ = await Assert.That(cancel.IsCancellationRequested).IsTrue().Because("The token was cancelled after the publish.");
+        _ = await Assert.That((result.Success, log.Readiness, log.IsComplete)).IsEqualTo((true, FollowerLogReadiness.Ready, true));
+        var done = await log.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((done.LastLogIndex, done.CommitIndex, done.LastAppliedIndex)).IsEqualTo((2UL, 2UL, 2UL));
+    }
+
+    /// <summary>A cancellation before the snapshot is published changes nothing: the copy stays incomplete and the log stays ready.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancellationBeforePublishChangesNothing(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-install-cancel-before");
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await log.OpenSeededAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+        _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
+        _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
+        var status = await log.GetStatusAsync(cancellationToken);
+        var snapshot = new GroupSnapshot(GroupId, status.TopologyFingerprint, status.ConfigurationGeneration, 1UL, 2UL, 2UL, [], DateTime.UnixEpoch);
+        _ = await Assert.That(await FollowerSnapshotScenario.BeginAsync(log, snapshot, 1UL, cancellationToken)).IsNull();
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(log.CompleteStateInstallAsync(snapshot, 1UL, cancelled.Token));
+
+        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        _ = await Assert.That(log.IsComplete).IsFalse();
+        _ = await Assert.That(new GroupSnapshotStore(dir, GroupId).SnapshotExists).IsFalse();
+        var after = await log.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((after.LastLogIndex, after.CommitIndex)).IsEqualTo((1UL, 1UL));
+    }
+
+    private static FollowerLog OpenLimited(TempDirectory dir, int maxSnapshotBytes) => new(
+        dir,
+        GroupId,
+        GroupComposition.Create(GroupId),
+        NullLogger<FollowerLog>.Instance,
+        new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, MaxSnapshotBytes = maxSnapshotBytes });
+
+    private static GroupSnapshot Large()
+    {
         var now = DateTime.UtcNow;
         var outcomes = new List<GroupIdempotencyRecord>();
         for (var i = 0; i < 8; i++)
             outcomes.Add(new GroupIdempotencyRecord("client", $"operation-{i}", new byte[] { 1 }, new byte[] { 8 }, GroupRecordKind.UserMutation, now, now, 1UL, 1UL));
 
-        var large = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, outcomes, now);
-
-        _ = await NodeAsyncAssert.ThrowsAsync<GroupSnapshotTooLargeException>(log.CompleteStateInstallAsync(large, 1UL, cancellationToken));
-
-        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
-        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Incomplete);
-        _ = await Assert.That(new GroupSnapshotStore(dir, GroupId).SnapshotExists).IsFalse();
+        return new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, outcomes, now);
     }
 
     private static FollowerLogAppendRequest Append(ulong index, string payload) => Append(index, 1UL, payload);

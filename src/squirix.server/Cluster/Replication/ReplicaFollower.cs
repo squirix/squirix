@@ -92,8 +92,9 @@ internal sealed class ReplicaFollower
         if (!TryGetLog(groupId, out var log) || !_members.IsMember(groupId, batch.LeaderNodeId))
             return new FollowerLogAppendResult(false, FollowerLogRefusal.NotMember, 0, 0);
 
-        // The call of a member completes a copy that holds an offer; the topology is checked again under the log gate.
-        var refusal = await RefuseNotCompleteAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
+        // The call of a member completes a copy that holds an offer; the topology is checked again under the log gate. An incomplete copy is
+        // answered by the log, with its durable term, so the leader learns a term the copy moved to.
+        var refusal = await RefuseUnseededAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
         if (refusal != null)
             return new FollowerLogAppendResult(false, refusal, 0, 0);
 
@@ -115,8 +116,9 @@ internal sealed class ReplicaFollower
         var result = await log.AppendAsync(request, fingerprint, generation, cancellationToken).ConfigureAwait(false);
         NotifyApplyWhen(result.Success, groupId);
 
-        // A log mismatch still comes from the current leader: the follower only lacks entries, which the leader repairs.
-        if (result.Success || string.Equals(result.RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal))
+        // A log mismatch still comes from the current leader: the follower only lacks entries, which the leader repairs. So does the
+        // refusal of an incomplete copy, which waits for the leader's state transfer.
+        if (result.ShowsLeader(batch.LeaderTerm))
             ObserveLeader(groupId, batch.LeaderNodeId, result.CurrentTerm);
 
         return result;

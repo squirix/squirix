@@ -29,6 +29,12 @@ internal sealed class ReplicaGroupEntries
         _locator = locator;
     }
 
+    /// <summary>Names the group that owns a key.</summary>
+    /// <param name="cacheName">The cache the key belongs to.</param>
+    /// <param name="key">The key.</param>
+    /// <returns>The identifier of the owning group.</returns>
+    internal string OwnerOf(string cacheName, string key) => _locator.GetOwner(cacheName, key);
+
     /// <summary>Enumerates the stored entries, in the order of the local cache, optionally of one group and optionally only those past their deadline.</summary>
     /// <param name="groupId">The only group to yield, or <see langword="null" /> for every group.</param>
     /// <param name="expiredAtUtc">

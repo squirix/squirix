@@ -116,14 +116,14 @@ internal sealed class ReplicaTransferSlot : IDisposable
     }
 
     /// <summary>Admits a message of the held transfer.</summary>
-    /// <param name="transferId">The transfer the message names.</param>
+    /// <param name="header">The transfer the message names, with its verified sender and term.</param>
     /// <param name="sequence">The sequence number the message carries.</param>
-    /// <returns>The ticket, now busy, or <see langword="null" /> when the group holds no transfer with this id or expects another sequence number.</returns>
-    internal ReplicaTransferTicket? Admit(string transferId, int sequence)
+    /// <returns>The ticket, now busy, or <see langword="null" /> when the group holds no transfer with this id, sender and term, or expects another sequence.</returns>
+    internal ReplicaTransferTicket? Admit(in ReplicaTransferHeader header, int sequence)
     {
         lock (_sync)
         {
-            if (_ticket is not { } ticket || !string.Equals(ticket.Header.TransferId, transferId, StringComparison.Ordinal) || ticket.ExpectedSequence != sequence)
+            if (_ticket is not { } ticket || ticket.Header != header || ticket.ExpectedSequence != sequence)
                 return null;
 
             ticket.Busy = true;

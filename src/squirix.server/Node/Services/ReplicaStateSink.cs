@@ -127,9 +127,11 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
     }
 
     /// <inheritdoc />
+    /// <exception cref="InvalidDataException">An entry belongs to another group, or does not decode; nothing of the batch is written for an entry of another group.</exception>
     public async ValueTask WriteAsync(string groupId, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken)
     {
         var work = _work[groupId];
+        EnsureOwnedBy(groupId, entries.Span);
         for (var i = 0; i < entries.Length; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -157,6 +159,20 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
 
         DateTime? expiresUtc = item.ExpiresUtcTicks == 0 ? null : new DateTime(item.ExpiresUtcTicks, DateTimeKind.Utc);
         return new NodeCacheEntry<object?>(decoded.Value, decoded.Version, expiresUtc, null, decoded.Tags);
+    }
+
+    /// <summary>Refuses a batch with an entry the locator does not assign to the group of the transfer, before anything is written.</summary>
+    /// <param name="groupId">The group of the transfer.</param>
+    /// <param name="entries">The batch.</param>
+    /// <exception cref="InvalidDataException">An entry belongs to another group.</exception>
+    private void EnsureOwnedBy(string groupId, ReadOnlySpan<ReplicaStateEntry> entries)
+    {
+        for (var i = 0; i < entries.Length; i++)
+        {
+            var owner = _entries.OwnerOf(entries[i].CacheName, Encoding.UTF8.GetString(entries[i].Key.Span));
+            if (!string.Equals(owner, groupId, StringComparison.Ordinal))
+                throw new InvalidDataException("A transferred entry belongs to another group.");
+        }
     }
 
     /// <summary>What the sink keeps for one group between the calls of a transfer.</summary>

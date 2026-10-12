@@ -156,10 +156,12 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <param name="index">The applied index the transferred state is taken at; an index below the durable commit index is refused.</param>
     /// <param name="fingerprint">Leader topology fingerprint.</param>
     /// <param name="generation">Leader configuration generation.</param>
+    /// <param name="snapshot">The snapshot the transfer will complete at; it is checked now, so a snapshot the completion would refuse leaves the copy untouched.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
     /// <see langword="null" /> once the incomplete record is durable in both metadata slots; otherwise the refusal: <see cref="FollowerLogRefusal.NotReady" />
-    /// when the log is disposed or not ready, or the index is below the durable commit index; <see cref="FollowerLogRefusal.TopologyMismatch" />;
+    /// when the log is disposed or not ready, the index is below the durable commit index, or the snapshot is malformed or above the size limit of the log;
+    /// <see cref="FollowerLogRefusal.TopologyMismatch" />; <see cref="FollowerLogRefusal.NotMember" /> for a snapshot of another group;
     /// <see cref="FollowerLogRefusal.StaleTerm" />; <see cref="FollowerLogRefusal.Unseeded" /> for an unseeded copy, which this path does not repair.
     /// </returns>
     /// <remarks>
@@ -167,7 +169,7 @@ internal interface IFollowerLog : IAsyncDisposable
     /// index stay. A copy that is incomplete already accepts again and publishes the record again, which also repairs a half-written earlier record.
     /// A crash between the two slot writes leaves a legal state either way: complete as before, or incomplete.
     /// </remarks>
-    Task<string?> BeginStateInstallAsync(ulong leaderTerm, ulong index, ReadOnlyMemory<byte> fingerprint, ulong generation, CancellationToken cancellationToken);
+    Task<string?> BeginStateInstallAsync(ulong leaderTerm, ulong index, ReadOnlyMemory<byte> fingerprint, ulong generation, GroupSnapshot snapshot, CancellationToken cancellationToken);
 
     /// <summary>Captures the group snapshot at the durable applied index without publishing it or compacting the log.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>

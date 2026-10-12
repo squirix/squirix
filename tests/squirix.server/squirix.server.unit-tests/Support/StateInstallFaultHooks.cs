@@ -10,6 +10,7 @@ namespace Squirix.Server.UnitTests.Support;
 [ThreadSafe]
 internal sealed class StateInstallFaultHooks : IFollowerLogFaultHooks
 {
+    private CancellationTokenSource? _cancelOnFlush;
     private int _failFlush;
     private int _failPublish = -1;
     private int _publishes;
@@ -27,6 +28,7 @@ internal sealed class StateInstallFaultHooks : IFollowerLogFaultHooks
     /// <inheritdoc />
     public void OnFlushed()
     {
+        Interlocked.Exchange(ref _cancelOnFlush, null)?.Cancel();
         if (Interlocked.Exchange(ref _failFlush, 0) == 1)
             throw new IOException("simulated failure at a log flush.");
     }
@@ -42,6 +44,10 @@ internal sealed class StateInstallFaultHooks : IFollowerLogFaultHooks
         if (Interlocked.Increment(ref _publishes) == Volatile.Read(ref _failPublish))
             throw new IOException("simulated failure at a metadata slot write.");
     }
+
+    /// <summary>Cancels a source at the next flush, without failing it: the caller's token is cancelled while the operation runs.</summary>
+    /// <param name="source">The source to cancel.</param>
+    internal void CancelOnNextFlush(CancellationTokenSource source) => Volatile.Write(ref _cancelOnFlush, source);
 
     /// <summary>Arms the fault for a metadata slot write counted from now.</summary>
     /// <param name="ordinal">One for the next slot write, two for the one after it.</param>

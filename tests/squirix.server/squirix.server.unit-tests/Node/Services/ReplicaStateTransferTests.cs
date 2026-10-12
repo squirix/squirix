@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -6,6 +7,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
@@ -39,7 +41,7 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
         sequence = await harness.WipeAllAsync(Transfer, sequence, cancellationToken);
         sequence = await harness.SendBatchAsync(Transfer, sequence, first, cancellationToken);
         sequence = await harness.SendBatchAsync(Transfer, sequence, second, cancellationToken);
-        var end = await harness.Receiver.EndAsync(GroupId, Transfer, sequence, totals.EntryCount, totals.Crc, cancellationToken);
+        var end = await harness.Receiver.EndAsync(harness.HeaderFor(Transfer), sequence, totals.EntryCount, totals.Crc, cancellationToken);
 
         _ = await Assert.That(end.Success).IsTrue().Because($"refused with '{end.RefusalCode}'");
         _ = await Assert.That(await ReadAsync(harness, "g-old-1", cancellationToken)).IsNull();
@@ -66,7 +68,7 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
         var sequence = await harness.BeginAndUploadAsync(Transfer, 1UL, cancellationToken);
         sequence = await harness.WipeAllAsync(Transfer, sequence, cancellationToken);
         sequence = await harness.SendBatchAsync(Transfer, sequence, entries, cancellationToken);
-        _ = await harness.Receiver.EndAsync(GroupId, Transfer, sequence, totals.EntryCount, totals.Crc, cancellationToken);
+        _ = await harness.Receiver.EndAsync(harness.HeaderFor(Transfer), sequence, totals.EntryCount, totals.Crc, cancellationToken);
 
         _ = await Assert.That(harness.Registry.TryGetLog(GroupId, out var log)).IsTrue();
         var status = await log!.GetStatusAsync(cancellationToken);
@@ -111,7 +113,7 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
         var crashed = await OpenAsync(dir, cancellationToken, new ReplicaTransferOptions { WipeStepKeys = 1 });
         await crashed.SeedAsync(cancellationToken, "g-old-1", "g-old-2");
         var sequence = await crashed.BeginAndUploadAsync(Transfer, 1UL, cancellationToken);
-        var step = await crashed.Receiver.WipeAsync(GroupId, Transfer, sequence, cancellationToken);
+        var step = await crashed.Receiver.WipeAsync(crashed.HeaderFor(Transfer), sequence, cancellationToken);
         _ = await Assert.That((step.Success, step.More)).IsEqualTo((true, true));
         await crashed.DisposeAsync();
 
@@ -125,13 +127,32 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
         sequence = await reopened.BeginAndUploadAsync("transfer-2", 1UL, cancellationToken);
         sequence = await reopened.WipeAllAsync("transfer-2", sequence, cancellationToken);
         sequence = await reopened.SendBatchAsync("transfer-2", sequence, entries, cancellationToken);
-        var end = await reopened.Receiver.EndAsync(GroupId, "transfer-2", sequence, totals.EntryCount, totals.Crc, cancellationToken);
+        var end = await reopened.Receiver.EndAsync(reopened.HeaderFor("transfer-2"), sequence, totals.EntryCount, totals.Crc, cancellationToken);
 
         _ = await Assert.That(end.Success).IsTrue();
         _ = await Assert.That(log.IsComplete).IsTrue();
         _ = await Assert.That(await ReadAsync(reopened, "g-old-1", cancellationToken)).IsNull();
         _ = await Assert.That(await ReadAsync(reopened, "g-old-2", cancellationToken)).IsNull();
         _ = await Assert.That(await ReadAsync(reopened, "g-new-1", cancellationToken)).IsNotNull();
+    }
+
+    /// <summary>A batch with an entry that the locator assigns to another group is refused before any entry of the batch is written, and the receiver ends the transfer on it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EntryOfAnotherGroupIsRefusedUnwritten(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-state-foreign-entry");
+        await using var harness = await OpenAsync(dir, cancellationToken);
+        var batch = new[] { Entry("g-new-1", "v1", 0L), Entry("other-1", "v2", 0L) };
+        var sequence = await harness.BeginAndUploadAsync(Transfer, 1UL, cancellationToken);
+        sequence = await harness.WipeAllAsync(Transfer, sequence, cancellationToken);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(harness.Sink.WriteAsync(GroupId, batch, cancellationToken));
+        var reply = await harness.Receiver.EntriesAsync(harness.HeaderFor(Transfer), sequence, batch, cancellationToken);
+
+        _ = await Assert.That((reply.Success, reply.RefusalCode)).IsEqualTo((false, RefusalCodes.ChecksumMismatch));
+        _ = await Assert.That(await ReadAsync(harness, "g-new-1", cancellationToken)).IsNull().Because("Nothing of the batch was written.");
+        _ = await Assert.That(await ReadAsync(harness, "other-1", cancellationToken)).IsNull();
     }
 
     private static long BytesOf(ILocalCacheStats stats) => stats.EstimatedBytes;

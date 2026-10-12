@@ -101,4 +101,6 @@ shorter, and only while no newer outcome needs its place. A snapshot carrying an
 Publication writes `group.snapshot.tmp`, flushes it, and atomically replaces `group.snapshot`. Recovery validates the
 magic, version, declared length, size bound, and CRC before restoring the committed baseline. Journal compaction keeps
 the snapshot published and retains the log header plus entries after `lastIncludedIndex`, so a crash during or after
-compaction remains restartable and the snapshot remains installable by a lagging replica.
+compaction remains restartable. A replica that fell behind the compacted log is repaired by a state transfer: the
+leader sends the published image, the receiving replica checks it before it changes anything, and it publishes the same
+snapshot when the transfer completes.

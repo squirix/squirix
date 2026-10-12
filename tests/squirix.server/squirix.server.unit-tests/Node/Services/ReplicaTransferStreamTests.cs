@@ -222,6 +222,24 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         _ = await Assert.That(canceled.Aborts).IsEqualTo(0);
     }
 
+    /// <summary>A call canceled by the drain of the sender surfaces as a transport fault, and the stream still ends as aborted, not as unreachable.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DrainFaultInCallIsAborted(CancellationToken cancellationToken)
+    {
+        var (_, walk, clock) = await LeaderAsync(1, cancellationToken);
+        using var draining = new CancellationTokenSource();
+        var gateway = new ScriptedTransferGateway { HoldAt = "wipe", CancelFailsInTransport = true };
+        var run = new ReplicaTransferStream(gateway, new ReplicaTransferOptions(), Header(), "n1", clock) { Draining = draining.Token }.RunAsync(Snapshot(), walk, cancellationToken);
+        await gateway.Held.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        await draining.CancelAsync();
+        var result = await run;
+
+        _ = await Assert.That(result.Outcome).IsEqualTo(ReplicaTransferOutcome.Aborted);
+        _ = await Assert.That(gateway.Aborts).IsEqualTo(1);
+    }
+
     private static List<ReplicaStateEntry> AllEntries(ScriptedTransferGateway gateway)
     {
         List<ReplicaStateEntry> all = [];
@@ -269,18 +287,20 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         }
 
         public Task<ReplicaTransferReply> BeginAsync(string nodeId, ReplicaRpcHeader header, string transferId, ReplicaTransferBaseline baseline, CancellationToken cancellationToken) =>
-            _receiver.BeginAsync(new ReplicaTransferHeader(header.GroupId, transferId, header.LeaderNodeId, header.Term), baseline, cancellationToken);
+            _receiver.BeginAsync(SenderOf(in header, transferId), baseline, cancellationToken);
 
         public Task<ReplicaTransferReply> SendAsync(string nodeId, ReplicaRpcHeader header, ReplicaTransferMessage message, CancellationToken cancellationToken) => message.Step switch
         {
-            ReplicaTransferStep.Snapshot => _receiver.SnapshotAsync(message.GroupId, message.TransferId, message.Sequence, message.Offset, message.Chunk, cancellationToken),
-            ReplicaTransferStep.Wipe => _receiver.WipeAsync(message.GroupId, message.TransferId, message.Sequence, cancellationToken),
-            ReplicaTransferStep.Entries => _receiver.EntriesAsync(message.GroupId, message.TransferId, message.Sequence, message.Entries, cancellationToken),
-            ReplicaTransferStep.End => _receiver.EndAsync(message.GroupId, message.TransferId, message.Sequence, message.EntryCount, message.EntriesCrc, cancellationToken),
+            ReplicaTransferStep.Snapshot => _receiver.SnapshotAsync(SenderOf(in header, message.TransferId), message.Sequence, message.Offset, message.Chunk, cancellationToken),
+            ReplicaTransferStep.Wipe => _receiver.WipeAsync(SenderOf(in header, message.TransferId), message.Sequence, cancellationToken),
+            ReplicaTransferStep.Entries => _receiver.EntriesAsync(SenderOf(in header, message.TransferId), message.Sequence, message.Entries, cancellationToken),
+            ReplicaTransferStep.End => _receiver.EndAsync(SenderOf(in header, message.TransferId), message.Sequence, message.EntryCount, message.EntriesCrc, cancellationToken),
             _ => throw new ArgumentOutOfRangeException(nameof(message), message.Step, "Unsupported transfer step."),
         };
 
         public Task<ReplicaTransferReply> AbortAsync(string nodeId, ReplicaRpcHeader header, string transferId, CancellationToken cancellationToken) =>
-            _receiver.AbortAsync(header.GroupId, transferId, cancellationToken);
+            _receiver.AbortAsync(SenderOf(in header, transferId), cancellationToken);
+
+        private static ReplicaTransferHeader SenderOf(in ReplicaRpcHeader header, string transferId) => new(header.GroupId, transferId, header.LeaderNodeId, header.Term);
     }
 }

@@ -34,6 +34,7 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
     /// <summary>The cache the entries of the tests belong to.</summary>
     internal const string CacheName = "cache";
 
+    private readonly List<ReplicaTransferHeader> _begun = [];
     private ReplicaGroupCommitters? _committers;
     private Meter? _meter;
 
@@ -168,10 +169,26 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
     {
         var image = TransferFixtures.Image();
         var half = image.Length / 2;
+        _begun.Add(HeaderOf(transferId, term));
         _ = Accepted(await Receiver.BeginAsync(HeaderOf(transferId, term), BaselineOf(image), cancellationToken));
-        _ = Accepted(await Receiver.SnapshotAsync(GroupId, transferId, 1, 0, image.AsMemory(0, half), cancellationToken));
-        _ = Accepted(await Receiver.SnapshotAsync(GroupId, transferId, 2, half, image.AsMemory(half), cancellationToken));
+        _ = Accepted(await Receiver.SnapshotAsync(HeaderOf(transferId, term), 1, 0, image.AsMemory(0, half), cancellationToken));
+        _ = Accepted(await Receiver.SnapshotAsync(HeaderOf(transferId, term), 2, half, image.AsMemory(half), cancellationToken));
         return 3;
+    }
+
+    /// <summary>Builds the header of a transfer this harness began, with the term it began at.</summary>
+    /// <param name="transferId">The transfer identifier.</param>
+    /// <returns>The header.</returns>
+    /// <exception cref="InvalidOperationException">The harness began no such transfer.</exception>
+    internal ReplicaTransferHeader HeaderFor(string transferId)
+    {
+        for (var i = _begun.Count - 1; i >= 0; i--)
+        {
+            if (string.Equals(_begun[i].TransferId, transferId, StringComparison.Ordinal))
+                return _begun[i];
+        }
+
+        throw new InvalidOperationException($"The harness began no transfer '{transferId}'.");
     }
 
     /// <summary>Stores keys in the cache as an earlier life of the node left them.</summary>
@@ -193,7 +210,7 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
     /// <exception cref="InvalidOperationException">The message was refused.</exception>
     internal async Task<int> SendBatchAsync(string transferId, int sequence, ReplicaStateEntry[] entries, CancellationToken cancellationToken)
     {
-        _ = Accepted(await Receiver.EntriesAsync(GroupId, transferId, sequence, entries, cancellationToken));
+        _ = Accepted(await Receiver.EntriesAsync(HeaderFor(transferId), sequence, entries, cancellationToken));
         return sequence + 1;
     }
 
@@ -207,7 +224,7 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
     {
         ReplicaTransferReply reply;
         do
-            reply = Accepted(await Receiver.WipeAsync(GroupId, transferId, sequence++, cancellationToken));
+            reply = Accepted(await Receiver.WipeAsync(HeaderFor(transferId), sequence++, cancellationToken));
         while (reply.More);
 
         return sequence;
