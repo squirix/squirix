@@ -167,7 +167,9 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         };
 
         // A refused loopback connect takes about two seconds on Windows and can outlast the per-attempt timeout of a forward, which is ambiguous
-        // and never rerouted; resetting every dial towards the stopped owner makes its unreachability prompt on every platform.
+        // and never rerouted; resetting every dial towards the stopped owner makes its unreachability prompt on every platform. A forward that
+        // did reach the new leader can still outlast that timeout while the leader commits on a loaded host; it is ambiguous too, so the write
+        // is sent again with the same operation id, as the client library does.
         await cluster.StopNodeAsync(OwnerId);
         await fabric.IsolateAsync(OwnerId);
         string[] survivors = [Nodes[1], Nodes[2]];
@@ -178,10 +180,10 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             var started = Stopwatch.GetTimestamp();
             refusal = await SetAsync(client, request, cancellationToken);
             outcomes.Add($"{(refusal == null ? "OK" : refusal.Status.Detail)} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms");
-            if (refusal is { StatusCode: StatusCode.Unavailable })
+            if (refusal is { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded })
                 _ = await LeaderAsync(cluster, survivors, cancellationToken);
         }
-        while (refusal is { StatusCode: StatusCode.Unavailable } && outcomes.Count < MaxWrites);
+        while (refusal is { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded } && outcomes.Count < MaxWrites);
 
         _ = await Assert.That(refusal).IsNull().Because($"the write through {EntryOutsideGroup} must reach the new leader; writes: {string.Join("; ", outcomes)}");
         var leader = await LeaderAsync(cluster, survivors, cancellationToken);
