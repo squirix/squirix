@@ -54,16 +54,16 @@ internal static class ReplicaOwnerTestKit
 
     internal static NodeCacheEntry<object?> Entry(string key) => new() { Value = key, Version = 1 };
 
-    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway) => CreateCommitter(registry, gateway, new StubCache());
+    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway) => CreateCommitter(registry, gateway, new StubCache(), NullLogger<ReplicaGroupCommitter>.Instance);
 
-    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, ILogicalNamespacedCache<object?> cache, ILogger<ReplicaGroupCommitter>? log = null) =>
-        new(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), log ?? NullLogger<ReplicaGroupCommitter>.Instance)
+    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, ILogicalNamespacedCache<object?> cache, ILogger<ReplicaGroupCommitter> log) =>
+        new(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), log)
         {
             Clock = TimeProvider.System,
             ShutdownTimeProvider = TimeProvider.System,
             BudgetTimeProvider = TimeProvider.System,
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
-            Applier = new ReplicaGroupApplier(cache, log ?? NullLogger<ReplicaGroupCommitter>.Instance, "n1", "n1"),
+            Applier = new ReplicaGroupApplier(cache, log, "n1", "n1"),
         };
 
     internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, TimeSpan commitBudget)

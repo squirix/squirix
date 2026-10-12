@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
@@ -58,7 +59,7 @@ public sealed class ReplicaCommitterStaticTermTests : ServerUnitTestBase
         var gateway = new ScriptedGateway();
         var cache = new StubCache();
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, gateway, cache);
+        await using var committer = CreateCommitter(registry, gateway, cache, NullLogger<ReplicaGroupCommitter>.Instance);
 
         for (var attempt = 0; attempt < 2; attempt++)
         {

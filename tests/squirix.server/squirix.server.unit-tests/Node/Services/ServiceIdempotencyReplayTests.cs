@@ -124,7 +124,7 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
                          out _))
         {
             await using var registry = await ReplicaOwnerTestKit.OpenRegistryAsync(groupDir, cancellationToken);
-            await using var committer = ReplicaOwnerTestKit.CreateCommitter(registry, new ReplicaOwnerTestKit.ScriptedGateway(), new JournalingCache(journal));
+            await using var committer = ReplicaOwnerTestKit.CreateCommitter(registry, new ReplicaOwnerTestKit.ScriptedGateway(), new JournalingCache(journal), NullLogger<ReplicaGroupCommitter>.Instance);
             RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId, Fingerprint);
             try
             {

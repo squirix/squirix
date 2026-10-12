@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -36,7 +37,7 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
     {
         var local = new ScopeRecordingCache();
         await using var registry = await ReplicaOwnerTestKit.OpenRegistryAsync(Dir, cancellationToken);
-        await using var committer = ReplicaOwnerTestKit.CreateCommitter(registry, new ReplicaOwnerTestKit.ScriptedGateway(), local);
+        await using var committer = ReplicaOwnerTestKit.CreateCommitter(registry, new ReplicaOwnerTestKit.ScriptedGateway(), local, NullLogger<ReplicaGroupCommitter>.Instance);
         var first = await NodeAsyncAssert.ThrowsAsync<SquirixException>(
             committer.CommitSetAsync(ReplicaOwnerTestKit.NewOperationId(), "cache", "k1", ReplicaOwnerTestKit.Entry("k1"), cancellationToken));
         _ = await Assert.That(first.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
