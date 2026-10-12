@@ -76,7 +76,7 @@ public sealed class LeaderReplicaIndexTests : ServerUnitTestBase
     public async Task ApplyAllLeavesLeaderSlot()
     {
         var eligibility = new ReplicaEligibility(3);
-        var leader = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 4, 1, 4, 4, FollowerLogReadiness.Ready, GroupMemberState.Complete, false);
+        var leader = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 4, 1, 4, 4, FollowerLogReadiness.Ready, GroupMemberState.Complete);
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, 1, in leader, Fingerprint, 1);
         ReplicaProbeResult[] results =
         [
@@ -97,7 +97,7 @@ public sealed class LeaderReplicaIndexTests : ServerUnitTestBase
     public async Task ProbeHelpersSkipLeaderSlot()
     {
         var eligibility = new ReplicaEligibility(3);
-        var leader = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 4, 1, 4, 4, FollowerLogReadiness.Ready, GroupMemberState.Complete, false);
+        var leader = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 4, 1, 4, 4, FollowerLogReadiness.Ready, GroupMemberState.Complete);
 
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, 1, in leader, Fingerprint, 1);
         var candidates = ReplicaReadinessProbe.NonReadyFollowers(eligibility, 1);

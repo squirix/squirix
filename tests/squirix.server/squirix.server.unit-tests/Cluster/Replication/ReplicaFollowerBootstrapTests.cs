@@ -191,7 +191,8 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
         _ = await Assert.That((preVote.Granted, preVote.RefusalCode, preVote.CurrentTerm)).IsEqualTo((false, FollowerLogRefusal.NotMember, 0UL));
         _ = await Assert.That((vote.Granted, vote.RefusalCode, vote.CurrentTerm)).IsEqualTo((false, FollowerLogRefusal.NotMember, 0UL));
         var status = await follower.GetStatusAsync(GroupId, cancellationToken);
-        _ = await Assert.That((status?.MemberState, status?.BootstrapOffered, status?.CurrentTerm, status?.VotedFor)).IsEqualTo((GroupMemberState.Unseeded, true, 0UL, string.Empty));
+        _ = await Assert.That((status?.MemberState, status?.CurrentTerm, status?.VotedFor)).IsEqualTo((GroupMemberState.Unseeded, 0UL, string.Empty));
+        _ = await Assert.That((await GroupMetadataFile.ReadAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken)).BootstrapOffered).IsTrue();
     }
 
     /// <summary>An append, a pre-vote and a vote under another topology are refused with the code, term and last index the topology check gives a complete copy.</summary>
@@ -267,7 +268,8 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
         _ = await Assert.That((commit.Success, commit.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.NotMember));
         _ = await Assert.That((install.Success, install.Refusal)).IsEqualTo((false, FollowerLogRefusal.NotMember));
         var status = await follower.GetStatusAsync(GroupId, cancellationToken);
-        _ = await Assert.That((status?.MemberState, status?.BootstrapOffered, status?.CurrentTerm)).IsEqualTo((GroupMemberState.Unseeded, true, 0UL));
+        _ = await Assert.That((status?.MemberState, status?.CurrentTerm)).IsEqualTo((GroupMemberState.Unseeded, 0UL));
+        _ = await Assert.That((await GroupMetadataFile.ReadAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken)).BootstrapOffered).IsTrue();
     }
 
     private static Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, bool offered, CancellationToken cancellationToken) =>

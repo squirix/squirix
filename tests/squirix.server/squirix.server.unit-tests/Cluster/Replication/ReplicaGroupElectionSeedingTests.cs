@@ -88,5 +88,5 @@ public sealed class ReplicaGroupElectionSeedingTests : ServerUnitTestBase
     }
 
     private static FollowerLogStatus Status(GroupMemberState state, FollowerLogReadiness readiness, ulong term) =>
-        new("n2", ReadOnlyMemory<byte>.Empty, 1UL, term, string.Empty, 0UL, 0UL, 0UL, 0UL, readiness, state, false);
+        new("n2", ReadOnlyMemory<byte>.Empty, 1UL, term, string.Empty, 0UL, 0UL, 0UL, 0UL, readiness, state);
 }

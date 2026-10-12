@@ -220,7 +220,7 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
     [Test]
     public async Task TornLeaderFrameIsCorrupt(CancellationToken cancellationToken)
     {
-        var status = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 3, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete, false);
+        var status = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 3, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete);
         var expectations = new IFollowerLogCreateExpectations();
         _ = expectations.Setups.GetStatusAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(status));
         _ = expectations.Setups.ReadEntriesAsync(Arg.Any<ulong>(), Arg.Any<int>(), Arg.Any<CancellationToken>())

@@ -179,7 +179,7 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
     private static ReplicaRpcHeader Header(string groupId) => new(groupId, ReadOnlyMemory<byte>.Empty, 1UL, 0UL, string.Empty, "n1");
 
     private static FollowerLogStatus Status(string groupId, FollowerLogReadiness readiness) =>
-        new(groupId, ReadOnlyMemory<byte>.Empty, 1UL, 0UL, string.Empty, 0UL, 0UL, 0UL, 0UL, readiness, GroupMemberState.Complete, false);
+        new(groupId, ReadOnlyMemory<byte>.Empty, 1UL, 0UL, string.Empty, 0UL, 0UL, 0UL, 0UL, readiness, GroupMemberState.Complete);
 
     /// <summary>Voters whose first pre-vote makes the candidate log vote for another candidate in the proposed term, then grant.</summary>
     [ThreadSafe]

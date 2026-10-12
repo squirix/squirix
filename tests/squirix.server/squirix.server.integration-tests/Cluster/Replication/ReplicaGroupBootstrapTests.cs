@@ -38,7 +38,6 @@ public sealed class ReplicaGroupBootstrapTests : NodeIntegrationTestBase
         var own = await Log(owner, Nodes[1]).GetStatusAsync(cancellationToken);
         var header = new ReplicaRpcHeader(Nodes[1], own.TopologyFingerprint, own.ConfigurationGeneration, 0UL, string.Empty, Nodes[1]);
         var gateway = owner.GetRequiredService<IReplicaBootstrapGateway>();
-        var before = await Log(member, Nodes[1]).GetStatusAsync(cancellationToken);
 
         var reported = await gateway.GetStatusAsync(Nodes[2], header, cancellationToken);
         var offered = await gateway.OfferAsync(Nodes[2], header, cancellationToken);
@@ -49,7 +48,7 @@ public sealed class ReplicaGroupBootstrapTests : NodeIntegrationTestBase
         _ = await Assert.That(reported.ConfigurationGeneration).IsEqualTo(own.ConfigurationGeneration);
         _ = await Assert.That(reported.TopologyFingerprint.Span.SequenceEqual(own.TopologyFingerprint.Span)).IsTrue();
         _ = await Assert.That(offered).IsEqualTo(new ReplicaBootstrapOfferResult(true, GroupMemberState.Unseeded, string.Empty));
-        _ = await Assert.That((before.BootstrapOffered, after.MemberState, after.BootstrapOffered)).IsEqualTo((false, GroupMemberState.Unseeded, true));
+        _ = await Assert.That(after.MemberState).IsEqualTo(GroupMemberState.Unseeded);
         _ = await Assert.That(foreign).IsEqualTo(new ReplicaBootstrapOfferResult(false, null, RefusalCodes.NotMember));
     }
 

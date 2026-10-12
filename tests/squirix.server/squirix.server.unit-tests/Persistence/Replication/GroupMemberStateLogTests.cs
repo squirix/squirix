@@ -33,7 +33,7 @@ public sealed class GroupMemberStateLogTests : ServerUnitTestBase
             await log.OpenAsync(cancellationToken);
 
             var status = await log.GetStatusAsync(cancellationToken);
-            _ = await Assert.That((status.MemberState, status.BootstrapOffered, status.Readiness)).IsEqualTo((GroupMemberState.Unseeded, false, FollowerLogReadiness.Ready));
+            _ = await Assert.That((status.MemberState, status.Readiness)).IsEqualTo((GroupMemberState.Unseeded, FollowerLogReadiness.Ready));
         }
 
         var durable = GroupMetadataStore.Read(GroupStoragePaths.GetMetadataPath(dir, GroupId)).Metadata;
@@ -51,18 +51,18 @@ public sealed class GroupMemberStateLogTests : ServerUnitTestBase
         {
             await log.OpenSeededAsync(cancellationToken);
             _ = await log.ObserveTermAsync(3UL, cancellationToken);
-            await AssertCompleteAsync(log, cancellationToken);
+            await AssertCompleteAsync(dir, log, cancellationToken);
             _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 4UL, 0UL, 0UL), cancellationToken);
-            await AssertCompleteAsync(log, cancellationToken);
+            await AssertCompleteAsync(dir, log, cancellationToken);
             _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, 4UL, "a"), cancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
-            await AssertCompleteAsync(log, cancellationToken);
+            await AssertCompleteAsync(dir, log, cancellationToken);
         }
 
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(cancellationToken);
 
-        await AssertCompleteAsync(reopened, cancellationToken);
+        await AssertCompleteAsync(dir, reopened, cancellationToken);
         var status = await reopened.GetStatusAsync(cancellationToken);
         _ = await Assert.That((status.CurrentTerm, status.VotedFor, status.CommitIndex)).IsEqualTo((4UL, "node-b", 1UL));
     }
@@ -91,12 +91,12 @@ public sealed class GroupMemberStateLogTests : ServerUnitTestBase
             var result = await log.InstallSnapshotAsync(snapshot, 1UL, cancellationToken);
 
             _ = await Assert.That(result.Success).IsTrue();
-            await AssertCompleteAsync(log, cancellationToken);
+            await AssertCompleteAsync(dir, log, cancellationToken);
         }
 
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(cancellationToken);
-        await AssertCompleteAsync(reopened, cancellationToken);
+        await AssertCompleteAsync(dir, reopened, cancellationToken);
     }
 
     /// <summary>A log opened over a metadata file of an earlier version fails readiness with the earlier-build message and leaves the file unchanged.</summary>
@@ -119,10 +119,11 @@ public sealed class GroupMemberStateLogTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(image, after);
     }
 
-    private static async Task AssertCompleteAsync(FollowerLog log, CancellationToken cancellationToken)
+    private static async Task AssertCompleteAsync(TempDirectory dir, FollowerLog log, CancellationToken cancellationToken)
     {
         var status = await log.GetStatusAsync(cancellationToken);
-        _ = await Assert.That((status.MemberState, status.BootstrapOffered)).IsEqualTo((GroupMemberState.Complete, false));
+        var durable = await GroupMetadataFile.ReadAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
+        _ = await Assert.That((status.MemberState, durable.BootstrapOffered)).IsEqualTo((GroupMemberState.Complete, false));
     }
 
     private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
