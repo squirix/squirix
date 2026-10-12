@@ -12,13 +12,19 @@ internal static class ReplicaGroupStateReplies
         /// <param name="replicaIndex">The slot of the follower.</param>
         /// <param name="reply">The reply.</param>
         /// <remarks>
-        /// Only an answer from the follower's log is a contact: accepted, a log mismatch the leader repairs, or a log not ready yet. A refusal
-        /// before the log (another topology, another membership) proves nothing, and its term is still observed.
+        /// Only an answer from the follower's log is a contact: accepted, a log mismatch the leader repairs, a log not ready yet, or a copy that
+        /// is incomplete and awaits a state transfer, which is alive and has not moved to a higher term. A refusal before the log (another
+        /// topology, another membership) proves nothing, and its term is still observed. A contact never counts toward a commit or a read
+        /// index confirmation.
         /// </remarks>
         internal void RecordFollowerReply(int replicaIndex, in FollowerLogAppendResult reply)
         {
-            if (reply.Success || string.Equals(reply.RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal) ||
-                string.Equals(reply.RefusalCode, FollowerLogRefusal.NotReady, StringComparison.Ordinal))
+            var code = reply.RefusalCode;
+            var fromLog = reply.Success ||
+                          string.Equals(code, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal) ||
+                          string.Equals(code, FollowerLogRefusal.NotReady, StringComparison.Ordinal) ||
+                          string.Equals(code, FollowerLogRefusal.Incomplete, StringComparison.Ordinal);
+            if (fromLog)
                 state.RecordFollowerContact(replicaIndex, reply.CurrentTerm);
             else
                 state.ObserveHigherTerm(reply.CurrentTerm);

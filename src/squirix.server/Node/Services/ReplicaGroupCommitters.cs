@@ -100,6 +100,10 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     /// <summary>Gets the leaderships the election starts, in order, for the readiness service; <see langword="null" /> when the led set is fixed.</summary>
     internal ChannelReader<ReplicaPromotion>? Promotions => _promotions?.Reader;
 
+    /// <summary>Initializes the step that runs before this node starts leading a group, given the group; none unless set.</summary>
+    /// <remarks>The node ends the state transfer it receives for the group there, so the leadership does not wait for the apply driver the transfer holds.</remarks>
+    internal Func<string, CancellationToken, Task>? BeforeLeading { private get; init; }
+
     /// <inheritdoc />
     /// <remarks>
     /// Every committer created is disposed, led or not, concurrently, each within its own shutdown budget, so a committer stuck in its
@@ -138,6 +142,7 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
         var committer = GetOrCreate(groupId);
         try
         {
+            await (BeforeLeading?.Invoke(groupId, cancellationToken) ?? Task.CompletedTask).ConfigureAwait(false);
             return await committer.PromoteAsync(term, cancellationToken).ConfigureAwait(false);
         }
         finally

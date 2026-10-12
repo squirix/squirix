@@ -33,6 +33,19 @@ internal sealed class ReplicaTransferOptions
     /// <summary>Gets the largest published snapshot image the receiver buffers.</summary>
     internal int MaxSnapshotBytes { get; init; } = GroupSnapshotStore.DefaultMaxSnapshotBytes;
 
+    /// <summary>Gets the longest time the leader waits for the answer to one transfer message; 10 seconds unless set.</summary>
+    /// <remarks>It stays below <see cref="IdleTimeout" />, so a step the leader gave up on does not outlive the ticket it belongs to by much.</remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The timeout is not positive.</exception>
+    internal TimeSpan StepTimeout
+    {
+        get;
+        init
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(value, TimeSpan.Zero);
+            field = value;
+        }
+    } = TimeSpan.FromSeconds(10);
+
     /// <summary>Gets the largest number of keys one wipe step examines; 1024 unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The step is not positive.</exception>
     internal int WipeStepKeys

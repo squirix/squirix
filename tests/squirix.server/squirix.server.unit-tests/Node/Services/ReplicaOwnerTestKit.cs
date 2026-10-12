@@ -49,6 +49,9 @@ internal static class ReplicaOwnerTestKit
 
         /// <summary>Refuses every batch as an incomplete copy, before its log, with term zero.</summary>
         Incomplete = 8,
+
+        /// <summary>Refuses every batch as a copy that lost its data, before its log, with term zero.</summary>
+        Unseeded = 9,
     }
 
     internal static string NewOperationId() => Guid.NewGuid().ToString("N");
@@ -378,6 +381,7 @@ internal static class ReplicaOwnerTestKit
                     batch.Records.Count == 0 ? new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, batch.LeaderTerm, 0)
                         : new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last + 5)),
                 FollowerMode.Incomplete => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.Incomplete, 0, 0)),
+                FollowerMode.Unseeded => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.Unseeded, 0, 0)),
                 _ => throw new ArgumentOutOfRangeException(nameof(nodeId)),
             };
         }

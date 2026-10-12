@@ -1,7 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
 
 namespace Squirix.Server.Node.Services;
@@ -81,11 +83,27 @@ internal static class ReplicaGroupCommitterCompaction
 
             using var held = guard;
             committer.ThrowIfDisposed();
+            return await committer.CompactHeldAsync(log, eligibility, durability, cancellationToken).ConfigureAwait(false);
+        }
 
-            // An elected leader compacts only once its leader-term entry is committed: the authority check reads the term of that entry.
-            return committer.IsStarted && committer.Coordinator is { } coordinator && (committer.Election == null || committer.Tenure is { Authorized: true })
-                ? await ReplicaLogCompactionStep.RunAsync(log, coordinator, eligibility, committer.Applier.AppliedIndex, durability, committer.Clock, cancellationToken).ConfigureAwait(false)
-                : ReplicaLogCompactionOutcome.NotReady;
+        /// <summary>Runs the compaction step once the commit gate is held and nothing keeps the log.</summary>
+        /// <param name="log">The owned group log.</param>
+        /// <param name="eligibility">The participation state of the owned group slots.</param>
+        /// <param name="durability">The node cache journal whose frames the applies appended.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The step outcome; a log pinned by a state transfer is skipped like a follower that is not ready.</returns>
+        /// <remarks>
+        /// A state transfer pins the log from its capture to its end, so every entry above the transferred index and the term at it stay.
+        /// An elected leader compacts only once its leader-term entry is committed: the authority check reads the term of that entry.
+        /// </remarks>
+        private async Task<ReplicaLogCompactionOutcome> CompactHeldAsync(IFollowerLog log, ReplicaEligibility eligibility, IJournalDurabilityCoordinator durability, CancellationToken cancellationToken)
+        {
+            return (committer.TransferPin.IsHeld, committer.IsStarted ? committer.Coordinator : null, committer.Election == null || committer.Tenure is { Authorized: true }) switch
+            {
+                (true, _, _) => ReplicaLogCompactionOutcome.FollowerNotReady,
+                (false, { } coordinator, true) => await ReplicaLogCompactionStep.RunAsync(log, coordinator, eligibility, committer.Applier.AppliedIndex, durability, committer.Clock, cancellationToken).ConfigureAwait(false),
+                _ => ReplicaLogCompactionOutcome.NotReady,
+            };
         }
     }
 }

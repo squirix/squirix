@@ -213,7 +213,8 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<ReplicaGroupCommitters>(),
             sp.GetRequiredService<ILogger<ReplicaGroupReadinessService>>(),
             sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<ReplicaCatchUpMetrics>())
+            sp.GetRequiredService<ReplicaCatchUpMetrics>(),
+            sp.GetRequiredService<ReplicaStateTransfers>())
         {
             Options = sp.GetService<ReplicaReadinessOptions>() ?? new ReplicaReadinessOptions(),
         });
@@ -275,7 +276,11 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<IGroupLeaderTable>(),
             topology.NodeId,
             owners,
-            clock);
+            clock)
+        {
+            // The receiver is resolved when a leadership starts: it depends on the committers through the state sink.
+            BeforeLeading = (groupId, cancellationToken) => sp.GetRequiredService<ReplicaTransferReceiver>().ReleaseAsync(groupId, cancellationToken),
+        };
     }
 
     /// <summary>Creates the committer of a group this node leads.</summary>

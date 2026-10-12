@@ -1,8 +1,9 @@
+using System;
 using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server.Cluster.Replication;
 
-/// <summary>Logs of the receiver of a state transfer.</summary>
+/// <summary>Logs of the receiver and of the sender of a state transfer.</summary>
 internal static partial class ReplicaTransferLog
 {
     [LoggerMessage(
@@ -28,4 +29,22 @@ internal static partial class ReplicaTransferLog
         Level = LogLevel.Debug,
         Message = "Replica group {GroupId} refused a state transfer message: {RefusalCode}")]
     internal static partial void Refused(ILogger logger, string groupId, string refusalCode);
+
+    [LoggerMessage(
+        EventId = 4068,
+        Level = LogLevel.Information,
+        Message = "Replica group {GroupId} starts a state transfer to {NodeId} at index {Index} in term {Term}")]
+    internal static partial void Sending(ILogger logger, string groupId, string nodeId, ulong index, ulong term);
+
+    [LoggerMessage(
+        EventId = 4069,
+        Level = LogLevel.Information,
+        Message = "Replica group {GroupId} ended the state transfer to {NodeId} at index {Index} as {Outcome} after {Duration}: (entries, bytes) {Volume}")]
+    internal static partial void Sent(ILogger logger, string groupId, string nodeId, ulong index, string outcome, TimeSpan duration, (ulong Entries, long Bytes) volume);
+
+    [LoggerMessage(
+        EventId = 4070,
+        Level = LogLevel.Debug,
+        Message = "Replica group {GroupId} did not start a state transfer to {NodeId}: {Outcome}; it is retried on the next pass")]
+    internal static partial void Declined(ILogger logger, string groupId, string nodeId, string outcome);
 }

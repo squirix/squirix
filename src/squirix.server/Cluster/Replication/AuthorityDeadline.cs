@@ -90,8 +90,12 @@ internal sealed class AuthorityDeadline
     }
 
     /// <summary>Tells whether the leader waited past its window without getting authority.</summary>
-    /// <returns><see langword="true" /> when the window runs, the leadership has no authority, and the window elapsed.</returns>
-    internal bool IsOverdue() => _waiting && !_authorized && _clock.GetElapsedTime(_since) >= Window();
+    /// <param name="progressing">Whether a state transfer to a follower made progress lately, which holds the deadline without moving the window.</param>
+    /// <returns>
+    /// <see langword="true" /> when the window runs, the leadership has no authority, no transfer is progressing, and the window elapsed. A transfer
+    /// that stops making progress or ends without an admission leaves the window where it stood.
+    /// </returns>
+    internal bool IsOverdue(bool progressing) => _waiting && !_authorized && !progressing && _clock.GetElapsedTime(_since) >= Window();
 
     /// <summary>Records an answer of the retirement of the led group; the abstain after a give-up starts when it completed.</summary>
     /// <param name="retired">Whether the group is retired.</param>

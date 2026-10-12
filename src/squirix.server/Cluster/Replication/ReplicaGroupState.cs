@@ -45,6 +45,7 @@ internal sealed class ReplicaGroupState
         _followerContact.AsSpan().Fill(NoContact);
         Options = options;
         Clock = clock;
+        TransferProgress = new ReplicaTransferProgress(clock);
     }
 
     /// <summary>Gets the time source of every contact and timeout.</summary>
@@ -108,6 +109,9 @@ internal sealed class ReplicaGroupState
                 return _term;
         }
     }
+
+    /// <summary>Gets when a state transfer of this leader last made progress, which holds the authority deadline.</summary>
+    internal ReplicaTransferProgress TransferProgress { get; }
 
     /// <summary>Gets a value indicating whether the last leader contact is recent enough that this node still refuses a pre-vote on its behalf.</summary>
     /// <remarks>Read under <see cref="_sync" />.</remarks>

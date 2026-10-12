@@ -172,6 +172,32 @@ internal sealed class ReplicaTransferReceiver : IDisposable
             new ReplicaTransferMessage { Step = ReplicaTransferStep.End, GroupId = groupId, TransferId = transferId, Sequence = sequence, EntryCount = entryCount, EntriesCrc = entriesCrc },
             cancellationToken);
 
+    /// <summary>Ends the transfer the group holds because this node starts leading the group; the copy stays as it is.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes once the group holds no transfer and its apply driver is free.</returns>
+    /// <remarks>
+    /// A leadership takes the apply driver of the group, which the transfer holds from its begin. An incomplete copy never campaigns, so a node that
+    /// wins an election can only hold a transfer that has not written yet, and its copy is still complete. The message gate is taken, so a message being
+    /// handled finishes first, and a begin that arrives later is refused while the node leads.
+    /// </remarks>
+    internal async Task ReleaseAsync(string groupId, CancellationToken cancellationToken)
+    {
+        if (!_slots.TryGetValue(groupId, out var slot) || slot.Current == null)
+            return;
+
+        await slot.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (slot.Current is { } held)
+                _ = slot.Drop(held, ReplicaTransferEnd.Superseded);
+        }
+        finally
+        {
+            _ = slot.Gate.Release();
+        }
+    }
+
     /// <summary>Buffers a chunk of the published snapshot image; the last chunk decodes and checks it.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="transferId">The transfer the chunk belongs to.</param>
