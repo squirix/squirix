@@ -27,22 +27,6 @@ namespace Squirix.Server.UnitTests.Adapters.Grpc.Replication;
 [Immutable]
 public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
 {
-    /// <summary>Verifies that AdvanceReplicaCommit succeeds on a served group.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task AdvanceCommitOnServedGroupSucceedsAsync(CancellationToken cancellationToken)
-    {
-        await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
-        var request = new AdvanceReplicaCommitRequest { Header = follower.Header, CommitIndex = 0 };
-
-        var response = await follower.Adapter.AdvanceReplicaCommit(request, new TestServerCallContext(null, follower.HttpContext));
-
-        _ = await Assert.That(response.Success).IsTrue();
-        _ = await Assert.That(response.Term).IsEqualTo(7UL);
-        _ = await Assert.That(response.CommitIndex).IsEqualTo(0UL);
-        _ = await Assert.That(response.RefusalCode).IsEqualTo(string.Empty);
-    }
-
     /// <summary>Verifies that an empty append batch succeeds as a heartbeat.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

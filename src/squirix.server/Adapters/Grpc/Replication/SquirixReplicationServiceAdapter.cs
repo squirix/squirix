@@ -64,23 +64,6 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         _configurationGeneration = cluster.ConfigurationGeneration;
     }
 
-    public override async Task<AdvanceReplicaCommitResponse> AdvanceReplicaCommit(AdvanceReplicaCommitRequest request, ServerCallContext context)
-    {
-        var header = EnsureHeader(request.Header, context, true);
-        if (_follower == null)
-            return StubCommitRefusal(header);
-
-        var result = await CommitReplicaAdvanceAsync(_follower, header, request.CommitIndex, context.CancellationToken).ConfigureAwait(false);
-        var status = await _follower.GetStatusAsync(header.GroupId, context.CancellationToken).ConfigureAwait(false);
-        return new AdvanceReplicaCommitResponse
-        {
-            Term = status?.CurrentTerm ?? 0,
-            CommitIndex = result.CommitIndex,
-            Success = result.Success,
-            RefusalCode = result.RefusalCode,
-        };
-    }
-
     public override async Task<AppendReplicaEntriesResponse> AppendReplicaEntries(AppendReplicaEntriesRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, true);
@@ -278,25 +261,6 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         return new FollowerBatch(records, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
     }
 
-    /// <summary>Advances the follower commit for a verified replication caller.</summary>
-    /// <param name="follower">The active follower, guaranteed non-null by the caller.</param>
-    /// <param name="header">Validated replication envelope identity.</param>
-    /// <param name="commitIndex">Target commit index to advance to.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The follower commit advance result.</returns>
-    private static Task<FollowerLogCommitResult> CommitReplicaAdvanceAsync(
-        ReplicaFollower follower,
-        ReplicationEnvelopeHeader header,
-        ulong commitIndex,
-        CancellationToken cancellationToken) => follower.AdvanceCommitAsync(
-        header.GroupId,
-        header.LeaderNodeId,
-        header.TopologyFingerprint.ToByteArray(),
-        header.ConfigurationGeneration,
-        commitIndex,
-        header.Term,
-        cancellationToken);
-
     private static async Task<InstallReplicaSnapshotResponse> DrainStubInstallAsync(
         IAsyncStreamReader<InstallReplicaSnapshotRequest> requestStream,
         ReplicationEnvelopeHeader header,
@@ -357,17 +321,6 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         // When refusing to append entries, report the follower's last log index as a conflict hint. This stub follower has no log; return 0 rather than
         // echoing the leader's PrevLogIndex which would mislead the leader.
         LastLogIndex = 0,
-        Success = false,
-        RefusalCode = RefusalCodes.NotReady,
-    };
-
-    private static AdvanceReplicaCommitResponse StubCommitRefusal(ReplicationEnvelopeHeader header) => new()
-    {
-        Term = header.Term,
-
-        // When refusing to advance the commit, report the follower's actual commit index. This stub follower has no committed log; return 0
-        // rather than echoing the leader's CommitIndex which would mislead the leader.
-        CommitIndex = 0,
         Success = false,
         RefusalCode = RefusalCodes.NotReady,
     };

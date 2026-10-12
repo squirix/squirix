@@ -40,23 +40,6 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
         _ = await Assert.That(await IsRaisedAsync(registry, cancellationToken)).IsTrue();
     }
 
-    /// <summary>An accepted commit advance raises the apply signal of its group.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task CommitAdvanceRaisesSignal(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-signal-commit");
-        await using var registry = await OpenAsync(dir, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
-        _ = await follower.AppendAsync(GroupId, Fingerprint, 1, Batch(1, 0, 0), cancellationToken);
-        _ = await IsRaisedAsync(registry, cancellationToken);
-
-        var result = await follower.AdvanceCommitAsync(GroupId, "n2", Fingerprint, 1, 1, 1, cancellationToken);
-
-        _ = await Assert.That(result.Success).IsTrue();
-        _ = await Assert.That(await IsRaisedAsync(registry, cancellationToken)).IsTrue();
-    }
-
     /// <summary>An installed snapshot raises the apply signal of its group.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

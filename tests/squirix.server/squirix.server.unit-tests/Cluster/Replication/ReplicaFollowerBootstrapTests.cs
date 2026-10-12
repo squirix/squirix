@@ -86,10 +86,10 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
         _ = await Assert.That((status?.CurrentTerm, status?.VotedFor)).IsEqualTo((0UL, string.Empty));
     }
 
-    /// <summary>A commit advance and a well-formed snapshot install to an unseeded copy are refused with the unseeded code, and nothing is written.</summary>
+    /// <summary>A well-formed snapshot install to an unseeded copy is refused with the unseeded code, and nothing is written.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CommitAndInstallToUnseededCopyRefused(CancellationToken cancellationToken)
+    public async Task InstallToUnseededCopyRefused(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-bootstrap-commit");
         using var sourceDir = new TempDirectory("squirix-follower-bootstrap-commit-source");
@@ -100,10 +100,8 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
         var before = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
         var reset = registry.StateFor(GroupId).ElectionResetTimestamp();
 
-        var commit = await follower.AdvanceCommitAsync(GroupId, LeaderId, Fingerprint, 1UL, 0UL, 3UL, cancellationToken);
         var install = await follower.InstallSnapshotUploadAsync(GroupId, LeaderId, Fingerprint, 1UL, upload, 3UL, cancellationToken);
 
-        _ = await Assert.That((commit.Success, commit.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.Unseeded));
         _ = await Assert.That((install.Success, install.Refusal)).IsEqualTo((false, FollowerLogRefusal.Unseeded));
         var after = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
         await SequenceAssert.EqualAsync(before, after);
@@ -141,21 +139,6 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
         _ = await Assert.That((result.Granted, result.RefusalCode, result.CurrentTerm)).IsEqualTo((true, string.Empty, 5UL));
         var status = await follower.GetStatusAsync(GroupId, cancellationToken);
         _ = await Assert.That((status?.MemberState, status?.CurrentTerm, status?.VotedFor)).IsEqualTo((GroupMemberState.Complete, 5UL, "n3"));
-    }
-
-    /// <summary>A commit advance from a member leader completes an offered copy, and the completed log answers the advance.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task CommitAdvanceCompletesOfferedCopy(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-bootstrap-advance");
-        await using var registry = await OpenRegistryAsync(dir, true, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
-
-        var result = await follower.AdvanceCommitAsync(GroupId, LeaderId, Fingerprint, 1UL, 0UL, 3UL, cancellationToken);
-
-        _ = await Assert.That(result.RefusalCode).IsNotEqualTo(FollowerLogRefusal.Unseeded);
-        _ = await Assert.That((await follower.GetStatusAsync(GroupId, cancellationToken))?.MemberState).IsEqualTo(GroupMemberState.Complete);
     }
 
     /// <summary>A snapshot install from a member leader completes an offered copy, and the completed log decides the install.</summary>
@@ -261,11 +244,9 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
         var follower = new ReplicaFollower(registry, new ReplicaMembership(new ReplicaGroupLocator(new PhysicalNodeRing(["n1", "n2", "n3"]), 3), registry.GroupIds));
 
         var append = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(OutsiderId), cancellationToken);
-        var commit = await follower.AdvanceCommitAsync(GroupId, OutsiderId, Fingerprint, 1UL, 0UL, 3UL, cancellationToken);
         var install = await follower.InstallSnapshotUploadAsync(GroupId, OutsiderId, Fingerprint, 1UL, new ReplicaSnapshotUpload(ReadOnlyMemory<byte>.Empty, 0U, 1UL, 1UL), 3UL, cancellationToken);
 
         _ = await Assert.That((append.Success, append.RefusalCode, append.CurrentTerm)).IsEqualTo((false, FollowerLogRefusal.NotMember, 0UL));
-        _ = await Assert.That((commit.Success, commit.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.NotMember));
         _ = await Assert.That((install.Success, install.Refusal)).IsEqualTo((false, FollowerLogRefusal.NotMember));
         var status = await follower.GetStatusAsync(GroupId, cancellationToken);
         _ = await Assert.That((status?.MemberState, status?.CurrentTerm)).IsEqualTo((GroupMemberState.Unseeded, 0UL));

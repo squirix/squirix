@@ -51,13 +51,6 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <remarks>Trusted local path: the owner advances its own log without a term gate.</remarks>
     Task<FollowerLogCommitResult> AdvanceCommitAsync(ulong commitIndex, CancellationToken cancellationToken);
 
-    /// <summary>Advances the committed index for a leader request, refusing stale terms.</summary>
-    /// <param name="commitIndex">The target committed index.</param>
-    /// <param name="leaderTerm">Leader term authorizing the advance; stale terms are refused.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The outcome of the commit advance.</returns>
-    Task<FollowerLogCommitResult> AdvanceCommitAsync(ulong commitIndex, ulong leaderTerm, CancellationToken cancellationToken);
-
     /// <summary>Appends an ordered batch of entries following the consistency checks of the replication protocol.</summary>
     /// <param name="request">The appending request.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

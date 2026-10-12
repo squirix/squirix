@@ -722,46 +722,37 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// A commit request from a higher-term leader adopts the term durably even when the commit index is monotonic,
-    /// and subsequent delayed requests are evaluated against the persisted term.
+    /// A heartbeat whose commit index covers a divergent uncommitted entry is refused as a log mismatch and leaves the commit index unchanged;
+    /// once the leader append replaced the entry, the commit index advances.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task HigherTermCommitAdoptsTermOnNoOp(CancellationToken cancellationToken)
+    public async Task DivergentEntryCommitsAfterReplacement(CancellationToken cancellationToken)
     {
-        using var dir = new TempDirectory("squirix-follower-log-higher-term-commit");
+        using var dir = new TempDirectory("squirix-follower-log-heartbeat-replaced");
         var composition = GroupComposition.Create(GroupId);
 
-        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
-        {
-            await log.OpenSeededAsync(cancellationToken);
-            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
-            _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await log.OpenSeededAsync(cancellationToken);
+        _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken)).Success).IsTrue();
+        _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken)).Success).IsTrue();
+        _ = await Assert.That((await log.AppendAsync(Append(3UL, 2UL, "c", 1UL), cancellationToken)).Success).IsTrue();
+        _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
 
-            // A higher-term leader sends a commit already satisfied monotonically; the term must still be adopted.
-            var noOp = await log.AdvanceCommitAsync(1UL, 2UL, cancellationToken);
-            _ = await Assert.That(noOp.Success).IsTrue();
+        // The term-3 leader holds a different entry at index 3 and claims it committed; the term-2 entry here must not become committed.
+        var heartbeat = new FollowerLogAppendRequest("leader-3", 3UL, 3UL, 3UL, 3UL, ReadOnlyMemory<FollowerLogEntry>.Empty);
+        var refused = await log.AppendAsync(heartbeat, cancellationToken);
 
-            var status = await log.GetStatusAsync(cancellationToken);
-            _ = await Assert.That(status.CurrentTerm).IsEqualTo(2UL);
-            _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
+        _ = await Assert.That(refused.Success).IsFalse();
+        _ = await Assert.That(refused.RefusalCode).IsEqualTo(FollowerLogRefusal.LogMismatch);
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CommitIndex).IsEqualTo(1UL);
 
-            // A delayed request from the deposed lower-term leader is now rejected against the persisted term.
-            var stale = await log.AdvanceCommitAsync(1UL, 1UL, cancellationToken);
-            _ = await Assert.That(stale.Success).IsFalse();
-            _ = await Assert.That(stale.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleTerm);
-        }
+        FollowerLogEntry[] replacement = [new(3UL, 3UL, Encoding.UTF8.GetBytes("c3"))];
+        var replaced = await log.AppendAsync(new FollowerLogAppendRequest("leader-3", 3UL, 2UL, 1UL, 3UL, replacement), cancellationToken);
 
-        // The adopted term survives restart and still governs stale-term rejections.
-        await using (var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
-        {
-            await reopened.OpenAsync(cancellationToken);
-            _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).CurrentTerm).IsEqualTo(2UL);
-
-            var stale = await reopened.AdvanceCommitAsync(1UL, 1UL, cancellationToken);
-            _ = await Assert.That(stale.Success).IsFalse();
-            _ = await Assert.That(stale.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleTerm);
-        }
+        _ = await Assert.That(replaced.Success).IsTrue();
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CommitIndex).IsEqualTo(3UL);
+        _ = await Assert.That((await log.GetCommittedEntriesAsync(cancellationToken)).Count).IsEqualTo(3);
     }
 
     /// <summary>

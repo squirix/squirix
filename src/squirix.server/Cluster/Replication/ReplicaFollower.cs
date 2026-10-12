@@ -13,11 +13,11 @@ namespace Squirix.Server.Cluster.Replication;
 /// The transport adapter maps wire messages to these domain calls. Every call first resolves the group
 /// and checks topology agreement (fingerprint and generation mirror the snapshot-install rules: an empty
 /// durable fingerprint adopts nothing here but never conflicts, and an older generation is refused);
-/// term validation stays inside the log, which persists higher terms durably before responding. An accepted append, commit advance, or
+/// term validation stays inside the log, which persists higher terms durably before responding. An accepted append or
 /// snapshot install wakes the group's apply loop, so committed entries reach memory without waiting for its fallback interval; votes
 /// and pre-votes apply nothing and wake nothing. Every leader call the log accepted, and every term a vote made durable, is posted to
 /// the election state of the group; a pre-vote is refused while that state knows a live leader. A vote or pre-vote from a candidate
-/// outside the replica set of the group is refused before the log is reached, and so is an append, commit advance or snapshot install from a leader
+/// outside the replica set of the group is refused before the log is reached, and so is an append or snapshot install from a leader
 /// outside it. The owner of a group offers an unseeded copy a place in the first start of the group. The call of a member of the group completes a copy that holds an offer before the log serves it; a copy that is not complete
 /// refuses every such call with term zero and posts nothing to the election state. Any other refusal is the log's own, with its durable term.
 /// </remarks>
@@ -67,45 +67,6 @@ internal sealed class ReplicaFollower
         var refusal = await log.AcceptBootstrapOfferAsync(fingerprint, generation, cancellationToken).ConfigureAwait(false);
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         return new ReplicaBootstrapOfferResult(refusal == null, status.MemberState, refusal ?? string.Empty);
-    }
-
-    /// <summary>Advances a group commit index after agreement checks.</summary>
-    /// <param name="id">Replica group identifier.</param>
-    /// <param name="leaderNodeId">The leader node identifier, which the transport binds to the peer certificate; it must be a member of the group.</param>
-    /// <param name="fp">Leader topology fp.</param>
-    /// <param name="gen">Leader configuration gen.</param>
-    /// <param name="commit">Target commit index.</param>
-    /// <param name="leader">Leader term authorizing the advance; stale terms are refused.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The commit advance outcome; a refusal before the log advances reports commit index zero or the durable one.</returns>
-    /// <remarks>A call of a member completes a copy that holds an offer; a copy that is not complete refuses the advance.</remarks>
-    internal async Task<FollowerLogCommitResult> AdvanceCommitAsync(
-        string id,
-        string leaderNodeId,
-        ReadOnlyMemory<byte> fp,
-        ulong gen,
-        ulong commit,
-        ulong leader,
-        CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(id);
-        if (!TryGetLog(id, out var log) || !_members.IsMember(id, leaderNodeId))
-            return new FollowerLogCommitResult(false, FollowerLogRefusal.NotMember, 0);
-
-        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        if (status.IsTopologyMismatch(fp, gen))
-            return new FollowerLogCommitResult(false, FollowerLogRefusal.TopologyMismatch, status.CommitIndex);
-
-        var refusal = await RefuseNotCompleteAsync(log, fp, gen, cancellationToken).ConfigureAwait(false);
-        if (refusal != null)
-            return new FollowerLogCommitResult(false, refusal, 0);
-
-        var result = await log.AdvanceCommitAsync(commit, leader, cancellationToken).ConfigureAwait(false);
-        NotifyApplyWhen(result.Success, id);
-        if (result.Success)
-            ObserveLeader(id, null, leader);
-
-        return result;
     }
 
     /// <summary>Appends leader entries to a group log after agreement checks.</summary>
