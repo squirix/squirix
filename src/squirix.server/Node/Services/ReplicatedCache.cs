@@ -94,7 +94,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The live entry, or <see langword="null" /> when the key is absent or expired.</returns>
     /// <remarks>
-    /// Never commits a tombstone, so a caller around a write (memory admission and its accounting) cannot turn a committed write into a
+    /// Never commits a tombstone, so a caller around a write (memory admission) cannot turn a committed write into a
     /// refused read; the write itself folds the expiry of the key into its decision.
     /// </remarks>
     internal async ValueTask<NodeCacheEntry<object?>?> PeekEntryAsync(string cacheName, string key, CancellationToken cancellationToken)

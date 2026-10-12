@@ -76,8 +76,8 @@ Readiness behavior (`GET /health/ready`):
 
 Privacy and bounds:
 
-- This payload intentionally exposes **only aggregates** produced from `IMemoryUsageAccounting` (maintained by
-  memory-accounting decorators, not by `LocalCache<T>` directly). It does **not** include raw keys, values, serialized
+- This payload intentionally exposes **only aggregates** produced from `IMemoryUsageAccounting`, which reads the
+  totals the node's local cache records. It does **not** include raw keys, values, serialized
   value previews, or per-cache/per-entry listings.
 - User-controlled cache names are **not** enumerated here.
 

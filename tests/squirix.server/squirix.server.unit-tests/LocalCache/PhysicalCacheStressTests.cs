@@ -97,8 +97,8 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
         var estimator = new CacheEntrySizeEstimator<string>();
         var cache = new PhysicalCache<string>(time, estimator);
         var keys = CreateKeys(keyCount);
-        foreach (var key in keys)
-            await cache.SetAsync(key, new NodeCacheEntry<string>("v", expiration: TimeSpan.FromHours(1)), cancellationToken);
+        for (var i = 0; i < keys.Length; i++)
+            await cache.SetAsync(keys[i], new NodeCacheEntry<string>(new string('v', 1 + (i * 13)), expiration: TimeSpan.FromHours(1)), cancellationToken);
 
         var failures = new int[workersPerRole * 2];
         var jobs = new Task[workersPerRole * 2];
@@ -169,7 +169,7 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
             var key = s.Keys[(i + s.Offset) % s.Keys.Length];
             var phase = (i + s.Offset) % 10;
             if (phase < 6)
-                await s.Cache.SetAsync(key, new NodeCacheEntry<string>($"v{s.Offset}"), s.Ct);
+                await s.Cache.SetAsync(key, new NodeCacheEntry<string>(new string('v', 1 + (s.Offset * 11) + (i % 7))), s.Ct);
             else if (phase < 8)
                 _ = await s.Cache.RemoveAsync(key, s.Ct);
             else if (phase < 9)

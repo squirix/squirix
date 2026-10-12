@@ -68,10 +68,9 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 
     private static long EstimateNumericOrFallbackBytes(T? value) => value switch
     {
-        sbyte or byte => 1,
-        short or ushort => 2,
-        int or uint or float => 4,
-        long or ulong or double => 8,
+        // The entry codec stores every integer as an Int64 and every floating-point number as a Double, and returns those widths
+        // after a restart or a replicated apply, so each counts at eight bytes.
+        sbyte or byte or short or ushort or int or uint or long or ulong or float or double => 8,
         _ => UnknownTypedPayloadFallbackBytes,
     };
 }

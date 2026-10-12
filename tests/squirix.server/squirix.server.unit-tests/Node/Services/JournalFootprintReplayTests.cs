@@ -2,9 +2,14 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -51,6 +56,43 @@ public sealed class JournalFootprintReplayTests : IsolatedStorageTestBase
         _ = await Assert.That(before).IsGreaterThan(0L);
         _ = await Assert.That(CountOf(recovered)).IsEqualTo(entriesBefore);
         _ = await Assert.That(BytesOf(recovered)).IsEqualTo(before);
+    }
+
+    /// <summary>Integer and floating-point values, which the codec returns as Int64 and Double, account the same bytes after a replay as in memory before it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NumericValuesKeepAccountedBytes(CancellationToken cancellationToken)
+    {
+        var estimator = new CacheEntrySizeEstimator<object?>();
+        var written = new PhysicalCache<object?>(TimeProvider.System, estimator);
+        const short shortValue = 4;
+        const byte byteValue = 5;
+        object?[] values = [7, 3u, shortValue, byteValue, 1.5f, 2.5d, 9L];
+        using (var manifestStore = new Ledger(Kit.Persistence, NullLogger<Ledger>.Instance))
+        {
+            await using var journal = JournalCoordinatorFactory.Create(
+                Kit.Persistence,
+                await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+                manifestStore,
+                new AsyncManualResetEvent(true),
+                NullLoggerFactory.Instance,
+                TimeProvider.System,
+                out _);
+            for (var i = 0; i < values.Length; i++)
+            {
+                var key = new CacheKey(CacheName, $"n{i}");
+                var entry = new NodeCacheEntry<object?>(values[i]);
+                await written.SetAsync(key, entry, cancellationToken);
+                await journal.AppendPutUnderGateAsync(key, JournalEntryPayloadKit.Encode(entry), cancellationToken);
+            }
+
+            await journal.AwaitDurabilityCommitAsync(cancellationToken);
+        }
+
+        var recovered = await Kit.RecoverAsync(TimeProvider.System, estimator, cancellationToken);
+
+        _ = await Assert.That(CountOf(recovered)).IsEqualTo(values.Length);
+        _ = await Assert.That(BytesOf(recovered)).IsEqualTo(BytesOf(written));
     }
 
     /// <inheritdoc />

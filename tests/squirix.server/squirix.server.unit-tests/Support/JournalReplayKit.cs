@@ -170,6 +170,28 @@ internal sealed class JournalReplayKit
         return cache;
     }
 
+    /// <summary>Recovers the journal into a fresh cache of any value type.</summary>
+    /// <typeparam name="T">The cache value type.</typeparam>
+    /// <param name="clock">The clock of the recovered cache.</param>
+    /// <param name="estimator">The estimator the recovered cache records entry sizes with.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The recovered cache.</returns>
+    internal async Task<PhysicalCache<T>> RecoverAsync<T>(TimeProvider clock, ICacheEntrySizeEstimator<T> estimator, CancellationToken cancellationToken)
+    {
+        using var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance);
+        var cache = new PhysicalCache<T>(clock, estimator);
+        var dependencies = new RecoveryDependencies<T>(
+            Persistence,
+            manifestStore,
+            cache,
+            new AsyncManualResetEvent(true),
+            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_meter), TimeProvider.System),
+            StoreFactory.CreateReader(),
+            clock);
+        await new RecoveryService<T>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<T>>.Instance, dependencies).StartAsync(cancellationToken);
+        return cache;
+    }
+
     /// <summary>Runs the mutation, which does not need the clock, against a local-owner decorator whose clock starts at <paramref name="startOffset" /> from real time.</summary>
     /// <param name="mutate">The mutation to journal.</param>
     /// <param name="readAfter">How far the clock advances before memory is read.</param>

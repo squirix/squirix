@@ -371,7 +371,8 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// <summary>The recorded bytes of the stored entries and their running total.</summary>
     /// <remarks>
     /// <see cref="Resize" /> and <see cref="Release" /> run only under the cache lock, so the total always equals the sum of
-    /// <see cref="Node.Bytes" /> over the stored entries; <see cref="Read" /> needs no lock.
+    /// <see cref="Node.Bytes" /> over the stored entries; <see cref="Read" /> needs no lock. Update, touch and remove-expiration estimate the
+    /// stored entry under the lock, so on hosts without persistence their estimator cost is paid while the lock is held.
     /// </remarks>
     [ThreadSafe]
     private sealed class Footprint

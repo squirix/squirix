@@ -12,7 +12,7 @@ namespace Squirix.Server.Node.App.Decorators;
 /// <summary>Applies memory admission checks before delegating to the inner pipeline on local-owner write paths.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 /// <remarks>The decorator only decides admission. The bytes of every entry the node holds are recorded by the local cache itself.</remarks>
-[Mutable]
+[Immutable]
 internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly ICacheEntrySizeEstimator<T> _estimator;
@@ -109,13 +109,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         if (existing == null)
             return IsRecorded(cacheName, key, operationId) && await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
 
-        var replacement = new NodeCacheEntry<T>
-        {
-            Value = value,
-            ExpiresUtc = existing.ExpiresUtc,
-            Expiration = existing.Expiration,
-            Version = existing.Version,
-        };
+        var replacement = new NodeCacheEntry<T>(value, existing.Version, existing.ExpiresUtc, existing.Expiration, existing.Tags);
         Admit(keyValue, existing, replacement, AdmissionOperations.Set, operationId);
         return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
     }
