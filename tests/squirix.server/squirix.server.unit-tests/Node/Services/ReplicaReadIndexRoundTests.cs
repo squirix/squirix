@@ -41,6 +41,22 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
         _ = await Assert.That((waited, await confirming.WaitAsync(HangGuard, TimeProvider.System, cancellationToken))).IsEqualTo((true, 7UL));
     }
 
+    /// <summary>An incomplete reply is no contact and does not confirm the round; the reply of another follower does.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task IncompleteReplyDoesNotConfirm(CancellationToken cancellationToken)
+    {
+        var leader = new Leader(5UL);
+
+        var confirming = leader.ConfirmAsync(cancellationToken);
+        var ticket = await leader.NextBeatAsync(cancellationToken);
+        leader.Rounds.Observe(ticket, 1, Rejected(FollowerLogRefusal.Incomplete));
+        var held = !confirming.IsCompleted;
+        leader.Rounds.Observe(ticket, 2, Accepted(Term));
+
+        _ = await Assert.That((held, await confirming.WaitAsync(HangGuard, TimeProvider.System, cancellationToken))).IsEqualTo((true, 5UL));
+    }
+
     /// <summary>A reply to a request sent before the round started does not confirm it, even when it arrives later; a reply to a later request does.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

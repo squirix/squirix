@@ -37,6 +37,8 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         _ = await Assert.That(ReplicaReadiness.Describe(ReplicaReadinessVerdict.Unseeded, "group-a"))
                         .IsEqualTo(
                             "replica group 'group-a' is not seeded on this node: its copy votes for nobody and takes no entries until the group is started or the copy is repaired.");
+        _ = await Assert.That(ReplicaReadiness.Describe(ReplicaReadinessVerdict.Incomplete, "group-a"))
+                        .IsEqualTo("replica group 'group-a' is incomplete on this node: its copy votes for nobody and takes no entries until a state transfer repairs it.");
     }
 
     /// <summary>Verifies a copy that is not complete is its own verdict, for an owner and a follower alike, and reports not ready.</summary>
@@ -51,9 +53,9 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
 
         _ = await Assert.That(ReplicaReadiness.Evaluate(in owner)).IsEqualTo(ReplicaReadinessVerdict.Unseeded);
-        _ = await Assert.That(ReplicaReadiness.Evaluate(in follower)).IsEqualTo(ReplicaReadinessVerdict.Unseeded);
+        _ = await Assert.That(ReplicaReadiness.Evaluate(in follower)).IsEqualTo(ReplicaReadinessVerdict.Incomplete);
         _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
-        _ = await Assert.That(result.Description).IsEqualTo(ReplicaReadiness.Describe(ReplicaReadinessVerdict.Unseeded, "group-b"));
+        _ = await Assert.That(result.Description).IsEqualTo(ReplicaReadiness.Describe(ReplicaReadinessVerdict.Incomplete, "group-b"));
     }
 
     /// <summary>Verifies the status source carries the member state of the copy, so a copy on a fresh disk reports unseeded and a seeded one ready.</summary>

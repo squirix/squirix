@@ -172,7 +172,7 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Unseeded);
     }
 
-    /// <summary>An incomplete copy refuses like an unseeded copy without an offer, and nothing completes it.</summary>
+    /// <summary>An incomplete copy refuses the offer as not ready and the completion and appends as incomplete, and nothing completes it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task IncompleteCopyRefusesEverything(CancellationToken cancellationToken)
@@ -190,7 +190,7 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
         var append = await log.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, 1UL, "a"), cancellationToken);
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.CompleteBootstrapAsync(cancellationToken));
 
-        _ = await Assert.That((offer, completion, append.RefusalCode)).IsEqualTo((FollowerLogRefusal.NotReady, FollowerLogRefusal.Unseeded, FollowerLogRefusal.Unseeded));
+        _ = await Assert.That((offer, completion, append.RefusalCode)).IsEqualTo((FollowerLogRefusal.NotReady, FollowerLogRefusal.Incomplete, FollowerLogRefusal.Incomplete));
         _ = await Assert.That(ex.Message).Contains(GroupId, StringComparison.Ordinal);
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Incomplete);
     }

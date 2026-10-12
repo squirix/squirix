@@ -107,13 +107,18 @@ internal static class ReplicaLogCompactionStep
             return ReplicaLogCompactionOutcome.BelowThreshold;
 
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        return (status.Readiness == FollowerLogReadiness.Ready, log.Idempotency.OutcomesRebuilt && status.LastAppliedIndex > retention.SnapshotIndex) switch
+        return (IsReadyAndComplete(in status), log.Idempotency.OutcomesRebuilt && status.LastAppliedIndex > retention.SnapshotIndex) switch
         {
             (false, _) => ReplicaLogCompactionOutcome.NotReady,
             (true, false) => ReplicaLogCompactionOutcome.PendingApply,
             (true, true) => Map(await log.CompactThroughAsync(status.LastAppliedIndex, cancellationToken).ConfigureAwait(false)),
         };
     }
+
+    /// <summary>Tells whether the log is ready and its copy is complete; a copy that is not complete never applies, so it never waits as pending apply.</summary>
+    /// <param name="status">The durable log status.</param>
+    /// <returns><see langword="true" /> when the log is ready and the copy is complete.</returns>
+    private static bool IsReadyAndComplete(in FollowerLogStatus status) => status.Readiness == FollowerLogReadiness.Ready && status.MemberState == GroupMemberState.Complete;
 
     /// <summary>Maps the storage compaction outcome to the step outcome.</summary>
     /// <param name="outcome">The storage compaction outcome.</param>

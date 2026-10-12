@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -7,6 +8,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -95,6 +97,52 @@ public sealed class ReplicaCatchUpReporterTests : ServerUnitTestBase
         _ = await Assert.That(counted["n1/n1/compacted"]).IsEqualTo(2L);
         _ = await Assert.That(counted["n1/n1/caught_up"]).IsEqualTo(1L);
         _ = await Assert.That(counted.Count).IsEqualTo(2);
+    }
+
+    /// <summary>An incomplete copy is warned about once as a stopped catch-up and counted on every session under its own outcome label.</summary>
+    [Test]
+    public async Task IncompleteOutcomeIsWarnedOnceAndCounted()
+    {
+        using var meter = new Meter("Squirix");
+        var outcomes = new ConcurrentQueue<string>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, target) =>
+        {
+            if (ReferenceEquals(instrument.Meter, meter) && string.Equals(instrument.Name, "squirix_replication_catch_up_sessions_total", StringComparison.Ordinal))
+                target.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
+        {
+            foreach (var tag in tags)
+            {
+                if (string.Equals(tag.Key, "outcome", StringComparison.Ordinal) && tag.Value is string outcome)
+                    outcomes.Enqueue(outcome);
+            }
+        });
+        listener.Start();
+        var log = new EventRecordingLogger();
+        var reporter = new ReplicaCatchUpReporter("n1", log, new ReplicaCatchUpMetrics(meter));
+
+        reporter.Report(2, "n3", Result(ReplicaCatchUpOutcome.Incomplete), false);
+        reporter.Report(2, "n3", Result(ReplicaCatchUpOutcome.Incomplete), false);
+
+        _ = await Assert.That(log.Count(StoppedEventId)).IsEqualTo(1);
+        _ = await Assert.That(log.Find(StoppedEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.FindMessage(StoppedEventId)).Contains("incomplete");
+        await SequenceAssert.EqualAsync(["incomplete", "incomplete"], outcomes.ToArray(), StringComparer.Ordinal);
+    }
+
+    /// <summary>Every outcome has its own name, and the incomplete outcome is named incomplete.</summary>
+    [Test]
+    public async Task EveryOutcomeHasItsOwnName()
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        var outcomes = Enum.GetValues<ReplicaCatchUpOutcome>();
+        foreach (var outcome in outcomes)
+            _ = names.Add(ReplicaCatchUpOutcomeNames.Of(outcome));
+
+        _ = await Assert.That(names.Count).IsEqualTo(outcomes.Length);
+        _ = await Assert.That(ReplicaCatchUpOutcomeNames.Of(ReplicaCatchUpOutcome.Incomplete)).IsEqualTo("incomplete");
     }
 
     private static ReplicaCatchUpResult Result(ReplicaCatchUpOutcome outcome) => new(outcome, 0, 0, 0, 0, 1);

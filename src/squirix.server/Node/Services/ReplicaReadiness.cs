@@ -27,8 +27,7 @@ internal static class ReplicaReadiness
             ReplicaReadinessVerdict.MinorityFenced => $"replica group '{groupId}' is a minority without authority.",
             ReplicaReadinessVerdict.TopologyMismatch => $"replica group '{groupId}' reports a topology mismatch.",
             ReplicaReadinessVerdict.LogNotReady => $"replica group '{groupId}' log is not ready.",
-            ReplicaReadinessVerdict.Unseeded =>
-                $"replica group '{groupId}' is not seeded on this node: its copy votes for nobody and takes no entries until the group is started or the copy is repaired.",
+            ReplicaReadinessVerdict.Unseeded or ReplicaReadinessVerdict.Incomplete => DescribeNotComplete(verdict, groupId),
             _ => throw new ArgumentOutOfRangeException(nameof(verdict), verdict, "Unsupported readiness verdict."),
         };
     }
@@ -42,7 +41,7 @@ internal static class ReplicaReadiness
             return ReplicaReadinessVerdict.LogNotReady;
 
         if (snapshot.MemberState != GroupMemberState.Complete)
-            return ReplicaReadinessVerdict.Unseeded;
+            return NotCompleteVerdict(snapshot.MemberState);
 
         if (!snapshot.FingerprintMatch || !snapshot.GenerationMatch)
             return ReplicaReadinessVerdict.TopologyMismatch;
@@ -56,4 +55,12 @@ internal static class ReplicaReadiness
             (false, _) => ReplicaReadinessVerdict.Ready,
         };
     }
+
+    private static ReplicaReadinessVerdict NotCompleteVerdict(GroupMemberState state) =>
+        state == GroupMemberState.Incomplete ? ReplicaReadinessVerdict.Incomplete : ReplicaReadinessVerdict.Unseeded;
+
+    private static string DescribeNotComplete(ReplicaReadinessVerdict verdict, string groupId) =>
+        verdict == ReplicaReadinessVerdict.Incomplete
+            ? $"replica group '{groupId}' is incomplete on this node: its copy votes for nobody and takes no entries until a state transfer repairs it."
+            : $"replica group '{groupId}' is not seeded on this node: its copy votes for nobody and takes no entries until the group is started or the copy is repaired.";
 }

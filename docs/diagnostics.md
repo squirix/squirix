@@ -140,7 +140,7 @@ group log reached a threshold but was not compacted, `squirix_replication_log_co
 `reason`: `follower_not_ready`, `follower_behind`, `pending_apply`, `uncommitted_tail`, `unresolved_outcome`,
 `not_ready`, `snapshot_too_large`, or `busy`. The owner counts the entry catch-up sessions it runs for lagging followers in
 `squirix_replication_catch_up_sessions_total` with a closed `outcome`: `caught_up`, `compacted`, `diverged`,
-`stale_term`, `refused`, `unreachable`, `corrupt`, or `aborted`.
+`stale_term`, `refused`, `unreachable`, `corrupt`, `aborted`, or `incomplete`.
 A replica group log record whose effect contradicts its outcome, or that cannot be decoded, is never applied; each refusal
 is logged at error level and counted by `squirix_replication_inconsistent_records_total` (labels `node`, `group`).
 The gauge `squirix_replication_role` (labels `node`, `group`) reports the role of the node in each group: `0` follower,

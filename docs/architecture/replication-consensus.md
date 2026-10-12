@@ -44,7 +44,12 @@ refused at open and left unchanged.
   (`FailoverDenial.Unseeded`), and a static committer does not start over it: reads and writes of the group fail with
   `Unavailable`.
 - **Complete and incomplete.** A complete copy holds the data of the group and takes part as before; an incomplete copy
-  is in the middle of receiving it and takes no part either.
+  is in the middle of receiving it and takes no part either. It refuses pre-votes, votes, appends (probes included),
+  commit advances, and snapshot installs with the refusal `incomplete`, which tells it apart from `unseeded`, adopts no
+  term, and never applies log entries. A leader whose probe meets `incomplete` counts the member as one that answered and
+  marks it as catching up, so it stays out of the write quorum; the entry catch-up session ends with the outcome
+  `incomplete`, having sent no entries when its first request is the one refused. The bootstrap paths keep refusing such a copy. The offer answers `not-ready`, and the
+  completion on a call of a member answers `incomplete`.
 - **First start.** Only the owner of a group starts it. It asks every other member for its status; when all of them
   answer with a ready log, the same topology, and an unseeded copy, it offers each a place, and it completes its own
   copy once all of them accepted. An offered copy completes on the first call of a member of the group. If any

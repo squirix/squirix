@@ -438,14 +438,14 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
     /// <param name="registry">The registry of node n1.</param>
     /// <param name="appliers">The appliers of the served groups.</param>
     /// <returns>The committers of the led groups.</returns>
-    private static ReplicaGroupCommitters LeadOwnGroup(ReplicaGroupRegistry registry, ReplicaGroupAppliers appliers)
+    internal static ReplicaGroupCommitters LeadOwnGroup(ReplicaGroupRegistry registry, ReplicaGroupAppliers appliers)
     {
         var led = new ReplicaGroupCommitter[1];
         led[0] = CreateGroupCommitter(registry, "n1", new ScriptedGateway(), new StubCache(), TimeProvider.System, (TimeProvider.System, null), appliers.For("n1"));
         return new ReplicaGroupCommitters(led, "n1", Owners(), TimeProvider.System);
     }
 
-    private static ReplicaGroupAppliers CreateAppliers(ReplicaGroupRegistry registry, ILogicalNamespacedCache<object?> cache, Meter meter) => new(
+    internal static ReplicaGroupAppliers CreateAppliers(ReplicaGroupRegistry registry, ILogicalNamespacedCache<object?> cache, Meter meter) => new(
         registry,
         cache,
         "n1",
@@ -456,7 +456,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
     /// <param name="cache">The local cache double.</param>
     /// <param name="count">The number of applied writes to wait for.</param>
     /// <returns>The task completing on the write that reaches the count.</returns>
-    private static Task WhenAppliedAsync(StubCache cache, int count)
+    internal static Task WhenAppliedAsync(StubCache cache, int count)
     {
         var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         cache.OnApplied = () =>
@@ -475,27 +475,14 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
     /// <param name="logIndex">The log index of the record.</param>
     /// <returns>The decoded record.</returns>
     /// <exception cref="InvalidOperationException">The prepared record does not decode.</exception>
-    private static ReplicaLogRecord Prepare(string key, ulong logIndex)
+    internal static ReplicaLogRecord Prepare(string key, ulong logIndex)
     {
         var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance);
         var prepared = factory.PrepareSet(NewOperationId(), "cache", key, Entry(key), logIndex);
         return ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
     }
 
-    /// <summary>Prepares a record that writes an entry while its outcome says the add was rejected.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The inconsistent record at log index 1.</returns>
-    /// <exception cref="InvalidOperationException">The prepared record does not decode.</exception>
-    private static async Task<ReplicaLogRecord> InconsistentAsync(CancellationToken cancellationToken)
-    {
-        var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance);
-        var prepared = await factory.PrepareTryAddAsync(NewOperationId(), "cache", "bad", Entry("bad"), 1UL, cancellationToken);
-        var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload) ??
-                     ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
-        return record with { OutcomePayload = ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty) };
-    }
-
-    private static FollowerBatch Batch(in ReplicaLogRecord record, ulong prevLogIndex, ulong leaderCommitIndex) => new(
+    internal static FollowerBatch Batch(in ReplicaLogRecord record, ulong prevLogIndex, ulong leaderCommitIndex) => new(
         [record],
         "n2",
         1,
@@ -503,7 +490,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         prevLogIndex == 0 ? 0UL : 1UL,
         leaderCommitIndex);
 
-    private static Task SeedAsync(ReplicaGroupRegistry registry, string groupId, ulong commitIndex, CancellationToken cancellationToken, params string[] keys)
+    internal static Task SeedAsync(ReplicaGroupRegistry registry, string groupId, ulong commitIndex, CancellationToken cancellationToken, params string[] keys)
     {
         var records = new ReplicaLogRecord[keys.Length];
         for (var i = 0; i < keys.Length; i++)
@@ -536,5 +523,18 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         var appended = await log.AppendAsync(new FollowerLogAppendRequest(groupId, 1, 0, 0, commitIndex, entries), cancellationToken);
         if (!appended.Success)
             throw new InvalidOperationException($"The group log {groupId} refused the records: {appended.RefusalCode}.");
+    }
+
+    /// <summary>Prepares a record that writes an entry while its outcome says the add was rejected.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The inconsistent record at log index 1.</returns>
+    /// <exception cref="InvalidOperationException">The prepared record does not decode.</exception>
+    private static async Task<ReplicaLogRecord> InconsistentAsync(CancellationToken cancellationToken)
+    {
+        var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance);
+        var prepared = await factory.PrepareTryAddAsync(NewOperationId(), "cache", "bad", Entry("bad"), 1UL, cancellationToken);
+        var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload) ??
+                     ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
+        return record with { OutcomePayload = ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty) };
     }
 }

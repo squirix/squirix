@@ -154,7 +154,10 @@ internal static class ReplicaReadinessProbe
     /// <param name="members">Ordered group members, in slot order.</param>
     /// <param name="header">Replication envelope identity.</param>
     /// <param name="leader">Leader log status naming the entry the followers must hold.</param>
-    /// <param name="budget">Per-probe timeout and the answers after which the probes still pending are given up.</param>
+    /// <param name="budget">
+    /// Per-probe timeout and the answers after which the probes still pending are given up. Only an accepted probe and a log mismatch count: an
+    /// incomplete follower answered but cannot take part in a majority, so it does not end the round.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Per-slot outcomes; unselected and given-up slots carry the default unreachable verdict.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="budget" /> asks for fewer than one answer.</exception>
@@ -235,12 +238,11 @@ internal static class ReplicaReadinessProbe
                 _ = eligibility.TryMarkReady(replicaIndex, in expected, in expected);
                 return;
             case ReplicaProbeKind.Accepted:
+                MarkCatchingUp(eligibility, replicaIndex, leader.LastLogIndex, fingerprint, generation);
+                return;
             case ReplicaProbeKind.LogMismatch:
-                // Behind, ahead, or diverged: never ready. Only a prefix the accepted probe verified is recorded as
-                // progress; a reported last index that may hold divergent entries must not become a monotonic floor.
-                var verified = result.Kind == ReplicaProbeKind.Accepted ? leader.LastLogIndex : 0UL;
-                var hint = new ReplicaProgress(verified + 1, verified, 0, 0, 0, fingerprint, generation, 0);
-                _ = eligibility.TryMarkCatchingUp(replicaIndex, in hint);
+            case ReplicaProbeKind.Incomplete:
+                MarkCatchingUp(eligibility, replicaIndex, 0UL, fingerprint, generation);
                 return;
             case ReplicaProbeKind.Unreachable:
             case ReplicaProbeKind.Refused:
@@ -250,11 +252,25 @@ internal static class ReplicaReadinessProbe
         }
     }
 
+    /// <summary>Marks a follower slot catching up, never ready.</summary>
+    /// <param name="eligibility">Participation gates of the owned group.</param>
+    /// <param name="replicaIndex">Zero-based follower slot.</param>
+    /// <param name="verified">The prefix the probe verified; zero when it verified none.</param>
+    /// <param name="fingerprint">Static topology fingerprint.</param>
+    /// <param name="generation">Static configuration generation.</param>
+    /// <remarks>Behind, ahead, diverged or incomplete: never ready. Only a prefix an accepted probe verified is recorded as progress; a reported last index that may hold divergent entries must not become a monotonic floor.</remarks>
+    private static void MarkCatchingUp(ReplicaEligibility eligibility, int replicaIndex, ulong verified, ReadOnlyMemory<byte> fingerprint, ulong generation)
+    {
+        var hint = new ReplicaProgress(verified + 1, verified, 0, 0, 0, fingerprint, generation, 0);
+        _ = eligibility.TryMarkCatchingUp(replicaIndex, in hint);
+    }
+
     private static ReplicaProbeResult Classify(in FollowerLogAppendResult response) =>
-        (response.Success, string.Equals(response.RefusalCode, RefusalCodes.LogMismatch, StringComparison.Ordinal)) switch
+        (response.Success, response.RefusalCode) switch
         {
             (true, _) => new ReplicaProbeResult(ReplicaProbeKind.Accepted, response.LastLogIndex),
-            (false, true) => new ReplicaProbeResult(ReplicaProbeKind.LogMismatch, response.LastLogIndex),
+            (false, RefusalCodes.LogMismatch) => new ReplicaProbeResult(ReplicaProbeKind.LogMismatch, response.LastLogIndex),
+            (false, RefusalCodes.Incomplete) => new ReplicaProbeResult(ReplicaProbeKind.Incomplete, 0),
             _ => new ReplicaProbeResult(ReplicaProbeKind.Refused, 0),
         };
 
