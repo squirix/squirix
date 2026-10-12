@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -47,6 +48,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     private readonly Dictionary<string, Task> _stoppingNodes = [with(StringComparer.Ordinal)];
     private readonly ClusterNode[] _topology;
     private int _disposed;
+    private int _seeded;
 
     /// <summary>Initializes a new instance of the <see cref="TestCluster{TOptions}" /> class for a single-node topology.</summary>
     /// <param name="node">The only topology entry.</param>
@@ -120,6 +122,37 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
         return await StartNodeAsync(nodeId, effectiveOptions, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Stops the node, empties its data directory, and starts it again from the same topology entry, as a node whose disk was lost.</summary>
+    /// <param name="nodeId">Node identifier to restart.</param>
+    /// <param name="options">Startup options for the restarted node; the options it was last started with when <see langword="null" />.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The restarted test node host.</returns>
+    /// <exception cref="InvalidOperationException">The node runs without persistence, so it has no data directory to empty.</exception>
+    /// <remarks>
+    /// Unlike <see cref="StartNodeAsync(string, TOptions, CancellationToken)" />, this start does not wait for the first start of the groups: a
+    /// node that came back on an empty disk into a running cluster holds unseeded copies, and its first start does not end.
+    /// </remarks>
+    public async ValueTask<ITestNodeHost> RestartWipedNodeAsync(string nodeId, TOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        var effectiveOptions = options ?? (_lastOptions.TryGetValue(nodeId, out var lastOptions) ? lastOptions : null);
+        var dataDir = this[nodeId].DataDir;
+        if (string.IsNullOrEmpty(dataDir))
+            throw new InvalidOperationException($"Cluster node '{nodeId}' runs without persistence, so it has no data directory to empty.");
+
+        await StopNodeAsync(nodeId).ConfigureAwait(false);
+        foreach (var entry in Directory.EnumerateFileSystemEntries(dataDir))
+        {
+            if (Directory.Exists(entry))
+                Directory.Delete(entry, true);
+            else
+                File.Delete(entry);
+        }
+
+        var host = await StartNodeAsync(FindTopologyNode(nodeId), _topology, effectiveOptions, cancellationToken).ConfigureAwait(false);
+        _lastOptions[nodeId] = effectiveOptions;
+        return host;
+    }
+
     /// <summary>Gets the phases of the last stop of a node through <see cref="StopNodeAsync" /> or <see cref="RestartNodeAsync" />.</summary>
     /// <param name="nodeId">Node identifier.</param>
     /// <returns>The phases, or <see langword="null" /> when the node was not stopped through the cluster.</returns>
@@ -186,7 +219,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     /// <param name="nodeId">Node identifier from the cluster topology.</param>
     /// <param name="options">Optional startup options for the node.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The started test node host.</returns>
+    /// <returns>The started test node host; when it completes the topology, the groups of the cluster are seeded.</returns>
     /// <exception cref="ArgumentException">Thrown when <paramref name="nodeId" /> is not part of the topology.</exception>
     public async ValueTask<ITestNodeHost> StartNodeAsync(string nodeId, TOptions? options = null, CancellationToken cancellationToken = default)
     {
@@ -195,6 +228,13 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
         // Record only after a successful start: a rejected start (already running, cancelled, faulted)
         // must not overwrite the options a later RestartNodeAsync(nodeId) falls back to.
         _lastOptions[nodeId] = options;
+
+        // The groups of a fresh cluster take no part until their owners ran the first start, which needs every node up: the node that
+        // completes the topology waits for it, once. A node started again later is not waited for: a node that came back on an empty disk
+        // never ends its first start.
+        if (StartedCount == _topology.Length && Interlocked.Exchange(ref _seeded, 1) == 0)
+            await ClusterSeeding.AwaitSeededAsync(_nodes.Values, cancellationToken).ConfigureAwait(false);
+
         return host;
     }
 

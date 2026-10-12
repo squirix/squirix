@@ -201,6 +201,9 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
             case ReplicaVerification.Blocked:
                 ServerLog.ReplicaVerificationBlocked(_log, groupId);
                 break;
+            case ReplicaVerification.Unseeded:
+                ServerLog.ReplicaVerificationUnseeded(_log, groupId);
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Unsupported verification state.");
         }

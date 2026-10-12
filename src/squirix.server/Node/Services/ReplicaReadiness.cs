@@ -1,6 +1,7 @@
 using System;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Node.Services;
 
@@ -26,6 +27,8 @@ internal static class ReplicaReadiness
             ReplicaReadinessVerdict.MinorityFenced => $"replica group '{groupId}' is a minority without authority.",
             ReplicaReadinessVerdict.TopologyMismatch => $"replica group '{groupId}' reports a topology mismatch.",
             ReplicaReadinessVerdict.LogNotReady => $"replica group '{groupId}' log is not ready.",
+            ReplicaReadinessVerdict.Unseeded =>
+                $"replica group '{groupId}' is not seeded on this node: its copy votes for nobody and takes no entries until the group is started or the copy is repaired.",
             _ => throw new ArgumentOutOfRangeException(nameof(verdict), verdict, "Unsupported readiness verdict."),
         };
     }
@@ -37,6 +40,9 @@ internal static class ReplicaReadiness
     {
         if (!snapshot.LogReady)
             return ReplicaReadinessVerdict.LogNotReady;
+
+        if (snapshot.MemberState != GroupMemberState.Complete)
+            return ReplicaReadinessVerdict.Unseeded;
 
         if (!snapshot.FingerprintMatch || !snapshot.GenerationMatch)
             return ReplicaReadinessVerdict.TopologyMismatch;

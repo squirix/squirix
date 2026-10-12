@@ -1,4 +1,5 @@
 using Squirix.Server.Attributes;
+using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -16,6 +17,7 @@ namespace Squirix.Server.Node.Observability;
 /// <param name="LogReady">Whether the group log reached durability readiness.</param>
 /// <param name="IsLeader">Whether this node considers itself the leader of the group.</param>
 /// <param name="HasMajorityContact">Whether the group recently contacted a majority of replicas.</param>
+/// <param name="MemberState">Whether the copy of the group on this node holds the data of the group.</param>
 [Immutable]
 internal readonly record struct ReplicaStatusSnapshot(
     string NodeId,
@@ -30,7 +32,8 @@ internal readonly record struct ReplicaStatusSnapshot(
     bool GenerationMatch,
     bool LogReady,
     bool IsLeader,
-    bool HasMajorityContact)
+    bool HasMajorityContact,
+    GroupMemberState MemberState)
 {
     /// <summary>Gets the durable length of the group log file in bytes, header included.</summary>
     internal long LogBytes { get; init; }

@@ -133,6 +133,7 @@ internal static class ServerHostingComposition
         // and the committers drain their coordinators on host shutdown.
         _ = services.AddSingleton(static sp => CreateReplicaGroupCommitters(sp, sp.GetRequiredService<ReplicaGroupActivation>().Fingerprint));
         AddReplicaGroupReadiness(services);
+        ReplicaGroupBootstrapRegistration.Add(services);
         _ = services.AddHostedService(static sp => new ReplicaApplyService(
             sp.GetRequiredService<ReplicaGroupRegistry>(),
             sp.GetRequiredService<ReplicaGroupAppliers>(),
@@ -346,6 +347,7 @@ internal static class ServerHostingComposition
         _ = services.AddSingleton(static sp => new ReplicaRpcGateway(sp.GetRequiredService<IServerClientPool>()));
         _ = services.AddSingleton<IReplicaRpcGateway>(static sp => sp.GetRequiredService<ReplicaRpcGateway>());
         _ = services.AddSingleton<IReplicaVoteGateway>(static sp => sp.GetRequiredService<ReplicaRpcGateway>());
+        _ = services.AddSingleton<IReplicaBootstrapGateway>(static sp => new ReplicaBootstrapRpcGateway(sp.GetRequiredService<IServerClientPool>()));
     }
 
     private static async Task ConfigureBuilderCoreAsync(WebApplicationBuilder builder, TopologyOptions cluster, ICompositionArgs args, CancellationToken cancellationToken)

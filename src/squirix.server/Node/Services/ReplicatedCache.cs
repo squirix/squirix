@@ -42,12 +42,15 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// <inheritdoc />
     /// <exception cref="Grpc.Core.RpcException">
     /// The entry expired and its tombstone could not commit: Unavailable, retryable. Under quorum reads, also the refusal of a read this
-    /// node may not serve as the leader of the group, or whose read index no majority confirmed in time; nothing was read.
+    /// node may not serve as the leader of the group, or whose read index no majority confirmed in time; nothing was read. Without them, a read
+    /// of the group this node leads statically is refused (Unavailable) while its copy is not complete.
     /// </exception>
     public async ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         if (_quorumReads)
             await _committers.ForKey(cacheName, key).ConfirmReadAsync(cancellationToken).ConfigureAwait(false);
+        else
+            await _committers.EnsureSeededAsync(cancellationToken).ConfigureAwait(false);
 
         var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         return IsExpired(entry) ? await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false) : entry;

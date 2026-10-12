@@ -102,6 +102,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     public override async Task<GetReplicaStatusResponse> GetReplicaStatus(GetReplicaStatusRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, false);
+        _follower?.NotePeerContact(header.SenderNodeId);
         var status = _follower == null ? null : await _follower.GetStatusAsync(header.GroupId, context.CancellationToken).ConfigureAwait(false);
         if (status == null)
         {
@@ -128,7 +129,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             Role = _follower?.RoleOf(header.GroupId) ?? "follower",
             LastLogIndex = current.LastLogIndex,
             CommitIndex = current.CommitIndex,
-            Readiness = MapReadiness(current.Readiness),
+            Readiness = ReplicaReadinessNames.Of(current.Readiness),
             TopologyFingerprint = ByteString.CopyFrom(current.TopologyFingerprint.ToArray()),
             ConfigurationGeneration = current.ConfigurationGeneration,
             RefusalCode = string.Empty,
@@ -157,6 +158,22 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             Term = status?.CurrentTerm ?? 0,
             Success = result.Success,
             RefusalCode = result.Refusal,
+        };
+    }
+
+    public override async Task<OfferReplicaBootstrapResponse> OfferReplicaBootstrap(OfferReplicaBootstrapRequest request, ServerCallContext context)
+    {
+        var header = EnsureHeader(request.Header, context, false);
+        _follower?.NotePeerContact(header.SenderNodeId);
+        var result = _follower == null
+            ? new ReplicaBootstrapOfferResult(false, null, RefusalCodes.NotReady)
+            : await _follower.AcceptOfferAsync(header.GroupId, header.SenderNodeId, header.TopologyFingerprint.ToByteArray(), header.ConfigurationGeneration, context.CancellationToken)
+                             .ConfigureAwait(false);
+        return new OfferReplicaBootstrapResponse
+        {
+            Accepted = result.Accepted,
+            MemberState = result.MemberState is { } state ? GroupMemberStateNames.Of(state) : string.Empty,
+            RefusalCode = result.RefusalCode,
         };
     }
 
@@ -208,6 +225,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         var upload = new ReplicaSnapshotUpload(file.WrittenMemory, first.PayloadChecksum, first.LastIncludedIndex, first.LastIncludedTerm);
         var result = await follower.InstallSnapshotUploadAsync(
             header.GroupId,
+            header.LeaderNodeId,
             header.TopologyFingerprint.ToByteArray(),
             header.ConfigurationGeneration,
             upload,
@@ -273,6 +291,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         ulong commitIndex,
         CancellationToken cancellationToken) => follower.AdvanceCommitAsync(
         header.GroupId,
+        header.LeaderNodeId,
         header.TopologyFingerprint.ToByteArray(),
         header.ConfigurationGeneration,
         commitIndex,
@@ -307,14 +326,6 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             RefusalCode = RefusalCodes.NotReady,
         };
     }
-
-    private static string MapReadiness(FollowerLogReadiness readiness) => readiness switch
-    {
-        FollowerLogReadiness.Ready => "ready",
-        FollowerLogReadiness.Failed => "failed",
-        FollowerLogReadiness.Unknown => "unknown",
-        _ => throw new ArgumentOutOfRangeException(nameof(readiness), readiness, "Unsupported follower readiness."),
-    };
 
     private static ReplicaLogRecord MapRecord(ReplicaLogEntry entry) => new(
         entry.LogIndex,

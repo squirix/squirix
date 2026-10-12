@@ -75,7 +75,7 @@ internal static class ReplicaGroupCommitterLeadership
         /// <returns>A task that completes once the coordinator is started.</returns>
         /// <exception cref="Grpc.Core.RpcException">
         /// The log holds a term above the led one, as after a local append the log refused for a stale term: stale-term; or a static leader's
-        /// log holds a term above one: Unavailable. Nothing was written.
+        /// log holds a term above one, or the copy of the group is not complete: Unavailable. Nothing was written.
         /// </exception>
         /// <remarks>Runs under the commit gate, and only while the committer is not started.</remarks>
         internal async Task StartForWriteAsync(CancellationToken cancellationToken)
@@ -88,7 +88,7 @@ internal static class ReplicaGroupCommitterLeadership
             {
                 throw StaleTermFailure.Create(null, 0);
             }
-            catch (StaticLeaderTermExceededException)
+            catch (Exception exception) when (exception is StaticLeaderTermExceededException or ReplicaUnseededException)
             {
                 throw ServerOpContract.NoLeaderAuthority();
             }

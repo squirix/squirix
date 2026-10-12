@@ -48,4 +48,8 @@ public sealed class RefusalMirrorTests : ServerUnitTestBase
     /// <summary>Topology-mismatch marker matches across both namespaces.</summary>
     [Test]
     public async Task TopologyMismatchMirrors() => _ = await Assert.That(FollowerLogRefusal.TopologyMismatch).IsEqualTo(RefusalCodes.TopologyMismatch);
+
+    /// <summary>Unseeded marker matches across both namespaces.</summary>
+    [Test]
+    public async Task UnseededMirrors() => _ = await Assert.That(FollowerLogRefusal.Unseeded).IsEqualTo(RefusalCodes.Unseeded);
 }

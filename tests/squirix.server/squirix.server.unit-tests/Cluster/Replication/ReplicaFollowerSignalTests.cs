@@ -9,6 +9,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -50,7 +51,7 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
         _ = await follower.AppendAsync(GroupId, Fingerprint, 1, Batch(1, 0, 0), cancellationToken);
         _ = await IsRaisedAsync(registry, cancellationToken);
 
-        var result = await follower.AdvanceCommitAsync(GroupId, Fingerprint, 1, 1, 1, cancellationToken);
+        var result = await follower.AdvanceCommitAsync(GroupId, "n2", Fingerprint, 1, 1, 1, cancellationToken);
 
         _ = await Assert.That(result.Success).IsTrue();
         _ = await Assert.That(await IsRaisedAsync(registry, cancellationToken)).IsTrue();
@@ -77,7 +78,7 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
         _ = await Assert.That((await log!.AdvanceAppliedAsync(1UL, cancellationToken)).Success).IsTrue();
         _ = await IsRaisedAsync(registry, cancellationToken);
 
-        var result = await follower.InstallSnapshotUploadAsync(GroupId, Fingerprint, 1, upload, 1UL, cancellationToken);
+        var result = await follower.InstallSnapshotUploadAsync(GroupId, "n2", Fingerprint, 1, upload, 1UL, cancellationToken);
 
         _ = await Assert.That(result.Success).IsTrue().Because($"refused with '{result.Refusal}'");
         _ = await Assert.That(await IsRaisedAsync(registry, cancellationToken)).IsTrue();
@@ -100,7 +101,7 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
             snapshot.LastIncludedIndex,
             snapshot.LastIncludedTerm);
 
-        var result = await follower.InstallSnapshotUploadAsync(GroupId, Fingerprint, 1, upload, 1UL, cancellationToken);
+        var result = await follower.InstallSnapshotUploadAsync(GroupId, "n2", Fingerprint, 1, upload, 1UL, cancellationToken);
 
         _ = await Assert.That(result.Success).IsFalse();
         _ = await Assert.That(await IsRaisedAsync(registry, cancellationToken)).IsFalse();
@@ -123,6 +124,7 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
 
     private static async Task<ReplicaGroupRegistry> OpenAsync(string dir, CancellationToken cancellationToken)
     {
+        await SeededLogs.SeedGroupsAsync(dir, ["n1", GroupId], cancellationToken);
         var registry = new ReplicaGroupRegistry(dir, ["n1", GroupId], 3, Fingerprint, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         try
         {
@@ -145,7 +147,7 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
     private static async Task<GroupSnapshot> PublishSnapshotAsync(string dir, CancellationToken cancellationToken)
     {
         await using var source = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await source.OpenAsync(cancellationToken);
+        await source.OpenSeededAsync(cancellationToken);
         await source.AdoptTopologyAsync(Fingerprint, 1, cancellationToken);
         FollowerLogEntry[] entries = [new(1UL, 1UL, new byte[] { 1 })];
         var appended = await source.AppendAsync(new FollowerLogAppendRequest("n2", 1UL, 0UL, 0UL, 1UL, entries), cancellationToken);

@@ -8,6 +8,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -44,12 +45,30 @@ public sealed class ReplicaGroupRegistryTopologyTests : ServerUnitTestBase
         _ = await Assert.That(status.ConfigurationGeneration).IsEqualTo(1UL);
     }
 
+    /// <summary>A fresh complete copy starts with every slot ready, and an unseeded copy starts with every slot unverified.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OnlyCompleteCopySlotsStartReady(CancellationToken cancellationToken)
+    {
+        using var completeDir = new TempDirectory("squirix-registry-slots-complete");
+        using var unseededDir = new TempDirectory("squirix-registry-slots-unseeded");
+        await SeededLogs.SeedGroupsAsync(completeDir, [GroupId], cancellationToken);
+        await using var complete = new ReplicaGroupRegistry(completeDir, [GroupId], 3, Written, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
+        await using var unseeded = new ReplicaGroupRegistry(unseededDir, [GroupId], 3, Written, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
+
+        await complete.OpenAsync(cancellationToken);
+        await unseeded.OpenAsync(cancellationToken);
+
+        _ = await Assert.That((complete.EligibilityFor(GroupId).AllCanCountInWriteQuorum(), unseeded.EligibilityFor(GroupId).AllCanCountInWriteQuorum())).IsEqualTo((true, false));
+    }
+
     /// <summary>A log written under one topology is refused when the registry reopens it under another, before anything is applied from it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task ChangedTopologyIsRefused(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-registry-topology-refuse");
+        await SeededLogs.SeedGroupsAsync(dir, [GroupId], cancellationToken);
         await using (var written = new ReplicaGroupRegistry(dir, [GroupId], 1, Written, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System })
         {
             await written.OpenAsync(cancellationToken);

@@ -314,7 +314,9 @@ test-only variable is set), reported as `Persistence: enabled (data dir: {path},
   `match` or `MISMATCH (stamped {value}, configured {value})`;
 - one line per configured peer group: `group '{id}': no durable state`,
   `group '{id}': metadata UNREADABLE (checksum or format mismatch)`, or
-  `group '{id}': term {t} commit {c} applied {a} apply-lag {n} fingerprint match|MISMATCH generation match|MISMATCH`.
+  `group '{id}': term {t} commit {c} applied {a} apply-lag {n} fingerprint match|MISMATCH generation match|MISMATCH member {state}`,
+  where `{state}` is `complete`, `incomplete`, `unseeded offered`, or `unseeded not-offered`. An unseeded copy holds no data of
+  the group and grants no vote; `offered` means the owner of the group offered it a place in the first start of the group.
 
 When any line reports `MISMATCH`, `UNREADABLE`, or `MISSING`, doctor prints the whole report, writes
 `[Squirix.Server] Error: Durable replica state in the data directory does not match the configured topology; see the

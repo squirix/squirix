@@ -27,7 +27,30 @@ and an NDepend namespace DAG gate before any product election code lands.
 
 Each group stores durable `current_term` and at most one `voted_for` per term. A positive vote response is persisted
 before it is sent. A candidate wins only with a majority of the configured static membership; votes may come only from
-ready members. Readiness never changes the quorum denominator.
+ready members whose copy is complete. Readiness never changes the quorum denominator.
+
+### Member state and the first start of a group
+
+The group metadata file records, next to the term and the vote, the member state of the copy on that node and whether
+the owner offered it a place in the first start. The file holds two record slots, each written whole. Only a record
+written to both slots survives the loss of one: vote grants and the member state transitions (the fresh unseeded
+record, the offer, and completion) are written to both; other records go to one slot at a time, so damage to the newest
+slot rolls the file back to the previous record. A file written by an earlier build (the single-record layout) is
+refused at open and left unchanged.
+
+- **Unseeded.** A copy on a fresh disk opens unseeded, the fail-safe value. It refuses pre-votes, votes, appends,
+  commit advances, and snapshot installs with the refusal `unseeded` and adopts no term, so it can never grant a vote
+  that a lost disk would let it grant twice. Its node neither leads it in term one nor campaigns for it
+  (`FailoverDenial.Unseeded`), and a static committer does not start over it: reads and writes of the group fail with
+  `Unavailable`.
+- **Complete and incomplete.** A complete copy holds the data of the group and takes part as before; an incomplete copy
+  is in the middle of receiving it and takes no part either.
+- **First start.** Only the owner of a group starts it. It asks every other member for its status; when all of them
+  answer with a ready log, the same topology, and an unseeded copy, it offers each a place, and it completes its own
+  copy once all of them accepted. An offered copy completes on the first call of a member of the group. If any
+  member holds a complete copy, or does not answer, the owner offers nothing and retries: a member that returns on an
+  empty disk into a running group is not offered a place and stays unseeded. Repairing such a copy is not part of this
+  release. All members of a group losing their disks at once cannot be told from a new cluster, and the group starts empty.
 
 ### Current-term commit before serving
 
@@ -52,8 +75,9 @@ elects a replacement.
   decided: a majority granted, a majority can no longer be reached, or a reply reported a higher term. Calls still
   unanswered are canceled, so a member that does not answer adds no vote timeout to a decided round; only a round that
   depends on that member waits for the vote RPC timeout.
-- **Term one.** Term one belongs to the owner of a group: a node whose own group log never moved past term one leads it in
-  term one at start, without votes, and no vote is ever granted for term one. The first election is for term two.
+- **Term one.** Term one belongs to the owner of a group: a node whose own group log never moved past term one and holds a
+  complete copy leads it in term one once the first start completed it, without votes, and no vote is ever granted for
+  term one. The first election is for term two.
 - **Leader contact.** A member refuses a pre-vote with `leader-contact` while it heard from a live leader within one
   election timeout, so a node cut off from the leader alone keeps campaigning in vain instead of deposing it. The same
   rule decides whether a follower names its leader: one it has not heard from for an election timeout is no longer named.

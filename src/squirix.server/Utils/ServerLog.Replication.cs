@@ -1,5 +1,6 @@
 using System;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Utils;
 
@@ -248,4 +249,52 @@ internal static partial class ServerLog
         Level = LogLevel.Warning,
         Message = "Replica group {GroupId} cannot be verified because the journal or memory refused the write; retried until it has room")]
     internal static partial void ReplicaVerificationRefused(ILogger logger, string groupId, Exception exception);
+
+    [LoggerMessage(
+        EventId = 4053,
+        Level = LogLevel.Information,
+        Message = "Replica group {GroupId} first start waits for node {NodeId}: it did not answer, is not ready, or is not an unseeded copy of the same topology")]
+    internal static partial void ReplicaBootstrapWaiting(ILogger logger, string groupId, string nodeId);
+
+    [LoggerMessage(
+        EventId = 4054,
+        Level = LogLevel.Warning,
+        Message = "Replica group {GroupId} first start found a complete copy on node {NodeId}, so the empty copy of this node needs repair; it is not seeded")]
+    internal static partial void ReplicaBootstrapMemberComplete(ILogger logger, string groupId, string nodeId);
+
+    [LoggerMessage(
+        EventId = 4055,
+        Level = LogLevel.Information,
+        Message = "Replica group {GroupId} first start: node {NodeId} did not accept the offer (member state {MemberState}, refusal {RefusalCode}); it is retried")]
+    internal static partial void ReplicaBootstrapOfferRefused(ILogger logger, string groupId, string nodeId, GroupMemberState? memberState, string refusalCode);
+
+    [LoggerMessage(EventId = 4056, Level = LogLevel.Information, Message = "Replica group {GroupId} is seeded: every member accepted the offer and the copy of this node is complete")]
+    internal static partial void ReplicaBootstrapCompleted(ILogger logger, string groupId);
+
+    [LoggerMessage(EventId = 4057, Level = LogLevel.Information, Message = "Replica group {GroupId} first start waits for the log of this node to be ready")]
+    internal static partial void ReplicaBootstrapLogNotReady(ILogger logger, string groupId);
+
+    [LoggerMessage(EventId = 4058, Level = LogLevel.Warning, Message = "Replica group {GroupId} copy of this node is incomplete, so the first start has nothing to do for it")]
+    internal static partial void ReplicaBootstrapIncomplete(ILogger logger, string groupId);
+
+    [LoggerMessage(EventId = 4059, Level = LogLevel.Debug, Message = "Replica group {GroupId} copy of this node is complete; the first start has nothing to do")]
+    internal static partial void ReplicaBootstrapAlreadyComplete(ILogger logger, string groupId);
+
+    [LoggerMessage(EventId = 4060, Level = LogLevel.Debug, Message = "Replica group {GroupId} first start attempt failed and will be retried")]
+    internal static partial void ReplicaBootstrapRetry(ILogger logger, string groupId, Exception exception);
+
+    [LoggerMessage(EventId = 4061, Level = LogLevel.Information, Message = "Replica group {GroupId} first start stopped because the host is shutting down; the copy of this node stays unseeded")]
+    internal static partial void ReplicaBootstrapStopped(ILogger logger, string groupId);
+
+    [LoggerMessage(
+        EventId = 4062,
+        Level = LogLevel.Information,
+        Message = "Replica group {GroupId} log opened with a copy that is {MemberState}: it votes for nobody and takes no entries until the group is started or the copy is repaired")]
+    internal static partial void FollowerLogOpenedNotComplete(ILogger logger, string groupId, string memberState);
+
+    [LoggerMessage(
+        EventId = 4063,
+        Level = LogLevel.Information,
+        Message = "Replica group {GroupId} verification waits for the first start of the group: the copy of this node is not seeded yet")]
+    internal static partial void ReplicaVerificationUnseeded(ILogger logger, string groupId);
 }

@@ -6,7 +6,7 @@ using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Replication;
 
-/// <summary>Wakes the apply loop of one replica group when its log may hold committed entries memory has not received yet.</summary>
+/// <summary>Wakes a loop that waits with a timeout: the apply loop of one replica group when its log may hold committed entries memory has not received yet, or the first start of a group when a peer called.</summary>
 /// <remarks>
 /// Notifications coalesce: at most one is pending, and any number raised before the loop takes it count as one. A notification raised
 /// while the loop runs a pass stays pending, so the loop runs one more pass and never misses an entry. Notifying never waits and never

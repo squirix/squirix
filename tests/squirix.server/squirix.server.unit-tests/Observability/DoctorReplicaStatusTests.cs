@@ -137,7 +137,7 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
 
         _ = await Assert.That(report.HasMismatch).IsTrue();
         var text = string.Join('\n', report.Lines);
-        _ = await Assert.That(text).Contains("group 'n1': term 9 commit 10 applied 7 apply-lag 3", StringComparison.Ordinal);
+        _ = await Assert.That(text).Contains("group 'n1': term 9 commit 10 applied 7 apply-lag 3 fingerprint MISMATCH generation match member complete", StringComparison.Ordinal);
         _ = await Assert.That(text).Contains("fingerprint MISMATCH", StringComparison.Ordinal);
         _ = await Assert.That(text).Contains("generation match", StringComparison.Ordinal);
         _ = await Assert.That(text).Contains("group 'n2': no durable state", StringComparison.Ordinal);

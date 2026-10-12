@@ -97,6 +97,19 @@ message GetReplicaStatusResponse {
   bool bootstrap_offered = 12;
 }
 
+// The owner of a group offers this node a place in the first start of the group. Only the owner may send it: header.sender_node_id
+// must equal header.group_id; header.leader_node_id is ignored. accepted is true once the offer is durable on an unseeded copy.
+// member_state is the state of the copy after the call, empty when the node does not serve the group.
+message OfferReplicaBootstrapRequest {
+  ReplicationEnvelopeHeader header = 1;
+}
+
+message OfferReplicaBootstrapResponse {
+  bool accepted = 1;
+  string member_state = 2;
+  string refusal_code = 3;
+}
+
 // Election ballot for one replica group. The candidate is header.sender_node_id; header.leader_node_id is ignored.
 // header.term is the proposed term for PreVote (never persisted) and the candidate persisted term for RequestVote.
 message ReplicaVoteRequest {
@@ -117,6 +130,7 @@ service SquirixReplicationService {
   rpc AdvanceReplicaCommit (AdvanceReplicaCommitRequest) returns (AdvanceReplicaCommitResponse);
   rpc InstallReplicaSnapshot (stream InstallReplicaSnapshotRequest) returns (InstallReplicaSnapshotResponse);
   rpc GetReplicaStatus (GetReplicaStatusRequest) returns (GetReplicaStatusResponse);
+  rpc OfferReplicaBootstrap (OfferReplicaBootstrapRequest) returns (OfferReplicaBootstrapResponse);
   rpc PreVote (ReplicaVoteRequest) returns (ReplicaVoteResponse);
   rpc RequestVote (ReplicaVoteRequest) returns (ReplicaVoteResponse);
 }

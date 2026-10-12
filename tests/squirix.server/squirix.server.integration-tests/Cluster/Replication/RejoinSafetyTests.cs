@@ -8,6 +8,7 @@ using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -24,7 +25,7 @@ public sealed class RejoinSafetyTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-rejoin-safety");
         await using var log = new FollowerLog(dir, "rejoin-safety", GroupComposition.Create("rejoin-safety"), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(
             new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a")))),
             cancellationToken);
@@ -38,10 +39,10 @@ public sealed class RejoinSafetyTests : NodeIntegrationTestBase
         var caughtUp = status.LastLogIndex >= leaderCommitIndex;
         _ = await Assert.That(caughtUp).IsTrue();
 
-        var eligible = FailoverActivationGate.CheckElection(3, true, true, caughtUp, granted.CurrentTerm, granted.CurrentTerm);
+        var eligible = FailoverActivationGate.CheckElection(3, true, true, true, caughtUp, granted.CurrentTerm, granted.CurrentTerm);
         _ = await Assert.That(eligible.Eligible).IsTrue();
 
-        var deposed = FailoverActivationGate.CheckElection(3, true, true, true, granted.CurrentTerm, granted.CurrentTerm + 1);
+        var deposed = FailoverActivationGate.CheckElection(3, true, true, true, true, granted.CurrentTerm, granted.CurrentTerm + 1);
         _ = await Assert.That(deposed.Eligible).IsFalse();
         _ = await Assert.That(deposed.Denial).IsEqualTo(FailoverDenial.StaleTerm);
     }
@@ -53,14 +54,14 @@ public sealed class RejoinSafetyTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-rejoin-lagging");
         await using var log = new FollowerLog(dir, "rejoin-lagging", GroupComposition.Create("rejoin-lagging"), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenAsync(cancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
 
         const ulong leaderCommitIndex = 2UL;
         var status = await log.GetStatusAsync(cancellationToken);
         var caughtUp = status.LastLogIndex >= leaderCommitIndex;
         _ = await Assert.That(caughtUp).IsFalse();
 
-        var lagging = FailoverActivationGate.CheckElection(3, true, true, caughtUp, 4, 4);
+        var lagging = FailoverActivationGate.CheckElection(3, true, true, true, caughtUp, 4, 4);
         _ = await Assert.That(lagging.Eligible).IsFalse();
         _ = await Assert.That(lagging.Denial).IsEqualTo(FailoverDenial.LogNotCaughtUp);
     }

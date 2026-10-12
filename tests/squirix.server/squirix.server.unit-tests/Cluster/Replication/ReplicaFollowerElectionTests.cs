@@ -11,6 +11,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -168,8 +169,8 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         _ = await log!.AppendAsync(new FollowerLogAppendRequest("n2", 1UL, 0UL, 0UL, 1UL, entries), cancellationToken);
         _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
 
-        var commit = await new ReplicaFollower(committed, RocksDoubles.CreateReplicaMembers()).AdvanceCommitAsync(GroupId, Fingerprint, 1UL, 0UL, 3UL, cancellationToken);
-        var install = await new ReplicaFollower(installed, RocksDoubles.CreateReplicaMembers()).InstallSnapshotUploadAsync(GroupId, Fingerprint, 1UL, upload, 4UL, cancellationToken);
+        var commit = await new ReplicaFollower(committed, RocksDoubles.CreateReplicaMembers()).AdvanceCommitAsync(GroupId, "n2", Fingerprint, 1UL, 0UL, 3UL, cancellationToken);
+        var install = await new ReplicaFollower(installed, RocksDoubles.CreateReplicaMembers()).InstallSnapshotUploadAsync(GroupId, "n2", Fingerprint, 1UL, upload, 4UL, cancellationToken);
 
         _ = await Assert.That((commit.Success, install.Success)).IsEqualTo((true, true));
         _ = await Assert.That(committed.StateFor(GroupId).HasRecentLeaderContact(TimeSpan.FromSeconds(1))).IsTrue();
@@ -247,9 +248,9 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         var append = await follower.AppendAsync(GroupId, unelected, 1UL, new FollowerBatch([], "n2", 3UL, 0UL, 0UL, 0UL), cancellationToken);
         var preVote = await follower.PreVoteAsync(GroupId, unelected, 1UL, ballot, cancellationToken);
         var vote = await follower.RequestVoteAsync(GroupId, unelected, 1UL, ballot, cancellationToken);
-        var commit = await follower.AdvanceCommitAsync(GroupId, unelected, 1UL, 0UL, 3UL, cancellationToken);
+        var commit = await follower.AdvanceCommitAsync(GroupId, "n2", unelected, 1UL, 0UL, 3UL, cancellationToken);
         var upload = new ReplicaSnapshotUpload(ReadOnlyMemory<byte>.Empty, 0U, 1UL, 1UL);
-        var install = await follower.InstallSnapshotUploadAsync(GroupId, unelected, 1UL, upload, 3UL, cancellationToken);
+        var install = await follower.InstallSnapshotUploadAsync(GroupId, "n2", unelected, 1UL, upload, 3UL, cancellationToken);
         var status = await follower.GetStatusAsync(GroupId, cancellationToken);
 
         _ = await Assert.That(unelected.AsSpan().SequenceEqual(elected)).IsFalse();
@@ -347,6 +348,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         FollowerLogOptions? options,
         CancellationToken cancellationToken)
     {
+        await SeededLogs.SeedGroupsAsync(dir, [GroupId], cancellationToken);
         var registry = new ReplicaGroupRegistry(dir, [GroupId], 3, fingerprint, 1UL, NullLoggerFactory.Instance, options ?? new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System })
         {
             Election = new ElectionTimerOptions { JitterSeed = 1UL },

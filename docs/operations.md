@@ -20,6 +20,11 @@ dotnet test squirix.slnx --configuration Release --no-build
 - **Automatic failover is opt-in** — RF=1 durability is per node; RF>=3 elects a new leader only with
   [automatic failover and quorum reads](configuration.md#automatic-failover-and-quorum-reads) on
 - **Static topology** — peers are configured explicitly; dynamic membership is future work
+- **Replica group start and lost disks (RF>1)** — a replica group of a new cluster starts once every member of it is up. A
+  member that starts on an empty data directory while its group runs holds an unseeded copy that grants no vote, takes no
+  entries, and is not repaired in this release: the group keeps working on its other members, and the only way to bring
+  the node back is to recreate the cluster. Do not restore the data directory of a replicated node from an older
+  backup. See [starting a replica group](clustering.md#starting-a-replica-group)
 - **Single-key operations** — cross-key or multi-node atomicity is out of scope for v0.1
 - **Narrow client API** — basic KV + expiration; no batch, scan, watch, counters, or tag invalidation yet
 - **Replica group log compaction (RF>1 opt-in)** — each node compacts the group logs it leads and its copies of the

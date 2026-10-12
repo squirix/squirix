@@ -20,7 +20,13 @@ public sealed class MetricsEndpointTests : NodeIntegrationTestBase
     {
         await using var cluster = CreateCluster([new ClusterNode("node-metrics-a", GetNextHttpUri()), new ClusterNode("node-metrics-b", GetNextHttpUri())]);
         var options = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = "replication-gauges" };
-        var uri = (await cluster.StartNodeAsync("node-metrics-a", options, cancellationToken)).Uri;
+        var owner = await cluster.StartNodeAsync("node-metrics-a", options, cancellationToken);
+        var uri = owner.Uri;
+
+        // A new group takes no part until all of its members were up once: the second node completes the topology and seeds it, and the
+        // owner then verifies its follower, as its readiness service does, before the group counts as ready.
+        _ = await cluster.StartNodeAsync("node-metrics-b", options, cancellationToken);
+        await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
 
         using (var ready = await HttpClient.GetAsync(new Uri(uri, "/health/ready"), cancellationToken))
             _ = await Assert.That(ready.StatusCode).IsEqualTo(HttpStatusCode.OK);

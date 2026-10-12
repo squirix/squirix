@@ -13,6 +13,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -33,6 +34,45 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         _ = await Assert.That(ReplicaReadiness.Describe(ReplicaReadinessVerdict.MinorityFenced, "group-a")).Contains("minority", StringComparison.Ordinal);
         _ = await Assert.That(ReplicaReadiness.Describe(ReplicaReadinessVerdict.TopologyMismatch, "group-a")).Contains("mismatch", StringComparison.Ordinal);
         _ = await Assert.That(ReplicaReadiness.Describe(ReplicaReadinessVerdict.LogNotReady, "group-a")).Contains("not ready", StringComparison.Ordinal);
+        _ = await Assert.That(ReplicaReadiness.Describe(ReplicaReadinessVerdict.Unseeded, "group-a"))
+                        .IsEqualTo(
+                            "replica group 'group-a' is not seeded on this node: its copy votes for nobody and takes no entries until the group is started or the copy is repaired.");
+    }
+
+    /// <summary>Verifies a copy that is not complete is its own verdict, for an owner and a follower alike, and reports not ready.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnseededCopyIsNotReady(CancellationToken cancellationToken)
+    {
+        var owner = ReadyLeaderSnapshot("group-a") with { MemberState = GroupMemberState.Unseeded };
+        var follower = ReadyFollowerSnapshot("group-b") with { MemberState = GroupMemberState.Incomplete };
+        using var scope = new CheckScope(new FixedSource([follower, owner]));
+
+        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+
+        _ = await Assert.That(ReplicaReadiness.Evaluate(in owner)).IsEqualTo(ReplicaReadinessVerdict.Unseeded);
+        _ = await Assert.That(ReplicaReadiness.Evaluate(in follower)).IsEqualTo(ReplicaReadinessVerdict.Unseeded);
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Description).IsEqualTo(ReplicaReadiness.Describe(ReplicaReadinessVerdict.Unseeded, "group-b"));
+    }
+
+    /// <summary>Verifies the status source carries the member state of the copy, so a copy on a fresh disk reports unseeded and a seeded one ready.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StatusSourceCarriesMemberState(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-readiness-member-state");
+        await using var registry = CreateRegistry(dir, CreateTopology(1));
+        await registry.OpenAsync(cancellationToken);
+        var source = new ReplicaGroupStatusSource(registry, CreateTopology(1), new MtlsOptions(), "node-a");
+        _ = registry.TryGetLog("node-a", out var log);
+
+        var fresh = (await source.GetSnapshotsAsync(cancellationToken))[0];
+        await log!.CompleteBootstrapAsync(cancellationToken);
+        var seeded = (await source.GetSnapshotsAsync(cancellationToken))[0];
+
+        _ = await Assert.That((fresh.MemberState, ReplicaReadiness.Evaluate(in fresh))).IsEqualTo((GroupMemberState.Unseeded, ReplicaReadinessVerdict.Unseeded));
+        _ = await Assert.That((seeded.MemberState, ReplicaReadiness.Evaluate(in seeded))).IsEqualTo((GroupMemberState.Complete, ReplicaReadinessVerdict.Ready));
     }
 
     /// <summary>Verifies an empty replica set reports healthy with no groups served.</summary>
@@ -121,6 +161,7 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
     public async Task QuarantinedGroupLosesReadiness(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-readiness-quarantine");
+        await SeededLogs.SeedGroupsAsync(dir, ["node-a"], cancellationToken);
         await using var registry = CreateRegistry(dir, CreateTopology(3));
         await registry.OpenAsync(cancellationToken);
         var eligibility = registry.EligibilityFor("node-a");
@@ -140,6 +181,7 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
     public async Task StatusCarriesLogRetention(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-readiness-retention");
+        await SeededLogs.SeedGroupsAsync(dir, ["node-a"], cancellationToken);
         await using var registry = CreateRegistry(dir, CreateTopology(3));
         await registry.OpenAsync(cancellationToken);
         _ = registry.TryGetLog("node-a", out var log);
@@ -265,9 +307,9 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         AutomaticFailoverEnabled = automaticFailover,
     };
 
-    private static ReplicaStatusSnapshot ReadyFollowerSnapshot(string group) => new("node-a", group, 3, 4, 4, 10, 7, 7, true, true, true, false, true);
+    private static ReplicaStatusSnapshot ReadyFollowerSnapshot(string group) => new("node-a", group, 3, 4, 4, 10, 7, 7, true, true, true, false, true, GroupMemberState.Complete);
 
-    private static ReplicaStatusSnapshot ReadyLeaderSnapshot(string group) => new("node-a", group, 3, 4, 4, 10, 7, 7, true, true, true, true, true);
+    private static ReplicaStatusSnapshot ReadyLeaderSnapshot(string group) => new("node-a", group, 3, 4, 4, 10, 7, 7, true, true, true, true, true, GroupMemberState.Complete);
 
     private sealed class CheckScope : IDisposable
     {

@@ -70,7 +70,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     private readonly TimeSpan _shutdownBudget;
     private readonly TimeProvider _shutdownClock;
 
-    private int _disposed;
+    /// <summary>
+    /// The lifecycle bits of <see cref="FollowerLogLifecycle" />. They are set once and never cleared, and read without
+    /// <c language="csharp">_gate</c> through a volatile barrier.
+    /// </summary>
+    private int _lifecycle;
+
     private ulong _lastLogIndex;
 
     private long _logLength;
@@ -157,7 +162,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     GroupLogMetadata IFollowerLogState.Meta
     {
         get => _meta;
-        set => _meta = value;
+        set => FollowerLogLifecycle.Assign(ref _meta, ref _lifecycle, in value);
     }
 
     public FollowerLogReadiness Readiness
@@ -165,6 +170,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         get => FollowerLogReadinessValue.FromValue(Volatile.Read(ref _readiness));
         set => Volatile.Write(ref _readiness, FollowerLogReadinessValue.ToValue(value));
     }
+
+    /// <inheritdoc />
+    public bool IsComplete => (Volatile.Read(ref _lifecycle) & FollowerLogLifecycle.Complete) != 0;
 
     /// <summary>Gets the durable idempotency state of the replica group.</summary>
     internal GroupIdempotencyState Idempotency { get; }
@@ -176,14 +184,28 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     internal GroupMetadataStore Metadata => _journal.Metadata;
 
     /// <summary>Gets a value indicating whether the log has been disposed of.</summary>
-    private bool IsDisposed => Volatile.Read(ref _disposed) != 0;
+    private bool IsDisposed => (Volatile.Read(ref _lifecycle) & FollowerLogLifecycle.Disposed) != 0;
+
+    /// <summary>Gets a value indicating whether the log is not disposed of and its startup validation succeeded.</summary>
+    private bool IsOpen => !IsDisposed && Readiness == FollowerLogReadiness.Ready;
+
+    /// <summary>
+    /// Gets the refusal marker of a refused call: <see cref="FollowerLogRefusal.Unseeded" /> for an open log whose copy is not complete,
+    /// otherwise <see cref="FollowerLogRefusal.NotReady" />.
+    /// </summary>
+    /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
+    private string RefusalCode => IsOpen && _meta.MemberState != GroupMemberState.Complete ? FollowerLogRefusal.Unseeded : FollowerLogRefusal.NotReady;
+
+    /// <summary>Gets a value indicating whether a call that mutates the log, the term or the vote, or answers a vote, is refused.</summary>
+    /// <remarks>Callers hold <c language="csharp">_gate</c>. Only a complete copy of an open log takes such a call.</remarks>
+    private bool Refuses => !IsOpen || _meta.MemberState != GroupMemberState.Complete;
 
     /// <inheritdoc />
     public async Task<FollowerLogAppliedResult> AdvanceAppliedAsync(ulong appliedIndex, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        return IsDisposed || Readiness != FollowerLogReadiness.Ready ? new FollowerLogAppliedResult(false, FollowerLogRefusal.NotReady, _meta.LastAppliedIndex)
+        return Refuses ? new FollowerLogAppliedResult(false, RefusalCode, _meta.LastAppliedIndex)
             : await FollowerLogAppend.AdvanceAppliedMonotonicAsync(_journal, this, appliedIndex, cancellationToken).ConfigureAwait(false);
     }
 
@@ -192,7 +214,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        return IsDisposed || Readiness != FollowerLogReadiness.Ready ? new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex)
+        return Refuses ? new FollowerLogCommitResult(false, RefusalCode, _meta.CommitIndex)
             : await FollowerLogAppend.AdvanceCommitMonotonicAsync(_journal, this, commitIndex, cancellationToken).ConfigureAwait(false);
     }
 
@@ -201,7 +223,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        return IsDisposed || Readiness != FollowerLogReadiness.Ready ? new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex)
+        return Refuses ? new FollowerLogCommitResult(false, RefusalCode, _meta.CommitIndex)
             : await FollowerLogAppend.AdvanceCommitWithTermAsync(_journal, this, commitIndex, leaderTerm, cancellationToken).ConfigureAwait(false);
     }
 
@@ -239,14 +261,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        return IsDisposed || Readiness != FollowerLogReadiness.Ready ? GroupCompactionOutcome.NotReady
+        return Refuses ? GroupCompactionOutcome.NotReady
             : await FollowerLogSnapshot.CompactThroughAsync(_journal, this, index, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        if ((Interlocked.Or(ref _lifecycle, FollowerLogLifecycle.Disposed) & FollowerLogLifecycle.Disposed) != 0)
             return;
 
         // A durable flush cannot be canceled and may never return on a stalled disk, so the drain is bounded. On
@@ -398,7 +420,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
         if (RefusesInstall(in snapshot))
-            return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
+            return GroupSnapshotInstallResult.Refused(RefusalCode);
 
         // A stale leader term authorizes nothing: snapshots from a deposed leader are refused like stale appending.
         // A higher term is persisted durably before publication, mirroring the appending path.
@@ -427,9 +449,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
         // Term one belongs to the static provisional leader, so no election may run for it or below.
-        return (IsDisposed || Readiness != FollowerLogReadiness.Ready, request.Term <= 1UL) switch
+        return (Refuses, request.Term <= 1UL) switch
         {
-            (true, _) => new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm),
+            (true, _) => new FollowerLogVoteResult(false, RefusalCode, _meta.CurrentTerm),
             (false, true) => new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm),
             (false, false) => FollowerLogElection.CheckPreVote(_journal, this, in request),
         };
@@ -442,19 +464,42 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
         // Term one belongs to the static provisional leader: a request for it or below can never win and must not persist a vote.
-        return (IsDisposed || Readiness != FollowerLogReadiness.Ready, request.Term <= 1UL) switch
+        return (Refuses, request.Term <= 1UL) switch
         {
-            (true, _) => new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm),
+            (true, _) => new FollowerLogVoteResult(false, RefusalCode, _meta.CurrentTerm),
             (false, true) => new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm),
             (false, false) => await FollowerLogElection.RequestVoteAsync(_journal, this, request, cancellationToken).ConfigureAwait(false),
         };
     }
 
     /// <inheritdoc />
+    public async Task<string?> AcceptBootstrapOfferAsync(ReadOnlyMemory<byte> topologyFingerprint, ulong configurationGeneration, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return await FollowerLogBootstrap.AcceptOfferAsync(_journal, this, IsOpen, CaptureStatus().IsTopologyMismatch(topologyFingerprint, configurationGeneration), cancellationToken)
+                                         .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> CompleteIfOfferedAsync(ReadOnlyMemory<byte> topologyFingerprint, ulong configurationGeneration, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return await FollowerLogBootstrap.CompleteIfOfferedAsync(_journal, this, IsOpen, CaptureStatus().IsTopologyMismatch(topologyFingerprint, configurationGeneration), cancellationToken)
+                                         .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task CompleteBootstrapAsync(CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        await FollowerLogBootstrap.CompleteOwnerAsync(_journal, this, IsOpen, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async Task<ulong> ObserveTermAsync(ulong term, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready || term <= _meta.CurrentTerm)
+        if (Refuses || term <= _meta.CurrentTerm)
             return _meta.CurrentTerm;
 
         // The higher term is durable before anyone acts on it; any vote of an older term is cleared with it.
@@ -467,58 +512,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-            return new FollowerLogReconcileResult(false, FollowerLogRefusal.NotReady, 0, Readiness == FollowerLogReadiness.Failed);
-
-        // A stale leader term authorizes nothing: unlike the appending path, repair never advances the
-        // current term, it only refuses instructions from deposed leaders.
-        if (leaderTerm < _meta.CurrentTerm)
-            return new FollowerLogReconcileResult(false, FollowerLogRefusal.StaleTerm, 0, false);
-
-        // A repair instruction is lifecycle-owned and trusted, but it still fails closed if it crosses the
-        // durable commit boundary. No leader response may destructively revise a committed prefix.
-        // A zero index is caller-bug input rather than storage corruption, so it is refused without quarantine.
-        if (fromIndex == 0UL)
-            return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, 0, false);
-
-        if (fromIndex <= _meta.CommitIndex)
-        {
-            Readiness = FollowerLogReadiness.Failed;
-            return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, 0, true);
-        }
-
-        // Previous-log consistency, mirroring the appending path: a stale leader must not truncate a tail
-        // written by the current term. Verified before the no-op fast path, so a wrong term fails here
-        // instead of costing another repair round-trip through the append consistency check.
-        // An unverifiable predecessor (compacted below the snapshot baseline) is refused without
-        // quarantine; a term conflict at or below the commit boundary fails readiness.
-        if (!FollowerLogAppend.PrevTermMatches(_journal, fromIndex - 1UL, prevLogTerm))
-        {
-            if (fromIndex - 1UL > _meta.CommitIndex)
-                return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, 0, false);
-            Readiness = FollowerLogReadiness.Failed;
-            return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, 0, true);
-        }
-
-        if (fromIndex == _lastLogIndex + 1UL)
-            return new FollowerLogReconcileResult(true, string.Empty, 0, false);
-
-        if (fromIndex > _lastLogIndex || !_journal.EntryOffsets.ContainsKey(fromIndex))
-            return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, 0, false);
-
-        try
-        {
-            var released = await FollowerLogDurable.TruncateFromAsync(_journal, this, fromIndex, cancellationToken).ConfigureAwait(false);
-            return new FollowerLogReconcileResult(true, string.Empty, released, false);
-        }
-        catch
-        {
-            // The low-level operation reconciles its indexes with any possible SetLength outcome. The explicit
-            // repair path additionally quarantines storage because the caller cannot prove which durable boundary
-            // survived an I/O fault until restart recovery scans the file again.
-            Readiness = FollowerLogReadiness.Failed;
-            throw;
-        }
+        return Refuses ? new FollowerLogReconcileResult(false, RefusalCode, 0, Readiness == FollowerLogReadiness.Failed)
+            : await FollowerLogReconcile.ReconcileTailAsync(_journal, this, fromIndex, prevLogTerm, leaderTerm, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Opens the group log, running startup validation and recovering only the committed prefix.</summary>
@@ -538,6 +533,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         _ = FileEx.TryDeleteFile(_journal.Paths.LogTempPath);
 
         await FollowerLogStartup.OpenGroupAsync(_journal, this, cancellationToken).ConfigureAwait(false);
+        if (_meta.MemberState != GroupMemberState.Complete)
+            ServerLog.FollowerLogOpenedNotComplete(_log, GroupId, _meta.MemberState == GroupMemberState.Unseeded ? "unseeded" : "incomplete");
     }
 
     /// <summary>Records the configured topology in metadata that carries none yet, and refuses a log written for another topology.</summary>
@@ -579,8 +576,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
     private async Task<FollowerLogAppendResult> AppendLockedAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken)
     {
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-            return new FollowerLogAppendResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm, _lastLogIndex);
+        if (Refuses)
+            return new FollowerLogAppendResult(false, RefusalCode, _meta.CurrentTerm, _lastLogIndex);
 
         var termError = await FollowerLogAppend.AdvanceTermIfHigherAsync(_journal, this, request, cancellationToken).ConfigureAwait(false);
         if (termError != null)
@@ -605,7 +602,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <param name="snapshot">The snapshot to install.</param>
     /// <returns><see langword="true" /> when the install is refused before anything is written.</returns>
     /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
-    private bool RefusesInstall(in GroupSnapshot snapshot) => IsDisposed || Readiness != FollowerLogReadiness.Ready || snapshot.LastIncludedIndex > _meta.LastAppliedIndex;
+    private bool RefusesInstall(in GroupSnapshot snapshot) => Refuses || snapshot.LastIncludedIndex > _meta.LastAppliedIndex;
 
     /// <summary>Builds the status of the durable log state.</summary>
     /// <returns>The durable log status.</returns>
@@ -820,7 +817,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
         }
 
-        /// <summary>Persists a vote grant into both metadata slots, failing readiness like <see cref="PersistMetaOrFailReadinessAsync" />.</summary>
+        /// <summary>Persists a vote grant or a member state change into both metadata slots, failing readiness like <see cref="PersistMetaOrFailReadinessAsync" />.</summary>
         /// <param name="journal">The storage surface.</param>
         /// <param name="owner">The owning follower log.</param>
         /// <param name="candidate">The metadata that records the grant.</param>
@@ -1493,6 +1490,149 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         }
     }
 
+    /// <summary>The lifecycle bits of a follower log that are read without the log gate: disposed, and complete.</summary>
+    private static class FollowerLogLifecycle
+    {
+        /// <summary>The log has been disposed of.</summary>
+        internal const int Disposed = 1;
+
+        /// <summary>The copy is complete; it never stops being complete while the log lives.</summary>
+        internal const int Complete = 2;
+
+        /// <summary>Makes metadata the metadata of the log, and publishes a complete copy to readers outside the gate.</summary>
+        /// <param name="slot">The metadata of the log.</param>
+        /// <param name="lifecycle">The lifecycle bits of the log.</param>
+        /// <param name="value">The new metadata.</param>
+        internal static void Assign(ref GroupLogMetadata slot, ref int lifecycle, in GroupLogMetadata value)
+        {
+            slot = value;
+            if (value.MemberState == GroupMemberState.Complete)
+                _ = Interlocked.Or(ref lifecycle, Complete);
+        }
+    }
+
+    /// <summary>Bootstrap operations of a follower log: the offer, and the completion of an unseeded copy.</summary>
+    /// <remarks>
+    /// The caller holds the log gate. Every record is published to both metadata slots through the mirrored path, which fails readiness on a
+    /// fault like every other metadata write. A crash between the two slot writes leaves a legal state either way: after the first copy of the
+    /// complete record a rollback to the offered record completes again on the next member call, and nothing was acknowledged in between, because
+    /// that call is processed only after both copies are durable.
+    /// </remarks>
+    private static class FollowerLogBootstrap
+    {
+        internal static async Task<string?> AcceptOfferAsync(FollowerLogJournal journal, IFollowerLogContext owner, bool open, bool topologyMismatch, CancellationToken cancellationToken)
+        {
+            var meta = owner.Meta;
+            if (!open || meta.MemberState != GroupMemberState.Unseeded)
+                return FollowerLogRefusal.NotReady;
+
+            if (topologyMismatch)
+                return FollowerLogRefusal.TopologyMismatch;
+
+            // Published to both slots even when the copy holds the offer: a crash between the two slot writes of an earlier offer left it in one.
+            await StoreAsync(journal, owner, meta with { BootstrapOffered = true }, cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+
+        internal static async Task CompleteOwnerAsync(FollowerLogJournal journal, IFollowerLogContext owner, bool open, CancellationToken cancellationToken)
+        {
+            var meta = owner.Meta;
+            if (!open || meta.MemberState != GroupMemberState.Unseeded)
+                throw new InvalidOperationException($"Replica group '{owner.GroupId}' copy is not an open unseeded copy, so it cannot be completed as the owner.");
+
+            await StoreAsync(journal, owner, meta with { MemberState = GroupMemberState.Complete }, cancellationToken).ConfigureAwait(false);
+        }
+
+        internal static async Task<string?> CompleteIfOfferedAsync(FollowerLogJournal journal, IFollowerLogContext owner, bool open, bool topologyMismatch, CancellationToken cancellationToken)
+        {
+            var meta = owner.Meta;
+            if (!open)
+                return FollowerLogRefusal.NotReady;
+
+            if (topologyMismatch)
+                return FollowerLogRefusal.TopologyMismatch;
+
+            if (meta.MemberState == GroupMemberState.Complete)
+                return null;
+
+            if (meta.MemberState != GroupMemberState.Unseeded || !meta.BootstrapOffered)
+                return FollowerLogRefusal.Unseeded;
+
+            await StoreAsync(journal, owner, meta with { MemberState = GroupMemberState.Complete }, cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+
+        private static async Task StoreAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupLogMetadata candidate, CancellationToken cancellationToken)
+        {
+            await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
+            owner.Meta = candidate;
+        }
+    }
+
+    /// <summary>Tail repair of a follower log: truncates the tail from an index a leader instructs.</summary>
+    /// <remarks>The caller holds the log gate and has already refused a log that takes no mutating call.</remarks>
+    private static class FollowerLogReconcile
+    {
+        internal static async Task<FollowerLogReconcileResult> ReconcileTailAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            ulong fromIndex,
+            ulong prevLogTerm,
+            ulong leaderTerm,
+            CancellationToken cancellationToken)
+        {
+            // A stale leader term authorizes nothing: unlike the appending path, repair never advances the
+            // current term, it only refuses instructions from deposed leaders.
+            if (leaderTerm < owner.Meta.CurrentTerm)
+                return new FollowerLogReconcileResult(false, FollowerLogRefusal.StaleTerm, 0, false);
+
+            // A repair instruction is lifecycle-owned and trusted, but it still fails closed if it crosses the
+            // durable commit boundary. No leader response may destructively revise a committed prefix.
+            // A zero index is caller-bug input rather than storage corruption, so it is refused without quarantine.
+            if (fromIndex == 0UL)
+                return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, 0, false);
+
+            if (fromIndex <= owner.Meta.CommitIndex)
+            {
+                owner.Readiness = FollowerLogReadiness.Failed;
+                return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, 0, true);
+            }
+
+            // Previous-log consistency, mirroring the appending path: a stale leader must not truncate a tail
+            // written by the current term. Verified before the no-op fast path, so a wrong term fails here
+            // instead of costing another repair round-trip through the append consistency check.
+            // An unverifiable predecessor (compacted below the snapshot baseline) is refused without
+            // quarantine; a term conflict at or below the commit boundary fails readiness.
+            if (!FollowerLogAppend.PrevTermMatches(journal, fromIndex - 1UL, prevLogTerm))
+            {
+                if (fromIndex - 1UL > owner.Meta.CommitIndex)
+                    return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, 0, false);
+                owner.Readiness = FollowerLogReadiness.Failed;
+                return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, 0, true);
+            }
+
+            if (fromIndex == owner.LastLogIndex + 1UL)
+                return new FollowerLogReconcileResult(true, string.Empty, 0, false);
+
+            if (fromIndex > owner.LastLogIndex || !journal.EntryOffsets.ContainsKey(fromIndex))
+                return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, 0, false);
+
+            try
+            {
+                var released = await FollowerLogDurable.TruncateFromAsync(journal, owner, fromIndex, cancellationToken).ConfigureAwait(false);
+                return new FollowerLogReconcileResult(true, string.Empty, released, false);
+            }
+            catch
+            {
+                // The low-level operation reconciles its indexes with any possible SetLength outcome. The explicit
+                // repair path additionally quarantines storage because the caller cannot prove which durable boundary
+                // survived an I/O fault until restart recovery scans the file again.
+                owner.Readiness = FollowerLogReadiness.Failed;
+                throw;
+            }
+        }
+    }
+
     /// <summary>Reads a range of retained entries back from the log file.</summary>
     /// <remarks>The caller holds the log gate, so the frame offsets stay valid for the whole read.</remarks>
     private static class FollowerLogRead
@@ -1589,8 +1729,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             switch (metaExists)
             {
                 case false when !logExists && !journal.Snapshot.SnapshotExists:
-                    var fresh = new GroupLogMetadata(owner.GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, GroupMemberState.Complete, false);
-                    await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, fresh, cancellationToken).ConfigureAwait(false);
+                    // The fresh unseeded record is written to both slots, like a vote grant, so that damage to one slot does not make the file unreadable.
+                    var fresh = new GroupLogMetadata(owner.GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, GroupMemberState.Unseeded, false);
+                    await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(journal, owner, fresh, cancellationToken).ConfigureAwait(false);
                     owner.Meta = fresh;
                     owner.LastLogIndex = 0;
                     owner.LogLength = 0;
@@ -1599,13 +1740,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                     return;
 
                 case false when !logExists:
-                    // A published snapshot is a durable state even when metadata and the log are absent. Seed recovery with
-                    // empty metadata, so RestoreSnapshotBaseAsync validates the snapshot instead of creating a zeroed ready state.
-                    owner.Meta = new GroupLogMetadata(owner.GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, GroupMemberState.Complete, false);
-                    await FollowerLogRecovery.RecoverLogFileAsync(journal, owner, cancellationToken).ConfigureAwait(false);
-                    owner.Durability.Open(journal.Paths.LogPath, owner.LogLength);
-                    owner.Readiness = FollowerLogReadiness.Ready;
-                    return;
+                    // A published snapshot is a durable state even when metadata and the log are absent, but the vote memory of the group is
+                    // gone with the metadata: a restart could grant a second vote in a term it already voted in. Fail readiness instead.
+                    owner.Readiness = FollowerLogReadiness.Failed;
+                    throw new InvalidDataException($"Replica group '{owner.GroupId}' metadata is missing while the snapshot file exists; the group requires recovery or repair.");
                 case true:
                     // The store opens its handle only on a valid record, so a refused file is left untouched.
                     var loaded = journal.Metadata.Open();
