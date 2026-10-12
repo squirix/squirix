@@ -140,21 +140,25 @@ public sealed class UnseededLogTests : ServerUnitTestBase
         _ = await Assert.That((applied.Success, applied.RefusalCode, applied.AppliedIndex)).IsEqualTo((false, FollowerLogRefusal.Unseeded, 0UL));
     }
 
-    /// <summary>An unseeded log refuses a snapshot install, a tail reconcile and a compaction.</summary>
+    /// <summary>An unseeded log refuses a state transfer, a snapshot capture, a tail reconcile and a compaction.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task InstallReconcileAndCompactionAreRefused(CancellationToken cancellationToken)
+    public async Task StateInstallReconcileCompactionRefused(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-unseeded-install");
         await using var log = OpenLog(dir);
         await log.OpenAsync(cancellationToken);
         var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, [], DateTime.UnixEpoch);
 
-        var install = await log.InstallSnapshotAsync(snapshot, 3UL, cancellationToken);
+        var begin = await FollowerSnapshotScenario.BeginAsync(log, 1UL, 3UL, cancellationToken);
+        var complete = await log.CompleteStateInstallAsync(snapshot, 3UL, cancellationToken);
+        var capture = await log.CaptureSnapshotAsync(cancellationToken);
         var reconcile = await log.ReconcileTailAsync(1UL, 0UL, 3UL, cancellationToken);
         var compaction = await log.CompactThroughAsync(1UL, cancellationToken);
 
-        _ = await Assert.That((install.Success, install.Refusal)).IsEqualTo((false, FollowerLogRefusal.Unseeded));
+        _ = await Assert.That(begin).IsEqualTo(FollowerLogRefusal.Unseeded);
+        _ = await Assert.That((complete.Success, complete.Refusal)).IsEqualTo((false, FollowerLogRefusal.NotReady));
+        _ = await Assert.That(capture.Outcome).IsEqualTo(GroupSnapshotCaptureOutcome.NotComplete);
         _ = await Assert.That((reconcile.Success, reconcile.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.Unseeded));
         _ = await Assert.That(compaction).IsEqualTo(GroupCompactionOutcome.NotReady);
     }
@@ -195,7 +199,8 @@ public sealed class UnseededLogTests : ServerUnitTestBase
         _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, 3UL, "a"), cancellationToken);
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
-        _ = await log.InstallSnapshotAsync(snapshot, 3UL, cancellationToken);
+        _ = await FollowerSnapshotScenario.BeginAsync(log, 1UL, 3UL, cancellationToken);
+        _ = await log.CompleteStateInstallAsync(snapshot, 3UL, cancellationToken);
         _ = await log.ReconcileTailAsync(1UL, 0UL, 3UL, cancellationToken);
         _ = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-b", 5UL, 0UL, 0UL), cancellationToken);
         _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 5UL, 0UL, 0UL), cancellationToken);

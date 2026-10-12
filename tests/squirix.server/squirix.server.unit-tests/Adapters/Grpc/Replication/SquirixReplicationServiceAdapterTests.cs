@@ -132,21 +132,6 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         _ = await Assert.That(result.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
     }
 
-    /// <summary>Verifies that InstallReplicaSnapshot skips later chunks without a header.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task InstallSkipsHeaderlessChunksAsync(CancellationToken cancellationToken)
-    {
-        using var fixture = await CreateAdapterAsync(cancellationToken);
-        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>(
-            [new InstallReplicaSnapshotRequest { Header = CreateValidHeader() }, new InstallReplicaSnapshotRequest()]);
-
-        var response = await fixture.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, fixture.CreateHttpContext()));
-
-        _ = await Assert.That(response.Success).IsFalse();
-        _ = await Assert.That(response.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
-    }
-
     /// <summary>Verifies that a request without a client certificate is unauthenticated.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -253,48 +238,6 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
-    }
-
-    /// <summary>Verifies that InstallReplicaSnapshot refuses a single-chunk stream.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task SnapshotInstallReportsNotReadyAsync(CancellationToken cancellationToken)
-    {
-        using var fixture = await CreateAdapterAsync(cancellationToken);
-        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>([new InstallReplicaSnapshotRequest { Header = CreateValidHeader(), LastIncludedIndex = 9 }]);
-
-        var response = await fixture.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, fixture.CreateHttpContext()));
-
-        _ = await Assert.That(response.Term).IsEqualTo(7UL);
-        _ = await Assert.That(response.Success).IsFalse();
-        _ = await Assert.That(response.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
-    }
-
-    /// <summary>Verifies that InstallReplicaSnapshot requires at least one chunk.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task SnapshotInstallRequiresFirstChunkAsync(CancellationToken cancellationToken)
-    {
-        using var fixture = await CreateAdapterAsync(cancellationToken);
-        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>([]);
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, fixture.CreateHttpContext())));
-
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
-    }
-
-    /// <summary>Verifies that InstallReplicaSnapshot rejects a later chunk with a different sender node id.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task SnapshotRejectsMismatchedSenderAsync(CancellationToken cancellationToken)
-    {
-        using var fixture = await CreateAdapterAsync(cancellationToken);
-        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>(
-            [new InstallReplicaSnapshotRequest { Header = CreateValidHeader() }, new InstallReplicaSnapshotRequest { Header = CreateValidHeader("node-b") }]);
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, fixture.CreateHttpContext())));
-
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
 
     /// <summary>Verifies that a certificate not bound to a configured peer is unauthenticated.</summary>

@@ -49,23 +49,6 @@ message AppendReplicaEntriesResponse {
   string refusal_code = 4;
 }
 
-message InstallReplicaSnapshotRequest {
-  ReplicationEnvelopeHeader header = 1;
-  uint64 last_included_index = 2;
-  uint64 last_included_term = 3;
-  uint64 total_bytes = 4;
-  uint32 payload_checksum = 5;
-  bytes chunk = 6;
-  bool is_first = 7;
-  bool is_last = 8;
-}
-
-message InstallReplicaSnapshotResponse {
-  uint64 term = 1;
-  bool success = 2;
-  string refusal_code = 3;
-}
-
 message GetReplicaStatusRequest {
   ReplicationEnvelopeHeader header = 1;
 }
@@ -114,7 +97,6 @@ message ReplicaVoteResponse {
 
 service SquirixReplicationService {
   rpc AppendReplicaEntries (AppendReplicaEntriesRequest) returns (AppendReplicaEntriesResponse);
-  rpc InstallReplicaSnapshot (stream InstallReplicaSnapshotRequest) returns (InstallReplicaSnapshotResponse);
   rpc GetReplicaStatus (GetReplicaStatusRequest) returns (GetReplicaStatusResponse);
   rpc OfferReplicaBootstrap (OfferReplicaBootstrapRequest) returns (OfferReplicaBootstrapResponse);
   rpc PreVote (ReplicaVoteRequest) returns (ReplicaVoteResponse);

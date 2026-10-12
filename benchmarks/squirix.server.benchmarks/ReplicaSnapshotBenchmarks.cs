@@ -12,7 +12,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
-/// <summary>Measures replica-group compaction (snapshot publish plus journal prefix drop), snapshot installation, and snapshot validation.</summary>
+/// <summary>Measures replica-group compaction (snapshot publish plus journal prefix drop), the completion of a state install, and snapshot validation.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5, invocationCount: 1)]
 public class ReplicaSnapshotBenchmarks
@@ -59,18 +59,18 @@ public class ReplicaSnapshotBenchmarks
     [IterationSetup(Target = nameof(CompactThroughAsync))]
     public void CompactIterationSetup() => RebuildSourceLogAsync().GetAwaiter().GetResult();
 
-    /// <summary>Rebuilds the target log before each install iteration so every run installs into a fresh replica applied through the snapshot boundary.</summary>
-    [IterationSetup(Target = nameof(InstallReplicaSnapshotAsync))]
-    public void InstallIterationSetup() => RebuildAppliedTargetLogAsync().GetAwaiter().GetResult();
+    /// <summary>Rebuilds the target log before each install iteration and marks it incomplete, so every run completes the transfer of a fresh replica.</summary>
+    [IterationSetup(Target = nameof(CompleteStateInstallAsync))]
+    public void InstallIterationSetup() => BeginTargetStateInstallAsync().GetAwaiter().GetResult();
 
-    /// <summary>Installs the prepared snapshot into a replica log applied through the snapshot boundary.</summary>
-    /// <returns>A task that completes after installation is durable.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when setup is incomplete or installation is refused.</exception>
+    /// <summary>Completes the state transfer of the prepared snapshot into an incomplete replica log: snapshot, log replacement and complete record.</summary>
+    /// <returns>A task that completes after the install is durable.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when setup is incomplete or the install is refused.</exception>
     [Benchmark]
-    public async Task InstallReplicaSnapshotAsync()
+    public async Task CompleteStateInstallAsync()
     {
         var target = ThrowHelper.Required(_target, "Benchmark target log was not initialized.");
-        var result = await target.InstallSnapshotAsync(_snapshot, 1UL, CancellationToken.None).ConfigureAwait(false);
+        var result = await target.CompleteStateInstallAsync(_snapshot, 1UL, CancellationToken.None).ConfigureAwait(false);
         if (!result.Success)
             throw new InvalidOperationException($"Snapshot install was refused: {result.Refusal}.");
     }
@@ -117,10 +117,15 @@ public class ReplicaSnapshotBenchmarks
             throw new InvalidOperationException("Published snapshot was not found.");
     }
 
-    private async Task RebuildAppliedTargetLogAsync()
+    private async Task BeginTargetStateInstallAsync()
     {
         await RebuildTargetLogAsync().ConfigureAwait(false);
-        await SeedSourceLogAsync(ThrowHelper.Required(_target, "Benchmark target log was not initialized."), false).ConfigureAwait(false);
+        var target = ThrowHelper.Required(_target, "Benchmark target log was not initialized.");
+        await SeedSourceLogAsync(target, false).ConfigureAwait(false);
+        var status = await target.GetStatusAsync(CancellationToken.None).ConfigureAwait(false);
+        var refusal = await target.BeginStateInstallAsync(1UL, SnapshotIndex, status.TopologyFingerprint, status.ConfigurationGeneration, CancellationToken.None).ConfigureAwait(false);
+        if (refusal != null)
+            throw new InvalidOperationException($"Beginning the state install was refused: {refusal}.");
     }
 
     private async Task RebuildSourceLogAsync()

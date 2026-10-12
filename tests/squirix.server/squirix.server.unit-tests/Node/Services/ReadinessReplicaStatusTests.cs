@@ -38,7 +38,7 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
                         .IsEqualTo(
                             "replica group 'group-a' is not seeded on this node: its copy votes for nobody and takes no entries until the group is started or the copy is repaired.");
         _ = await Assert.That(ReplicaReadiness.Describe(ReplicaReadinessVerdict.Incomplete, "group-a"))
-                        .IsEqualTo("replica group 'group-a' is incomplete on this node: its copy votes for nobody and takes no entries until a state transfer repairs it.");
+                        .IsEqualTo("replica group 'group-a' is incomplete on this node: its copy never stands for election and takes no entries until a state transfer repairs it.");
     }
 
     /// <summary>Verifies a copy that is not complete is its own verdict, for an owner and a follower alike, and reports not ready.</summary>

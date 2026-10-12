@@ -34,19 +34,24 @@ ready members whose copy is complete. Readiness never changes the quorum denomin
 The group metadata file records, next to the term and the vote, the member state of the copy on that node and whether
 the owner offered it a place in the first start. The file holds two record slots, each written whole. Only a record
 written to both slots survives the loss of one: vote grants and the member state transitions (the fresh unseeded
-record, the offer, and completion) are written to both; other records go to one slot at a time, so damage to the newest
-slot rolls the file back to the previous record. A file written by an earlier build (the single-record layout) is
+record, the offer, completion, and the marking of a copy incomplete and its completion after a state transfer) are
+written to both; other records go to one slot at a time, so damage to the newest slot rolls the file back to the
+previous record. A file written by an earlier build (the single-record layout) is
 refused at open and left unchanged.
 
-- **Unseeded.** A copy on a fresh disk opens unseeded, the fail-safe value. It refuses pre-votes, votes, appends,
-  and snapshot installs with the refusal `unseeded` and adopts no term, so it can never grant a vote
+- **Unseeded.** A copy on a fresh disk opens unseeded, the fail-safe value. It refuses pre-votes, votes, and appends
+  with the refusal `unseeded` and adopts no term, so it can never grant a vote
   that a lost disk would let it grant twice. Its node neither leads it in term one nor campaigns for it
   (`FailoverDenial.Unseeded`), and a static committer does not start over it: reads and writes of the group fail with
   `Unavailable`.
 - **Complete and incomplete.** A complete copy holds the data of the group and takes part as before; an incomplete copy
-  is in the middle of receiving it and takes no part either. It refuses pre-votes, votes, appends (probes included),
-  and snapshot installs with the refusal `incomplete`, which tells it apart from `unseeded`, adopts no
-  term, and never applies log entries. A leader whose probe meets `incomplete` counts the member as one that answered and
+  is in the middle of receiving it and takes no entries. It refuses appends (probes included) with the refusal
+  `incomplete`, which tells it apart from `unseeded`, adopts no term from a leader, and never applies log entries. Its
+  term, vote and log are intact, so it grants pre-votes and votes like a complete copy; it never stands for election.
+  A state transfer marks a copy incomplete first and completes it last: it publishes the group snapshot, replaces the
+  log by the snapshot baseline, and then writes the complete record with the commit and applied index at the snapshot
+  index. Recovery never changes the member state, so a crash anywhere before the complete record leaves the copy
+  incomplete. A leader whose probe meets `incomplete` counts the member as one that answered and
   marks it as catching up, so it stays out of the write quorum; the entry catch-up session ends with the outcome
   `incomplete`, having sent no entries when its first request is the one refused. The bootstrap paths keep refusing such a copy. The offer answers `not-ready`, and the
   completion on a call of a member answers `incomplete`.

@@ -1,5 +1,4 @@
 using System;
-using System.Buffers.Binary;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -18,7 +17,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
-/// <summary>Every request kind to a copy that is not complete is refused with the code of the copy state, and nothing on disk changes.</summary>
+/// <summary>A copy that is not complete refuses appends with the code of its state; ballots are refused by an unseeded copy and answered by an incomplete one.</summary>
 [Immutable]
 public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
 {
@@ -27,7 +26,7 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
 
     private static readonly byte[] Fingerprint = [9, 8, 7];
 
-    /// <summary>Appends with entries and without, installs, pre-votes and votes are refused with the code of the copy state, even when an offer is held.</summary>
+    /// <summary>Appends with entries and without are refused with the code of the copy state, even when an offer is held, and nothing on disk changes.</summary>
     /// <param name="incomplete">Whether the copy is planted incomplete; otherwise it is unseeded.</param>
     /// <param name="offered">Whether the planted record holds an offer.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -35,34 +34,69 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
     [Arguments(true, false)]
     [Arguments(true, true)]
     [Arguments(false, false)]
-    public async Task EveryRequestIsRefusedByState(bool incomplete, bool offered, CancellationToken cancellationToken)
+    public async Task AppendsAreRefusedByState(bool incomplete, bool offered, CancellationToken cancellationToken)
     {
         var state = incomplete ? GroupMemberState.Incomplete : GroupMemberState.Unseeded;
         var code = incomplete ? FollowerLogRefusal.Incomplete : FollowerLogRefusal.Unseeded;
         using var dir = new TempDirectory("squirix-follower-not-complete");
-        using var sourceDir = new TempDirectory("squirix-follower-not-complete-source");
         await using var registry = await OpenRegistryAsync(dir, state, offered, cancellationToken);
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
-        var upload = await PublishUploadAsync(sourceDir, cancellationToken);
+        var path = GroupStoragePaths.GetMetadataPath(dir, GroupId);
+        var before = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
+
+        var append = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId, true), cancellationToken);
+        var probe = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId, false), cancellationToken);
+
+        _ = await Assert.That((append.Success, append.RefusalCode, append.CurrentTerm, append.LastLogIndex)).IsEqualTo((false, code, 0UL, 0UL));
+        _ = await Assert.That((probe.Success, probe.RefusalCode, probe.CurrentTerm, probe.LastLogIndex)).IsEqualTo((false, code, 0UL, 0UL));
+        var after = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
+        await SequenceAssert.EqualAsync(before, after);
+        _ = await Assert.That((await follower.GetStatusAsync(GroupId, cancellationToken))?.MemberState).IsEqualTo(state);
+    }
+
+    /// <summary>An unseeded copy refuses a pre-vote and a vote with its code and term zero, and nothing on disk changes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnseededCopyRefusesBallots(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-unseeded-ballots");
+        await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Unseeded, false, cancellationToken);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
         var path = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
         var ballot = new ElectionVoteRequest("n3", 5UL, 0UL, 0UL);
 
-        var append = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId, true), cancellationToken);
-        var probe = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId, false), cancellationToken);
-        var install = await follower.InstallSnapshotUploadAsync(GroupId, LeaderId, Fingerprint, 1UL, upload, 3UL, cancellationToken);
         var preVote = await follower.PreVoteAsync(GroupId, Fingerprint, 1UL, ballot, cancellationToken);
         var vote = await follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, ballot, cancellationToken);
 
-        _ = await Assert.That((append.Success, append.RefusalCode, append.CurrentTerm, append.LastLogIndex)).IsEqualTo((false, code, 0UL, 0UL));
-        _ = await Assert.That((probe.Success, probe.RefusalCode, probe.CurrentTerm, probe.LastLogIndex)).IsEqualTo((false, code, 0UL, 0UL));
-        _ = await Assert.That((install.Success, install.Refusal)).IsEqualTo((false, code));
-        _ = await Assert.That((preVote.Granted, preVote.RefusalCode, preVote.CurrentTerm)).IsEqualTo((false, code, 0UL));
-        _ = await Assert.That((vote.Granted, vote.RefusalCode, vote.CurrentTerm)).IsEqualTo((false, code, 0UL));
+        _ = await Assert.That((preVote.Granted, preVote.RefusalCode, preVote.CurrentTerm)).IsEqualTo((false, FollowerLogRefusal.Unseeded, 0UL));
+        _ = await Assert.That((vote.Granted, vote.RefusalCode, vote.CurrentTerm)).IsEqualTo((false, FollowerLogRefusal.Unseeded, 0UL));
         var after = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
         await SequenceAssert.EqualAsync(before, after);
-        _ = await Assert.That(File.Exists(GroupStoragePaths.GetSnapshotPath(dir, GroupId))).IsFalse();
-        _ = await Assert.That((await follower.GetStatusAsync(GroupId, cancellationToken))?.MemberState).IsEqualTo(state);
+    }
+
+    /// <summary>An incomplete copy keeps its term, its vote and its log, so it grants a pre-vote and a vote and records the vote while it stays incomplete.</summary>
+    /// <param name="offered">Whether the planted record holds an offer.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task IncompleteCopyAnswersBallots(bool offered, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-incomplete-ballots");
+        await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Incomplete, offered, cancellationToken);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var ballot = new ElectionVoteRequest("n3", 5UL, 0UL, 0UL);
+
+        var preVote = await follower.PreVoteAsync(GroupId, Fingerprint, 1UL, ballot, cancellationToken);
+        var vote = await follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, ballot, cancellationToken);
+
+        _ = await Assert.That((preVote.Granted, preVote.RefusalCode)).IsEqualTo((true, string.Empty));
+        _ = await Assert.That((vote.Granted, vote.RefusalCode, vote.CurrentTerm)).IsEqualTo((true, string.Empty, 5UL));
+        var status = await follower.GetStatusAsync(GroupId, cancellationToken);
+        _ = await Assert.That((status?.MemberState, status?.CurrentTerm, status?.VotedFor)).IsEqualTo((GroupMemberState.Incomplete, 5UL, "n3"));
+        var durable = await GroupMetadataFile.ReadAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
+        _ = await Assert.That((durable.MemberState, durable.CurrentTerm, durable.VotedFor)).IsEqualTo((GroupMemberState.Incomplete, 5UL, "n3"));
     }
 
     /// <summary>An offer to an incomplete copy is refused, reports the incomplete state, and changes nothing on disk.</summary>
@@ -101,20 +135,6 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
         }
 
         return registry;
-    }
-
-    /// <summary>Publishes a snapshot on a source node and reads it back as the upload a leader would send.</summary>
-    /// <param name="sourceDir">The data directory of the source node.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>A well-formed upload of the snapshot file.</returns>
-    private static async Task<ReplicaSnapshotUpload> PublishUploadAsync(string sourceDir, CancellationToken cancellationToken)
-    {
-        var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, [], DateTime.UnixEpoch);
-        var path = GroupStoragePaths.GetSnapshotPath(sourceDir, GroupId);
-        _ = Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await new GroupSnapshotStore(sourceDir, GroupId).PublishAsync(snapshot, cancellationToken);
-        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
-        return new ReplicaSnapshotUpload(bytes, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(bytes.Length - 4)), snapshot.LastIncludedIndex, snapshot.LastIncludedTerm);
     }
 
     private static FollowerBatch Batch(string leaderNodeId, bool withEntry)

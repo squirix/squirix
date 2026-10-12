@@ -1,6 +1,4 @@
 using System;
-using System.Buffers.Binary;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -97,68 +95,6 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
 
         _ = await Assert.That(generation.Success).IsFalse();
         _ = await Assert.That(generation.RefusalCode).IsEqualTo(FollowerLogRefusal.TopologyMismatch);
-    }
-
-    /// <summary>
-    /// A transferred snapshot file whose boundary lies above the applied index is refused without touching storage; once the follower applied through
-    /// the boundary, the same file installs through validation into the group log.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task UploadInstallFollowsAppliedBoundary(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-upload");
-        using var dir2 = new TempDirectory("squirix-follower-upload-source");
-        var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
-        var fileBytes = await PublishAsync(dir2, snapshot, cancellationToken);
-        await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry, Members);
-        var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
-        var before = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
-
-        var refusal = await service.InstallSnapshotUploadAsync(GroupId, "node-b", Fingerprint, 1UL, Upload(fileBytes, in snapshot), 1UL, cancellationToken);
-
-        _ = await Assert.That(refusal.Success).IsFalse();
-        _ = await Assert.That(refusal.Refusal).IsEqualTo(FollowerLogRefusal.NotReady);
-        var refused = await Assert.That(await service.GetStatusAsync(GroupId, cancellationToken)).IsNotNull();
-        _ = await Assert.That((refused.LastLogIndex, refused.CommitIndex, refused.LastAppliedIndex)).IsEqualTo((0UL, 0UL, 0UL));
-        _ = await Assert.That(File.Exists(GroupStoragePaths.GetSnapshotPath(dir, GroupId))).IsFalse();
-        var after = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
-        await SequenceAssert.EqualAsync(before, after);
-
-        _ = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("node-b", 1UL, 0UL, 0UL, 1UL, Record(1UL, 1UL)), cancellationToken);
-        _ = await Assert.That(registry.TryGetLog(GroupId, out var log)).IsTrue();
-        _ = await Assert.That((await log!.AdvanceAppliedAsync(1UL, cancellationToken)).Success).IsTrue();
-
-        var result = await service.InstallSnapshotUploadAsync(GroupId, "node-b", Fingerprint, 1UL, Upload(fileBytes, in snapshot), 1UL, cancellationToken);
-
-        _ = await Assert.That(result.Success).IsTrue();
-        var installed = await service.GetStatusAsync(GroupId, cancellationToken);
-        var installedStatus = await Assert.That(installed).IsNotNull();
-        _ = await Assert.That(installedStatus.LastLogIndex).IsEqualTo(1UL);
-        _ = await Assert.That(installedStatus.CommitIndex).IsEqualTo(1UL);
-        _ = await Assert.That(installedStatus.LastAppliedIndex).IsEqualTo(1UL);
-    }
-
-    /// <summary>A corrupted snapshot transfer is refused without touching storage.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task InstallSnapshotUploadCorruptRefused(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-upload-corrupt");
-        using var dir2 = new TempDirectory("squirix-follower-upload-corrupt-source");
-        var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
-        var fileBytes = await PublishAsync(dir2, snapshot, cancellationToken);
-        fileBytes[^1] ^= 0xFF;
-        await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry, Members);
-
-        var result = await service.InstallSnapshotUploadAsync(GroupId, "node-b", Fingerprint, 1UL, Upload(fileBytes, in snapshot), 1UL, cancellationToken);
-
-        _ = await Assert.That(result.Success).IsFalse();
-        var rejected = await service.GetStatusAsync(GroupId, cancellationToken);
-        var rejectedStatus = await Assert.That(rejected).IsNotNull();
-        _ = await Assert.That(rejectedStatus.LastLogIndex).IsEqualTo(0UL);
     }
 
     /// <summary>Codec round-trips every record field and rejects truncation and trailing bytes.</summary>
@@ -315,15 +251,6 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         return registry;
     }
 
-    private static async Task<byte[]> PublishAsync(TempDirectory dir, GroupSnapshot snapshot, CancellationToken cancellationToken)
-    {
-        var snapshotPath = GroupStoragePaths.GetSnapshotPath(dir, snapshot.GroupId);
-        Directory.CreateDirectory(Path.GetDirectoryName(snapshotPath)!);
-        var store = new GroupSnapshotStore(dir, snapshot.GroupId);
-        await store.PublishAsync(snapshot, cancellationToken);
-        return await File.ReadAllBytesAsync(snapshotPath, cancellationToken);
-    }
-
     private static ReplicaLogRecord Record(ulong index, ulong term) => new(
         index,
         term,
@@ -340,10 +267,4 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         0,
         0,
         0);
-
-    private static ReplicaSnapshotUpload Upload(byte[] fileBytes, in GroupSnapshot snapshot) => new(
-        fileBytes,
-        BinaryPrimitives.ReadUInt32LittleEndian(fileBytes.AsSpan(fileBytes.Length - 4)),
-        snapshot.LastIncludedIndex,
-        snapshot.LastIncludedTerm);
 }

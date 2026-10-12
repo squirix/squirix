@@ -18,9 +18,9 @@ internal enum ReplicaReadinessVerdict
     /// <summary>The group log is not in durability readiness.</summary>
     LogNotReady = 4,
 
-    /// <summary>The copy of the group on this node is not complete: it votes for nobody and takes no entries.</summary>
+    /// <summary>The copy of the group on this node is unseeded: it votes for nobody and takes no entries.</summary>
     Unseeded = 5,
 
-    /// <summary>The copy of the group on this node is marked incomplete: it votes for nobody and takes no entries until a state transfer repairs it.</summary>
+    /// <summary>The copy of the group on this node is marked incomplete: it never stands for election and takes no entries until a state transfer repairs it, and it still votes.</summary>
     Incomplete = 6,
 }

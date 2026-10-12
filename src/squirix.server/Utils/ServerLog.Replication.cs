@@ -288,7 +288,7 @@ internal static partial class ServerLog
     [LoggerMessage(
         EventId = 4062,
         Level = LogLevel.Information,
-        Message = "Replica group {GroupId} log opened with a copy that is {MemberState}: it votes for nobody and takes no entries until the group is started or the copy is repaired")]
+        Message = "Replica group {GroupId} log opened with a copy that is {MemberState}: it takes no entries until the group is started or the copy is repaired")]
     internal static partial void FollowerLogOpenedNotComplete(ILogger logger, string groupId, string memberState);
 
     [LoggerMessage(
