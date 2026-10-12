@@ -1,3 +1,4 @@
+using System;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 
@@ -13,4 +14,15 @@ internal readonly record struct ReplicaBootstrapOutcome(ReplicaBootstrapResult R
 {
     /// <summary>Gets a value indicating whether the first start has nothing more to do for the group: its copy is complete or incomplete.</summary>
     internal bool IsFinal => Result is ReplicaBootstrapResult.Completed or ReplicaBootstrapResult.AlreadyComplete or ReplicaBootstrapResult.Incomplete;
+
+    /// <summary>Gets the name of the state the member reported, as the log prints it.</summary>
+    /// <exception cref="InvalidOperationException">The state is not a named value.</exception>
+    internal string MemberStateName => MemberState switch
+    {
+        GroupMemberState.Unseeded => "unseeded",
+        GroupMemberState.Complete => "complete",
+        GroupMemberState.Incomplete => "incomplete",
+        null => "not reported",
+        _ => throw new InvalidOperationException("Unsupported group member state."),
+    };
 }

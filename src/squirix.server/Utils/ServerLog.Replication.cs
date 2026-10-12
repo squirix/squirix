@@ -1,6 +1,5 @@
 using System;
 using Microsoft.Extensions.Logging;
-using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Utils;
 
@@ -266,7 +265,7 @@ internal static partial class ServerLog
         EventId = 4055,
         Level = LogLevel.Information,
         Message = "Replica group {GroupId} first start: node {NodeId} did not accept the offer (member state {MemberState}, refusal {RefusalCode}); it is retried")]
-    internal static partial void ReplicaBootstrapOfferRefused(ILogger logger, string groupId, string nodeId, GroupMemberState? memberState, string refusalCode);
+    internal static partial void ReplicaBootstrapOfferRefused(ILogger logger, string groupId, string nodeId, string memberState, string refusalCode);
 
     [LoggerMessage(EventId = 4056, Level = LogLevel.Information, Message = "Replica group {GroupId} is seeded: every member accepted the offer and the copy of this node is complete")]
     internal static partial void ReplicaBootstrapCompleted(ILogger logger, string groupId);

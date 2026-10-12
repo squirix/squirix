@@ -172,7 +172,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    public bool IsComplete => (Volatile.Read(ref _lifecycle) & FollowerLogLifecycle.Complete) != 0;
+    public bool IsComplete => HasLifecycle(FollowerLogLifecycle.Complete);
 
     /// <summary>Gets the durable idempotency state of the replica group.</summary>
     internal GroupIdempotencyState Idempotency { get; }
@@ -184,7 +184,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     internal GroupMetadataStore Metadata => _journal.Metadata;
 
     /// <summary>Gets a value indicating whether the log has been disposed of.</summary>
-    private bool IsDisposed => (Volatile.Read(ref _lifecycle) & FollowerLogLifecycle.Disposed) != 0;
+    private bool IsDisposed => HasLifecycle(FollowerLogLifecycle.Disposed);
 
     /// <summary>Gets a value indicating whether the log is not disposed of and its startup validation succeeded.</summary>
     private bool IsOpen => !IsDisposed && Readiness == FollowerLogReadiness.Ready;
@@ -603,6 +603,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <returns><see langword="true" /> when the install is refused before anything is written.</returns>
     /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
     private bool RefusesInstall(in GroupSnapshot snapshot) => Refuses || snapshot.LastIncludedIndex > _meta.LastAppliedIndex;
+
+    /// <summary>Reads one lifecycle bit through a volatile barrier, without <c language="csharp">_gate</c>.</summary>
+    /// <param name="bit">The bit of <see cref="FollowerLogLifecycle" /> to read.</param>
+    /// <returns><see langword="true" /> when the bit is set.</returns>
+    private bool HasLifecycle(int bit) => (Volatile.Read(ref _lifecycle) & bit) != 0;
 
     /// <summary>Builds the status of the durable log state.</summary>
     /// <returns>The durable log status.</returns>

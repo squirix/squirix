@@ -160,7 +160,7 @@ internal sealed class ReplicaGroupBootstrapService : BackgroundService
                 ServerLog.ReplicaBootstrapMemberComplete(_log, groupId, outcome.NodeId);
                 break;
             case ReplicaBootstrapResult.OfferRefused:
-                ServerLog.ReplicaBootstrapOfferRefused(_log, groupId, outcome.NodeId, outcome.MemberState, outcome.RefusalCode);
+                ServerLog.ReplicaBootstrapOfferRefused(_log, groupId, outcome.NodeId, outcome.MemberStateName, outcome.RefusalCode);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(outcome), outcome.Result, "Unsupported bootstrap result.");
