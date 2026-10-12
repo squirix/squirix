@@ -106,7 +106,7 @@ internal sealed class JournalReplayKit
             NullLoggerFactory.Instance,
             clock,
             out _);
-        var physical = new PhysicalCache<string>(clock);
+        var physical = new PhysicalCache<string>(clock, new CacheEntrySizeEstimator<string>());
         var cache = new JournalLoggingCacheDecorator<string>(
             new ClientCache<string>(physical, physical),
             journal,
@@ -154,7 +154,7 @@ internal sealed class JournalReplayKit
         if (compact)
             await JournalCompactor.CompactAsync(Persistence, manifestStore, StoreFactory.CreateReader(), utcNow, expiry == CacheExpiryAuthority.LocalClock ? utcNow : null, cancellationToken);
 
-        var cache = new PhysicalCache<string>(clock, expiry: expiry);
+        var cache = new PhysicalCache<string>(clock, new CacheEntrySizeEstimator<string>(), expiry: expiry);
         var dependencies = new RecoveryDependencies<string>(
             Persistence,
             manifestStore,
@@ -167,6 +167,28 @@ internal sealed class JournalReplayKit
             Expiry = expiry,
         };
         await new RecoveryService<string>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<string>>.Instance, dependencies).StartAsync(cancellationToken);
+        return cache;
+    }
+
+    /// <summary>Recovers the journal into a fresh cache of any value type.</summary>
+    /// <typeparam name="T">The cache value type.</typeparam>
+    /// <param name="clock">The clock of the recovered cache.</param>
+    /// <param name="estimator">The estimator the recovered cache records entry sizes with.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The recovered cache.</returns>
+    internal async Task<PhysicalCache<T>> RecoverAsync<T>(TimeProvider clock, ICacheEntrySizeEstimator<T> estimator, CancellationToken cancellationToken)
+    {
+        using var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance);
+        var cache = new PhysicalCache<T>(clock, estimator);
+        var dependencies = new RecoveryDependencies<T>(
+            Persistence,
+            manifestStore,
+            cache,
+            new AsyncManualResetEvent(true),
+            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_meter), TimeProvider.System),
+            StoreFactory.CreateReader(),
+            clock);
+        await new RecoveryService<T>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<T>>.Instance, dependencies).StartAsync(cancellationToken);
         return cache;
     }
 

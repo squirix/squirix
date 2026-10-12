@@ -165,7 +165,7 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
 
     private async Task AssertTailRecoveredAfterSnapshotAsync(PersistenceOptions persistence, Ledger manifestStore, CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<object?>(TimeProvider.System);
+        var cache = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>());
         var recoveryDependencies = new RecoveryDependencies<object?>(
             persistence,
             manifestStore,

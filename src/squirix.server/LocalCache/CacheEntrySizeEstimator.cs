@@ -23,7 +23,9 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         n += Encoding.UTF8.GetByteCount(key.Namespace);
         n += Encoding.UTF8.GetByteCount(key.Key);
         n += sizeof(long);
-        n += entry.ExpiresUtc != null ? 16 : 0;
+
+        // A relative expiration becomes a stored deadline when the entry is written, so it counts like one.
+        n += entry.ExpiresUtc != null || entry.Expiration != null ? 16 : 0;
         n += EstimateTagsBytes(entry.Tags);
         n += payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.Value);
         return n;
@@ -66,9 +68,11 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 
     private static long EstimateNumericOrFallbackBytes(T? value) => value switch
     {
-        sbyte or byte => 1,
-        short or ushort => 2,
-        int or uint or float => 4,
+        // The entry codec stores every integer as an Int64 and every floating-point number as a Double, and returns those widths
+        // after a restart or a replicated apply, so each counts at eight bytes.
+        sbyte or byte => 8,
+        short or ushort => 8,
+        int or uint or float => 8,
         long or ulong or double => 8,
         _ => UnknownTypedPayloadFallbackBytes,
     };

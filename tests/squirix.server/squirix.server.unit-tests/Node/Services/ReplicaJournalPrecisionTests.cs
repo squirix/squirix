@@ -53,7 +53,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
         var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1, ManifestRetentionCount = 1 };
         await ApplyThroughJournalAsync(persistence, clock, records, cancellationToken);
         var recovered = await RecoverAsync(persistence, clock, cancellationToken);
-        var direct = new PhysicalCache<object?>(clock);
+        var direct = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
         var directCache = new ClientCache<object?>(direct, direct);
         foreach (var record in records)
             await ReplicaCacheApplier.ApplyAsync(directCache, in record, cancellationToken);
@@ -78,7 +78,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
 
     private static async Task<List<ReplicaLogRecord>> PrepareRecordsAsync(FakeTimeProvider clock, CancellationToken cancellationToken)
     {
-        var physical = new PhysicalCache<object?>(clock);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
         var cache = new ClientCache<object?>(physical, physical);
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock, NullLogger.Instance);
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["t"] = "1" }.ToFrozenDictionary(StringComparer.Ordinal);
@@ -107,7 +107,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
             NullLoggerFactory.Instance,
             clock,
             out _);
-        var physical = new PhysicalCache<object?>(clock);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
         var cache = new JournalLoggingCacheDecorator<object?>(
             new ClientCache<object?>(physical, physical),
             journal,
@@ -120,7 +120,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
     private async Task<PhysicalCache<object?>> RecoverAsync(PersistenceOptions persistence, TimeProvider clock, CancellationToken cancellationToken)
     {
         using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
-        var cache = new PhysicalCache<object?>(clock);
+        var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
         var dependencies = new RecoveryDependencies<object?>(
             persistence,
             manifestStore,

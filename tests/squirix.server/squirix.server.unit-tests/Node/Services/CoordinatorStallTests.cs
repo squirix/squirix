@@ -189,13 +189,14 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
     {
         var persistence = journal.Journal.Options;
         var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
+        var cache = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>());
         var deps = new CoordinatorDependencies(
-            new LocalCacheSnapshotCapture<object?>(new PhysicalCache<object?>(TimeProvider.System)),
+            new LocalCacheSnapshotCapture<object?>(cache),
             StoreFactory.CreateWriter(persistence),
             journal.Ledger,
             new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
             "n",
-            new BackgroundSnapshotMemoryThrottle(new StateEvaluator(Options.Create(new PressureOptions())), new MemoryUsageAccounting()),
+            new BackgroundSnapshotMemoryThrottle(new StateEvaluator(Options.Create(new PressureOptions())), new MemoryUsageAccounting(cache)),
             null);
         return new Coordinator(opt, journal.Journal, deps, TimeProvider.System);
     }

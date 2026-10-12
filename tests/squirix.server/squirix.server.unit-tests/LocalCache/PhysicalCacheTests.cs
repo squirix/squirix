@@ -59,7 +59,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     [Test]
     public async Task AddPreservesTags(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>(TimeProvider.System);
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         _ = await cache.TryAddAsync(new CacheKey("ns", "added"), new NodeCacheEntry<string>("v", tags: TestTags), cancellationToken);
 
         var entry = await cache.GetEntryAsync(new CacheKey("ns", "added"), cancellationToken);
@@ -72,7 +72,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     [Test]
     public async Task DurableRecoveryInsertPreservesTags(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>(TimeProvider.System);
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         await cache.InsertRecoveryAsync(new CacheKey("ns", "recovered"), new NodeCacheEntry<string>("v", tags: TestTags), cancellationToken);
 
         var entry = await cache.GetEntryAsync(new CacheKey("ns", "recovered"), cancellationToken);
@@ -85,7 +85,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     [Test]
     public async Task EnumerateLiveYieldsTags(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>(TimeProvider.System);
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         await cache.SetAsync(new CacheKey("ns", "a"), new NodeCacheEntry<string>("1", tags: TestTags), cancellationToken);
 
         var entries = new List<(CacheKey Key, NodeCacheEntry<string> Entry)>();
@@ -101,7 +101,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     [Test]
     public async Task RemoveExpirationReturnsTrueWhenLive(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>(TimeProvider.System);
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("ns", "rm_exp_live");
         await cache.SetAsync(key, new NodeCacheEntry<string> { Value = "v", ExpiresUtc = DateTime.UtcNow.AddMinutes(5) }, cancellationToken);
 
@@ -122,7 +122,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     {
         for (var i = 0; i < 50; i++)
         {
-            var cache = new PhysicalCache<string>(TimeProvider.System);
+            var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
             var key = new CacheKey("ns", "rm_exp");
             await cache.SetAsync(key, new NodeCacheEntry<string>("v", expiration: TimeSpan.FromMinutes(5), tags: TestTags), cancellationToken);
 
@@ -138,7 +138,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     [Test]
     public async Task SetAsyncPreservesTags(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>(TimeProvider.System);
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("ns", "tagged");
         await cache.SetAsync(key, new NodeCacheEntry<string>("v", tags: TestTags), cancellationToken);
 
@@ -152,7 +152,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     [Test]
     public async Task TouchReturnsTrueWhenLive(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>(TimeProvider.System);
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("ns", "touch_live");
         await cache.SetAsync(key, new NodeCacheEntry<string>("v"), cancellationToken);
 
@@ -170,7 +170,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     {
         for (var i = 0; i < 50; i++)
         {
-            var cache = new PhysicalCache<string>(TimeProvider.System);
+            var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
             var key = new CacheKey("ns", "touch");
             await cache.SetAsync(key, new NodeCacheEntry<string>("v", tags: TestTags), cancellationToken);
 
@@ -186,7 +186,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     [Test]
     public async Task UpdateAsyncMissingKeyReturnsFalse(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>(TimeProvider.System);
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         _ = await Assert.That(await cache.UpdateAsync(new CacheKey("ns", "missing"), "v", cancellationToken)).IsFalse();
     }
 
@@ -195,7 +195,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     [Test]
     public async Task UpdateAsyncReplacesLiveValue(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>(TimeProvider.System);
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("ns", "live");
         await cache.SetAsync(key, new NodeCacheEntry<string> { Value = "a", Version = 1 }, cancellationToken);
 
@@ -209,7 +209,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     [Test]
     public async Task UpdateAsyncSameValueIsNoOpSuccess(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>(TimeProvider.System);
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("ns", "same");
         await cache.SetAsync(key, new NodeCacheEntry<string> { Value = "same", Version = 1 }, cancellationToken);
 
@@ -221,7 +221,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     [Test]
     public async Task UpdateKeepsOriginalTags(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>(TimeProvider.System);
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("ns", "updated");
         await cache.SetAsync(key, new NodeCacheEntry<string>("old", tags: TestTags), cancellationToken);
 
@@ -238,7 +238,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     [Property(StressTrait.TraitName, StressTrait.TraitValue)]
     public async Task UpdateNoFalseSuccessWhenReclaimed(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>(TimeProvider.System);
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("ns", "race438");
         var st = new RaceState(cache, key, cancellationToken);
 
@@ -263,7 +263,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     public async Task UpdateRemovesExpiredEntryReturnsFalse(CancellationToken cancellationToken)
     {
         var time = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(time);
+        var cache = new PhysicalCache<string>(time, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("ns", "expired");
         await cache.SetAsync(
             key,

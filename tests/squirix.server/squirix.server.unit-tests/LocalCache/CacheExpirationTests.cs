@@ -26,7 +26,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     public async Task AddPreservesAbsoluteExpiry(CancellationToken cancellationToken)
     {
         var timeProvider = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
 
         var expiresUtc = timeProvider.GetUtcNow().UtcDateTime.AddSeconds(5);
         var added = await cache.TryAddAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", ExpiresUtc = expiresUtc }, cancellationToken);
@@ -47,7 +47,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     public async Task AddReplacesExpiredEntry(CancellationToken cancellationToken)
     {
         var timeProvider = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
 
         _ = await Assert.That(
                              await cache.TryAddAsync(
@@ -68,7 +68,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     public async Task EarliestAbsoluteDeadlineWins(CancellationToken cancellationToken)
     {
         var timeProvider = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
         var now = timeProvider.GetUtcNow().UtcDateTime;
 
         await cache.SetAsync(
@@ -90,7 +90,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     public async Task EarliestDeadlineWins(CancellationToken cancellationToken)
     {
         var timeProvider = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
         var now = timeProvider.GetUtcNow().UtcDateTime;
 
         await cache.SetAsync(
@@ -119,7 +119,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     public async Task ExpirationSyncTheoryTest(int expirationMs, int sleepMs, bool useAbsoluteExpires, CancellationToken cancellationToken)
     {
         var timeProvider = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
 
         var entry = useAbsoluteExpires ? new NodeCacheEntry<string> { Value = "v", ExpiresUtc = timeProvider.GetUtcNow().UtcDateTime.AddMilliseconds(expirationMs) }
             : new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMilliseconds(expirationMs) };
@@ -146,7 +146,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     public async Task PresenceAfterDelaySyncTheoryTest(int? expirationMs, int? expiresMs, bool shouldStillExist, CancellationToken cancellationToken)
     {
         var timeProvider = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
 
         var entry = new NodeCacheEntry<string>
         {
@@ -168,7 +168,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     public async Task RawReadDoesNotDeleteExpiredEntry(CancellationToken cancellationToken)
     {
         var time = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-        var cache = new PhysicalCache<string>(time);
+        var cache = new PhysicalCache<string>(time, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("default", "key-a");
         await cache.SetAsync(key, new NodeCacheEntry<string>("value", expiresUtc: DateTime.UnixEpoch.AddSeconds(1)), cancellationToken);
         time.Advance(TimeSpan.FromSeconds(2));
@@ -185,7 +185,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     public async Task RemoveExpiredKeyReturnsFalse(CancellationToken cancellationToken)
     {
         var timeProvider = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
 
         await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMilliseconds(10) }, cancellationToken);
 
@@ -201,7 +201,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     public async Task SetAsyncSaturatesHugeRelativeExpiration(CancellationToken cancellationToken)
     {
         var timeProvider = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
 
         await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.MaxValue }, cancellationToken);
 
@@ -216,7 +216,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     public async Task TouchAsyncSaturatesHugeExpiration(CancellationToken cancellationToken)
     {
         var timeProvider = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
 
         await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMinutes(1) }, cancellationToken);
         _ = await Assert.That(await cache.TouchAsync(CacheKey.Default("k"), TimeSpan.MaxValue, cancellationToken)).IsTrue();

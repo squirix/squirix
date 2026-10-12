@@ -67,7 +67,6 @@ internal static class CachePipelineRegistration
                 local,
                 sp.GetRequiredService<IMemoryPressureGate>(),
                 sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
-                sp.GetRequiredService<IMemoryUsageAccounting>(),
                 HasRecordedOutcome(sp),
                 local is ReplicatedCache replicated ? replicated.PeekEntryAsync : null);
         });

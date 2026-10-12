@@ -82,7 +82,7 @@ public sealed class CommittedExpiryCacheTests : ServerUnitTestBase
     private static async Task<(PhysicalCache<string> Cache, DateTime Deadline)> CreateExpiredAsync(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(clock, expiry: CacheExpiryAuthority.CommittedRecords);
+        var cache = new PhysicalCache<string>(clock, new CacheEntrySizeEstimator<string>(), expiry: CacheExpiryAuthority.CommittedRecords);
         var deadline = clock.GetUtcNow().UtcDateTime.AddSeconds(1);
         await cache.SetAsync(Key, new NodeCacheEntry<string>("old", 1, deadline), cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(2));

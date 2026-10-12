@@ -4,13 +4,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.MemoryPressure;
-using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
@@ -19,7 +17,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
-/// <summary>Unit tests for <see cref="MemoryAdmissionCacheDecorator{T}" /> local-owner accounting.</summary>
+/// <summary>Unit tests for <see cref="MemoryAdmissionCacheDecorator{T}" /> over the accounting its local cache keeps.</summary>
 [Immutable]
 public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
 {
@@ -35,7 +33,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     public async Task ConcurrentRemoveDeletesLocalKeyOnce(CancellationToken cancellationToken)
     {
         const string key = "remove-race";
-        var physical = new PhysicalCache<string>(TimeProvider.System);
+        var physical = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var (cache, inner, accounting, _) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var entry = CreateEntry("v");
 
@@ -64,7 +62,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     public async Task ConcurrentSetMissAccountsOneEntry(CancellationToken cancellationToken)
     {
         const string key = "set-race";
-        var physical = new PhysicalCache<string>(TimeProvider.System);
+        var physical = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var (cache, inner, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var entry = CreateEntry("v");
         var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
@@ -83,7 +81,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     public async Task ConcurrentTryAddMissAddsSingleEntry(CancellationToken cancellationToken)
     {
         const string key = "try-add-race";
-        var physical = new PhysicalCache<string>(TimeProvider.System);
+        var physical = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var (cache, inner, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var entry = CreateEntry("v");
         var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
@@ -110,7 +108,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     public async Task ConcurrentUpdateReplacesLocalKeyOnce(CancellationToken cancellationToken)
     {
         const string key = "update-race";
-        var physical = new PhysicalCache<string>(TimeProvider.System);
+        var physical = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var initial = CreateEntry("a");
         const string updatedValue = "much-longer-value";
@@ -135,7 +133,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     {
         const string key = "remove-expiration-key";
         var timeProvider = new FakeTimeProvider();
-        var physical = new PhysicalCache<string>(timeProvider);
+        var physical = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var keyValue = new CacheKey(CacheName, key);
         var entry = new NodeCacheEntry<string>
@@ -154,72 +152,26 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
     }
 
-    /// <summary>Ensures RemoveAsync subtracts recorded bytes rather than a stale pre-remove snapshot.</summary>
+    /// <summary>Ensures two concurrent sets of one absent key with differently sized entries leave the total equal to the bytes of the stored entry.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RemoveUsesRecordedBytesNotStale(CancellationToken cancellationToken)
+    public async Task ConcurrentSetsLeaveStoredEntryBytes(CancellationToken cancellationToken)
     {
-        const string key = "remove-stale-snapshot";
+        const string key = "set-set-race";
+        var physical = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
+        var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var small = CreateEntry("a");
-        var large = CreateEntry("much-longer-value");
-        NodeCacheEntry<string>? existing = null;
-        var removeResult = false;
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback((_, _, _) => ValueTask.FromResult(existing));
-        _ = inner.Setups.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                 .ReturnValue(ValueTask.FromResult(true));
-        _ = inner.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                 .ReturnValue(ValueTask.CompletedTask);
-        _ = inner.Setups.RemoveAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                 .Callback((_, _, _, _) => ValueTask.FromResult(new CacheRemoveResult<string>(removeResult, existing?.Value)));
-        var accounting = new MemoryUsageAccounting();
-        var estimator = new CacheEntrySizeEstimator<string>();
-        var gate = CreatePermissiveGate(accounting, Self, _testMeter);
-        var cache = new MemoryAdmissionCacheDecorator<string>(inner.Instance(), gate, estimator, accounting);
+        var large = CreateEntry("a much longer value than the other writer stores");
 
-        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, small, cancellationToken)).IsTrue();
+        await RunSynchronizedConcurrentVoidAsync(
+            2,
+            index => cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, index == 0 ? small : large, cancellationToken).AsTask(),
+            cancellationToken);
 
-        existing = small;
-        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, large, cancellationToken);
+        var stored = await physical.GetEntryAsync(new CacheKey(CacheName, key), cancellationToken);
+        _ = await Assert.That(stored).IsNotNull();
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
-
-        removeResult = true;
-        var result = await cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, key, cancellationToken);
-
-        _ = await Assert.That(result.Removed).IsTrue();
-        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(0);
-        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(0);
-    }
-
-    /// <summary>Ensures SetEntryAsync accounts the entry when TryAdd loses the race and falls back to overwrite.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task SetFallbackAccountsEntry(CancellationToken cancellationToken)
-    {
-        const string key = "set-fallback-race";
-        var entry = CreateEntry("v");
-        var setCalled = false;
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
-        _ = inner.Setups.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                 .ReturnValue(ValueTask.FromResult(false));
-        _ = inner.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                 .Callback((_, _, _, _, _) =>
-                  {
-                      setCalled = true;
-                      return ValueTask.CompletedTask;
-                  });
-        var accounting = new MemoryUsageAccounting();
-        var estimator = new CacheEntrySizeEstimator<string>();
-        var gate = CreatePermissiveGate(accounting, Self, _testMeter);
-        var cache = new MemoryAdmissionCacheDecorator<string>(inner.Instance(), gate, estimator, accounting);
-        var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
-
-        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, cancellationToken);
-
-        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
-        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(expectedBytes);
-        _ = await Assert.That(setCalled).IsTrue();
+        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(EstimateEntryBytes(estimator, CacheName, key, stored!));
     }
 
     /// <summary>Ensures SetAsync replace accounts for value-size growth on a local-owner entry.</summary>
@@ -228,7 +180,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     public async Task SetReplaceAccountsValueDeltaForLocalKey(CancellationToken cancellationToken)
     {
         const string key = "set-replace";
-        var physical = new PhysicalCache<string>(TimeProvider.System);
+        var physical = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var initial = CreateEntry("a");
         var replacement = CreateEntry("much-longer-value");
@@ -250,7 +202,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     {
         const string key = "touch-key";
         var timeProvider = new FakeTimeProvider();
-        var physical = new PhysicalCache<string>(timeProvider);
+        var physical = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var keyValue = new CacheKey(CacheName, key);
         var entry = CreateEntry("v");
@@ -271,7 +223,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     {
         const string key = "retouch-key";
         var timeProvider = new FakeTimeProvider();
-        var physical = new PhysicalCache<string>(timeProvider);
+        var physical = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
         var (cache, _, accounting, _) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var entry = new NodeCacheEntry<string>
         {
@@ -294,7 +246,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     public async Task UpdateAccountsValueDeltaForLocalKey(CancellationToken cancellationToken)
     {
         const string key = "update-replace";
-        var physical = new PhysicalCache<string>(TimeProvider.System);
+        var physical = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var initial = CreateEntry("a");
 
@@ -319,10 +271,10 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         CreateLocalOwnerCache(string self, PhysicalCache<string> physical, Meter meter)
     {
         var inner = new ClientCache<string>(physical, physical);
-        var accounting = new MemoryUsageAccounting();
+        var accounting = new MemoryUsageAccounting(physical);
         var estimator = new CacheEntrySizeEstimator<string>();
         var gate = CreatePermissiveGate(accounting, self, meter);
-        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting);
+        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator);
         return (cache, inner, accounting, estimator);
     }
 

@@ -110,6 +110,7 @@ internal static class RuntimeServiceRegistration
                 ServiceLifetime.Singleton));
             _ = services.AddSingleton(static sp => new PhysicalCache<object?>(
                 sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
                 new EvictionOptions { Policy = EvictionPolicyType.Lru },
                 sp.GetRequiredService<CacheExpiryAuthority>()));
             _ = services.AddSingleton<ILocalCache<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());

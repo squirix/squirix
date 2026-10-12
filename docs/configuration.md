@@ -83,6 +83,12 @@ in the table below).
 Available process RAM is read from `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes` at startup (in containers this is
 usually the pod memory limit). Legacy JSON fields such as `enabled` and `rejectWritesOnCriticalPressure` are ignored.
 
+The estimated bytes and the entry count cover every entry the node holds: the groups it leads, the copies it holds as a
+follower, and the entries recovered at start. `MaxEstimatedCacheBytes` bounds all of it, so a node that holds several
+copies admits less led data for the same value; raise it for the replication factor. Only client writes for led groups are
+refused, and only when they grow memory. A follower always applies a committed entry, and recovery always inserts, even
+past the limit; removes and writes that shrink an entry always pass.
+
 Example fragment:
 
 ```json

@@ -257,7 +257,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             NullLoggerFactory.Instance,
             TimeProvider.System,
             out _);
-        var physical = new PhysicalCache<string>(TimeProvider.System);
+        var physical = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var calls = new InnerCalls();
         var inner = CreateInner(physical, calls, false);
         var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
@@ -286,7 +286,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             NullLoggerFactory.Instance,
             TimeProvider.System,
             out _);
-        var physical = new PhysicalCache<string>(TimeProvider.System);
+        var physical = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var calls = new InnerCalls();
         var inner = CreateInner(physical, calls, true);
         var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
