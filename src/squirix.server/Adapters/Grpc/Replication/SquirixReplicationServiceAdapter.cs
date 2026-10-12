@@ -136,7 +136,6 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             LastLogTerm = current.LastLogTerm,
             AppliedIndex = current.LastAppliedIndex,
             MemberState = GroupMemberStateNames.Of(current.MemberState),
-            BootstrapOffered = current.BootstrapOffered,
         };
     }
 

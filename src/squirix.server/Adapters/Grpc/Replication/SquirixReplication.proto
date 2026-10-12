@@ -94,7 +94,6 @@ message GetReplicaStatusResponse {
   uint64 last_log_term = 9;
   uint64 applied_index = 10;
   string member_state = 11;
-  bool bootstrap_offered = 12;
 }
 
 // The owner of a group offers this node a place in the first start of the group. Only the owner may send it: header.sender_node_id
