@@ -362,6 +362,10 @@ internal static class GroupLogCodec
         return true;
     }
 
+    /// <summary>Reads the member state byte.</summary>
+    /// <param name="value">The encoded byte.</param>
+    /// <param name="state">The decoded state; <see cref="GroupMemberState.Unseeded" /> when the byte is not a written value.</param>
+    /// <returns><see langword="true" /> when the byte is one of the written values; the caller must not use <paramref name="state" /> otherwise.</returns>
     private static bool TryReadMemberState(byte value, out GroupMemberState state)
     {
         state = value switch
