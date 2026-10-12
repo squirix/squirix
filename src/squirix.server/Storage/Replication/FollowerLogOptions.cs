@@ -4,7 +4,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Replication;
 
-/// <summary>Optional construction settings for a durable follower log.</summary>
+/// <summary>Construction settings for a durable follower log.</summary>
 [Immutable]
 internal sealed class FollowerLogOptions
 {
