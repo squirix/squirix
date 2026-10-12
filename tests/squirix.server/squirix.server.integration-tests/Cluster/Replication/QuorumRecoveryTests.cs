@@ -70,5 +70,5 @@ public sealed class QuorumRecoveryTests : NodeIntegrationTestBase
         return count;
     }
 
-    private static FollowerLog Open(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+    private static FollowerLog Open(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
 }

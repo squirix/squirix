@@ -31,7 +31,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         ILogicalNamespacedCache<T> inner,
         IJournalCoordinator journal,
         DurableMutationExecutor durableMutations,
-        TimeProvider? timeProvider = null,
+        TimeProvider timeProvider,
         ILocalCacheRawReader<T>? rawReader = null)
     {
         ArgumentNullException.ThrowIfNull(inner);
@@ -40,7 +40,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         _inner = inner;
         _journal = journal;
         _executor = durableMutations;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        _timeProvider = timeProvider;
         _rawReader = rawReader;
     }
 

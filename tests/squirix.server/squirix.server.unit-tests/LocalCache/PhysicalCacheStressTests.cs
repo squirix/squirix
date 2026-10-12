@@ -45,7 +45,7 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
         const int workers = 8;
         const int iterations = 25_000;
         var policy = Unsafe.As<int, EvictionPolicyType>(ref policyInt);
-        var cache = new PhysicalCache<string>(null, new EvictionOptions { Capacity = capacity, Policy = policy });
+        var cache = new PhysicalCache<string>(TimeProvider.System, new EvictionOptions { Capacity = capacity, Policy = policy });
         var keys = CreateKeys(keyCount);
 
         var jobs = new Task[workers];

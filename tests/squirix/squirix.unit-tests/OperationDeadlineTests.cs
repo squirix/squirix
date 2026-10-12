@@ -267,7 +267,7 @@ public sealed class OperationDeadlineTests
             Clock = new FakeTimeProvider(ClockStart);
             FirstTransport = new ScriptedTransport(first, Clock);
             SecondTransport = new ScriptedTransport(second, Clock);
-            _policy = new CallPolicy(LongPerAttempt, 3, TimeSpan.Zero, TimeSpan.Zero, maxConcurrentPerPeer, peer, Clock);
+            _policy = new CallPolicy(Clock, LongPerAttempt, 3, TimeSpan.Zero, TimeSpan.Zero, maxConcurrentPerPeer, peer);
             SingleEndpoint = singleEndpoint;
             var firstClient = new SquirixCacheService.SquirixCacheServiceClient(FirstTransport);
             var secondClient = new SquirixCacheService.SquirixCacheServiceClient(SecondTransport);

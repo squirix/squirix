@@ -58,7 +58,7 @@ public sealed class RpcMutationIdempotencyCapacityTests : IsolatedStorageTestBas
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, CapacityMb, cancellationToken);
         var memory = new AppliedKeys();
         var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal.Journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
 
         var attempts = new int[1];
@@ -87,7 +87,7 @@ public sealed class RpcMutationIdempotencyCapacityTests : IsolatedStorageTestBas
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, CapacityMb, cancellationToken);
         var memory = new AppliedKeys();
         var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal.Journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var attempts = new int[1];
         var value = ValueFillingJournal(8);

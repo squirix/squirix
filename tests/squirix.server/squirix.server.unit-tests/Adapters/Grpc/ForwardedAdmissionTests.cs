@@ -145,10 +145,10 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
 
     private ServerCallPolicy CreatePolicy(int maxConcurrentPerPeer) => new(
         new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_meterA), new ServerRpcTimeoutMetrics(_meterA)),
+        TimeProvider.System,
         3,
         maxConcurrentPerPeer,
         Owner,
-        TimeProvider.System,
         new CallPolicyTimeouts(TimeSpan.FromSeconds(30), TimeSpan.Zero, TimeSpan.Zero));
 
     /// <summary>

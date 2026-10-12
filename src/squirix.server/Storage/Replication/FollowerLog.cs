@@ -83,31 +83,36 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// </summary>
     private int _readiness = FollowerLogReadinessValue.Unknown;
 
-    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, ILogger<FollowerLog> log, FollowerLogOptions? options = null)
+    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, ILogger<FollowerLog> log, FollowerLogOptions options)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
         ArgumentNullException.ThrowIfNull(composition);
         ArgumentNullException.ThrowIfNull(log);
+        ArgumentNullException.ThrowIfNull(options);
         _composition = composition;
-        var settings = options ?? new FollowerLogOptions();
-        _faults = settings.FaultHooks ?? DefaultFaults;
+        _faults = options.FaultHooks ?? DefaultFaults;
         _log = log;
-        _shutdownBudget = settings.ShutdownBudget;
-        _shutdownClock = settings.ShutdownTimeProvider;
+        _shutdownBudget = options.ShutdownBudget;
+        _shutdownClock = options.ShutdownTimeProvider;
         GroupId = groupId;
         var paths = FollowerLogPaths.Create(persistenceRoot, groupId);
-        var snapshot = new GroupSnapshotStore(persistenceRoot, groupId, settings.MaxSnapshotBytes);
+        var snapshot = new GroupSnapshotStore(persistenceRoot, groupId, options.MaxSnapshotBytes);
         _journal = new FollowerLogJournal(paths, snapshot, new GroupMetadataStore(paths.MetadataPath, paths.MetadataTempPath, groupId, _faults, log));
         _idempotency = new GroupIdempotencyState(
-            settings.IdempotencyCapacity,
-            settings.IdempotencyRetention ?? GroupIdempotencyState.DefaultRetention,
-            settings.TimeProvider ?? TimeProvider.System,
-            settings.IdempotencyMinRetention);
+            options.IdempotencyCapacity,
+            options.IdempotencyRetention ?? GroupIdempotencyState.DefaultRetention,
+            options.TimeProvider,
+            options.IdempotencyMinRetention);
         Idempotency = _idempotency;
     }
 
-    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, ILogger<FollowerLog> log, IFollowerLogFaultHooks faultHooks)
-        : this(persistenceRoot, groupId, composition, log, new FollowerLogOptions { FaultHooks = faultHooks })
+    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, ILogger<FollowerLog> log, TimeProvider timeProvider)
+        : this(persistenceRoot, groupId, composition, log, new FollowerLogOptions { TimeProvider = timeProvider, ShutdownTimeProvider = TimeProvider.System })
+    {
+    }
+
+    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, ILogger<FollowerLog> log, IFollowerLogFaultHooks faultHooks, TimeProvider timeProvider)
+        : this(persistenceRoot, groupId, composition, log, new FollowerLogOptions { FaultHooks = faultHooks, TimeProvider = timeProvider, ShutdownTimeProvider = TimeProvider.System })
     {
     }
 

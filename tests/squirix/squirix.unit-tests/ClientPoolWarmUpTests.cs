@@ -48,7 +48,7 @@ public sealed class ClientPoolWarmUpTests
             },
         };
 
-        return new ClientPool(peers, static _ => new CallPolicy(), connectOptions: FakeOnlyConnectOptions, timeProvider: clock);
+        return new ClientPool(peers, static _ => new CallPolicy(TimeProvider.System), clock, connectOptions: FakeOnlyConnectOptions);
     }
 
     private static async Task AdvanceUntilCompletedAsync(FakeTimeProvider clock, Task operation)

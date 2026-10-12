@@ -71,6 +71,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         using var meter = new Meter("test-persistence-dispose-order");
         var services = new ServiceCollection();
         _ = services.AddLogging();
+        _ = services.AddSingleton(TimeProvider.System);
         _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, meter, false);
         _ = services.AddSingleton(static sp => new ReplicaGroupRegistry(
             sp.GetRequiredService<PersistenceOptions>().DataDir,
@@ -78,7 +79,9 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
             2,
             new byte[32],
             1UL,
-            sp.GetRequiredService<ILoggerFactory>()));
+            sp.GetRequiredService<ILoggerFactory>(),
+            new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System })
+        { ElectionClock = TimeProvider.System });
         var provider = services.BuildServiceProvider();
 
         // Same order as node startup: the registry is resolved first, then persistence and the group logs open.
@@ -215,6 +218,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
                 _ = builder.AddProvider(new RecordingLoggerProvider(log));
         });
 
+        _ = services.AddSingleton(TimeProvider.System);
         _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, meter, false);
         return services.BuildServiceProvider();
     }

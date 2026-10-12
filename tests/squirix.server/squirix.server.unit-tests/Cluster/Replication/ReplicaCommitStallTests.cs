@@ -31,7 +31,8 @@ public sealed class ReplicaCommitStallTests : ServerUnitTestBase
             new ReplicaCommitCoordinatorOptions(2, 0, 0, 1),
             pipeline,
             ReplicaFaultHooks.CreateCancellationHonoring(),
-            new GroupIdempotencyState(4, TimeSpan.MaxValue));
+            new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System))
+        { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         var first = CreateMutation(1, "00000000000000000000000000000001", 11);
         var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(first, StallTimeout, cancellationToken));
         _ = await Assert.That(firstError.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);

@@ -88,7 +88,7 @@ public sealed class ObserveTermTests : ServerUnitTestBase
                 throw new IOException("simulated crash before the metadata is published.");
         });
 
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance()))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System))
         {
             await log.OpenAsync(cancellationToken);
             _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
@@ -149,7 +149,7 @@ public sealed class ObserveTermTests : ServerUnitTestBase
             throw new OperationCanceledException("simulated cancellation during the metadata write.");
         });
 
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance());
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System);
         await log.OpenAsync(cancellationToken);
         _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
         armed = true;
@@ -171,7 +171,7 @@ public sealed class ObserveTermTests : ServerUnitTestBase
         0UL,
         ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes("a"))));
 
-    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
 
     private static Task<GroupLogMetadata> ReadMetaAsync(TempDirectory dir, CancellationToken cancellationToken) =>
         GroupMetadataFile.ReadAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);

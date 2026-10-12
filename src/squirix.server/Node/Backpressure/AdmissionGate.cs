@@ -29,11 +29,11 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     private int _inFlight;
     private int _queueDepth;
 
-    internal AdmissionGate(AdmissionOptions options, BackpressureMetrics metrics, TimeProvider? timeProvider = null)
+    internal AdmissionGate(AdmissionOptions options, BackpressureMetrics metrics, TimeProvider timeProvider)
     {
         _metrics = metrics;
         _options = options;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        _timeProvider = timeProvider;
         _options.Validate();
 
         // Registered before the semaphore is created, so a refused registration leaves nothing to dispose.

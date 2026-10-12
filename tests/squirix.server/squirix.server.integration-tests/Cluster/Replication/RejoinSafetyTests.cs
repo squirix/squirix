@@ -23,7 +23,7 @@ public sealed class RejoinSafetyTests : NodeIntegrationTestBase
     public async Task CaughtUpRejoinRegainsEligibility(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-rejoin-safety");
-        await using var log = new FollowerLog(dir, "rejoin-safety", GroupComposition.Create("rejoin-safety"), NullLogger<FollowerLog>.Instance);
+        await using var log = new FollowerLog(dir, "rejoin-safety", GroupComposition.Create("rejoin-safety"), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(
             new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a")))),
@@ -52,7 +52,7 @@ public sealed class RejoinSafetyTests : NodeIntegrationTestBase
     public async Task LaggingRejoinStaysIneligible(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-rejoin-lagging");
-        await using var log = new FollowerLog(dir, "rejoin-lagging", GroupComposition.Create("rejoin-lagging"), NullLogger<FollowerLog>.Instance);
+        await using var log = new FollowerLog(dir, "rejoin-lagging", GroupComposition.Create("rejoin-lagging"), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenAsync(cancellationToken);
 
         const ulong leaderCommitIndex = 2UL;

@@ -29,7 +29,7 @@ public sealed class ReplicaFollowerOrderTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-order");
         using var hooks = new StallableFollowerLogFaultHooks();
-        await using var registry = new ReplicaGroupRegistry(dir, [GroupId], 1, Fingerprint, 1, NullLoggerFactory.Instance, new FollowerLogOptions { FaultHooks = hooks });
+        await using var registry = new ReplicaGroupRegistry(dir, [GroupId], 1, Fingerprint, 1, NullLoggerFactory.Instance, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }) { ElectionClock = TimeProvider.System };
         await registry.OpenAsync(cancellationToken);
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
 

@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -36,7 +37,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
             await AssertCompactedStateAsync(log, cancellationToken);
         }
 
-        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
         await AssertCompactedStateAsync(reopened, cancellationToken);
     }
@@ -52,7 +53,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-compact-through-indexes");
         var hooks = new CountingFollowerLogFaultHooks();
         FollowerLogStatus before;
-        await using (var log = await SeedAsync(dir, new FollowerLogOptions { FaultHooks = hooks }, cancellationToken))
+        await using (var log = await SeedAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }, cancellationToken))
         {
             var writesBefore = hooks.Snapshot();
             _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
@@ -60,7 +61,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
             before = await log.GetStatusAsync(cancellationToken);
         }
 
-        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
 
         var after = await reopened.GetStatusAsync(cancellationToken);
@@ -86,7 +87,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         _ = hooks.Setups.OnBeforeMemoryApply();
         _ = hooks.Setups.OnFlushed().Callback(() => FailIfArmed(armed));
         _ = hooks.Setups.OnMetaPublishing();
-        await using (var log = await SeedAsync(dir, new FollowerLogOptions { FaultHooks = hooks.Instance() }, cancellationToken))
+        await using (var log = await SeedAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Instance() }, cancellationToken))
         {
             armed = true;
             _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(Committed, cancellationToken));
@@ -98,7 +99,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         _ = await Assert.That(File.Exists(GroupStoragePaths.GetSnapshotPath(dir, GroupId))).IsTrue();
         _ = await Assert.That(logBytes == HeaderLength()).IsFalse();
 
-        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
 
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
@@ -137,7 +138,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
     public async Task RefusesOversizedSnapshot(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-compact-through-oversized");
-        await using var log = await SeedAsync(dir, new FollowerLogOptions { MaxSnapshotBytes = 64 }, cancellationToken);
+        await using var log = await SeedAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, MaxSnapshotBytes = 64 }, cancellationToken);
 
         _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.SnapshotTooLarge);
 
@@ -217,7 +218,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
     /// <returns>The open log.</returns>
     private static async Task<FollowerLog> SeedAsync(string dir, FollowerLogOptions? options, CancellationToken cancellationToken)
     {
-        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, options);
+        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, options ?? new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System });
         try
         {
             await log.OpenAsync(cancellationToken);

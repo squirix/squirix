@@ -329,7 +329,7 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         _testMeter.Dispose();
     }
 
-    private RpcMutationIdempotencyStore CreateStore() => new(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+    private RpcMutationIdempotencyStore CreateStore() => new(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
 
     /// <summary>One idempotent put of a single key through the coordinator, the durable executor and a real (stallable) journal.</summary>
     [ThreadSafe]

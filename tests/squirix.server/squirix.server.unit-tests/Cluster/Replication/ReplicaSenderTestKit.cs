@@ -19,7 +19,7 @@ internal static class ReplicaSenderTestKit
     /// <param name="appendTimeout">The append timeout; five seconds when <see langword="null" />.</param>
     /// <returns>The sender.</returns>
     internal static ReplicaFollowerSender CreateSender(IReplicaRpcGateway gateway, TimeSpan? appendTimeout = null) =>
-        new(gateway, "n2", in Header, 0, 0, appendTimeout ?? TimeSpan.FromSeconds(5));
+        new(gateway, "n2", in Header, 0, 0, appendTimeout ?? TimeSpan.FromSeconds(5)) { TimeProvider = TimeProvider.System };
 
     /// <summary>Queues the entry at <paramref name="index" /> as the commit fan-out does; its commit index is the index before it.</summary>
     /// <param name="sender">The sender.</param>

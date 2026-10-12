@@ -69,7 +69,8 @@ public sealed class PeerChannelsTests
         var supplied = new Queue<HttpMessageHandler>([forward, lease]);
         var args = new ServerClientPoolArgs
         {
-            PolicyFactory = _ => new ServerCallPolicy(new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(meter), new ServerRpcTimeoutMetrics(meter))),
+            TimeProvider = TimeProvider.System,
+            PolicyFactory = _ => new ServerCallPolicy(new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(meter), new ServerRpcTimeoutMetrics(meter)), TimeProvider.System),
             PeerHandlerFactory = _ => supplied.Dequeue(),
             MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
             Certificate = certificate,

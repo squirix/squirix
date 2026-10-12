@@ -11,6 +11,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -57,7 +58,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
     public async Task ConstructorRequiresMembersWithGroups()
     {
         using var dir = new TempDirectory("squirix-replication-adapter-members");
-        await using var registry = new ReplicaGroupRegistry(dir, ["node-a"], 1, ReadOnlyMemory<byte>.Of(9), 1UL, NullLoggerFactory.Instance);
+        await using var registry = new ReplicaGroupRegistry(dir, ["node-a"], 1, ReadOnlyMemory<byte>.Of(9), 1UL, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
 
         _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(
             registry,

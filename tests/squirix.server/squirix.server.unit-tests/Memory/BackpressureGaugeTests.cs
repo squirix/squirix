@@ -76,7 +76,7 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
         using var listener = CreateListenerFor(meter, measurements);
-        using var gate = new AdmissionGate(new AdmissionOptions(), new BackpressureMetrics(meter));
+        using var gate = new AdmissionGate(new AdmissionOptions(), new BackpressureMetrics(meter), TimeProvider.System);
         var (_, first) = await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken);
         var (_, second) = await gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken);
         listener.RecordObservableInstruments();
@@ -101,7 +101,7 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
         using var listener = CreateListenerFor(meter, measurements);
-        using var gate = new AdmissionGate(new AdmissionOptions { PerClientMaxInFlight = 4 }, new BackpressureMetrics(meter));
+        using var gate = new AdmissionGate(new AdmissionOptions { PerClientMaxInFlight = 4 }, new BackpressureMetrics(meter), TimeProvider.System);
         var (_, lease) = await gate.AcquireAsync("grpc", "get", HttpContextClientIdResolver.InternalOwnerClientId, cancellationToken);
         listener.RecordObservableInstruments();
         lease.Dispose();
@@ -125,10 +125,10 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
         var metrics = new BackpressureMetrics(meter);
 
         InvalidOperationException refused;
-        using (new AdmissionGate(new AdmissionOptions(), metrics))
-            refused = NodeExceptionAssert.For<InvalidOperationException>().Throws(metrics, static m => _ = new AdmissionGate(new AdmissionOptions(), m));
+        using (new AdmissionGate(new AdmissionOptions(), metrics, TimeProvider.System))
+            refused = NodeExceptionAssert.For<InvalidOperationException>().Throws(metrics, static m => _ = new AdmissionGate(new AdmissionOptions(), m, TimeProvider.System));
 
-        using var next = new AdmissionGate(new AdmissionOptions(), metrics);
+        using var next = new AdmissionGate(new AdmissionOptions(), metrics, TimeProvider.System);
         var (_, lease) = await next.AcquireAsync("rest", "get", "rest:client-a", cancellationToken);
         listener.RecordObservableInstruments();
         lease.Dispose();

@@ -86,5 +86,5 @@ public sealed class ElectionPersistenceTests : NodeIntegrationTestBase
     /// <summary>Opens a follower log for the election group without materializing storage yet.</summary>
     /// <param name="dir">The persistence root for the test.</param>
     /// <returns>A follower log for the election group.</returns>
-    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
 }

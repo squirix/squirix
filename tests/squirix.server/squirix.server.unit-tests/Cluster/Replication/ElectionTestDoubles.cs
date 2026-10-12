@@ -51,7 +51,7 @@ internal static class ElectionTestDoubles
         FollowerLog? log = null;
         try
         {
-            log = new FollowerLog(dir, groupId, GroupComposition.Create(groupId), NullLogger<FollowerLog>.Instance);
+            log = new FollowerLog(dir, groupId, GroupComposition.Create(groupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
             await log.OpenAsync(CancellationToken.None);
             var time = new FakeTimeProvider();
             var state = new ReplicaGroupState(replicaCount, options ?? Options, time);

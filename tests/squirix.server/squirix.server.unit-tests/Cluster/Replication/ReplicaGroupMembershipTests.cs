@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -84,7 +85,7 @@ public sealed class ReplicaGroupMembershipTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-registry-members");
         var locator = new ReplicaGroupLocator(new PhysicalNodeRing(Nodes), 2);
         var served = ReplicaGroupMembership.GroupsServedBy(locator, Nodes, "c");
-        await using var registry = new ReplicaGroupRegistry(dir, served, 2, Fingerprint, 1, NullLoggerFactory.Instance);
+        await using var registry = new ReplicaGroupRegistry(dir, served, 2, Fingerprint, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
 
         await registry.OpenAsync(cancellationToken);
 

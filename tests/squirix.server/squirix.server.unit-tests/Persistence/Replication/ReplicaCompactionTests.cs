@@ -33,7 +33,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-compaction-below-applied");
         var composition = GroupComposition.Create(GroupId);
 
-        await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
+        await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
             await seed.OpenAsync(cancellationToken);
             _ = await seed.AppendAsync(Append(1UL, "a"), cancellationToken);
@@ -46,7 +46,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         var incoherent = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 2UL, 3UL, GroupMemberState.Complete, false);
         await GroupMetadataFile.WriteAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), in incoherent, cancellationToken);
 
-        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenAsync(cancellationToken);
 
         var status = await log.GetStatusAsync(cancellationToken);
@@ -114,7 +114,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         await using (var log = await SeedCommittedTailAsync(dir, null, cancellationToken))
             _ = await Assert.That(await log.CompactThroughAsync(Applied, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
 
-        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
 
         var retention = await RetentionAsync(reopened, cancellationToken);
@@ -144,7 +144,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         _ = hooks.Setups.OnBeforeMemoryApply();
         _ = hooks.Setups.OnFlushed().Callback(() => FailIfArmed(armed));
         _ = hooks.Setups.OnMetaPublishing();
-        await using (var log = await SeedCommittedTailAsync(dir, new FollowerLogOptions { FaultHooks = hooks.Instance() }, cancellationToken))
+        await using (var log = await SeedCommittedTailAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Instance() }, cancellationToken))
         {
             armed = true;
             _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(Applied, cancellationToken));
@@ -156,7 +156,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         _ = await Assert.That(File.Exists(GroupStoragePaths.GetSnapshotPath(dir, GroupId))).IsTrue();
         _ = await Assert.That(first).IsEqualTo(1UL);
 
-        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
 
         await AssertCommittedTailAsync(reopened, cancellationToken);
@@ -188,7 +188,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
             if (Interlocked.Exchange(ref armed[0], 0) == 1)
                 store?.RecordCommittedOutcome(CommittedOutcome("applied-3", Applied + 1, now));
         });
-        await using var log = await SeedCommittedTailAsync(dir, new FollowerLogOptions { IdempotencyCapacity = 1, FaultHooks = hooks.Instance() }, cancellationToken);
+        await using var log = await SeedCommittedTailAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, IdempotencyCapacity = 1, FaultHooks = hooks.Instance() }, cancellationToken);
         store = log.Idempotency;
         store.MarkOutcomesRebuilt();
         store.RecordCommittedOutcome(CommittedOutcome("applied-1", 1UL, now));
@@ -213,7 +213,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         var faults = FollowerSnapshotScenario.CreateCompactionFaults();
         var composition = GroupComposition.Create(GroupId);
 
-        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, faults))
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, faults, TimeProvider.System))
         {
             await log.OpenAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
@@ -226,7 +226,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
             _ = await Assert.That(File.Exists(tempPath)).IsFalse().Because($"Compaction temp file should be cleaned up after failure: {tempPath}");
         }
 
-        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
         var status = await reopened.GetStatusAsync(cancellationToken);
 
@@ -251,7 +251,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-compaction-probe");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -280,7 +280,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         var faults = FollowerSnapshotScenario.CreateCompactionFaults();
-        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, faults))
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, faults, TimeProvider.System))
         {
             await log.OpenAsync(cancellationToken);
             _ = await Assert.That((await log.AppendAsync(Append(1UL, "a"), cancellationToken)).Success).IsTrue();
@@ -296,7 +296,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         }
 
         // The restart lands on the third journal shape: the first frame lies above one and below snapshotBase + one.
-        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
 
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
@@ -328,7 +328,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         var composition = GroupComposition.Create(GroupId);
 
         GroupSnapshot snapshot;
-        await using (var source = new FollowerLog(sourceDir, GroupId, composition, NullLogger<FollowerLog>.Instance))
+        await using (var source = new FollowerLog(sourceDir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
             await source.OpenAsync(cancellationToken);
             _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
@@ -339,7 +339,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         }
 
         var faults = FollowerSnapshotScenario.CreateCompactionFaults();
-        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, faults))
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, faults, TimeProvider.System))
         {
             await log.OpenAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
@@ -354,7 +354,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
             _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.InstallSnapshotAsync(snapshot, 1UL, cancellationToken));
         }
 
-        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
 
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
@@ -373,7 +373,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-replica-compaction");
         var composition = GroupComposition.Create(GroupId);
 
-        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance))
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
             await log.OpenAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
@@ -386,7 +386,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
             _ = await Assert.That(await log.GetUncommittedTailAsync(cancellationToken)).HasSingleItem();
         }
 
-        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
         var status = await reopened.GetStatusAsync(cancellationToken);
 
@@ -455,7 +455,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
     /// <returns>The open log.</returns>
     private static async Task<FollowerLog> SeedCommittedTailAsync(string dir, FollowerLogOptions? options, CancellationToken cancellationToken)
     {
-        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, options);
+        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, options ?? new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System });
         try
         {
             await log.OpenAsync(cancellationToken);

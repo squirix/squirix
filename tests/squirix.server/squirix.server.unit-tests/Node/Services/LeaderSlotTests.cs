@@ -36,9 +36,9 @@ public sealed class LeaderSlotTests : ServerUnitTestBase
         _ = eligibility.TryMarkReady(0, in ready, in ready);
         _ = eligibility.TryMarkReady(1, in ready, in ready);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2);
-        var idempotency = new GroupIdempotencyState(4, TimeSpan.MaxValue);
-        await using var atTwo = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 2, 2), new IdlePipeline(), ReplicaFaultHooks.CreateNoOp(), idempotency);
-        await using var atZero = new ReplicaCommitCoordinator(options, new IdlePipeline(), ReplicaFaultHooks.CreateNoOp(), idempotency);
+        var idempotency = new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System);
+        await using var atTwo = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 2, 2), new IdlePipeline(), ReplicaFaultHooks.CreateNoOp(), idempotency) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
+        await using var atZero = new ReplicaCommitCoordinator(options, new IdlePipeline(), ReplicaFaultHooks.CreateNoOp(), idempotency) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         var clock = new FakeTimeProvider();
 
         var leaderAtTwo = await ReplicaLogCompactionStep.AwaitFollowersAsync(atTwo, eligibility, 0UL, clock, cancellationToken);
@@ -114,6 +114,9 @@ public sealed class LeaderSlotTests : ServerUnitTestBase
             new ReplicaTopologyStamp(Fingerprint, 1),
             NullLogger<ReplicaGroupCommitter>.Instance)
         {
+            Clock = TimeProvider.System,
+            ShutdownTimeProvider = TimeProvider.System,
+            BudgetTimeProvider = TimeProvider.System,
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(new StubCache(), NullLogger.Instance, "n1", "n2"),
         };

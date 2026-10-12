@@ -49,7 +49,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     private readonly TimeProvider _timeProvider;
     private long _nextSequence;
 
-    internal RpcMutationIdempotencyStore(IdempotencyOptions options, string nodeId, IdempotencyMetrics metrics, TimeProvider? timeProvider = null)
+    internal RpcMutationIdempotencyStore(IdempotencyOptions options, string nodeId, IdempotencyMetrics metrics, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
@@ -58,7 +58,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         _options = options;
         _nodeId = nodeId;
         _metrics = metrics;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        _timeProvider = timeProvider;
         _order = new IdempotencyExpiryOrder(_timeProvider, TryGetLive);
     }
 

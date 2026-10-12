@@ -64,7 +64,7 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-meta-recovery-publishes");
         var hooks = new CountingFollowerLogFaultHooks();
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, new FollowerLogOptions { FaultHooks = hooks });
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks });
         await log.OpenAsync(cancellationToken);
         _ = await log.ObserveTermAsync(3UL, cancellationToken);
 
@@ -152,7 +152,7 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
                 throw new IOException("simulated failure at the mirror publish.");
         });
 
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance()))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System))
         {
             await log.OpenAsync(cancellationToken);
 
@@ -229,5 +229,5 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
         _ = await Assert.That(granted.Granted).IsTrue();
     }
 
-    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
 }

@@ -106,7 +106,7 @@ public sealed class ReplicaGroupApplierTests : ServerUnitTestBase
 
     private static async Task<FollowerLog> SeedAsync(string dir, int count, CancellationToken cancellationToken)
     {
-        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         try
         {
             await log.OpenAsync(cancellationToken);

@@ -124,5 +124,5 @@ public sealed class GroupMemberStateLogTests : ServerUnitTestBase
         _ = await Assert.That((status.MemberState, status.BootstrapOffered)).IsEqualTo((GroupMemberState.Complete, false));
     }
 
-    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
 }

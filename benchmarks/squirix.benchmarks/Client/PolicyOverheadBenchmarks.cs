@@ -79,7 +79,7 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
     public void Setup()
     {
         _failover = new EndpointFailover(SingleBootstrapNode, "node-a", CallPolicyDefaults.OperationDeadline, TimeProvider.System);
-        _policy = new CallPolicy(peer: "node-a");
+        _policy = new CallPolicy(TimeProvider.System, peer: "node-a");
     }
 
     /// <inheritdoc />

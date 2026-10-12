@@ -78,7 +78,7 @@ internal sealed class ServerClientPool : IServerClientPool
         _metrics = metrics;
         _shutdownBudget = ResolveShutdownBudget(args);
         _forwardConnectTimeout = args.ForwardConnectTimeout ?? TopologyOptions.DefaultForwardConnectTimeout;
-        _timeProvider = args.TimeProvider ?? TimeProvider.System;
+        _timeProvider = args.TimeProvider;
         _materialHold = RetainMaterial(args);
         _nodeIds = RegisterPeers(peers, args);
         NodeIds = _nodeIds;

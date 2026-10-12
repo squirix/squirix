@@ -161,8 +161,8 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// <summary>Initializes the owner callback that reports, with the shutdown budget, a dispose that gave up on a request that ignored cancellation.</summary>
     internal Action<TimeSpan>? ShutdownLeakReporter { private get; init; }
 
-    /// <summary>Initializes the time source of the append timeout; the system clock unless set.</summary>
-    internal TimeProvider TimeProvider { private get; init; } = TimeProvider.System;
+    /// <summary>Initializes the time source of the append timeout.</summary>
+    internal required TimeProvider TimeProvider { private get; init; }
 
     /// <summary>Gets a value indicating whether the sender stopped admitting entries for a drain.</summary>
     private bool Draining => _drainStarted.IsCancellationRequested;

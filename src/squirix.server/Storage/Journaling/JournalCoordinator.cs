@@ -47,7 +47,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     private ulong _nextSequence;
     private long _ops;
 
-    internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, AsyncManualResetEvent startupGate, ILoggerFactory loggerFactory, TimeProvider? timeProvider = null)
+    internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, AsyncManualResetEvent startupGate, ILoggerFactory loggerFactory, TimeProvider timeProvider)
         : this(opt, manifest, manifestStore, startupGate, JournalSegmentWriterFactory.Create(), loggerFactory, timeProvider)
     {
     }
@@ -59,23 +59,22 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         AsyncManualResetEvent startupGate,
         IJournalSegmentWriter segmentWriter,
         ILoggerFactory loggerFactory,
-        TimeProvider? timeProvider = null)
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(segmentWriter);
         ArgumentNullException.ThrowIfNull(loggerFactory);
         var log = loggerFactory.CreateLogger<JournalCoordinator>();
-        var clock = timeProvider ?? TimeProvider.System;
-        _slowOperations = new JournalSlowOperationReporter(log, clock);
+        _slowOperations = new JournalSlowOperationReporter(log, timeProvider);
         GraceJoinFloor = DefaultGraceJoinFloor;
         ShutdownBudget = DefaultShutdownBudget;
         StageFloor = DefaultStageFloor;
         Options = opt;
         Ledger = manifestStore;
         StartupGate = startupGate;
-        StallProbe = new JournalStallProbe(log, clock);
+        StallProbe = new JournalStallProbe(log, timeProvider);
         var probedWriter = new ProbedJournalSegmentWriter(segmentWriter, StallProbe);
         _stopper = new JournalStopper(this, probedWriter, log);
-        _appendPipeline = new JournalCoordinatorAppendPipeline(this, _producerGate, clock);
+        _appendPipeline = new JournalCoordinatorAppendPipeline(this, _producerGate, timeProvider);
         DurabilityPipeline = new JournalDurabilityCoordinator(this, this, loggerFactory.CreateLogger<JournalDurabilityCoordinator>(), _producerGate);
         var bridge = new JournalEventLoopBridge(this, DurabilityPipeline);
         var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(Options.DataDir);
@@ -85,7 +84,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         var activeSegment = JournalSegmentProbe.Probe(Options.DataDir, currentSegmentIndex);
         var eventLoopStartup = new JournalEventLoopStartup(currentSegmentIndex, totalBytes, segmentCount, activeSegment);
         EventLoop = new JournalEventLoop(bridge, Ring, probedWriter, Options, eventLoopStartup, loggerFactory.CreateLogger<JournalEventLoop>(), BackgroundCancellation.Token);
-        GroupCommit = Options.IsJournalGroupCommitEnabled ? new JournalDurabilityGroupCommit(EventLoop.FlushGroupCommitOnJournalThread, Ring.NotifyWorkAvailable, Options, onWaitCanceled: StallProbe.ReportWaitCanceled) : null;
+
+        // The group-commit window runs on the system clock: on a clock nobody advances, a waiting flush would never be released.
+        GroupCommit = Options.IsJournalGroupCommitEnabled ? new JournalDurabilityGroupCommit(EventLoop.FlushGroupCommitOnJournalThread, Ring.NotifyWorkAvailable, Options, TimeProvider.System, StallProbe.ReportWaitCanceled) : null;
         EventLoop.AttachGroupCommit(GroupCommit);
         _ = DirectoryEx.CreateDirectory(Options.DataDir);
         _nextSequence = JournalRecoveryScan.DetermineNextSequence(manifest, Options);

@@ -441,7 +441,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
     private static ReplicaGroupCommitters LeadOwnGroup(ReplicaGroupRegistry registry, ReplicaGroupAppliers appliers)
     {
         var led = new ReplicaGroupCommitter[1];
-        led[0] = CreateGroupCommitter(registry, "n1", new ScriptedGateway(), new StubCache(), TimeProvider.System, appliers.For("n1"));
+        led[0] = CreateGroupCommitter(registry, "n1", new ScriptedGateway(), new StubCache(), TimeProvider.System, (TimeProvider.System, null), appliers.For("n1"));
         return new ReplicaGroupCommitters(led, "n1", Owners(), TimeProvider.System);
     }
 

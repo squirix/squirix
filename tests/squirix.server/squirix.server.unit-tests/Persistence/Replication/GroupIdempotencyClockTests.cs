@@ -103,7 +103,7 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
     public async Task OutcomeAfterCaptureIsRefused(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-idempotency-clock-refused");
-        await using (var seed = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance))
+        await using (var seed = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System))
             await seed.OpenAsync(cancellationToken);
 
         var resolvedUtc = Epoch.UtcDateTime;
@@ -157,7 +157,7 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
         _ = state.TryResolve("cache", "op", [9], 1UL, 1UL);
     }
 
-    private static FollowerLogOptions Options(TimeProvider clock) => new() { TimeProvider = clock, IdempotencyRetention = Retention };
+    private static FollowerLogOptions Options(TimeProvider clock) => new() { ShutdownTimeProvider = TimeProvider.System, TimeProvider = clock, IdempotencyRetention = Retention };
 
     private static bool IsRetained(GroupIdempotencyState state) => state.Lookup("cache", "op", [1], out _) == GroupIdempotencyLookup.Found;
 

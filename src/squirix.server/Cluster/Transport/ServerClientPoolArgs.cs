@@ -38,6 +38,6 @@ internal sealed class ServerClientPoolArgs
     /// <summary>Gets how long disposal waits for the peer policies to drain; ten seconds when <see langword="null" />.</summary>
     internal TimeSpan? ShutdownBudget { get; init; }
 
-    /// <summary>Gets the clock that measures the shutdown budget; <see cref="System.TimeProvider.System" /> when <see langword="null" />.</summary>
-    internal TimeProvider? TimeProvider { get; init; }
+    /// <summary>Gets the clock that measures the shutdown budget.</summary>
+    internal required TimeProvider TimeProvider { get; init; }
 }

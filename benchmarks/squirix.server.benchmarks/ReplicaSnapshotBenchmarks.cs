@@ -96,8 +96,8 @@ public class ReplicaSnapshotBenchmarks
         _dir = new TempDirectory("squirix-replica-snapshot-bench-source");
         _dir2 = new TempDirectory("squirix-replica-snapshot-bench-target");
         var composition = GroupComposition.Create(GroupId);
-        _source = new FollowerLog(_dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
-        _target = new FollowerLog(_dir2, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        _source = new FollowerLog(_dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        _target = new FollowerLog(_dir2, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await _source.OpenAsync(CancellationToken.None).ConfigureAwait(false);
         await _target.OpenAsync(CancellationToken.None).ConfigureAwait(false);
 
@@ -130,7 +130,7 @@ public class ReplicaSnapshotBenchmarks
         _dir?.Dispose();
         _dir = new TempDirectory("squirix-replica-snapshot-bench-source");
 
-        _source = new FollowerLog(_dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        _source = new FollowerLog(_dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await _source.OpenAsync(CancellationToken.None).ConfigureAwait(false);
 
         await SeedSourceLogAsync(_source, false).ConfigureAwait(false);
@@ -144,7 +144,7 @@ public class ReplicaSnapshotBenchmarks
         _dir2?.Dispose();
         _dir2 = new TempDirectory("squirix-replica-snapshot-bench-target");
 
-        _target = new FollowerLog(_dir2, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        _target = new FollowerLog(_dir2, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await _target.OpenAsync(CancellationToken.None).ConfigureAwait(false);
     }
 

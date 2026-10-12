@@ -84,8 +84,8 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         stalledGateway.OnAppend = () => _ = entered.TrySetResult();
         var budgetClock = new FakeTimeProvider();
         var led = new ReplicaGroupCommitter[2];
-        led[0] = CreateGroupCommitter(registry, "n1", new ScriptedGateway(), cache, TimeProvider.System);
-        led[1] = CreateGroupCommitter(registry, "n2", stalledGateway, cache, TimeProvider.System, seams: (budgetClock, null));
+        led[0] = CreateGroupCommitter(registry, "n1", new ScriptedGateway(), cache, TimeProvider.System, (TimeProvider.System, null));
+        led[1] = CreateGroupCommitter(registry, "n2", stalledGateway, cache, TimeProvider.System, (budgetClock, null));
         await using var committers = new ReplicaGroupCommitters(led, "n1", Owners(), TimeProvider.System);
 
         // The budget of the stalled write runs on a clock nobody moves until the other group has committed.
@@ -235,8 +235,8 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         var cache = new StubCache();
         var failed = ReplicaCommitterDoubles.RecoveryLifecycle.Failed(new NotSupportedException("unexpected recovery failure"));
         var led = new ReplicaGroupCommitter[2];
-        led[0] = CreateGroupCommitter(registry, "n1", new ScriptedGateway(), cache, TimeProvider.System, seams: (null, failed));
-        led[1] = CreateGroupCommitter(registry, "n2", new ScriptedGateway(), cache, TimeProvider.System);
+        led[0] = CreateGroupCommitter(registry, "n1", new ScriptedGateway(), cache, TimeProvider.System, (TimeProvider.System, failed));
+        led[1] = CreateGroupCommitter(registry, "n2", new ScriptedGateway(), cache, TimeProvider.System, (TimeProvider.System, null));
         await using var committers = new ReplicaGroupCommitters(led, "n1", Owners(), TimeProvider.System);
         using var service = new ReplicaGroupReadinessService(committers, new EventRecordingLogger(), TimeProvider.System);
 

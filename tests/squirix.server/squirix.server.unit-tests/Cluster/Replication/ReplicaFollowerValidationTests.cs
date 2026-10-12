@@ -115,5 +115,5 @@ public sealed class ReplicaFollowerValidationTests : ServerUnitTestBase
 
     /// <summary>Creates a registry that was never opened, so every lookup misses.</summary>
     /// <returns>The closed registry.</returns>
-    private static ReplicaGroupRegistry CreateClosedRegistry() => new("test-root", ["node-a"], 1, ReadOnlyMemory<byte>.Of(9), 1, NullLoggerFactory.Instance);
+    private static ReplicaGroupRegistry CreateClosedRegistry() => new("test-root", ["node-a"], 1, ReadOnlyMemory<byte>.Of(9), 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
 }

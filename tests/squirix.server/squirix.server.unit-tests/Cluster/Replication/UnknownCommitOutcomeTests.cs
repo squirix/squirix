@@ -61,7 +61,8 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
             new ReplicaCommitCoordinatorOptions(3, 0, 0, 8),
             pipeline,
             ReplicaFaultHooks.CreateNoOp(),
-            new GroupIdempotencyState(16, TimeSpan.MaxValue));
+            new GroupIdempotencyState(16, TimeSpan.MaxValue, TimeProvider.System))
+        { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         try
         {
             var first = coordinator.CommitAsync(CreateMutation("00000000000000000000000000000001"), TimeSpan.FromSeconds(2), cancellationToken);
@@ -82,7 +83,7 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
     [Test]
     public async Task PreAppendFailureReleasesReservation()
     {
-        var state = new GroupIdempotencyState(1, TimeSpan.MaxValue);
+        var state = new GroupIdempotencyState(1, TimeSpan.MaxValue, TimeProvider.System);
         _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(state.TryReleaseUnresolved("client", "op-a", 1, 1)).IsTrue();
         _ = await Assert.That(state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);

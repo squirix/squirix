@@ -161,7 +161,7 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
 
     private static async Task<ReplicaGroupRegistry> OpenAsync(string dir, CancellationToken cancellationToken, ElectionTimerOptions? election = null)
     {
-        var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1, NullLoggerFactory.Instance) { Election = election ?? Quiet };
+        var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System, Election = election ?? Quiet };
         try
         {
             await registry.OpenAsync(cancellationToken);

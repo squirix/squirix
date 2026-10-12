@@ -38,8 +38,9 @@ internal static class ConformanceTestKit
         var expectations = new IReplicaCommitFaultHooksCreateExpectations();
         _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         var options = new ReplicaCommitCoordinatorOptions(replicaCount, 0, 0, maxInFlight);
-        return new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(maxInFlight + 2, TimeSpan.MaxValue))
+        return new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(maxInFlight + 2, TimeSpan.MaxValue, TimeProvider.System))
         {
+            ObserveTimeProvider = TimeProvider.System,
             BudgetTimeProvider = budgetClock,
         };
     }

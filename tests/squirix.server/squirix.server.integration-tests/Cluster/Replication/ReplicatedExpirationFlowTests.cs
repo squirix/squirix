@@ -27,8 +27,9 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
         var expectations = new IReplicaCommitFaultHooksCreateExpectations();
         _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 1);
-        await using var commit = new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(4, TimeSpan.MaxValue))
+        await using var commit = new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System))
         {
+            ObserveTimeProvider = TimeProvider.System,
             BudgetTimeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch),
         };
         var expiresUtc = new DateTime(638900000000000000, DateTimeKind.Utc);
@@ -46,7 +47,8 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
 #pragma warning restore VSTHRD003
             _ = await commit.CommitAsync(tombstone, TimeSpan.FromSeconds(2), CancellationToken.None).ConfigureAwait(false);
             return null;
-        });
+        })
+        { ShutdownTimeProvider = TimeProvider.System };
 
         var first = expiration.ExpireAsync("default", "key-a", cancellationToken);
         var second = expiration.ExpireAsync("default", "key-a", cancellationToken);

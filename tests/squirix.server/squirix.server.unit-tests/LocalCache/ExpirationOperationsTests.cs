@@ -22,7 +22,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     [Test]
     public async Task ConcurrentTouchOnLiveKeyAlwaysSucceeds(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>();
+        var cache = new PhysicalCache<string>(TimeProvider.System);
         var key = CacheKey.Default("touch-race");
         await cache.SetAsync(key, new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromHours(1), Version = 1 }, cancellationToken);
 
@@ -70,7 +70,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     [Test]
     public async Task RemoveExpiryNonExpiringFalseKeepsLive(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>();
+        var cache = new PhysicalCache<string>(TimeProvider.System);
         await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Version = 1 }, cancellationToken);
 
         _ = await Assert.That(await cache.RemoveExpirationAsync(CacheKey.Default("k"), cancellationToken)).IsFalse();
@@ -85,7 +85,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     [Test]
     public async Task RemoveExpiryReturnsFalseForMissingKey(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<int>();
+        var cache = new PhysicalCache<int>(TimeProvider.System);
         _ = await Assert.That(await cache.RemoveExpirationAsync(CacheKey.Default("missing"), cancellationToken)).IsFalse();
     }
 
@@ -94,7 +94,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     [Test]
     public async Task RemoveExpiryReturnsFalseForPersistent(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<string>();
+        var cache = new PhysicalCache<string>(TimeProvider.System);
         await cache.SetAsync(
             CacheKey.Default("k"),
             new NodeCacheEntry<string>

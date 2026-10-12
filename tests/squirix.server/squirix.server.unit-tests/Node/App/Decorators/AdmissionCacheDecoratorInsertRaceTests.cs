@@ -36,7 +36,7 @@ public sealed class AdmissionCacheDecoratorInsertRaceTests : DisposableServerUni
     public async Task RacingWritesAccountStoredEntry(CancellationToken cancellationToken)
     {
         const string key = "set-insert-race";
-        var physical = new PhysicalCache<string>();
+        var physical = new PhysicalCache<string>(TimeProvider.System);
         var real = new ClientCache<string>(physical, physical);
         var added = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -88,14 +88,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         // Created on first use, after the init-only budgets are set. One run of the expiry serves every caller of the key, so it takes no
         // caller token: the commit budget bounds the wait before the append, and the commit itself is budget-bounded.
-        _expiration = new Lazy<ReplicaExpirationCoordinator<NodeCacheEntry<object?>>>(
-            () => new ReplicaExpirationCoordinator<NodeCacheEntry<object?>>((cacheName, key) => this.CommitExpiryAsync(cacheName, key))
-            {
-                ShutdownBudget = ShutdownBudget,
-                ShutdownTimeProvider = ShutdownTimeProvider,
-                ShutdownLeakReporter = budget => ServerLog.ReplicaExpirationLeakedOnShutdown(Log, budget),
-            },
-            LazyThreadSafetyMode.ExecutionAndPublication);
+        _expiration = new Lazy<ReplicaExpirationCoordinator<NodeCacheEntry<object?>>>(CreateExpiration, LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     /// <summary>Gets the budget of one commit attempt up to its durable majority; 5 seconds unless set.</summary>
@@ -129,17 +122,15 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
     } = TimeSpan.FromSeconds(10);
 
-    /// <summary>Gets or initializes the time source of the commit budget and of the follower request timeouts; the system clock unless set.</summary>
-    /// <remarks>Test seam: production committers keep the system clock.</remarks>
-    internal TimeProvider BudgetTimeProvider { get; init; } = TimeProvider.System;
+    /// <summary>Gets or initializes the time source of the commit budget and of the follower request timeouts.</summary>
+    internal required TimeProvider BudgetTimeProvider { get; init; }
 
-    /// <summary>Initializes the time source of the shutdown budget that bounds the dispose drain; the system clock unless set.</summary>
-    /// <remarks>Test seam: production committers keep the system clock.</remarks>
-    internal TimeProvider ShutdownTimeProvider { private get; init; } = TimeProvider.System;
+    /// <summary>Initializes the time source of the shutdown budget that bounds the dispose drain.</summary>
+    internal required TimeProvider ShutdownTimeProvider { private get; init; }
 
-    /// <summary>Gets or initializes the time source that pins the expiration deadlines of prepared records and decides expiry; the system clock unless set.</summary>
+    /// <summary>Gets or initializes the time source that pins the expiration deadlines of prepared records and decides expiry.</summary>
     /// <remarks>The prepare of a mutation and the expiry check of a read use it. Applying a record never does.</remarks>
-    internal TimeProvider Clock { get; init; } = TimeProvider.System;
+    internal required TimeProvider Clock { get; init; }
 
     /// <summary>Initializes the journal lifecycle whose startup gate opens once local recovery has replayed the journal into memory.</summary>
     /// <remarks>Commits and verifications wait for the gate before they read memory, so no decision is prepared against a partly recovered cache.</remarks>
@@ -475,6 +466,13 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             return false;
         }
     }
+
+    private ReplicaExpirationCoordinator<NodeCacheEntry<object?>> CreateExpiration() => new(this.CommitExpiryAsync)
+    {
+        ShutdownBudget = ShutdownBudget,
+        ShutdownTimeProvider = ShutdownTimeProvider,
+        ShutdownLeakReporter = budget => ServerLog.ReplicaExpirationLeakedOnShutdown(Log, budget),
+    };
 
     /// <summary>Forgets the coordinator, the pipeline, and the mutation factory of the last start, and drops the started state.</summary>
     /// <remarks>Runs under the commit gate, after the pipeline and the coordinator are closed or are being closed.</remarks>

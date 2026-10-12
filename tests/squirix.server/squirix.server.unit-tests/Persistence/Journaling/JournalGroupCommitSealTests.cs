@@ -36,7 +36,7 @@ public sealed class JournalGroupCommitSealTests : IsolatedStorageTestBase
         var options = CreateOptions();
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         using var writer = new FlushSegmentWriter();
-        await using var journal = new JournalCoordinator(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), writer, NullLoggerFactory.Instance);
+        await using var journal = new JournalCoordinator(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), writer, NullLoggerFactory.Instance, TimeProvider.System);
         await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), Payload, cancellationToken);
         var parked = CommitAsync(journal);
         _ = await Assert.That(parked.IsCompleted).IsFalse();
@@ -53,7 +53,7 @@ public sealed class JournalGroupCommitSealTests : IsolatedStorageTestBase
     public async Task EarlierFailureStaysUnknown()
     {
         var options = CreateOptions();
-        var groupCommit = new JournalDurabilityGroupCommit(static () => { }, static () => { }, options);
+        var groupCommit = new JournalDurabilityGroupCommit(static () => { }, static () => { }, options, TimeProvider.System);
         var parked = groupCommit.AwaitCommitAsync(CancellationToken.None).AsTask();
         var failure = new IOException("pipeline failed");
 
@@ -72,7 +72,7 @@ public sealed class JournalGroupCommitSealTests : IsolatedStorageTestBase
         var options = CreateOptions();
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         using var writer = new FlushSegmentWriter(new IOException("simulated fsync failure"));
-        await using var journal = new JournalCoordinator(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), writer, NullLoggerFactory.Instance);
+        await using var journal = new JournalCoordinator(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), writer, NullLoggerFactory.Instance, TimeProvider.System);
         await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), Payload, cancellationToken);
         var parked = CommitAsync(journal);
 

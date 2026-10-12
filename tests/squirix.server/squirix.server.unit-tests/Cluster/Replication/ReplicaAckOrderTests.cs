@@ -158,11 +158,12 @@ public sealed class ReplicaAckOrderTests
         _ = await coordinator.CommitAsync(mutation, budget, cancellationToken);
 
     private static ReplicaCommitCoordinator CreateCoordinator(AckPipeline pipeline) =>
-        new(new ReplicaCommitCoordinatorOptions(3, 0, 0, 2), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue));
+        new(new ReplicaCommitCoordinatorOptions(3, 0, 0, 2), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System)) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
 
     private static ReplicaCommitCoordinator CreateCoordinatorOnClock(AckPipeline pipeline, TimeProvider budgetClock) =>
-        new(new ReplicaCommitCoordinatorOptions(3, 0, 0, 2), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue))
+        new(new ReplicaCommitCoordinatorOptions(3, 0, 0, 2), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System))
         {
+            ObserveTimeProvider = TimeProvider.System,
             BudgetTimeProvider = budgetClock,
         };
 

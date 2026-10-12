@@ -119,7 +119,7 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         await SeedBehindFollowerAsync(routing, cancellationToken);
         var gateway = new ConfirmationParkingGateway(routing, "n3", 3);
         using var hooks = new StallableFollowerLogFaultHooks();
-        await using var registry = await OpenRegistryAsync(OwnerDir, new FollowerLogOptions { FaultHooks = hooks }, cancellationToken);
+        await using var registry = await OpenRegistryAsync(OwnerDir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway);
         try
         {
@@ -385,7 +385,7 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         {
             foreach (var node in new[] { "n2", "n3" })
             {
-                var log = new FollowerLog(Path.Join(Dir, node), GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+                var log = new FollowerLog(Path.Join(Dir, node), GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
                 followers.Logs[node] = log;
                 await log.OpenAsync(cancellationToken);
             }

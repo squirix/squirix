@@ -22,7 +22,7 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
     [Test]
     public async Task CapacityRejectsBeforeAppend(CancellationToken cancellationToken)
     {
-        var state = new GroupIdempotencyState(1, TimeSpan.MaxValue);
+        var state = new GroupIdempotencyState(1, TimeSpan.MaxValue, TimeProvider.System);
         _ = await Assert.That(state.Reserve("client", "already-reserved", [9], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
         var pipeline = new ReplicaCommitTestKit.Pipeline();
         await using var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline, state);
@@ -69,7 +69,7 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
     [Test]
     public async Task CommitUnknownRetryReturnsOriginalOutcome()
     {
-        var state = new GroupIdempotencyState(2, TimeSpan.MaxValue);
+        var state = new GroupIdempotencyState(2, TimeSpan.MaxValue, TimeProvider.System);
         _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(state.TryResolve("client", "op-a", [7, 8], 1, 1)).IsTrue();
         _ = await Assert.That(state.Lookup("client", "op-a", [1], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
@@ -81,7 +81,7 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
     [Test]
     public async Task FullStorePinsLoggedEntry()
     {
-        var state = new GroupIdempotencyState(1, TimeSpan.MaxValue);
+        var state = new GroupIdempotencyState(1, TimeSpan.MaxValue, TimeProvider.System);
         _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
 
         var fresh = state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 2, 1);
@@ -96,7 +96,7 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
     [Test]
     public async Task UnresolvedOutcomeSurvivesRetention()
     {
-        var state = new GroupIdempotencyState(1, TimeSpan.Zero);
+        var state = new GroupIdempotencyState(1, TimeSpan.Zero, TimeProvider.System);
         _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(state.Lookup("client", "op-a", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
 

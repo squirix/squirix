@@ -213,16 +213,19 @@ public sealed class ReplicaCommitDisposeTests
         LeakRecorder leaks,
         Action<Exception>? faults = null,
         TimeSpan? shutdownBudget = null) =>
-        new(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue))
+        new(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System))
         {
+            ObserveTimeProvider = TimeProvider.System,
+            BudgetTimeProvider = TimeProvider.System,
             ShutdownBudget = shutdownBudget ?? ShutdownBudget,
             ShutdownLeakReporter = leaks.Report,
             AbandonedWorkFaultReporter = faults,
         };
 
     private static ReplicaCommitCoordinator CreateCoordinatorOnClock(StallingApplyPipeline pipeline, LeakRecorder leaks, TimeProvider budgetClock) =>
-        new(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue))
+        new(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System))
         {
+            ObserveTimeProvider = TimeProvider.System,
             ShutdownBudget = ShutdownBudget,
             BudgetTimeProvider = budgetClock,
             ShutdownLeakReporter = leaks.Report,

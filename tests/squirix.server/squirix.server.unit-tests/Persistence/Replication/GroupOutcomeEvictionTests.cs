@@ -245,7 +245,7 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-outcome-eviction-default");
         var clock = new FakeTimeProvider(Epoch);
-        var options = new FollowerLogOptions { TimeProvider = clock, IdempotencyCapacity = 1, IdempotencyRetention = Retention };
+        var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = clock, IdempotencyCapacity = 1, IdempotencyRetention = Retention };
         await using var log = new FollowerLog(dir, "group-eviction", GroupComposition.Create("group-eviction"), NullLogger<FollowerLog>.Instance, options);
         await log.OpenAsync(cancellationToken);
         Resolve(log.Idempotency, "first", 1UL);
@@ -267,7 +267,7 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-outcome-eviction-floor");
         var clock = new FakeTimeProvider(Epoch);
-        var options = new FollowerLogOptions { TimeProvider = clock, IdempotencyCapacity = 1, IdempotencyRetention = Retention, IdempotencyMinRetention = Floor };
+        var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = clock, IdempotencyCapacity = 1, IdempotencyRetention = Retention, IdempotencyMinRetention = Floor };
         await using var log = new FollowerLog(dir, "group-eviction", GroupComposition.Create("group-eviction"), NullLogger<FollowerLog>.Instance, options);
         await log.OpenAsync(cancellationToken);
         Resolve(log.Idempotency, "first", 1UL);

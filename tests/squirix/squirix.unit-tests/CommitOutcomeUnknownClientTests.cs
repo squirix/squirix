@@ -48,7 +48,7 @@ public sealed class CommitOutcomeUnknownClientTests
     [Test]
     public async Task UnknownOutcomeStopsWithoutRetryingAsync()
     {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "commit-unknown");
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "commit-unknown");
         var transport = new UnknownOutcomeTransport();
         var client = new SquirixCacheService.SquirixCacheServiceClient(transport);
         var poolExpectations = new IClientPoolCreateExpectations();

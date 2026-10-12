@@ -28,7 +28,7 @@ internal sealed class JournalDurabilityGroupCommit
     private bool _sealed;
     private List<TaskCompletionSource>? _inFlight;
 
-    internal JournalDurabilityGroupCommit(Action journalThreadFlush, Action notifyJournalThread, PersistenceOptions opt, TimeProvider? timeProvider = null, Action<string>? onWaitCanceled = null)
+    internal JournalDurabilityGroupCommit(Action journalThreadFlush, Action notifyJournalThread, PersistenceOptions opt, TimeProvider timeProvider, Action<string>? onWaitCanceled = null)
     {
         ArgumentNullException.ThrowIfNull(journalThreadFlush);
         ArgumentNullException.ThrowIfNull(notifyJournalThread);
@@ -36,7 +36,7 @@ internal sealed class JournalDurabilityGroupCommit
         _journalThreadFlush = journalThreadFlush;
         _notifyJournalThread = notifyJournalThread;
         _opt = opt;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        _timeProvider = timeProvider;
         _onWaitCanceled = onWaitCanceled;
 
         var capacity = Math.Clamp(opt.JournalGroupCommitMaxBatch, 4, 64);

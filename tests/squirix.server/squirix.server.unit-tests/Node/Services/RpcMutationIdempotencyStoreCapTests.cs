@@ -33,7 +33,8 @@ public sealed class RpcMutationIdempotencyStoreCapTests : DisposableServerUnitTe
         var store = new RpcMutationIdempotencyStore(
             new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromMinutes(15) },
             "test-node",
-            new IdempotencyMetrics(_testMeter));
+            new IdempotencyMetrics(_testMeter),
+            TimeProvider.System);
         store.RecordSuccess("op-1", "fp-1", ResponseBytes, null);
         store.RecordSuccess("op-2", "fp-2", ResponseBytes, null);
         store.RestoreRecord("op-stale", "fp-stale", ResponseBytes, DateTime.UtcNow.AddMinutes(-20));
@@ -158,7 +159,7 @@ public sealed class RpcMutationIdempotencyStoreCapTests : DisposableServerUnitTe
     [Test]
     public async Task RestoreSnapshotRecordsRejectsNullElement()
     {
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "test-node", new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "test-node", new IdempotencyMetrics(_testMeter), TimeProvider.System);
 
         var ex = NodeExceptionAssert.For<ArgumentException>().Throws(store, static s => s.RestoreSnapshotRecords([null]));
 
@@ -173,7 +174,8 @@ public sealed class RpcMutationIdempotencyStoreCapTests : DisposableServerUnitTe
         var store = new RpcMutationIdempotencyStore(
             new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromHours(1) },
             "test-node",
-            new IdempotencyMetrics(_testMeter));
+            new IdempotencyMetrics(_testMeter),
+            TimeProvider.System);
         store.RecordSuccess("op-1", "fp-1", ResponseBytes, null);
         store.RecordSuccess("op-2", "fp-2", ResponseBytes, null);
 
@@ -223,7 +225,7 @@ public sealed class RpcMutationIdempotencyStoreCapTests : DisposableServerUnitTe
     [Test]
     public async Task StaleCompletionKeepsNewerExecution()
     {
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         var stale = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var current = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _ = store.ReserveIntent("op-1", "fp-1", stale, out _);
@@ -249,7 +251,8 @@ public sealed class RpcMutationIdempotencyStoreCapTests : DisposableServerUnitTe
         var store = new RpcMutationIdempotencyStore(
             new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromHours(1) },
             "test-node",
-            new IdempotencyMetrics(_testMeter));
+            new IdempotencyMetrics(_testMeter),
+            TimeProvider.System);
 
         for (var i = 0; i < cap * 3; i++)
             store.RecordSuccess($"op-{NodeInvariantIndexStrings.FormatD4(i)}", $"fp-{NodeInvariantIndexStrings.FormatD4(i)}", ResponseBytes, null);

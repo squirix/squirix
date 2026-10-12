@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -30,7 +31,7 @@ public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
     [Test]
     public async Task OversizedObjectUsageRejectedPastLimit(CancellationToken cancellationToken)
     {
-        var physical = new PhysicalCache<object?>();
+        var physical = new PhysicalCache<object?>(TimeProvider.System);
         var accounting = new MemoryUsageAccounting();
         var options = new PressureOptions
         {

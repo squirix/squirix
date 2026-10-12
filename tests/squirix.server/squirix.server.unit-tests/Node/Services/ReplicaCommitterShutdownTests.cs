@@ -8,6 +8,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -53,6 +54,8 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
             new ReplicaTopologyStamp(Fingerprint, 1),
             NullLogger<ReplicaGroupCommitter>.Instance)
         {
+            Clock = TimeProvider.System,
+            BudgetTimeProvider = TimeProvider.System,
             Recovery = RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(local, NullLogger.Instance, OwnedGroup, OwnedGroup),
             ShutdownBudget = ObserverDrainBudget,
@@ -134,6 +137,9 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
         IReplicaGroupLocator? locator = null) =>
         new(registry, locator ?? new TwoNodeLocator(), gateway, local, (OwnedGroup, OwnedGroup), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
+            Clock = TimeProvider.System,
+            ShutdownTimeProvider = TimeProvider.System,
+            BudgetTimeProvider = TimeProvider.System,
             Recovery = RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(local, NullLogger.Instance, OwnedGroup, OwnedGroup),
             ShutdownBudget = shutdownBudget ?? StallTimeout,
@@ -147,7 +153,7 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
 
     private async Task<ReplicaGroupRegistry> OpenRegistryAsync(int replicaCount, CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(Dir, [OwnedGroup], replicaCount, Fingerprint, 1, NullLoggerFactory.Instance);
+        var registry = new ReplicaGroupRegistry(Dir, [OwnedGroup], replicaCount, Fingerprint, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         try
         {
             await registry.OpenAsync(cancellationToken);

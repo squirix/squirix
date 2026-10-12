@@ -257,12 +257,12 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             NullLoggerFactory.Instance,
             TimeProvider.System,
             out _);
-        var physical = new PhysicalCache<string>();
+        var physical = new PhysicalCache<string>(TimeProvider.System);
         var calls = new InnerCalls();
         var inner = CreateInner(physical, calls, false);
         var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
         var rawReader = useRawReader ? physical.RawReader : null;
-        var cache = new JournalLoggingCacheDecorator<string>(inner, journal, executor, null, rawReader);
+        var cache = new JournalLoggingCacheDecorator<string>(inner, journal, executor, TimeProvider.System, rawReader);
         return new Harness(dir, manifestStore, journal, inner, calls, cache);
     }
 
@@ -286,11 +286,11 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             NullLoggerFactory.Instance,
             TimeProvider.System,
             out _);
-        var physical = new PhysicalCache<string>();
+        var physical = new PhysicalCache<string>(TimeProvider.System);
         var calls = new InnerCalls();
         var inner = CreateInner(physical, calls, true);
         var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
-        var cache = new JournalLoggingCacheDecorator<string>(inner, journal, executor);
+        var cache = new JournalLoggingCacheDecorator<string>(inner, journal, executor, TimeProvider.System);
         return new Harness(dir, manifestStore, journal, inner, calls, cache);
     }
 

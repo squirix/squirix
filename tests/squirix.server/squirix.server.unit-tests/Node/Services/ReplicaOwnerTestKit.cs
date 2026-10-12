@@ -58,6 +58,9 @@ internal static class ReplicaOwnerTestKit
     internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, ILogicalNamespacedCache<object?> cache, ILogger<ReplicaGroupCommitter>? log = null) =>
         new(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), log ?? NullLogger<ReplicaGroupCommitter>.Instance)
         {
+            Clock = TimeProvider.System,
+            ShutdownTimeProvider = TimeProvider.System,
+            BudgetTimeProvider = TimeProvider.System,
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(cache, log ?? NullLogger<ReplicaGroupCommitter>.Instance, "n1", "n1"),
         };
@@ -67,6 +70,9 @@ internal static class ReplicaOwnerTestKit
         var cache = new StubCache();
         return new ReplicaGroupCommitter(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
+            Clock = TimeProvider.System,
+            ShutdownTimeProvider = TimeProvider.System,
+            BudgetTimeProvider = TimeProvider.System,
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n1", "n1"),
             CommitBudget = commitBudget,
@@ -81,6 +87,8 @@ internal static class ReplicaOwnerTestKit
         ReplicationMetrics? metrics = null) =>
         new(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
+            ShutdownTimeProvider = TimeProvider.System,
+            BudgetTimeProvider = TimeProvider.System,
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n1", "n1", metrics),
             Clock = clock,
@@ -121,6 +129,8 @@ internal static class ReplicaOwnerTestKit
         var cache = new StubCache();
         return new ReplicaGroupCommitter(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
+            Clock = TimeProvider.System,
+            ShutdownTimeProvider = TimeProvider.System,
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n1", "n1"),
             BudgetTimeProvider = budgetClock,
@@ -144,6 +154,8 @@ internal static class ReplicaOwnerTestKit
         var cache = new StubCache();
         return new ReplicaGroupCommitter(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
+            Clock = TimeProvider.System,
+            ShutdownTimeProvider = TimeProvider.System,
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n1", "n1"),
             BudgetTimeProvider = budgetClock,
@@ -165,7 +177,7 @@ internal static class ReplicaOwnerTestKit
     /// <returns>The opened registry.</returns>
     internal static async Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, string[] groupIds, FollowerLogOptions? options, CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(dir, groupIds, 3, Fingerprint, 1, NullLoggerFactory.Instance, options);
+        var registry = new ReplicaGroupRegistry(dir, groupIds, 3, Fingerprint, 1, NullLoggerFactory.Instance, options ?? new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         try
         {
             await registry.OpenAsync(cancellationToken);

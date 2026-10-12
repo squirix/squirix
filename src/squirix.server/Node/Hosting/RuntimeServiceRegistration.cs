@@ -36,7 +36,7 @@ internal static class RuntimeServiceRegistration
             _ = services.AddSingleton<IBackpressureClientIdResolver>(static sp => sp.GetRequiredService<AdmissionOptions>().HasPerClientLimits
                 ? new HttpContextClientIdResolver(sp.GetRequiredService<IHttpContextAccessor>())
                 : SharedClientIdResolver.Instance);
-            _ = services.AddSingleton<IBackpressureGate>(static sp => new AdmissionGate(sp.GetRequiredService<AdmissionOptions>(), sp.GetRequiredService<BackpressureMetrics>(), sp.GetService<TimeProvider>()));
+            _ = services.AddSingleton<IBackpressureGate>(static sp => new AdmissionGate(sp.GetRequiredService<AdmissionOptions>(), sp.GetRequiredService<BackpressureMetrics>(), sp.GetRequiredService<TimeProvider>()));
             _ = services.AddSingleton<IMemoryPressureStateEvaluator>(static sp => new StateEvaluator(sp.GetRequiredService<IOptions<PressureOptions>>()));
             _ = services.AddSingleton<MemoryUsageAccounting>();
             _ = services.AddSingleton<IMemoryUsageAccounting>(static sp => sp.GetRequiredService<MemoryUsageAccounting>());
@@ -71,7 +71,7 @@ internal static class RuntimeServiceRegistration
                 sp.GetRequiredService<IdempotencyOptions>(),
                 sp.GetRequiredService<TopologyOptions>().NodeId,
                 sp.GetRequiredService<IdempotencyMetrics>(),
-                sp.GetService<TimeProvider>()));
+                sp.GetRequiredService<TimeProvider>()));
             _ = services.AddSingleton<IIdempotencySnapshotExporter>(static sp => sp.GetRequiredService<RpcMutationIdempotencyStore>());
             _ = services.AddSingleton(static sp =>
             {
@@ -109,7 +109,7 @@ internal static class RuntimeServiceRegistration
                 static sp => sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled ? CacheExpiryAuthority.CommittedRecords : CacheExpiryAuthority.LocalClock,
                 ServiceLifetime.Singleton));
             _ = services.AddSingleton(static sp => new PhysicalCache<object?>(
-                sp.GetService<TimeProvider>(),
+                sp.GetRequiredService<TimeProvider>(),
                 new EvictionOptions { Policy = EvictionPolicyType.Lru },
                 sp.GetRequiredService<CacheExpiryAuthority>()));
             _ = services.AddSingleton<ILocalCache<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
@@ -151,7 +151,7 @@ internal static class RuntimeServiceRegistration
         sp.GetRequiredService<RingAgreement>(),
         sp.GetRequiredService<IGroupLeaderTable>(),
         (sp.GetService<ElectionTimerOptions>() ?? new ElectionTimerOptions()).LeaderWaitTimeout,
-        sp.GetService<TimeProvider>() ?? TimeProvider.System,
+        sp.GetRequiredService<TimeProvider>(),
         sp.GetRequiredService<IReplicaGroupLocator>());
 
     /// <summary>DI-backed accessor for <see cref="RemoteInvocationContext" /> async-local state.</summary>

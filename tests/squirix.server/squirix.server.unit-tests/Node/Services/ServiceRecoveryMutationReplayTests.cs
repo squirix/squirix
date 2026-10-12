@@ -57,7 +57,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, id);
         await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
 
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         await RunRecoveryAsync(scenario, store, cancellationToken);
 
         IIdempotencySnapshotExporter exporter = store;
@@ -260,6 +260,6 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
     /// <param name="cancellationToken">The test cancellation token.</param>
     private Task RunRecoveryAsync(RecoveryScenarioBuilder builder, CancellationToken cancellationToken) => RunRecoveryAsync(
         builder,
-        new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
+        new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
         cancellationToken);
 }

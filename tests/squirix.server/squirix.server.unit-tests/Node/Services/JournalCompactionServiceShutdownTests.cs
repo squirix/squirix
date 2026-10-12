@@ -57,22 +57,22 @@ public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestB
                             _ = entered.TrySetResult();
                             await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, token).ConfigureAwait(false);
                         });
-        var cache = new PhysicalCache<object?>();
+        var cache = new PhysicalCache<object?>(TimeProvider.System);
         var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
         var options = Options.Create(new JournalCompactionOptions { Enabled = true, MinGap = TimeSpan.Zero, MinTailBytes = 0, MinTailSegments = 0 });
         var deps = new CoordinatorDependencies(
             new LocalCacheSnapshotCapture<object?>(cache),
             StoreFactory.CreateWriter(persistence),
             store,
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
+            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
             cluster.NodeId,
             new BackgroundSnapshotMemoryThrottle(new StateEvaluator(Options.Create(new PressureOptions())), new MemoryUsageAccounting()),
             null);
-        var snapshots = new Coordinator(opt, journal, deps);
+        var snapshots = new Coordinator(opt, journal, deps, TimeProvider.System);
         using var compaction = new JournalCompactionService<object?>(
             NullLogger<JournalCompactionService<object?>>.Instance,
             options,
-            new JournalCompactionDependencies(snapshots, maintenance.Instance(), store, StoreFactory.CreateReader(), persistence, cluster),
+            new JournalCompactionDependencies(snapshots, maintenance.Instance(), store, StoreFactory.CreateReader(), persistence, cluster, TimeProvider.System),
             new CompactionMetrics(_testMeter));
 
         await compaction.StartAsync(cancellationToken);

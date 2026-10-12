@@ -47,9 +47,10 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
         };
         var args = new ServerClientPoolArgs
         {
+            TimeProvider = TimeProvider.System,
             InterNodeMtlsEnabled = true,
             MtlsOptions = new MtlsOptions { InternalListenPort = 6101 },
-            PolicyFactory = _ => new ServerCallPolicy(new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter))),
+            PolicyFactory = _ => new ServerCallPolicy(new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter)), TimeProvider.System),
         };
 
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(
@@ -127,5 +128,5 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
     }
 
     private ServerClientPoolArgs PolicyOnlyArgs() => new()
-    { PolicyFactory = _ => new ServerCallPolicy(new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter))) };
+    { TimeProvider = TimeProvider.System, PolicyFactory = _ => new ServerCallPolicy(new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter)), TimeProvider.System) };
 }

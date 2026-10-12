@@ -97,6 +97,8 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         await using var defaults = CreateCommitter(registry, local, log);
         await using var committer = new ReplicaGroupCommitter(registry, new TwoNodeLocator(), gateway, local, (OwnedGroup, OwnedGroup), new ReplicaTopologyStamp(Fingerprint, 1), log)
         {
+            Clock = TimeProvider.System,
+            ShutdownTimeProvider = TimeProvider.System,
             Recovery = RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(local, log, OwnedGroup, OwnedGroup),
             CommitBudget = ShortCommitBudget,
@@ -240,7 +242,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var clock = new DueTimerClock(LogShutdownBudget);
         var registry = await OpenRegistryAsync(
             [StalledGroup, IdleGroup],
-            new FollowerLogOptions { FaultHooks = hooks, ShutdownBudget = LogShutdownBudget, ShutdownTimeProvider = clock },
+            new FollowerLogOptions { TimeProvider = TimeProvider.System, FaultHooks = hooks, ShutdownBudget = LogShutdownBudget, ShutdownTimeProvider = clock },
             loggerFactory,
             cancellationToken);
         var idleLogPath = FollowerLogPaths.Create(Dir, IdleGroup).LogPath;
@@ -287,7 +289,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             await ReleaseStallAsync(hooks, null, registry, StalledGroup);
         }
 
-        await using var reopened = new FollowerLog(Dir, IdleGroup, GroupComposition.Create(IdleGroup), NullLogger<FollowerLog>.Instance);
+        await using var reopened = new FollowerLog(Dir, IdleGroup, GroupComposition.Create(IdleGroup), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
     }
@@ -368,7 +370,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     {
         var local = new ScriptedApplyCache(ApplyMode.Fail);
         local.Recover();
-        await using var registry = await OpenRegistryAsync([OwnedGroup], new FollowerLogOptions { IdempotencyCapacity = 1 }, NullLoggerFactory.Instance, cancellationToken);
+        await using var registry = await OpenRegistryAsync([OwnedGroup], new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, IdempotencyCapacity = 1 }, NullLoggerFactory.Instance, cancellationToken);
         await using var committer = CreateCommitter(registry, local);
         var recorded = NewOperationId();
         await committer.CommitSetAsync(recorded, "cache", "k1", Entry(), cancellationToken);
@@ -415,6 +417,9 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         IReplicaRpcGateway? gateway = null) =>
         new(registry, new TwoNodeLocator(), gateway ?? new AcceptingGateway(), local, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), log ?? new LeakRecordingLogger())
         {
+            Clock = TimeProvider.System,
+            ShutdownTimeProvider = TimeProvider.System,
+            BudgetTimeProvider = TimeProvider.System,
             Recovery = RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(local, log ?? NullLogger<ReplicaGroupCommitter>.Instance, "n1", "n1"),
             ShutdownBudget = TimeSpan.FromMilliseconds(200),
@@ -441,7 +446,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     private static string NewOperationId() => Guid.NewGuid().ToString("N");
 
     private static FollowerLogOptions StallOptions(StallableFollowerLogFaultHooks hooks) =>
-        new() { FaultHooks = hooks, ShutdownBudget = LogShutdownBudget };
+        new() { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks, ShutdownBudget = LogShutdownBudget };
 
     /// <summary>
     /// Releases the stall, disposes the committer and the registry, and closes the log handle a timed-out dispose leaked, as the
@@ -475,7 +480,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 
     private async Task<ReplicaGroupRegistry> OpenRegistryAsync(string[] groupIds, FollowerLogOptions? options, ILoggerFactory loggerFactory, CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(Dir, groupIds, 2, Fingerprint, 1, loggerFactory, options);
+        var registry = new ReplicaGroupRegistry(Dir, groupIds, 2, Fingerprint, 1, loggerFactory, options ?? new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         try
         {
             await registry.OpenAsync(cancellationToken);

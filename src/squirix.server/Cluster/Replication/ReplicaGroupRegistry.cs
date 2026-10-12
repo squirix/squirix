@@ -23,7 +23,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     private readonly string[] _groupIds;
     private readonly ILogger<ReplicaGroupRegistry> _log;
     private readonly ILoggerFactory _loggerFactory;
-    private readonly FollowerLogOptions? _options;
+    private readonly FollowerLogOptions _options;
     private readonly string _root;
     private readonly int _replicaCount;
     private readonly ReadOnlyMemory<byte> _fingerprint;
@@ -48,11 +48,12 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         ReadOnlyMemory<byte> fingerprint,
         ulong generation,
         ILoggerFactory loggerFactory,
-        FollowerLogOptions? options = null)
+        FollowerLogOptions options)
     {
         ArgumentException.ThrowIfNullOrEmpty(root);
         ArgumentNullException.ThrowIfNull(groupIds);
         ArgumentNullException.ThrowIfNull(loggerFactory);
+        ArgumentNullException.ThrowIfNull(options);
         if (replicaCount < 1 || replicaCount > PolicyOptions.MaxReplicaCount)
             throw new ArgumentOutOfRangeException(nameof(replicaCount), replicaCount, "Replica count is out of range.");
         ValidateGroupIds(groupIds);
@@ -73,8 +74,8 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     /// <summary>Gets or initializes the election timing of every group; the defaults unless set.</summary>
     internal ElectionTimerOptions Election { get; init; } = new();
 
-    /// <summary>Gets or initializes the time source of the election state of every group; the system clock unless set.</summary>
-    internal TimeProvider ElectionClock { get; init; } = TimeProvider.System;
+    /// <summary>Gets or initializes the time source of the election state of every group.</summary>
+    internal required TimeProvider ElectionClock { get; init; }
 
     /// <summary>Gets or initializes a value indicating whether a leader elected in a served group fences its reads with a read index; off unless set.</summary>
     internal bool QuorumReads { get; init; }

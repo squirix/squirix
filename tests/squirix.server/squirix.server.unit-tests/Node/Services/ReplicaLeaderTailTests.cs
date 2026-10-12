@@ -48,7 +48,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         await SeedAsync(dir, cancellationToken);
         await SeedTailAsync(dir, 1, cancellationToken, "k1");
         var cache = new StubCache();
-        await using var registry = await OpenRegistryAsync(dir, new FollowerLogOptions { IdempotencyCapacity = 1 }, cancellationToken);
+        await using var registry = await OpenRegistryAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, IdempotencyCapacity = 1 }, cancellationToken);
         _ = registry.TryGetLog("n1", out var log);
         _ = log!.Idempotency.Reserve("cache", "filler", [1], GroupRecordKind.UserMutation, 99, 1);
         _ = log.Idempotency.TryResolve("cache", "filler", [1], 99, 1);
@@ -271,7 +271,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         await SeedAsync(dir, cancellationToken);
         await SeedTailAsync(dir, 1, cancellationToken, "k1", "k2");
         using var hooks = new StallableFollowerLogFaultHooks();
-        await using var registry = await OpenRegistryAsync(dir, new FollowerLogOptions { FaultHooks = hooks }, cancellationToken);
+        await using var registry = await OpenRegistryAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }, cancellationToken);
         if (!registry.TryGetLog("n1", out var log))
             throw new InvalidOperationException("The owned group log is not open.");
 

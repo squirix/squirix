@@ -165,13 +165,13 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
 
     private async Task AssertTailRecoveredAfterSnapshotAsync(PersistenceOptions persistence, Ledger manifestStore, CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<object?>();
+        var cache = new PhysicalCache<object?>(TimeProvider.System);
         var recoveryDependencies = new RecoveryDependencies<object?>(
             persistence,
             manifestStore,
             cache,
             new AsyncManualResetEvent(true),
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
+            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
             StoreFactory.CreateReader(),
             TimeProvider.System);
         var options = new RecoveryOptions { BlockOnStart = true };

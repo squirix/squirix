@@ -85,7 +85,8 @@ public class ReplicaLeaderReapplyBenchmarks
         _cache = new JournalLoggingCacheDecorator<object?>(
             new InMemoryCache(),
             _host.Coordinator,
-            new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance));
+            new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance),
+            TimeProvider.System);
         var entry = ReplicaCacheApplier.EncodeEntry(new NodeCacheEntry<object?> { Value = "v", Version = 1 });
         _records = new byte[Backlog][];
         var logIndex = 0UL;

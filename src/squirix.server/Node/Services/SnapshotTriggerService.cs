@@ -32,7 +32,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
     private int _fatalFailure;
 
-    public SnapshotTriggerService(ILogger<SnapshotTriggerService<T>> log, Coordinator coordinator, IJournalCoordinator journal, TimeProvider? timeProvider = null)
+    public SnapshotTriggerService(ILogger<SnapshotTriggerService<T>> log, Coordinator coordinator, IJournalCoordinator journal, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(coordinator);
         ArgumentNullException.ThrowIfNull(log);
@@ -40,7 +40,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         _coordinator = coordinator;
         _log = log;
         _journal = journal;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        _timeProvider = timeProvider;
         _onJournalAppended = OnJournalAppended;
     }
 

@@ -25,7 +25,7 @@ public sealed class FollowerReadinessTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-readiness-visibility");
         var composition = GroupComposition.Create(GroupId);
-        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance);
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
 
         // A start gate releases every poller at once so readiness reads race the gated startup writes.
         using var gate = new ManualResetEventSlim(false);

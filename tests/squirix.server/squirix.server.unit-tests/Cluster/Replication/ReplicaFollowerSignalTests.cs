@@ -123,7 +123,7 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
 
     private static async Task<ReplicaGroupRegistry> OpenAsync(string dir, CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(dir, ["n1", GroupId], 3, Fingerprint, 1, NullLoggerFactory.Instance);
+        var registry = new ReplicaGroupRegistry(dir, ["n1", GroupId], 3, Fingerprint, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         try
         {
             await registry.OpenAsync(cancellationToken);
@@ -144,7 +144,7 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
     /// <exception cref="InvalidOperationException">The source log refused a step or published no snapshot.</exception>
     private static async Task<GroupSnapshot> PublishSnapshotAsync(string dir, CancellationToken cancellationToken)
     {
-        await using var source = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        await using var source = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await source.OpenAsync(cancellationToken);
         await source.AdoptTopologyAsync(Fingerprint, 1, cancellationToken);
         FollowerLogEntry[] entries = [new(1UL, 1UL, new byte[] { 1 })];

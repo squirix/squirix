@@ -58,6 +58,7 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
         var peer = new ServerPeer { NodeId = PeerNodeId, Uri = peerUri, InterNodeUri = peerUri };
         var args = new ServerClientPoolArgs
         {
+            TimeProvider = TimeProvider.System,
             PolicyFactory = static _ => new IdleCallPolicy(),
             Certificate = material,
             InterNodeMtlsEnabled = true,

@@ -40,7 +40,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     [Test]
     public async Task CoordinatorAwaitsStartupGateBeforeReplay(CancellationToken cancellationToken)
     {
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         var startupGate = new AsyncManualResetEvent();
         var expectations = new IJournalCoordinatorCreateExpectations();
         _ = expectations.Setups.WaitForStartupAsync(Arg.Any<CancellationToken>()).Callback(startupGate.WaitAsync);
@@ -125,7 +125,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     [Test]
     public async Task FingerprintMismatchThrowsTypedException()
     {
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         store.RecordSuccess("op-1", "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }), null);
 
         var ex = NodeExceptionAssert.For<ServerOpIdMismatchException>().Throws(
@@ -143,7 +143,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     [Test]
     public async Task ReplayAfterSuccessReturnsCachedResponse()
     {
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         var original = new TryAddAsyncResponse { Added = true };
         store.RecordSuccess("op-1", "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(original), null);
 
@@ -158,7 +158,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     [Test]
     public async Task ReplayReturnsFalseForUnknownOpId()
     {
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
 
         _ = await Assert.That(replayed).IsFalse();
@@ -170,7 +170,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     [Test]
     public async Task ReplaySkipsHandlerReexecution(CancellationToken cancellationToken)
     {
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         var coordinator = new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var ctx = new ExecutionCounter();
 
@@ -255,7 +255,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     [Test]
     public async Task RestoredExpiredRecordIsNotReplayed()
     {
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { Retention = TimeSpan.FromMinutes(15) }, "local", new IdempotencyMetrics(_testMeter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { Retention = TimeSpan.FromMinutes(15) }, "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         var responseBytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
         store.RestoreRecord("op-1", "fp-1", responseBytes, DateTime.UtcNow.AddMinutes(-20));
 

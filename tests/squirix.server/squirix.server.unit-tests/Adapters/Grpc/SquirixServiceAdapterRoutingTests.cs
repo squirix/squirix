@@ -169,5 +169,5 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
             TimeProvider.System);
     }
 
-    private ServerCallPolicy CreatePolicy() => new(new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter)));
+    private ServerCallPolicy CreatePolicy() => new(new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter)), TimeProvider.System);
 }

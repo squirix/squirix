@@ -19,7 +19,7 @@ internal sealed class JournalCompactionDependencies
         ISnapshotReader snapshotReader,
         PersistenceOptions persistence,
         TopologyOptions cluster,
-        TimeProvider? timeProvider = null)
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(journalMaintenance);
@@ -33,7 +33,7 @@ internal sealed class JournalCompactionDependencies
         SnapshotReader = snapshotReader;
         Persistence = persistence;
         Cluster = cluster;
-        TimeProvider = timeProvider ?? TimeProvider.System;
+        TimeProvider = timeProvider;
     }
 
     internal TopologyOptions Cluster { get; }

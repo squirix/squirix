@@ -119,7 +119,7 @@ internal static class CachePipelineRegistration
                 sp.GetRequiredService<ClientCache<object?>>(),
                 sp.GetRequiredService<IJournalCoordinator>(),
                 sp.GetRequiredService<DurableMutationExecutor>(),
-                sp.GetService<TimeProvider>(),
+                sp.GetRequiredService<TimeProvider>(),
                 sp.GetRequiredService<ILocalCacheRawReader<object?>>()));
             _ = services.AddSingleton(static sp => new JournalPayloadPrepareCacheDecorator<object?>(sp.GetRequiredService<JournalLoggingCacheDecorator<object?>>()));
             _ = services.AddKeyedSingleton<ILogicalNamespacedCache<object?>>(LocalChainKey, static (sp, _) => sp.GetRequiredService<JournalPayloadPrepareCacheDecorator<object?>>());

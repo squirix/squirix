@@ -178,7 +178,7 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-catch-up-not-ready");
         await using var leader = await OpenAsync(Path.Join(dir, "leader"), cancellationToken);
-        await using var follower = new FollowerLog(Path.Join(dir, "follower"), GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        await using var follower = new FollowerLog(Path.Join(dir, "follower"), GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await AppendAsync(leader, 1, 2, 1, cancellationToken);
         var gateway = Route(follower);
 
@@ -373,7 +373,7 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
 
     private static async Task<FollowerLog> OpenAsync(string dir, CancellationToken cancellationToken)
     {
-        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance);
+        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         try
         {
             await log.OpenAsync(cancellationToken);
@@ -422,7 +422,7 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
     {
         var status = await leader.GetStatusAsync(cancellationToken);
         var header = new ReplicaRpcHeader(GroupId, Fingerprint, 1, term, "n1", "n1");
-        var sender = new ReplicaFollowerSender(gateway, "n2", in header, status.LastLogIndex, status.LastLogTerm, HangGuard);
+        var sender = new ReplicaFollowerSender(gateway, "n2", in header, status.LastLogIndex, status.LastLogTerm, HangGuard) { TimeProvider = TimeProvider.System };
         await using (sender)
         {
             using var lease = await sender.BeginCatchUpAsync(cancellationToken);

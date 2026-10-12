@@ -59,7 +59,8 @@ public class JournalDecidedEntryContentionBenchmarks
         _decorator = new JournalLoggingCacheDecorator<string>(
             new StubCache(_largeValue),
             _host.Coordinator,
-            new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance));
+            new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance),
+            TimeProvider.System);
         _smallEntry = new NodeCacheEntry<string> { Value = "v" };
     }
 

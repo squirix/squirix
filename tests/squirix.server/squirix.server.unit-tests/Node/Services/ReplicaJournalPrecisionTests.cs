@@ -126,7 +126,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
             manifestStore,
             cache,
             new AsyncManualResetEvent(true),
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
+            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
             StoreFactory.CreateReader(),
             clock);
         await new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, dependencies).StartAsync(cancellationToken);

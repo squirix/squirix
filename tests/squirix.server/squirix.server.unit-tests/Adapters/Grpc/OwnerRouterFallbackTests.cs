@@ -13,6 +13,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime.Invocation;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -200,7 +201,7 @@ public sealed class OwnerRouterFallbackTests
     /// <summary>Creates the registry of this node without opening it: the table reads no election state, so no group of the test is served.</summary>
     /// <returns>The registry.</returns>
     private static ReplicaGroupRegistry CreateRegistry() =>
-        new(Path.Join(Path.GetTempPath(), "squirix-fallback-unopened"), [Self, Leader, "node-e"], 3, Fingerprint, 1UL, NullLoggerFactory.Instance);
+        new(Path.Join(Path.GetTempPath(), "squirix-fallback-unopened"), [Self, Leader, "node-e"], 3, Fingerprint, 1UL, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
 
     private static ReplicaLeaderTable CreateTable(ReplicaGroupRegistry registry) => new(registry, Self, Locator());
 

@@ -101,7 +101,7 @@ public class IdempotencyStoreContentionBenchmarks
             _mutationIds[worker] = mutationIds;
         }
 
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = 1_000_000 }, "bench-node", new IdempotencyMetrics(_meter));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = 1_000_000 }, "bench-node", new IdempotencyMetrics(_meter), TimeProvider.System);
         _store = store;
         _baselineRecords = new ConcurrentDictionary<string, object>(StringComparer.Ordinal);
         _baselineExecutions = new ConcurrentDictionary<string, object>(StringComparer.Ordinal);

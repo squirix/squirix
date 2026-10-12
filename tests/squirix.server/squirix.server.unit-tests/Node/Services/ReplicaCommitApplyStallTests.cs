@@ -42,8 +42,9 @@ public sealed class ReplicaCommitApplyStallTests : IsolatedStorageTestBase
             new ReplicaCommitCoordinatorOptions(2, 0, 0, 1),
             pipeline,
             ReplicaFaultHooks.CreateCancellationHonoring(),
-            new GroupIdempotencyState(4, TimeSpan.MaxValue))
+            new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System))
         {
+            ObserveTimeProvider = TimeProvider.System,
             BudgetTimeProvider = clock,
         };
         var mutation = ReplicaMutationTestKit.CreateMutation();

@@ -194,10 +194,10 @@ internal static class PersistenceServiceRegistration
         _ = services.AddHealthChecks().Add(journalRecovery).Add(journalMaintenance).Add(storageRetentionCleanup);
     }
 
-    /// <summary>Resolves the server clock; the system clock when the container has none registered.</summary>
+    /// <summary>Resolves the server clock.</summary>
     /// <param name="sp">The service provider.</param>
     /// <returns>The clock the persistence components measure time with.</returns>
-    private static TimeProvider ResolveClock(IServiceProvider sp) => sp.GetService<TimeProvider>() ?? TimeProvider.System;
+    private static TimeProvider ResolveClock(IServiceProvider sp) => sp.GetRequiredService<TimeProvider>();
 
     /// <summary>Finds the segment I/O stall probe of the owned journal; a coordinator without one reports no stall.</summary>
     /// <param name="coordinator">The journal coordinator owned by the host.</param>

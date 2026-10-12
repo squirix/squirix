@@ -321,7 +321,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
     public async Task RestartReplaysOutcomeBehindTombstones(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-expiry-clock-rebuild");
-        var options = new FollowerLogOptions { IdempotencyCapacity = 4 };
+        var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, IdempotencyCapacity = 4 };
         var clock = new FakeTimeProvider(Start);
         var operationId = NewOperationId();
         var entry = new NodeCacheEntry<object?>("v", 1);

@@ -9,6 +9,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -195,7 +196,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
 
     private static async Task<ReplicaGroupRegistry> OpenAsync(TempDirectory dir, TimeProvider time, CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1UL, NullLoggerFactory.Instance)
+        var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1UL, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System })
         {
             Election = Timing,
             ElectionClock = time,
