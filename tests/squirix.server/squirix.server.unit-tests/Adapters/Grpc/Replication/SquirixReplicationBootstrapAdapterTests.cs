@@ -41,7 +41,7 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
         _ = await Assert.That(Convert.ToBase64String(after, Base64FormattingOptions.None)).IsNotEqualTo(Convert.ToBase64String(before, Base64FormattingOptions.None));
         var status = await scope.Adapter.GetReplicaStatus(new GetReplicaStatusRequest { Header = scope.Header }, scope.Context);
         _ = await Assert.That((status.MemberState, status.Readiness)).IsEqualTo(("unseeded", "ready"));
-        _ = await Assert.That((await GroupLog(scope).GetStatusAsync(cancellationToken)).BootstrapOffered).IsTrue();
+        _ = await Assert.That((await GroupMetadataFile.ReadAsync(MetaPath(scope), cancellationToken)).BootstrapOffered).IsTrue();
     }
 
     /// <summary>A peer's offer and a peer's status call each wake the first start of the group this node owns, and record the sender as the peer that called.</summary>
@@ -74,7 +74,7 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
         var response = await scope.Adapter.OfferReplicaBootstrap(new OfferReplicaBootstrapRequest { Header = scope.Header }, scope.Context);
 
         _ = await Assert.That((response.Accepted, response.RefusalCode)).IsEqualTo((false, RefusalCodes.NotMember));
-        _ = await Assert.That((await GroupLog(scope).GetStatusAsync(cancellationToken)).BootstrapOffered).IsFalse();
+        _ = await Assert.That((await GroupMetadataFile.ReadAsync(MetaPath(scope), cancellationToken)).BootstrapOffered).IsFalse();
         var after = await GroupMetadataFile.ReadBytesAsync(MetaPath(scope), cancellationToken);
         await SequenceAssert.EqualAsync(before, after);
     }
@@ -90,7 +90,7 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
         var response = await scope.Adapter.OfferReplicaBootstrap(new OfferReplicaBootstrapRequest { Header = scope.Header }, scope.Context);
 
         _ = await Assert.That((response.Accepted, response.MemberState, response.RefusalCode)).IsEqualTo((false, "unseeded", RefusalCodes.TopologyMismatch));
-        _ = await Assert.That((await GroupLog(scope).GetStatusAsync(cancellationToken)).BootstrapOffered).IsFalse();
+        _ = await Assert.That((await GroupMetadataFile.ReadAsync(MetaPath(scope), cancellationToken)).BootstrapOffered).IsFalse();
     }
 
     /// <summary>A complete copy refuses the offer, and the reply names its state.</summary>
@@ -103,11 +103,8 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
         var response = await scope.Adapter.OfferReplicaBootstrap(new OfferReplicaBootstrapRequest { Header = scope.Header }, scope.Context);
 
         _ = await Assert.That((response.Accepted, response.MemberState, response.RefusalCode)).IsEqualTo((false, "complete", RefusalCodes.NotReady));
-        _ = await Assert.That((await GroupLog(scope).GetStatusAsync(cancellationToken)).BootstrapOffered).IsFalse();
+        _ = await Assert.That((await GroupMetadataFile.ReadAsync(MetaPath(scope), cancellationToken)).BootstrapOffered).IsFalse();
     }
-
-    private static IFollowerLog GroupLog(Scope scope) =>
-        scope.Registry.TryGetLog(scope.Header.GroupId, out var log) ? log : throw new InvalidOperationException("The scope serves no group log.");
 
     private static string MetaPath(Scope scope) => GroupStoragePaths.GetMetadataPath(scope.Dir, scope.Header.GroupId);
 

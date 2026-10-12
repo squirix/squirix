@@ -33,7 +33,7 @@ public sealed class ReplicaReadinessProbeTests
     public async Task LeaderWithTailIsMarkedReady()
     {
         var eligibility = new ReplicaEligibility(3);
-        var leader = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete, false);
+        var leader = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete);
 
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, 0, in leader, Fingerprint, 1);
 
@@ -141,7 +141,7 @@ public sealed class ReplicaReadinessProbeTests
     public async Task MajorityAlreadyReadyWaitsForAll()
     {
         var eligibility = new ReplicaEligibility(3);
-        var leader = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete, false);
+        var leader = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete);
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, 0, in leader, Fingerprint, 1);
         var onlyLeader = eligibility.AnswersForMajority(0);
 
@@ -263,14 +263,14 @@ public sealed class ReplicaReadinessProbeTests
     private static ReplicaEligibility ReadyLeader(int replicaCount)
     {
         var eligibility = new ReplicaEligibility(replicaCount);
-        var leader = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete, false);
+        var leader = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete);
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, 0, in leader, Fingerprint, 1);
         return eligibility;
     }
 
     private static Task<ReplicaProbeResult[]> ProbeAsync(ScriptedFollowers followers, bool[] candidates, int answersNeeded, CancellationToken cancellationToken)
     {
-        var leader = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete, false);
+        var leader = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete);
         var header = new ReplicaRpcHeader(GroupId, Fingerprint, 1, 1, "n1", "n1");
         var members = new string[candidates.Length];
         for (var i = 0; i < members.Length; i++)

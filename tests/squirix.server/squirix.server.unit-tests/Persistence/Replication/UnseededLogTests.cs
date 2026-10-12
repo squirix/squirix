@@ -59,7 +59,8 @@ public sealed class UnseededLogTests : ServerUnitTestBase
         await reopened.OpenAsync(cancellationToken);
 
         var status = await reopened.GetStatusAsync(cancellationToken);
-        _ = await Assert.That((status.MemberState, status.BootstrapOffered, status.Readiness)).IsEqualTo((GroupMemberState.Unseeded, false, FollowerLogReadiness.Ready));
+        _ = await Assert.That((status.MemberState, status.Readiness)).IsEqualTo((GroupMemberState.Unseeded, FollowerLogReadiness.Ready));
+        _ = await Assert.That((await GroupMetadataFile.ReadAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken)).BootstrapOffered).IsFalse();
     }
 
     /// <summary>Damage to either slot of the fresh record leaves the other one, which still reads unseeded.</summary>
@@ -80,7 +81,8 @@ public sealed class UnseededLogTests : ServerUnitTestBase
         await reopened.OpenAsync(cancellationToken);
 
         var status = await reopened.GetStatusAsync(cancellationToken);
-        _ = await Assert.That((status.MemberState, status.BootstrapOffered, status.Readiness)).IsEqualTo((GroupMemberState.Unseeded, false, FollowerLogReadiness.Ready));
+        _ = await Assert.That((status.MemberState, status.Readiness)).IsEqualTo((GroupMemberState.Unseeded, FollowerLogReadiness.Ready));
+        _ = await Assert.That((await GroupMetadataFile.ReadAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken)).BootstrapOffered).IsFalse();
     }
 
     /// <summary>A published snapshot without metadata or log fails readiness: the vote memory of the group is gone.</summary>

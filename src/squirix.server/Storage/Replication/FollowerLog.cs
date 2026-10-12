@@ -631,8 +631,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             _meta.CommitIndex,
             _meta.LastAppliedIndex,
             Readiness,
-            _meta.MemberState,
-            _meta.BootstrapOffered);
+            _meta.MemberState);
     }
 
     /// <summary>Returns the term the log retains for an index.</summary>

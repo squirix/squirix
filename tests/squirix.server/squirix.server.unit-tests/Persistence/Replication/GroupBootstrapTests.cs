@@ -40,7 +40,6 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
         var repeated = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
         _ = await Assert.That(first).IsNull();
         _ = await Assert.That(second).IsNull();
-        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).BootstrapOffered).IsTrue();
         await AssertBothSlotsAsync(written, GroupMemberState.Unseeded, true);
         await AssertBothSlotsAsync(repeated, GroupMemberState.Unseeded, true);
     }
@@ -78,7 +77,7 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
         await using (var reopened = OpenLog(dir))
         {
             await reopened.OpenAsync(cancellationToken);
-            var halfWritten = (await reopened.GetStatusAsync(cancellationToken)).BootstrapOffered;
+            var halfWritten = await ReadOfferedAsync(dir, cancellationToken);
 
             var again = await reopened.AcceptBootstrapOfferAsync(Fingerprint, 1UL, cancellationToken);
 
@@ -91,7 +90,8 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
         await using var damaged = OpenLog(dir);
         await damaged.OpenAsync(cancellationToken);
         var status = await damaged.GetStatusAsync(cancellationToken);
-        _ = await Assert.That((status.MemberState, status.BootstrapOffered, status.Readiness)).IsEqualTo((GroupMemberState.Unseeded, true, FollowerLogReadiness.Ready));
+        _ = await Assert.That((status.MemberState, status.Readiness)).IsEqualTo((GroupMemberState.Unseeded, FollowerLogReadiness.Ready));
+        _ = await Assert.That(await ReadOfferedAsync(dir, cancellationToken)).IsTrue();
     }
 
     /// <summary>A complete copy refuses an offer as not ready, and an offer of another topology is refused without being recorded.</summary>
@@ -114,7 +114,7 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
         _ = await Assert.That(onComplete).IsEqualTo(FollowerLogRefusal.NotReady);
         _ = await Assert.That(otherFingerprint).IsEqualTo(FollowerLogRefusal.TopologyMismatch);
         _ = await Assert.That(olderGeneration).IsEqualTo(FollowerLogRefusal.TopologyMismatch);
-        _ = await Assert.That((await mismatched.GetStatusAsync(cancellationToken)).BootstrapOffered).IsFalse();
+        _ = await Assert.That(await ReadOfferedAsync(mismatchDir, cancellationToken)).IsFalse();
     }
 
     /// <summary>A copy without an offer is not completed by a member call and stays as it was.</summary>
@@ -130,7 +130,7 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
 
         _ = await Assert.That(refusal).IsEqualTo(FollowerLogRefusal.Unseeded);
         var status = await log.GetStatusAsync(cancellationToken);
-        _ = await Assert.That((status.MemberState, status.BootstrapOffered)).IsEqualTo((GroupMemberState.Unseeded, false));
+        _ = await Assert.That((status.MemberState, await ReadOfferedAsync(dir, cancellationToken))).IsEqualTo((GroupMemberState.Unseeded, false));
     }
 
     /// <summary>An offered copy completes on a member call, keeps its topology and term, and holds the complete record in both slots.</summary>
@@ -279,9 +279,10 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(cancellationToken);
         var state = await reopened.GetStatusAsync(cancellationToken);
+        var offered = await ReadOfferedAsync(dir, cancellationToken);
         var completion = await reopened.CompleteIfOfferedAsync(Fingerprint, 1UL, cancellationToken);
 
-        _ = await Assert.That((state.MemberState == GroupMemberState.Complete, state.BootstrapOffered)).IsEqualTo((reopenedComplete, true));
+        _ = await Assert.That((state.MemberState == GroupMemberState.Complete, offered)).IsEqualTo((reopenedComplete, true));
         _ = await Assert.That(completion).IsNull();
         _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Complete);
     }
@@ -299,6 +300,9 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
             _ = await Assert.That((read.Status, read.Metadata.MemberState, read.Metadata.BootstrapOffered)).IsEqualTo((GroupMetadataReadStatus.Valid, state, offered));
         }
     }
+
+    private static async Task<bool> ReadOfferedAsync(TempDirectory dir, CancellationToken cancellationToken) =>
+        (await GroupMetadataFile.ReadAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken)).BootstrapOffered;
 
     private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
 }
