@@ -121,7 +121,8 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
             ReplicaTopologyMatch.MatchesGeneration(status.ConfigurationGeneration, _topology.ConfigurationGeneration),
             status.Readiness == FollowerLogReadiness.Ready,
             isLeader,
-            hasMajorityContact)
+            hasMajorityContact,
+            status.MemberState)
         {
             LogBytes = retention.LogBytes,
             RetainedEntries = retention.RetainedEntries,

@@ -80,6 +80,9 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     /// <summary>Gets or initializes a value indicating whether a leader elected in a served group fences its reads with a read index; off unless set.</summary>
     internal bool QuorumReads { get; init; }
 
+    /// <summary>Gets the record of the peers that asked this node for a replica status or offered it a place in a first start, which wakes the first start of the group this node owns.</summary>
+    internal ReplicaPeerContact PeerContact { get; } = new();
+
     /// <summary>Gets the replica group identifiers served by this node.</summary>
     /// <returns>The group identifiers fixed at construction.</returns>
     internal IReadOnlyList<string> GroupIds => _groupIds;
@@ -224,12 +227,12 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
             await PinRecoveredTailAsync(log, groupId, cancellationToken).ConfigureAwait(false);
             var eligibility = new ReplicaEligibility(_replicaCount);
 
-            // A group with no durable progress starts with every member ready: there is nothing
+            // A complete group with no durable progress starts with every member ready: there is nothing
             // to disagree about, and verified appends keep the quorum honest afterwards. Any
             // durable state means a restart, which stays recovering until a repair session
-            // verifies it.
+            // verifies it, and so does a copy that is not complete.
             var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-            if (status is { LastLogIndex: 0, CommitIndex: 0 } && log.SnapshotPath == null)
+            if (status is { LastLogIndex: 0, CommitIndex: 0, MemberState: GroupMemberState.Complete } && log.SnapshotPath == null)
             {
                 var zero = new ReplicaProgress(1, 0, 0, 0, 0, _fingerprint, _generation, 0);
                 for (var r = 0; r < eligibility.ReplicaCount; r++)

@@ -31,6 +31,11 @@ internal readonly record struct FollowerLogStatus(
     GroupMemberState MemberState,
     bool BootstrapOffered)
 {
+    /// <summary>Checks whether a candidate may not cast its own vote in a term over this log.</summary>
+    /// <param name="term">The candidate term.</param>
+    /// <returns><see langword="true" /> when the log reached the term, is not ready, or its copy is not complete.</returns>
+    internal bool BlocksVote(ulong term) => CurrentTerm >= term || Readiness != FollowerLogReadiness.Ready || MemberState != GroupMemberState.Complete;
+
     /// <summary>Checks whether a leader topology disagrees with this log.</summary>
     /// <param name="fingerprint">Leader topology fingerprint.</param>
     /// <param name="generation">Leader configuration generation.</param>

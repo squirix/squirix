@@ -7,17 +7,23 @@ using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.TestKit.Replication;
 
-/// <summary>Opens group copies that hold a complete copy of their group, so a test log takes entries, grants votes and leads.</summary>
-/// <remarks>The one place that decides how a test gets such a copy: a fresh copy opens complete, so opening it is all it takes.</remarks>
+/// <summary>Opens group copies and seeds them the way the first start of a group does, so a test log takes entries, grants votes and leads.</summary>
+/// <remarks>A fresh copy is unseeded and refuses all of that; production seeds the copy of the owner with the step used here.</remarks>
 internal static class SeededLogs
 {
-    /// <summary>Opens a log whose copy is complete.</summary>
+    /// <summary>Opens a log and completes its copy when it is unseeded, like the owner does at the first start of its group.</summary>
     /// <param name="log">The log to open.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the log is open and its copy is complete.</returns>
-    internal static Task OpenSeededAsync(this FollowerLog log, CancellationToken cancellationToken) => log.OpenAsync(cancellationToken);
+    internal static async Task OpenSeededAsync(this FollowerLog log, CancellationToken cancellationToken)
+    {
+        await log.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        if (status.MemberState == GroupMemberState.Unseeded)
+            await log.CompleteBootstrapAsync(cancellationToken).ConfigureAwait(false);
+    }
 
-    /// <summary>Creates the copies of the groups on a data directory, so a registry opened on it afterwards finds complete copies.</summary>
+    /// <summary>Seeds the groups on a data directory, so a registry opened on it afterwards finds complete copies.</summary>
     /// <param name="root">The node data directory.</param>
     /// <param name="groupIds">The groups to seed.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

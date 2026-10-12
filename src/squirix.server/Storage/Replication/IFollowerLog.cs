@@ -16,6 +16,10 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <returns>The group idempotency state.</returns>
     GroupIdempotencyState Idempotency { get; }
 
+    /// <summary>Gets a value indicating whether the copy is known to be complete, which is read without the log gate.</summary>
+    /// <returns><see langword="true" /> once the copy is complete; a copy never stops being complete while the log lives. <see langword="false" /> proves nothing: the copy may have just become complete.</returns>
+    bool IsComplete { get; }
+
     /// <summary>
     /// Advances the applied index monotonically, never beyond the committed index, and releases the applied
     /// entry payloads from memory. The byte offsets of applied entries are retained, so a later divergence at or
@@ -184,4 +188,44 @@ internal interface IFollowerLog : IAsyncDisposable
     /// changes nothing. A failed metadata write fails the log, like every other durable term step.
     /// </remarks>
     Task<ulong> ObserveTermAsync(ulong term, CancellationToken cancellationToken);
+
+    /// <summary>Records that the owner of the group offered this unseeded copy a place in the first start of the group.</summary>
+    /// <param name="topologyFingerprint">Owner topology fingerprint.</param>
+    /// <param name="configurationGeneration">Owner configuration generation.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>
+    /// <see langword="null" /> once the offer is durable in both metadata slots, which an unseeded copy accepts again and publishes again;
+    /// <see cref="FollowerLogRefusal.NotReady" /> when the log is disposed, not ready, or not unseeded;
+    /// <see cref="FollowerLogRefusal.TopologyMismatch" /> when the topology disagrees with the log.
+    /// </returns>
+    /// <remarks>The record is published to both metadata slots; a failed write fails readiness like every other metadata write.</remarks>
+    Task<string?> AcceptBootstrapOfferAsync(ReadOnlyMemory<byte> topologyFingerprint, ulong configurationGeneration, CancellationToken cancellationToken);
+
+    /// <summary>Completes the copy when it holds an offer, which a call from a member of the group proves was acted on.</summary>
+    /// <param name="topologyFingerprint">Caller topology fingerprint.</param>
+    /// <param name="configurationGeneration">Caller configuration generation.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>
+    /// <see langword="null" /> when the copy is complete, now or already; <see cref="FollowerLogRefusal.Unseeded" /> for a copy without an offer and for
+    /// an incomplete one; <see cref="FollowerLogRefusal.TopologyMismatch" /> when the topology disagrees with the log;
+    /// <see cref="FollowerLogRefusal.NotReady" /> when the log is disposed or not ready.
+    /// </returns>
+    /// <remarks>
+    /// Only the call of a member of the group may reach this: only complete members lead or campaign, so such a call proves the group was
+    /// started, and the offer proves this copy acknowledged and voted for nothing since. The record is published to both metadata slots. A
+    /// crash between the two slot writes leaves a legal state either way: after the first copy of the complete record a rollback to the
+    /// offered record completes again on the next member call, and nothing was acknowledged in between, because the call is processed only
+    /// after both copies are durable.
+    /// </remarks>
+    Task<string?> CompleteIfOfferedAsync(ReadOnlyMemory<byte> topologyFingerprint, ulong configurationGeneration, CancellationToken cancellationToken);
+
+    /// <summary>Completes the unseeded copy of the owner of the group, the step of its first start of the group.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes once the complete record is durable in both metadata slots.</returns>
+    /// <exception cref="InvalidOperationException">The log is disposed, not ready, or not unseeded.</exception>
+    /// <remarks>
+    /// A crash between the two slot writes leaves a legal state either way: unseeded as before, or complete. Nothing was acknowledged before
+    /// both copies are durable, because the owner starts the group only after this call returns.
+    /// </remarks>
+    Task CompleteBootstrapAsync(CancellationToken cancellationToken);
 }

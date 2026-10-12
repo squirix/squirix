@@ -49,6 +49,35 @@ Non-goals: cluster-wide linearizability proofs, cross-owner atomic updates, dyna
 
 Full semantics: [consistency.md](consistency.md).
 
+## Starting a replica group
+
+With RF>1 a replica group is the owner of a set of keys and the nodes that hold copies of its log; a node that holds a
+copy on a new, empty data directory holds an unseeded copy. An unseeded copy takes no part in the group: it grants no
+vote, takes no entries, and does not lead or campaign.
+
+- A replica group of a new cluster starts once every member of the group is up. The owner of the group asks each other
+  member for the state of its copy; when all of them hold unseeded copies of the same topology, it offers each member a
+  place, and completes its own copy once all of them accepted. The group then runs as usual: the owner leads it, or
+  with automatic failover the group elects its leader. Until then the keys of the group are unavailable (`Unavailable`) and the nodes report not ready.
+  Starting only part of a new cluster starts no group whose members are not all up. A node of a new cluster therefore
+  reports not ready until every member of its groups is up, so start-up orchestration must not wait for one node to be
+  ready before it starts the next.
+- All members of a group losing their disks at once cannot be told from a new cluster: the group starts empty.
+- A member that starts on an empty data directory while its group already runs (for example after a disk loss) holds an
+  unseeded copy and is not repaired in this release: it grants no vote, takes no entries, and reports not ready. An
+  unseeded copy is the safe state of such a node. The group keeps working on its other members: three copies tolerate
+  one such member, five tolerate two. The only way to bring the node back in this release is to recreate the cluster.
+  Do not restore the data directory of a replicated node from an older backup: the restored copy opens complete with an
+  old term, vote, and log, and votes at once, which can help elect a leader that lacks entries the node acknowledged.
+- With automatic failover off, an owner in that state refuses the keys of its group with `Unavailable`; the groups of
+  the other nodes are not affected.
+
+A node with an unseeded copy fails `/health/ready` with `503`. The `replica_readiness` description reads `replica group
+'{id}' is not seeded on this node: its copy votes for nobody and takes no entries until the group is started or the copy
+is repaired.` and appears in the health-check log entry, not in the HTTP body. The node logs the state of such a copy
+when it opens the log of the group. `squirix-server doctor` shows it as `member unseeded` on the group line
+([operational-runbook.md](operational-runbook.md)).
+
 ## Automatic failover
 
 Opt-in, RF>=3 only. With it off, RF>1 behaves as described above: the owner of each key leads its group.
@@ -68,8 +97,8 @@ When a leader goes silent:
   its term. Election timeout (1 s), jitter (up to 1 s), heartbeat (100 ms), and vote timeout (250 ms) are fixed and
   not configurable, so expect a few seconds without a leader.
 - Without a reachable majority no leader is elected and the group refuses reads and writes (fails closed).
-- A deposed or cut-off former leader steps down and refuses requests; it rejoins as a follower and catches up from the
-  new leader's log.
+- A deposed or cut-off former leader steps down and refuses requests; when it kept its data directory it rejoins as a
+  follower and catches up from the new leader's log.
 - A new leader that cannot get a majority to commit an entry of its term within 30 seconds steps down and does not
   campaign for a few seconds, so another member can take the group; while the same node keeps being elected without
   getting authority, the 30 seconds double up to 4 minutes. The group accepts no writes or reads from that leader in
@@ -101,9 +130,14 @@ Known limits:
   the write quorum; the group continues on the remaining majority with less fault margin. The leader logs a warning
   (`needs entries the leader already compacted`) and counts `squirix_replication_catch_up_sessions_total` with
   `outcome="compacted"`. There is no operator repair for it in this release.
+- A member that came back on an empty data directory holds an unseeded copy that nothing repairs
+  ([Starting a replica group](#starting-a-replica-group)). With automatic failover its absence costs the group one vote:
+  with two such members of three, or three of five, no leader is elected and the group refuses reads and writes.
 - All nodes must run builds that agree on the replication settings and the minimum cluster package version
   (`0.1.0-preview.9`); mixed versions fail readiness through the topology fingerprint, and a data directory activated by
-  an older build refuses to start.
+  an older build refuses to start. So does a group metadata file written by an earlier build: the node prints `Replica
+  group '{id}' metadata was written by an earlier build and is not supported; the file was left unchanged.` and does
+  not start.
 - Membership is static; there is no rebalancing or dynamic membership.
 
 Observe a failover with `/health/ready` (the `replica_readiness` check) and the metrics `squirix_replication_role` and

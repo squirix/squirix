@@ -64,8 +64,20 @@ internal static class ReplicaDoctorReportBuilder
         lines.Add(
             $"group '{groupId}': term {meta.CurrentTerm.ToString(CultureInfo.InvariantCulture)}" + $" commit {meta.CommitIndex.ToString(CultureInfo.InvariantCulture)}" +
             $" applied {meta.LastAppliedIndex.ToString(CultureInfo.InvariantCulture)}" + $" apply-lag {applyLag.ToString(CultureInfo.InvariantCulture)}" +
-            $" fingerprint {(fingerprintMatch ? "match" : "MISMATCH")}" + $" generation {(generationMatch ? "match" : "MISMATCH")}");
+            $" fingerprint {(fingerprintMatch ? "match" : "MISMATCH")}" + $" generation {(generationMatch ? "match" : "MISMATCH")}" + $" member {DescribeMember(in meta)}");
     }
+
+    /// <summary>Describes whether the copy holds the data of the group, and for an unseeded copy whether the owner offered it a place.</summary>
+    /// <param name="meta">The durable metadata of the copy.</param>
+    /// <returns>The words "complete", "incomplete", "unseeded offered", or "unseeded not-offered".</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The member state is not a named value.</exception>
+    private static string DescribeMember(in GroupLogMetadata meta) => meta.MemberState switch
+    {
+        GroupMemberState.Complete => "complete",
+        GroupMemberState.Incomplete => "incomplete",
+        GroupMemberState.Unseeded => meta.BootstrapOffered ? "unseeded offered" : "unseeded not-offered",
+        _ => throw new ArgumentOutOfRangeException(nameof(meta), meta.MemberState, "Unsupported group member state."),
+    };
 
     private static bool AppendGroupLines(
         string dataDirectory,

@@ -8,6 +8,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
@@ -42,6 +43,7 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     private readonly Lock _sync = new();
     private int _disposed;
     private LedGroups _led;
+    private bool _ownSeeded;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitters" /> class that leads a fixed set of groups.</summary>
     /// <param name="led">The committers of the led groups, in registry order; each group at most once.</param>
@@ -190,6 +192,23 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
 
         var owner = _owners.GetOwner(cacheName, key);
         return FindAuthorized(owner) ?? ThrowHelper.Throw<ReplicaGroupCommitter>(Refusal(owner));
+    }
+
+    /// <summary>Refuses a read of the group this node leads statically while its copy is not complete.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes once the read may be served; it completes at once when the led set is handed over by election, whose reads are fenced.</returns>
+    /// <exception cref="Grpc.Core.RpcException">The copy of the group on this node is not complete: Unavailable, nothing was read.</exception>
+    /// <remarks>A copy never becomes unseeded again, so the first complete status is remembered and later reads cost nothing.</remarks>
+    internal async ValueTask EnsureSeededAsync(CancellationToken cancellationToken)
+    {
+        if (_ownOnly is not { } own || Volatile.Read(ref _ownSeeded))
+            return;
+
+        var seeded = own.Registry.TryGetLog(own.GroupId, out var log) && (await log.GetStatusAsync(cancellationToken).ConfigureAwait(false)).MemberState == GroupMemberState.Complete;
+        if (!seeded)
+            throw ServerOpContract.NoLeaderAuthority();
+
+        Volatile.Write(ref _ownSeeded, true);
     }
 
     /// <summary>Tells whether this node leads a group.</summary>

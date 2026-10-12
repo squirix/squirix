@@ -45,6 +45,10 @@ internal sealed class ReplicaRepairQueue
         _ = _slots.Writer.TryWrite(replicaIndex);
     }
 
+    /// <summary>Wakes the reader without naming a follower, as a queued slot does.</summary>
+    /// <remarks>The reader only learns that something was queued, so the wake occupies the first slot until the reader takes it.</remarks>
+    internal void Wake() => Enqueue(0);
+
     /// <summary>Waits until a slot is queued or <paramref name="delay" /> elapses, then takes every queued slot.</summary>
     /// <param name="delay">The longest wait when nothing is queued.</param>
     /// <param name="timeProvider">The time source of the delay.</param>

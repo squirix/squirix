@@ -35,6 +35,9 @@ internal static class RefusalCodes
     /// <summary>The candidate log is behind the voter log and cannot win the election.</summary>
     internal const string StaleLog = "stale-log";
 
+    /// <summary>The copy of the group on this node is not complete, so it takes no entries, grants no vote and adopts no term.</summary>
+    internal const string Unseeded = "unseeded";
+
     /// <summary>The voter heard from a live leader of the group within the election timeout, so it refuses the pre-vote.</summary>
     /// <remarks>Decided by the election state before the log is reached, so it has no storage twin.</remarks>
     internal const string LeaderContact = "leader-contact";

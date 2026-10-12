@@ -4,6 +4,7 @@ using System.Diagnostics.Metrics;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -23,20 +24,20 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
         using var listener = CreateListener(meter, out var records);
         var metrics = new ReplicationMetrics(meter);
 
-        var ready = new ReplicaStatusSnapshot("node-a", "group-a", 3, 4, 4, 10, 7, 5, true, true, true, true, true);
+        var ready = new ReplicaStatusSnapshot("node-a", "group-a", 3, 4, 4, 10, 7, 5, true, true, true, true, true, GroupMemberState.Complete);
         metrics.ReportGroup(in ready, ReplicaReadinessVerdict.Ready);
 
-        var topologyMismatch = new ReplicaStatusSnapshot("node-a", "group-b", 3, 6, 6, 3, 3, 3, false, true, true, true, true);
+        var topologyMismatch = new ReplicaStatusSnapshot("node-a", "group-b", 3, 6, 6, 3, 3, 3, false, true, true, true, true, GroupMemberState.Complete);
         metrics.ReportGroup(in topologyMismatch, ReplicaReadinessVerdict.TopologyMismatch);
         metrics.ReportGroup(in topologyMismatch, ReplicaReadinessVerdict.TopologyMismatch);
 
-        var generationMismatch = new ReplicaStatusSnapshot("node-a", "group-c", 3, 6, 6, 3, 3, 3, true, false, true, true, true);
+        var generationMismatch = new ReplicaStatusSnapshot("node-a", "group-c", 3, 6, 6, 3, 3, 3, true, false, true, true, true, GroupMemberState.Complete);
         metrics.ReportGroup(in generationMismatch, ReplicaReadinessVerdict.TopologyMismatch);
 
         // A staggered mismatch raises each reason exactly once on its own transition.
-        var staggeredTopology = new ReplicaStatusSnapshot("node-a", "group-d", 3, 6, 6, 3, 3, 3, false, true, true, true, true);
+        var staggeredTopology = new ReplicaStatusSnapshot("node-a", "group-d", 3, 6, 6, 3, 3, 3, false, true, true, true, true, GroupMemberState.Complete);
         metrics.ReportGroup(in staggeredTopology, ReplicaReadinessVerdict.TopologyMismatch);
-        var staggeredBoth = new ReplicaStatusSnapshot("node-a", "group-d", 3, 6, 6, 3, 3, 3, false, false, true, true, true);
+        var staggeredBoth = new ReplicaStatusSnapshot("node-a", "group-d", 3, 6, 6, 3, 3, 3, false, false, true, true, true, GroupMemberState.Complete);
         metrics.ReportGroup(in staggeredBoth, ReplicaReadinessVerdict.TopologyMismatch);
         metrics.ReportGroup(in staggeredBoth, ReplicaReadinessVerdict.TopologyMismatch);
 
@@ -61,6 +62,21 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
         await AssertLabelSetsAreBoundedAsync(records);
     }
 
+    /// <summary>Verifies a group whose copy on this node is not complete reports a ready gauge of zero.</summary>
+    [Test]
+    public async Task UnseededCopyReportsNotReady()
+    {
+        using var meter = new Meter("Squirix");
+        using var listener = CreateListener(meter, out var records);
+        var metrics = new ReplicationMetrics(meter);
+
+        var unseeded = new ReplicaStatusSnapshot("node-a", "group-a", 3, 0, 0, 0, 0, 0, true, true, true, false, false, GroupMemberState.Unseeded);
+        metrics.ReportGroup(in unseeded, ReplicaReadinessVerdict.Unseeded);
+        listener.RecordObservableInstruments();
+
+        await AssertGaugeAsync(records, "squirix_replication_ready", "group-a", 0);
+    }
+
     /// <summary>
     /// Verifies the group log retention gauges follow the observed snapshot, and the compaction counters count compactions and skipped
     /// compactions by the closed outcome name.
@@ -72,7 +88,7 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
         using var listener = CreateListener(meter, out var records);
         var metrics = new ReplicationMetrics(meter);
 
-        var owned = new ReplicaStatusSnapshot("node-a", "node-a", 3, 4, 4, 30, 30, 30, true, true, true, true, true)
+        var owned = new ReplicaStatusSnapshot("node-a", "node-a", 3, 4, 4, 30, 30, 30, true, true, true, true, true, GroupMemberState.Complete)
         {
             LogBytes = 4096,
             RetainedEntries = 12,
@@ -101,9 +117,15 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
         using var listener = CreateListener(meter, out var records);
         var metrics = new ReplicationMetrics(meter);
 
-        var leading = new ReplicaStatusSnapshot("node-a", "group-a", 3, 4, 4, 10, 7, 7, true, true, true, true, true) { Role = ReplicaElectionRole.AuthorizedLeader };
-        var promoting = new ReplicaStatusSnapshot("node-a", "group-b", 3, 5, 5, 10, 7, 7, true, true, true, false, true) { Role = ReplicaElectionRole.Leader };
-        var following = new ReplicaStatusSnapshot("node-a", "group-c", 3, 4, 4, 10, 7, 7, true, true, true, false, true);
+        var leading = new ReplicaStatusSnapshot("node-a", "group-a", 3, 4, 4, 10, 7, 7, true, true, true, true, true, GroupMemberState.Complete)
+        {
+            Role = ReplicaElectionRole.AuthorizedLeader,
+        };
+        var promoting = new ReplicaStatusSnapshot("node-a", "group-b", 3, 5, 5, 10, 7, 7, true, true, true, false, true, GroupMemberState.Complete)
+        {
+            Role = ReplicaElectionRole.Leader,
+        };
+        var following = new ReplicaStatusSnapshot("node-a", "group-c", 3, 4, 4, 10, 7, 7, true, true, true, false, true, GroupMemberState.Complete);
         metrics.ReportGroup(in leading, ReplicaReadinessVerdict.Ready);
         metrics.ReportGroup(in promoting, ReplicaReadinessVerdict.Ready);
         metrics.ReportGroup(in following, ReplicaReadinessVerdict.Ready);

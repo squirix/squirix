@@ -68,32 +68,48 @@ public sealed class FailoverActivationTests : ServerUnitTestBase
         _ = await Assert.That(enabled.AutomaticFailoverEnabled).IsTrue();
         _ = await Assert.That(enabled.QuorumReadsEnabled).IsTrue();
 
-        var eligible = FailoverActivationGate.CheckElection(3, true, true, true, 4, 4);
+        var eligible = FailoverActivationGate.CheckElection(3, true, true, true, true, 4, 4);
         _ = await Assert.That(eligible.Eligible).IsTrue();
         _ = await Assert.That(eligible.Denial).IsEqualTo(FailoverDenial.None);
 
-        var disabled = FailoverActivationGate.CheckElection(3, false, true, true, 4, 4);
+        var disabled = FailoverActivationGate.CheckElection(3, false, true, true, true, 4, 4);
         _ = await Assert.That(disabled.Eligible).IsFalse();
         _ = await Assert.That(disabled.Denial).IsEqualTo(FailoverDenial.Disabled);
 
-        var single = FailoverActivationGate.CheckElection(1, true, true, true, 1, 1);
+        var single = FailoverActivationGate.CheckElection(1, true, true, true, true, 1, 1);
         _ = await Assert.That(single.Eligible).IsFalse();
         _ = await Assert.That(single.Denial).IsEqualTo(FailoverDenial.SingleNode);
 
-        var pair = FailoverActivationGate.CheckElection(2, true, true, true, 1, 1);
+        var pair = FailoverActivationGate.CheckElection(2, true, true, true, true, 1, 1);
         _ = await Assert.That(pair.Eligible).IsFalse();
         _ = await Assert.That(pair.Denial).IsEqualTo(FailoverDenial.ReplicaFactorTooLow);
 
-        var minority = FailoverActivationGate.CheckElection(3, true, false, true, 4, 4);
+        var minority = FailoverActivationGate.CheckElection(3, true, false, true, true, 4, 4);
         _ = await Assert.That(minority.Eligible).IsFalse();
         _ = await Assert.That(minority.Denial).IsEqualTo(FailoverDenial.NoMajority);
 
-        var behind = FailoverActivationGate.CheckElection(3, true, true, false, 4, 4);
+        var behind = FailoverActivationGate.CheckElection(3, true, true, true, false, 4, 4);
         _ = await Assert.That(behind.Eligible).IsFalse();
         _ = await Assert.That(behind.Denial).IsEqualTo(FailoverDenial.LogNotCaughtUp);
 
-        var deposed = FailoverActivationGate.CheckElection(3, true, true, true, 4, 5);
+        var deposed = FailoverActivationGate.CheckElection(3, true, true, true, true, 4, 5);
         _ = await Assert.That(deposed.Eligible).IsFalse();
         _ = await Assert.That(deposed.Denial).IsEqualTo(FailoverDenial.StaleTerm);
+    }
+
+    /// <summary>A copy that is not complete is denied before the majority-contact check, and after the stale-term check.</summary>
+    /// <returns>A task that completes when the assertions finished.</returns>
+    [Test]
+    public async Task UnseededCopyIsDeniedBeforeMajority()
+    {
+        var unseeded = FailoverActivationGate.CheckElection(3, true, true, false, true, 4, 4);
+        _ = await Assert.That(unseeded.Eligible).IsFalse();
+        _ = await Assert.That(unseeded.Denial).IsEqualTo(FailoverDenial.Unseeded);
+
+        var unseededMinority = FailoverActivationGate.CheckElection(3, true, false, false, false, 4, 4);
+        _ = await Assert.That(unseededMinority.Denial).IsEqualTo(FailoverDenial.Unseeded);
+
+        var unseededDeposed = FailoverActivationGate.CheckElection(3, true, true, false, true, 4, 5);
+        _ = await Assert.That(unseededDeposed.Denial).IsEqualTo(FailoverDenial.StaleTerm);
     }
 }

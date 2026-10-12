@@ -153,7 +153,7 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, cancellationToken);
 
         _ = await Assert.That(exitCode).IsEqualTo(0);
-        _ = await Assert.That(output).Contains("group 'n1': term 9 commit 10 applied 7 apply-lag 3", StringComparison.Ordinal);
+        _ = await Assert.That(output).Contains("group 'n1': term 9 commit 10 applied 7 apply-lag 3 fingerprint match generation match member complete", StringComparison.Ordinal);
         _ = await Assert.That(output).Contains("topology stamp: fingerprint match", StringComparison.Ordinal);
         _ = await Assert.That(output).DoesNotContain("Error:", StringComparison.Ordinal);
     }

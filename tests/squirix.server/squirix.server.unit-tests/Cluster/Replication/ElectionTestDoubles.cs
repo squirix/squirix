@@ -9,6 +9,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -44,15 +45,20 @@ internal static class ElectionTestDoubles
     /// <param name="replicaCount">The number of members.</param>
     /// <param name="votes">The voters.</param>
     /// <param name="options">The election timing; <see cref="Options" /> unless set.</param>
+    /// <param name="seeded">Whether the copy is complete; otherwise it stays unseeded, as on a fresh disk.</param>
     /// <returns>The opened scope.</returns>
-    internal static async Task<ElectionScope> OpenAsync(string groupId, int replicaCount, IReplicaVoteGateway votes, ElectionTimerOptions? options = null)
+    internal static async Task<ElectionScope> OpenAsync(string groupId, int replicaCount, IReplicaVoteGateway votes, ElectionTimerOptions? options = null, bool seeded = true)
     {
         var dir = new TempDirectory("squirix-election-driver");
         FollowerLog? log = null;
         try
         {
             log = new FollowerLog(dir, groupId, GroupComposition.Create(groupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-            await log.OpenAsync(CancellationToken.None);
+            if (seeded)
+                await log.OpenSeededAsync(CancellationToken.None);
+            else
+                await log.OpenAsync(CancellationToken.None);
+
             var time = new FakeTimeProvider();
             var state = new ReplicaGroupState(replicaCount, options ?? Options, time);
             var scope = new ElectionScope(groupId, dir, log, time, state, votes, new RecordingLeadership(state));

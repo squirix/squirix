@@ -7,6 +7,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -20,10 +21,10 @@ public sealed class GroupMemberStateLogTests : ServerUnitTestBase
 {
     private const string GroupId = "member-state-log";
 
-    /// <summary>A fresh log opens complete and not offered, reports it, and holds it durably.</summary>
+    /// <summary>A fresh log opens unseeded and not offered, ready, reports it, and holds it durably.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FreshLogOpensComplete(CancellationToken cancellationToken)
+    public async Task FreshLogOpensUnseeded(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-member-state-fresh");
 
@@ -32,11 +33,11 @@ public sealed class GroupMemberStateLogTests : ServerUnitTestBase
             await log.OpenAsync(cancellationToken);
 
             var status = await log.GetStatusAsync(cancellationToken);
-            _ = await Assert.That((status.MemberState, status.BootstrapOffered)).IsEqualTo((GroupMemberState.Complete, false));
+            _ = await Assert.That((status.MemberState, status.BootstrapOffered, status.Readiness)).IsEqualTo((GroupMemberState.Unseeded, false, FollowerLogReadiness.Ready));
         }
 
         var durable = GroupMetadataStore.Read(GroupStoragePaths.GetMetadataPath(dir, GroupId)).Metadata;
-        _ = await Assert.That((durable.MemberState, durable.BootstrapOffered)).IsEqualTo((GroupMemberState.Complete, false));
+        _ = await Assert.That((durable.MemberState, durable.BootstrapOffered)).IsEqualTo((GroupMemberState.Unseeded, false));
     }
 
     /// <summary>A term step, a vote, an append, a commit advance and a reopen leave the state and the offer as they were.</summary>
@@ -48,7 +49,7 @@ public sealed class GroupMemberStateLogTests : ServerUnitTestBase
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.ObserveTermAsync(3UL, cancellationToken);
             await AssertCompleteAsync(log, cancellationToken);
             _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 4UL, 0UL, 0UL), cancellationToken);
@@ -75,14 +76,14 @@ public sealed class GroupMemberStateLogTests : ServerUnitTestBase
         using var sourceDir = new TempDirectory("squirix-member-state-install-source");
 
         await using var source = OpenLog(sourceDir);
-        await source.OpenAsync(cancellationToken);
+        await source.OpenSeededAsync(cancellationToken);
         _ = await source.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, 1UL, "a"), cancellationToken);
         _ = await source.AdvanceCommitAsync(1UL, cancellationToken);
         var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, sourceDir, 1UL, cancellationToken);
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(cancellationToken);
+            await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, 1UL, "a"), cancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
             _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);

@@ -100,15 +100,15 @@ internal sealed class ReplicaVerificationProbe
     /// <returns>The final verification state, or the probing the admission under the commit gate continues from.</returns>
     /// <remarks>
     /// A log whose term moved past the elected leader term, or past term one for a static leader, is blocked: a newer leader exists, and
-    /// this one verifies nothing for it.
+    /// this one verifies nothing for it. So is a log that is not ready and a copy that is not complete.
     /// </remarks>
     internal async Task<ReplicaVerificationSnapshot> ProbeAsync(IFollowerLog log, ulong leaderTerm, bool untilMajority, CancellationToken cancellationToken)
     {
         var eligibility = _registry.EligibilityFor(_groupId);
         var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
         var status = read.Status;
-        if (status.Readiness != FollowerLogReadiness.Ready || (leaderTerm != 0 && status.CurrentTerm > leaderTerm))
-            return new ReplicaVerificationSnapshot(ReplicaVerification.Blocked);
+        if (BlockedVerdict(in status, leaderTerm) is { } blocked)
+            return new ReplicaVerificationSnapshot(blocked);
 
         if (!TryResolveTerm(in status, leaderTerm, out var term))
             return new ReplicaVerificationSnapshot(ReplicaVerification.Blocked);
@@ -206,6 +206,24 @@ internal sealed class ReplicaVerificationProbe
 
         return targets;
     }
+
+    /// <summary>Tells whether the state of the leader log blocks the verification and why.</summary>
+    /// <param name="status">Durable log status of the group.</param>
+    /// <param name="leaderTerm">The elected leader term, or zero for a static leader.</param>
+    /// <returns><see cref="ReplicaVerification.Unseeded" /> for an open log whose copy awaits the first start, <see cref="ReplicaVerification.Blocked" /> for any other block, otherwise <see langword="null" />.</returns>
+    private static ReplicaVerification? BlockedVerdict(in FollowerLogStatus status, ulong leaderTerm)
+    {
+        var unseeded = status.Readiness == FollowerLogReadiness.Ready && status.MemberState == GroupMemberState.Unseeded;
+        return (unseeded, BlocksVerification(in status, leaderTerm)) switch
+        {
+            (true, _) => ReplicaVerification.Unseeded,
+            (false, true) => ReplicaVerification.Blocked,
+            (false, false) => null,
+        };
+    }
+
+    private static bool BlocksVerification(in FollowerLogStatus status, ulong leaderTerm) =>
+        status.Readiness != FollowerLogReadiness.Ready || status.MemberState != GroupMemberState.Complete || (leaderTerm != 0 && status.CurrentTerm > leaderTerm);
 
     /// <summary>Resolves the term this node verifies the group in, and reports a static leader whose log moved past term one.</summary>
     /// <param name="status">Durable log status of the group.</param>

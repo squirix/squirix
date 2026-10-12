@@ -23,7 +23,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// it retires. A leader that stays without authority past its deadline steps down the same way and, once its retirement completes,
 /// does not campaign for a little longer than the longest normal timer, so another member can take the group; see
 /// <see cref="AuthorityDeadline" />. The provisional term one of the group this node owns needs no election: only the owner may lead
-/// it, so a log that never left it is led at term one at once. The leadership reports a failure to promote or retire as
+/// it, so a complete log that never left it is led at term one at once; a copy that is not complete neither leads nor campaigns nor votes. The leadership reports a failure to promote or retire as
 /// <see langword="false" />; anything it throws faults the step.
 /// </para>
 /// </remarks>
@@ -157,6 +157,7 @@ internal sealed class ReplicaGroupElection
             _replicaCount,
             true,
             true,
+            status.MemberState == GroupMemberState.Complete,
             status.Readiness == FollowerLogReadiness.Ready,
             status.CurrentTerm,
             _state.HighestObservedTerm);
@@ -337,9 +338,9 @@ internal sealed class ReplicaGroupElection
         var status = await _log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         var own = string.Equals(GroupId, _header.SenderNodeId, StringComparison.Ordinal);
 
-        // The own group decides its provisional term only from a ready log; until then the start is retried, not skipped.
-        if (own && status.Readiness != FollowerLogReadiness.Ready)
-            return new ElectionOutcome(ElectionEvent.None, status.CurrentTerm);
+        // The own group decides its provisional term only from a ready, complete log; until then the start is retried, not skipped.
+        if (own && ElectionHold.OnStart(in status) is { } held)
+            return held;
 
         if (!own || status.CurrentTerm > 1)
         {
@@ -397,7 +398,7 @@ internal sealed class ReplicaGroupElection
     {
         // The log may have moved during the pre-vote: the ballot carries its last entry now, and a term reached meanwhile ends the round.
         var current = await _log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        if (current.CurrentTerm >= term || current.Readiness != FollowerLogReadiness.Ready)
+        if (current.BlocksVote(term))
             return Lose(ElectionEvent.VoteLost, current.CurrentTerm);
 
         // The own vote takes the path a peer's request takes: the term and the vote are durable before they count.

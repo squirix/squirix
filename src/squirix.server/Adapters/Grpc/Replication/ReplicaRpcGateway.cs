@@ -53,6 +53,20 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
         return new FollowerLogVoteResult(response.Granted, response.RefusalCode, response.Term);
     }
 
+    /// <summary>Maps the replication envelope identity to its wire message.</summary>
+    /// <param name="header">The envelope identity.</param>
+    /// <returns>The wire header.</returns>
+    internal static ReplicationEnvelopeHeader MapHeader(in ReplicaRpcHeader header) => new()
+    {
+        SchemaVersion = EnvelopeSchema.Version,
+        GroupId = header.GroupId,
+        TopologyFingerprint = ByteString.CopyFrom(header.TopologyFingerprint.Span),
+        ConfigurationGeneration = header.ConfigurationGeneration,
+        Term = header.Term,
+        LeaderNodeId = header.LeaderNodeId,
+        SenderNodeId = header.SenderNodeId,
+    };
+
     private static ReplicaLogEntry MapEntry(in ReplicaLogRecord record) => new()
     {
         LogIndex = record.LogIndex,
@@ -70,17 +84,6 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
         DecidedUtcTicks = record.DecidedUtcTicks,
         ResolvedUtcTicks = record.ResolvedUtcTicks,
         PayloadChecksum = record.PayloadChecksum,
-    };
-
-    private static ReplicationEnvelopeHeader MapHeader(in ReplicaRpcHeader header) => new()
-    {
-        SchemaVersion = EnvelopeSchema.Version,
-        GroupId = header.GroupId,
-        TopologyFingerprint = ByteString.CopyFrom(header.TopologyFingerprint.Span),
-        ConfigurationGeneration = header.ConfigurationGeneration,
-        Term = header.Term,
-        LeaderNodeId = header.LeaderNodeId,
-        SenderNodeId = header.SenderNodeId,
     };
 
     private static AppendReplicaEntriesRequest MapRequest(in ReplicaRpcHeader header, in FollowerBatch batch)

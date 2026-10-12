@@ -25,7 +25,7 @@ public sealed class ReplicaFollowerValidationTests : ServerUnitTestBase
         await using var registry = CreateClosedRegistry();
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
 
-        var result = await follower.AdvanceCommitAsync("unknown-group", ReadOnlyMemory<byte>.Empty, 1, 0, 7, cancellationToken);
+        var result = await follower.AdvanceCommitAsync("unknown-group", "n2", ReadOnlyMemory<byte>.Empty, 1, 0, 7, cancellationToken);
 
         _ = await Assert.That(result.Success).IsFalse();
         _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.NotMember);
@@ -64,7 +64,7 @@ public sealed class ReplicaFollowerValidationTests : ServerUnitTestBase
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
         var upload = new ReplicaSnapshotUpload(ReadOnlyMemory<byte>.Empty, 0, 0, 0);
 
-        var result = await follower.InstallSnapshotUploadAsync("unknown-group", ReadOnlyMemory<byte>.Empty, 1, upload, 7, cancellationToken);
+        var result = await follower.InstallSnapshotUploadAsync("unknown-group", "n2", ReadOnlyMemory<byte>.Empty, 1, upload, 7, cancellationToken);
 
         _ = await Assert.That(result.Success).IsFalse();
         _ = await Assert.That(result.Refusal).IsEqualTo(FollowerLogRefusal.NotMember);

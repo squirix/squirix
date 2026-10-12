@@ -170,6 +170,24 @@ internal sealed class HostedCluster : IAsyncDisposable
         _ = await Cluster.RestartNodeAsync(id, null, cancellationToken);
     }
 
+    /// <summary>Stops one node, empties its data directory, and starts it again on the same listen address, as a node that lost its disk.</summary>
+    /// <remarks>The start does not wait for the first start of the groups: the node holds unseeded copies, whose first start does not end.</remarks>
+    /// <param name="id">Node identifier to restart.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the node is running again.</returns>
+    internal async ValueTask RestartWipedNodeAsync(string id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (_nodeClients.Remove(id, out var client))
+                await client.DisposeAsync();
+        }
+        finally
+        {
+            _ = await Cluster.RestartWipedNodeAsync(id, null, cancellationToken);
+        }
+    }
+
     /// <summary>Stops and removes one HostedCluster node while leaving other nodes running.</summary>
     /// <remarks>The node's client from <see cref="GetCacheAsync{T}" /> is disposed before the node stops.</remarks>
     /// <param name="id">Node identifier to stop.</param>

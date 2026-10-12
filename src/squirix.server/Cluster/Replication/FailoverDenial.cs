@@ -23,4 +23,7 @@ internal enum FailoverDenial
 
     /// <summary>A higher term was observed; the old leader steps down.</summary>
     StaleTerm = 6,
+
+    /// <summary>The copy of the group on this node is not complete yet: it holds no data of the group and may not lead or campaign.</summary>
+    Unseeded = 7,
 }

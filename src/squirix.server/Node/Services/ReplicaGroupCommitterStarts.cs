@@ -23,6 +23,7 @@ internal static class ReplicaGroupCommitterStarts
         /// the probe results to admit once the coordinator exists.
         /// </returns>
         /// <exception cref="StaticLeaderTermExceededException">A static leader whose log moved past term one; nothing was written.</exception>
+        /// <exception cref="ReplicaUnseededException">The copy of the group is not complete; nothing was written.</exception>
         /// <remarks>
         /// Runs under the commit gate, after the coordinator of the previous start is retired. Every start while an elected leadership
         /// is not yet authorized, a retry after a fault included, stops probing once enough followers answered from their logs to form a
@@ -35,6 +36,10 @@ internal static class ReplicaGroupCommitterStarts
             // One read pairs the status with its tail: a commit left running by the disposed coordinator may still advance the log.
             var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
             var status = read.Status;
+
+            // A copy that is not complete holds no data of the group, so nothing is led over it, and nothing was written.
+            if (status.MemberState != GroupMemberState.Complete)
+                throw new ReplicaUnseededException($"Replica group '{committer.GroupId}' copy on this node is not complete, so it cannot be led.");
 
             // Memory must hold every committed entry before anything new is prepared.
             await committer.Applier.CatchUpAsync(log, status.LastAppliedIndex, status.CommitIndex, cancellationToken).ConfigureAwait(false);

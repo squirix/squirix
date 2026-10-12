@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage.Replication;
@@ -59,10 +60,10 @@ internal static class ReplicaGroupCommitterVerification
             {
                 return await committer.AdmitVerifiedAsync(log, snapshot, cancellationToken).ConfigureAwait(false);
             }
-            catch (StaticLeaderTermExceededException)
+            catch (Exception exception) when (exception is StaticLeaderTermExceededException or ReplicaUnseededException)
             {
-                // An election raised the log past term one while the probe was out: the static start refused before any append, and the
-                // next probe reports the blocked group.
+                // An election raised the log past term one while the probe was out, or the copy is not complete: the start refused before
+                // any append, and the next probe reports the blocked group.
                 return ReplicaVerification.Blocked;
             }
         }

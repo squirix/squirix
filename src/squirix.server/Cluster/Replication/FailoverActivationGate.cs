@@ -15,6 +15,7 @@ internal static class FailoverActivationGate
     /// <param name="replicaCount">The configured replica factor, including the leader.</param>
     /// <param name="failoverEnabled">The opt-in automatic failover switch.</param>
     /// <param name="hasMajorityContact">Whether the node recently contacted a majority.</param>
+    /// <param name="memberComplete">Whether the copy of the group on this node is complete.</param>
     /// <param name="logCaughtUp">Whether the rejoining log reached the leader commit index.</param>
     /// <param name="currentTerm">The locally persisted current term.</param>
     /// <param name="observedTerm">The highest term observed from a peer.</param>
@@ -23,6 +24,7 @@ internal static class FailoverActivationGate
         int replicaCount,
         bool failoverEnabled,
         bool hasMajorityContact,
+        bool memberComplete,
         bool logCaughtUp,
         ulong currentTerm,
         ulong observedTerm)
@@ -33,6 +35,7 @@ internal static class FailoverActivationGate
             2 => new FailoverEligibilityVerdict(false, FailoverDenial.ReplicaFactorTooLow),
             _ when !failoverEnabled => new FailoverEligibilityVerdict(false, FailoverDenial.Disabled),
             _ when observedTerm > currentTerm => new FailoverEligibilityVerdict(false, FailoverDenial.StaleTerm),
+            _ when !memberComplete => new FailoverEligibilityVerdict(false, FailoverDenial.Unseeded),
             _ when !hasMajorityContact => new FailoverEligibilityVerdict(false, FailoverDenial.NoMajority),
             _ when !logCaughtUp => new FailoverEligibilityVerdict(false, FailoverDenial.LogNotCaughtUp),
             _ => new FailoverEligibilityVerdict(true, FailoverDenial.None),

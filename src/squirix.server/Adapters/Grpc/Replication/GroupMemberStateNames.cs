@@ -19,4 +19,15 @@ internal static class GroupMemberStateNames
         GroupMemberState.Incomplete => "incomplete",
         _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unsupported group member state."),
     };
+
+    /// <summary>Maps the name a replica status reports to a member state.</summary>
+    /// <param name="name">The state name.</param>
+    /// <returns>The member state; <see langword="null" /> for an empty or unknown name.</returns>
+    internal static GroupMemberState? Parse(string name) => name switch
+    {
+        "unseeded" => GroupMemberState.Unseeded,
+        "complete" => GroupMemberState.Complete,
+        "incomplete" => GroupMemberState.Incomplete,
+        _ => null,
+    };
 }
