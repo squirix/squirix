@@ -25,6 +25,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     private readonly string _nodeId;
     private readonly string[] _remotePeerNodeIds;
     private readonly TopologyFingerprint _topologyFingerprint;
+    private readonly ReplicaTransferReceiver? _transfers;
     private readonly bool _votesEnabled;
 
     /// <summary>Initializes a new instance of the <see cref="SquirixReplicationServiceAdapter" /> class.</summary>
@@ -33,6 +34,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     /// <param name="mtls">The mTLS material that verifies replication callers.</param>
     /// <param name="groups">Replica group registry of this node; <see langword="null" /> keeps the adapter a refusing stub.</param>
     /// <param name="members">The replica sets of the served groups, which bound who may ask for a vote; required whenever <paramref name="groups" /> is given.</param>
+    /// <param name="transfers">The receiver of state transfers of this node; <see langword="null" /> refuses every transfer message as not ready.</param>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="cluster" />, <paramref name="mtlsOptions" /> or <paramref name="mtls" /> is <see langword="null" />, or
     /// <paramref name="groups" /> is given without <paramref name="members" />.
@@ -42,13 +44,15 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         MtlsOptions mtlsOptions,
         MtlsCertificate mtls,
         ReplicaGroupRegistry? groups = null,
-        IReplicaMembership? members = null)
+        IReplicaMembership? members = null,
+        ReplicaTransferReceiver? transfers = null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(mtlsOptions);
         ArgumentNullException.ThrowIfNull(mtls);
         _mtlsOptions = mtlsOptions;
         _mtls = mtls;
+        _transfers = transfers;
         _remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
         _follower = groups == null ? null : new ReplicaFollower(groups, members ?? throw new ArgumentNullException(nameof(members)));
 
@@ -156,6 +160,14 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         var result = await _follower.RequestVoteAsync(header.GroupId, header.TopologyFingerprint.ToByteArray(), header.ConfigurationGeneration, Ballot(header, request), context.CancellationToken)
                                     .ConfigureAwait(false);
         return MapVote(in result);
+    }
+
+    public override async Task<TransferReplicaStateResponse> TransferReplicaState(TransferReplicaStateRequest request, ServerCallContext context)
+    {
+        _ = EnsureHeader(request.Header, context, true);
+        return _transfers == null
+            ? new TransferReplicaStateResponse { Term = 0, Success = false, RefusalCode = RefusalCodes.NotReady }
+            : await ReplicaTransferWire.ApplyAsync(_transfers, request, context.CancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Builds the ballot of a vote request; the candidate is the verified sender, never the claimed leader.</summary>

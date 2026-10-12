@@ -344,11 +344,13 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<MtlsOptions>(),
             sp.GetRequiredService<MtlsCertificate>(),
             sp.GetService<ReplicaGroupRegistry>(),
-            sp.GetService<IReplicaMembership>()));
+            sp.GetService<IReplicaMembership>(),
+            sp.GetService<ReplicaTransferReceiver>()));
         _ = services.AddSingleton(static sp => new ReplicaRpcGateway(sp.GetRequiredService<IServerClientPool>()));
         _ = services.AddSingleton<IReplicaRpcGateway>(static sp => sp.GetRequiredService<ReplicaRpcGateway>());
         _ = services.AddSingleton<IReplicaVoteGateway>(static sp => sp.GetRequiredService<ReplicaRpcGateway>());
         _ = services.AddSingleton<IReplicaBootstrapGateway>(static sp => new ReplicaBootstrapRpcGateway(sp.GetRequiredService<IServerClientPool>()));
+        _ = services.AddSingleton<IReplicaTransferGateway>(static sp => new ReplicaTransferRpcGateway(sp.GetRequiredService<IServerClientPool>()));
     }
 
     private static async Task ConfigureBuilderCoreAsync(WebApplicationBuilder builder, TopologyOptions cluster, ICompositionArgs args, CancellationToken cancellationToken)
