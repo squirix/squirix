@@ -70,7 +70,10 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     {
         // The entry codec stores every integer as an Int64 and every floating-point number as a Double, and returns those widths
         // after a restart or a replicated apply, so each counts at eight bytes.
-        sbyte or byte or short or ushort or int or uint or long or ulong or float or double => 8,
+        sbyte or byte => 8,
+        short or ushort => 8,
+        int or uint or float => 8,
+        long or ulong or double => 8,
         _ => UnknownTypedPayloadFallbackBytes,
     };
 }
