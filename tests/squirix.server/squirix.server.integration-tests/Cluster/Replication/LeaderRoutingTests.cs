@@ -92,7 +92,10 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var refusal = await SetAsync(client, request, cancellationToken);
 
         _ = await Assert.That(refusal).IsNull().Because($"the write must reach the elected leader {second}, not fail with '{refusal?.Status.Detail}'");
-        var read = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, deadline: DateTime.UtcNow.Add(Bound), cancellationToken: cancellationToken);
+        var read = await client.GetValueAsync(
+            new GetValueAsyncRequest { CacheName = CacheName, Key = key },
+            deadline: DateTime.UtcNow.Add(Bound),
+            cancellationToken: cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
     }
 
@@ -110,10 +113,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var others = Array.FindAll(Nodes, id => !string.Equals(id, leader, StringComparison.Ordinal));
         var (follower, entry) = (others[0], others[1]);
         var term = 0UL;
-        await cluster.WaitUntilAsync(
-            nodes => Follows(nodes[follower], leader, out term) && Follows(nodes[entry], leader, out _),
-            Bound,
-            cancellationToken);
+        await cluster.WaitUntilAsync(nodes => Follows(nodes[follower], leader, out term) && Follows(nodes[entry], leader, out _), Bound, cancellationToken);
         var key = KeyOwnedByOwner(cluster[entry]);
         using var channel = CreateGrpcChannel(cluster[entry].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -268,7 +268,9 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         await WarmUpAsync(client, KeyOwnedByOwner(cluster[EntryOutsideGroup], 1), cancellationToken);
 
-        var entryPool = ThrowHelper.Required(await Assert.That(cluster[EntryOutsideGroup].GetRequiredService<IServerClientPool>()).IsTypeOf<ServerClientPool>(), "The entry node must use the transport pool.");
+        var entryPool = ThrowHelper.Required(
+            await Assert.That(cluster[EntryOutsideGroup].GetRequiredService<IServerClientPool>()).IsTypeOf<ServerClientPool>(),
+            "The entry node must use the transport pool.");
         var openBefore = entryPool.OpenConnections;
 
         // The owner's host dies: nothing it sends is delivered, nothing sent to it is answered, and no connection is reset.
@@ -392,7 +394,10 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
 
         using var ownerChannel = CreateGrpcChannel(cluster[OwnerId].Uri);
         var owner = new SquirixCacheService.SquirixCacheServiceClient(ownerChannel);
-        var read = await owner.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, deadline: DateTime.UtcNow.Add(Bound), cancellationToken: cancellationToken);
+        var read = await owner.GetValueAsync(
+            new GetValueAsyncRequest { CacheName = CacheName, Key = key },
+            deadline: DateTime.UtcNow.Add(Bound),
+            cancellationToken: cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
     }
 
@@ -520,13 +525,14 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         QuorumReadsEnabled = failover,
         ServicesConfigure = services =>
         {
-            _ = services.AddSingleton(new ElectionTimerOptions
-            {
-                ElectionTimeout = TimeSpan.FromSeconds(4),
-                HeartbeatInterval = TimeSpan.FromMilliseconds(250),
-                MaxJitter = TimeSpan.FromSeconds(2),
-                VoteRpcTimeout = TimeSpan.FromSeconds(2),
-            });
+            _ = services.AddSingleton(
+                new ElectionTimerOptions
+                {
+                    ElectionTimeout = TimeSpan.FromSeconds(4),
+                    HeartbeatInterval = TimeSpan.FromMilliseconds(250),
+                    MaxJitter = TimeSpan.FromSeconds(2),
+                    VoteRpcTimeout = TimeSpan.FromSeconds(2),
+                });
             configure?.Invoke(services);
         },
     };

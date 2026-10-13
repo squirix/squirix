@@ -50,8 +50,8 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
     {
         var reads = 0;
         var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.GetStatusAsync(Arg.Any<CancellationToken>())
-               .Callback(_ => new ValueTask<FollowerLogStatus>(Status("n1", Interlocked.Increment(ref reads) == 1 ? FollowerLogReadiness.Failed : FollowerLogReadiness.Ready)));
+        _ = log.Setups.GetStatusAsync(Arg.Any<CancellationToken>()).Callback(_ =>
+            new ValueTask<FollowerLogStatus>(Status("n1", Interlocked.Increment(ref reads) == 1 ? FollowerLogReadiness.Failed : FollowerLogReadiness.Ready)));
         _ = log.Setups.ObserveTermAsync(Arg.Any<ulong>(), Arg.Any<CancellationToken>()).ReturnValue(Task.FromResult(2UL));
         var state = new ReplicaGroupState(3, Options, new FakeTimeProvider());
         var leadership = new RecordingLeadership(state);
@@ -92,15 +92,13 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
     {
         var marked = 0;
         var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.GetStatusAsync(Arg.Any<CancellationToken>())
-               .Callback(_ => new ValueTask<FollowerLogStatus>(Status("n2", FollowerLogReadiness.Ready, Volatile.Read(ref marked) == 0 ? GroupMemberState.Complete : GroupMemberState.Incomplete)));
-        _ = log.Setups.RequestVoteAsync(Arg.Any<ElectionVoteRequest>(), Arg.Any<CancellationToken>())
-               .Callback(
-                   (_, _) =>
-                   {
-                       Volatile.Write(ref marked, 1);
-                       return Task.FromResult(new FollowerLogVoteResult(true, string.Empty, 2UL));
-                   });
+        _ = log.Setups.GetStatusAsync(Arg.Any<CancellationToken>()).Callback(_ =>
+            new ValueTask<FollowerLogStatus>(Status("n2", FollowerLogReadiness.Ready, Volatile.Read(ref marked) == 0 ? GroupMemberState.Complete : GroupMemberState.Incomplete)));
+        _ = log.Setups.RequestVoteAsync(Arg.Any<ElectionVoteRequest>(), Arg.Any<CancellationToken>()).Callback((_, _) =>
+        {
+            Volatile.Write(ref marked, 1);
+            return Task.FromResult(new FollowerLogVoteResult(true, string.Empty, 2UL));
+        });
         var time = new FakeTimeProvider();
         var state = new ReplicaGroupState(3, Options, time);
         var votes = new ScriptedVotes(Grant);
@@ -202,15 +200,30 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
         _ = await Assert.That(await scope.State.WaitAsync(TimeSpan.Zero, cancellationToken)).IsFalse();
     }
 
-    private static ReplicaGroupElection Create(ReplicaGroupState state, IFollowerLog log, string groupId, string[] members) =>
-        new(state, log, new ScriptedVotes(Grant), new RecordingLeadership(state), members, Header(groupId));
+    private static ReplicaGroupElection Create(ReplicaGroupState state, IFollowerLog log, string groupId, string[] members) => new(
+        state,
+        log,
+        new ScriptedVotes(Grant),
+        new RecordingLeadership(state),
+        members,
+        Header(groupId));
 
     private static FollowerLogVoteResult? Grant(VoteCall call) => new(true, string.Empty, call.PreVote ? 0UL : call.Term);
 
     private static ReplicaRpcHeader Header(string groupId) => new(groupId, ReadOnlyMemory<byte>.Empty, 1UL, 0UL, string.Empty, "n1");
 
-    private static FollowerLogStatus Status(string groupId, FollowerLogReadiness readiness, GroupMemberState memberState = GroupMemberState.Complete) =>
-        new(groupId, ReadOnlyMemory<byte>.Empty, 1UL, 0UL, string.Empty, 0UL, 0UL, 0UL, 0UL, readiness, memberState);
+    private static FollowerLogStatus Status(string groupId, FollowerLogReadiness readiness, GroupMemberState memberState = GroupMemberState.Complete) => new(
+        groupId,
+        ReadOnlyMemory<byte>.Empty,
+        1UL,
+        0UL,
+        string.Empty,
+        0UL,
+        0UL,
+        0UL,
+        0UL,
+        readiness,
+        memberState);
 
     /// <summary>Voters whose first pre-vote makes the candidate log vote for another candidate in the proposed term, then grant.</summary>
     [ThreadSafe]
