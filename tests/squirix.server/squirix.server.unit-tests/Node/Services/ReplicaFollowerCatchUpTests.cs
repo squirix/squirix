@@ -499,13 +499,11 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
             var result = await _routing.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
-            if (batch.Records.Count == 0 && result.Success && result.LastLogIndex == _index && string.Equals(nodeId, _node, StringComparison.Ordinal) &&
-                Interlocked.Exchange(ref _armed, 0) == 1)
-            {
-                _ = _parked.TrySetResult();
-                await _release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-            }
+            if (batch.Records.Count != 0 || !result.Success || result.LastLogIndex != _index || !string.Equals(nodeId, _node, StringComparison.Ordinal) || Interlocked.Exchange(ref _armed, 0) != 1)
+                return result;
 
+            _ = _parked.TrySetResult();
+            await _release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
             return result;
         }
 

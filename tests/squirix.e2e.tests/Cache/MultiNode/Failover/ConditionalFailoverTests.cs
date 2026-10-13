@@ -240,12 +240,10 @@ public sealed class ConditionalFailoverTests : EndToEndTestBase
             catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
                 // A leader change may break a chain, but only with a failure the client can act on by retrying; any other one is a violation.
-                if (!IsRetryable(exception))
-                {
-                    lock (_gate)
-                        _violations.Add($"key {key}: the chain broke with {Describe(exception)}, which the client cannot retry");
-                }
-
+                if (IsRetryable(exception))
+                    return false;
+                lock (_gate)
+                    _violations.Add($"key {key}: the chain broke with {Describe(exception)}, which the client cannot retry");
                 return false;
             }
         }

@@ -273,13 +273,11 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
                 case ReplicaTransferStep.Wipe:
                     return await receiver.WipeAsync(SenderOf(in header, message.TransferId), message.Sequence, cancellationToken).ConfigureAwait(false);
                 case ReplicaTransferStep.Entries:
-                    if (HoldEntries)
-                    {
-                        HoldEntries = false;
-                        _ = _entriesHeld.TrySetResult();
-                        await _entriesRelease.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-                    }
-
+                    if (!HoldEntries)
+                        return await receiver.EntriesAsync(SenderOf(in header, message.TransferId), message.Sequence, message.Entries, cancellationToken).ConfigureAwait(false);
+                    HoldEntries = false;
+                    _ = _entriesHeld.TrySetResult();
+                    await _entriesRelease.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
                     return await receiver.EntriesAsync(SenderOf(in header, message.TransferId), message.Sequence, message.Entries, cancellationToken).ConfigureAwait(false);
                 case ReplicaTransferStep.End:
                     return await receiver.EndAsync(SenderOf(in header, message.TransferId), message.Sequence, message.EntryCount, message.EntriesCrc, cancellationToken).ConfigureAwait(false);

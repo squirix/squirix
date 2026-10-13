@@ -222,12 +222,10 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
 
         var text = new StringBuilder();
         _ = text.Append(entry.Value).Append('|').Append(entry.Version).Append('|').Append(entry.ExpiresUtc?.Ticks).Append('|').Append(entry.Expiration);
-        if (entry.Tags != null)
-        {
-            foreach (var pair in new SortedDictionary<string, string>(entry.Tags, StringComparer.Ordinal))
-                _ = text.Append('|').Append(pair.Key).Append('=').Append(pair.Value);
-        }
-
+        if (entry.Tags == null)
+            return text.ToString();
+        foreach (var pair in new SortedDictionary<string, string>(entry.Tags, StringComparer.Ordinal))
+            _ = text.Append('|').Append(pair.Key).Append('=').Append(pair.Value);
         return text.ToString();
     }
 

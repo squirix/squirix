@@ -82,11 +82,10 @@ internal sealed class RegisterHistory
         {
             var keyWrites = writesByKey.TryGetValue(key, out var w) ? w : [];
             var keyReads = readsByKey.TryGetValue(key, out var r) ? r : [];
-            if (CheckWriter(key, keyWrites, violations))
-            {
-                CheckBounds(key, keyWrites, keyReads, violations);
-                CheckMonotonic(key, keyWrites, keyReads, violations);
-            }
+            if (!CheckWriter(key, keyWrites, violations))
+                continue;
+            CheckBounds(key, keyWrites, keyReads, violations);
+            CheckMonotonic(key, keyWrites, keyReads, violations);
         }
 
         return violations;
@@ -245,14 +244,13 @@ internal sealed class RegisterHistory
         {
             ref readonly var write = ref sorted[i];
             var ordered = write.Value > 0 && write.End >= write.Start && (i == 0 || (write.Value > sorted[i - 1].Value && write.Start >= sorted[i - 1].End));
-            if (!ordered)
-            {
-                violations.Add(
-                    string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"key {key}: write of {write.Value} at [{write.Start}, {write.End}] breaks the single writer contract: positive values, increasing, one call at a time"));
-                return false;
-            }
+            if (ordered)
+                continue;
+            var item = string.Create(
+                CultureInfo.InvariantCulture,
+                $"key {key}: write of {write.Value} at [{write.Start}, {write.End}] breaks the single writer contract: positive values, increasing, one call at a time");
+            violations.Add(item);
+            return false;
         }
 
         return true;
