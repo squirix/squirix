@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Services;

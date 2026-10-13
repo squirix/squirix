@@ -59,7 +59,7 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
 
         var samples = new List<FailoverSample>(Stops);
         var series = new List<(RegisterHistory History, string[] Keys)>(Stops);
-        FailoverTimingEvidence? evidence = null;
+        FailoverTimingEvidence? evidence;
         var completed = false;
         try
         {
