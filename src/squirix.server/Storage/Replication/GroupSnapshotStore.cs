@@ -54,6 +54,9 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     internal bool SnapshotExists => File.Exists(_snapshotPath);
 
     /// <inheritdoc />
+    bool IFollowerLogSnapshotStore.Fits(GroupSnapshot snapshot) => Fits(in snapshot);
+
+    /// <inheritdoc />
     Task IFollowerLogSnapshotStore.PublishAsync(GroupSnapshot snapshot, CancellationToken cancellationToken) => PublishAsync(snapshot, cancellationToken);
 
     /// <inheritdoc />
@@ -90,6 +93,46 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     internal static bool TryDecodePublished(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot) =>
         GroupSnapshotCodec.TryValidateAndDecode(fileBytes, maxSnapshotBytes, out snapshot, out _);
 
+    /// <summary>Computes the byte length of the published file image of a snapshot.</summary>
+    /// <param name="snapshot">The snapshot whose committed outcomes are already materialized.</param>
+    /// <param name="maxSnapshotBytes">The maximum accepted snapshot file size in bytes.</param>
+    /// <returns>The header, payload, and checksum length in bytes.</returns>
+    /// <exception cref="GroupSnapshotTooLargeException">Thrown when the file image exceeds <paramref name="maxSnapshotBytes" />.</exception>
+    internal static int ComputePublishedLength(in GroupSnapshot snapshot, int maxSnapshotBytes)
+    {
+        var payloadLength = GroupSnapshotCodec.ComputeSnapshotEncodedLength(in snapshot);
+        long fileLength = GroupSnapshotCodec.SnapshotHeaderByteCount;
+        fileLength += payloadLength;
+        fileLength += GroupSnapshotCodec.Crc32ByteCount;
+        return fileLength > maxSnapshotBytes
+            ? throw new GroupSnapshotTooLargeException($"Replica group snapshot exceeds the maximum configured size of {maxSnapshotBytes} bytes.")
+            : int.CreateChecked(fileLength);
+    }
+
+    /// <summary>Encodes the published file image of a snapshot (header, payload, checksum) without touching the file system.</summary>
+    /// <param name="destination">The destination of exactly <see cref="ComputePublishedLength" /> bytes.</param>
+    /// <param name="snapshot">The snapshot whose committed outcomes are already materialized.</param>
+    internal static void EncodePublished(Span<byte> destination, in GroupSnapshot snapshot)
+    {
+        const int headerLen = GroupSnapshotCodec.SnapshotHeaderByteCount;
+        var payloadLength = destination.Length - headerLen - GroupSnapshotCodec.Crc32ByteCount;
+        GroupSnapshotEncoder.WriteSnapshotFileHeader(destination[..headerLen], payloadLength);
+        GroupSnapshotEncoder.EncodeSnapshot(destination.Slice(headerLen, payloadLength), in snapshot);
+        var crc = Crc32C.Compute(destination.Slice(headerLen, payloadLength));
+        BinaryPrimitives.WriteUInt32LittleEndian(destination[(headerLen + payloadLength)..], crc);
+    }
+
+    /// <summary>Tells, without writing, whether the published file image of a snapshot stays within the configured maximum size.</summary>
+    /// <param name="snapshot">The snapshot whose committed outcomes are already materialized.</param>
+    /// <returns><see langword="true" /> when <see cref="PublishAsync" /> would not refuse the snapshot for its size.</returns>
+    internal bool Fits(in GroupSnapshot snapshot)
+    {
+        long fileLength = GroupSnapshotCodec.SnapshotHeaderByteCount;
+        fileLength += GroupSnapshotCodec.ComputeSnapshotEncodedLength(in snapshot);
+        fileLength += GroupSnapshotCodec.Crc32ByteCount;
+        return fileLength <= _maxSnapshotBytes;
+    }
+
     /// <summary>Writes a snapshot to a temp file, flushes it, and atomically publishes it.</summary>
     /// <param name="snapshot">The snapshot to persist.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -106,31 +149,21 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     ///     </para>
     ///     <para>
     ///     For example, <c language="csharp">FollowerLog</c> satisfies this contract by invoking publication only while holding its
-    ///     single-writer gate (<c language="csharp">CompactThroughAsync</c> and <c language="csharp">InstallSnapshotAsync</c>).
+    ///     single-writer gate (<c language="csharp">CompactThroughAsync</c> and <c language="csharp">CompleteStateInstallAsync</c>).
     ///     </para>
     /// </remarks>
     internal async Task PublishAsync(GroupSnapshot snapshot, CancellationToken cancellationToken)
     {
         var stableSnapshot = ValidateForPublish(in snapshot);
 
-        var payloadLength = GroupSnapshotCodec.ComputeSnapshotEncodedLength(in stableSnapshot);
-        long fileLength = GroupSnapshotCodec.SnapshotHeaderByteCount;
-        fileLength += payloadLength;
-        fileLength += GroupSnapshotCodec.Crc32ByteCount;
-        if (fileLength > _maxSnapshotBytes)
-            throw new GroupSnapshotTooLargeException($"Replica group snapshot exceeds the maximum configured size of {_maxSnapshotBytes} bytes.");
+        var fileLengthBytes = ComputePublishedLength(in stableSnapshot, _maxSnapshotBytes);
 
         cancellationToken.ThrowIfCancellationRequested();
-        var fileLengthBytes = int.CreateChecked(fileLength);
         var bytes = ArrayPool<byte>.Shared.Rent(fileLengthBytes);
         var published = false;
         try
         {
-            const int headerLen = GroupSnapshotCodec.SnapshotHeaderByteCount;
-            GroupSnapshotEncoder.WriteSnapshotFileHeader(bytes.AsSpan(0, headerLen), payloadLength);
-            GroupSnapshotEncoder.EncodeSnapshot(bytes.AsSpan(headerLen, payloadLength), in stableSnapshot);
-            var crc = Crc32C.Compute(bytes.AsSpan(headerLen, payloadLength));
-            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(headerLen + payloadLength), crc);
+            EncodePublished(bytes.AsSpan(0, fileLengthBytes), in stableSnapshot);
 
             const FileOptions options = FileOptions.WriteThrough;
             using (var handle = File.OpenHandle(_snapshotTempPath, FileMode.Create, FileAccess.Write, FileShare.None, options))

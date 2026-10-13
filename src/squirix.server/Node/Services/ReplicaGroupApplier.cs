@@ -164,6 +164,15 @@ internal sealed class ReplicaGroupApplier
         await reapply.ConfigureAwait(false);
     }
 
+    /// <summary>Sets the applied index to the index a state transfer installed, in either direction, without logging a gap.</summary>
+    /// <param name="index">The index the transferred state is taken at; memory holds exactly the state at it.</param>
+    /// <remarks>The caller holds the driver lease, so no apply or catch-up runs; the next catch-up then finds the durable applied index at this one.</remarks>
+    internal void ResetTo(ulong index)
+    {
+        Volatile.Write(ref _appliedIndex, index);
+        _seeded = true;
+    }
+
     /// <summary>Persists the in-memory applied index of the group log once the cache journal holds every applied entry durably.</summary>
     /// <param name="log">The group log.</param>
     /// <param name="durability">The node cache journal whose frames the applies appended.</param>

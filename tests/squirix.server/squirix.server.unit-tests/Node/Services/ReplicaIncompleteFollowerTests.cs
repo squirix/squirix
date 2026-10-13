@@ -16,7 +16,7 @@ using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
-/// <summary>What the leader does with a follower that answers incomplete: it stays out of the write quorum and is no contact of the leader's authority.</summary>
+/// <summary>What the leader does with a follower that answers incomplete: it stays out of the write quorum and counts as a contact of the leader.</summary>
 [Immutable]
 public sealed class ReplicaIncompleteFollowerTests : ServerUnitTestBase
 {
@@ -24,9 +24,12 @@ public sealed class ReplicaIncompleteFollowerTests : ServerUnitTestBase
 
     private static readonly ElectionTimerOptions Options = new() { ElectionTimeout = TimeSpan.FromMilliseconds(500), JitterSeed = 5UL };
 
-    /// <summary>An incomplete reply is no contact for the leader's quorum check, though an accepted one is.</summary>
+    /// <summary>An incomplete reply from the follower's log is a contact for the leader's quorum check, as an append or a probe answer; an unseeded one is not.</summary>
+    /// <param name="kind">How the answer reached the leader.</param>
     [Test]
-    public async Task IncompleteReplyIsNoContact()
+    [Arguments("append")]
+    [Arguments("probe")]
+    public async Task IncompleteReplyIsContact(string kind)
     {
         var time = new FakeTimeProvider();
         var state = new ReplicaGroupState(3, Options, time);
@@ -34,12 +37,14 @@ public sealed class ReplicaIncompleteFollowerTests : ServerUnitTestBase
         _ = state.BecomeLeader(2UL);
         time.Advance(Options.ElectionTimeout);
 
-        state.RecordFollowerReply(1, new FollowerLogAppendResult(false, RefusalCodes.Incomplete, 0UL, 0UL));
-        ReplicaReadinessProbe.RecordContacts(state, [default, new(ReplicaProbeKind.Incomplete, 0), default], 2UL);
-        var incomplete = state.HasQuorumContact(0, Options.ElectionTimeout);
-        state.RecordFollowerReply(1, new FollowerLogAppendResult(true, string.Empty, 2UL, 0UL));
+        state.RecordFollowerReply(1, new FollowerLogAppendResult(false, RefusalCodes.Unseeded, 0UL, 0UL));
+        var unseeded = state.HasQuorumContact(0, Options.ElectionTimeout);
+        if (string.Equals(kind, "append", StringComparison.Ordinal))
+            state.RecordFollowerReply(1, new FollowerLogAppendResult(false, RefusalCodes.Incomplete, 0UL, 0UL));
+        else
+            ReplicaReadinessProbe.RecordContacts(state, [default, new(ReplicaProbeKind.Incomplete, 0), default], 2UL);
 
-        _ = await Assert.That(incomplete).IsFalse();
+        _ = await Assert.That(unseeded).IsFalse();
         _ = await Assert.That(state.HasQuorumContact(0, Options.ElectionTimeout)).IsTrue();
     }
 

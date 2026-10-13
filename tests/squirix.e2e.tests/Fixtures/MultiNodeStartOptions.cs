@@ -44,6 +44,12 @@ internal sealed class MultiNodeStartOptions
     /// <remarks>The fabric must outlive the cluster.</remarks>
     internal PartitionFabric? PartitionFabric { get; init; }
 
+    /// <summary>Gets the number of retained entries at which every node compacts a replica group log; the product default when <see langword="null" />. Needs persistence.</summary>
+    internal int? ReplicaLogCompactionEntries { get; init; }
+
+    /// <summary>Gets the delay between two compaction passes of every node; the product default when <see langword="null" />.</summary>
+    internal TimeSpan? ReplicaLogCompactionInterval { get; init; }
+
     /// <summary>Gets the replica factor applied to every node; 1 preserves single-copy routing.</summary>
     internal int ReplicaCount { get; init; } = 1;
 

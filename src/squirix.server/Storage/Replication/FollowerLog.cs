@@ -71,8 +71,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     private readonly TimeProvider _shutdownClock;
 
     /// <summary>
-    /// The lifecycle bits of <see cref="FollowerLogLifecycle" />. They are set once and never cleared, and read without
-    /// <c language="csharp">_gate</c> through a volatile barrier.
+    /// The lifecycle bits of <see cref="FollowerLogLifecycle" />. The disposed bit is set once and never cleared; the complete bit follows the
+    /// member state of the metadata. Writers hold <c language="csharp">_gate</c>; readers take no gate and read through a volatile barrier.
     /// </summary>
     private int _lifecycle;
 
@@ -196,9 +196,16 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
     private string RefusalCode => IsOpen && _meta.MemberState != GroupMemberState.Complete ? FollowerLogBootstrap.NotCompleteRefusal(_meta.MemberState) : FollowerLogRefusal.NotReady;
 
-    /// <summary>Gets a value indicating whether a call that mutates the log, the term or the vote, or answers a vote, is refused.</summary>
+    /// <summary>Gets a value indicating whether a call that mutates the log or the applied and commit watermarks is refused.</summary>
     /// <remarks>Callers hold <c language="csharp">_gate</c>. Only a complete copy of an open log takes such a call.</remarks>
     private bool Refuses => !IsOpen || _meta.MemberState != GroupMemberState.Complete;
+
+    /// <summary>Gets a value indicating whether a pre-vote or a vote is refused.</summary>
+    /// <remarks>
+    /// Callers hold <c language="csharp">_gate</c>. An incomplete copy keeps its term, its vote and its log, so it votes like a complete one; an unseeded copy lost
+    /// them and does not.
+    /// </remarks>
+    private bool RefusesBallot => !IsOpen || _meta.MemberState is not (GroupMemberState.Complete or GroupMemberState.Incomplete);
 
     /// <inheritdoc />
     public async Task<FollowerLogAppliedResult> AdvanceAppliedAsync(ulong appliedIndex, CancellationToken cancellationToken)
@@ -397,32 +404,38 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         return _journal.CollectUncommittedTail(_meta.CommitIndex);
     }
 
-    /// <summary>Installs a validated snapshot, resetting the journal to start at its included index plus one.</summary>
-    /// <param name="snapshot">The snapshot to install.</param>
-    /// <param name="leaderTerm">Leader term authorizing the installation; stale terms are refused.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The installation outcome.</returns>
-    /// <remarks>
-    /// A snapshot carries no cache entries, so a boundary above the durable applied watermark is refused before anything is written:
-    /// installing it would count entries as applied that memory never received.
-    /// </remarks>
-    public async Task<GroupSnapshotInstallResult> InstallSnapshotAsync(GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public async Task<string?> BeginStateInstallAsync(
+        ulong leaderTerm,
+        ulong index,
+        ReadOnlyMemory<byte> fingerprint,
+        ulong generation,
+        GroupSnapshot snapshot,
+        CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return await FollowerLogStateInstall.BeginAsync(
+                                                _journal,
+                                                this,
+                                                IsOpen,
+                                                CaptureStatus().IsTopologyMismatch(fingerprint, generation),
+                                                (leaderTerm, index, snapshot),
+                                                cancellationToken)
+                                            .ConfigureAwait(false);
+    }
 
-        if (RefusesInstall(in snapshot))
-            return GroupSnapshotInstallResult.Refused(RefusalCode);
+    /// <inheritdoc />
+    public async Task<GroupSnapshotCapture> CaptureSnapshotAsync(CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return FollowerLogStateInstall.Capture(_journal, this, IsOpen);
+    }
 
-        // A stale leader term authorizes nothing: snapshots from a deposed leader are refused like stale appending.
-        // A higher term is persisted durably before publication, mirroring the appending path.
-        if (leaderTerm < _meta.CurrentTerm)
-            return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.StaleTerm);
-
-        if (leaderTerm <= _meta.CurrentTerm)
-            return await FollowerLogSnapshot.InstallAsync(_journal, this, snapshot, cancellationToken).ConfigureAwait(false);
-        var candidate = _meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty };
-        await StoreMetaAsync(candidate, cancellationToken).ConfigureAwait(false);
-        return await FollowerLogSnapshot.InstallAsync(_journal, this, snapshot, cancellationToken).ConfigureAwait(false);
+    /// <inheritdoc />
+    public async Task<GroupSnapshotInstallResult> CompleteStateInstallAsync(GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return await FollowerLogStateInstall.CompleteAsync(_journal, this, IsOpen, snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -440,7 +453,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
         // Term one belongs to the static provisional leader, so no election may run for it or below.
-        return (Refuses, request.Term <= 1UL) switch
+        return (RefusesBallot, request.Term <= 1UL) switch
         {
             (true, _) => new FollowerLogVoteResult(false, RefusalCode, _meta.CurrentTerm),
             (false, true) => new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm),
@@ -455,7 +468,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
         // Term one belongs to the static provisional leader: a request for it or below can never win and must not persist a vote.
-        return (Refuses, request.Term <= 1UL) switch
+        return (RefusesBallot, request.Term <= 1UL) switch
         {
             (true, _) => new FollowerLogVoteResult(false, RefusalCode, _meta.CurrentTerm),
             (false, true) => new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm),
@@ -588,12 +601,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
         FollowerLogLifecycle.Assign(ref _meta, ref _lifecycle, in candidate);
     }
-
-    /// <summary>Tells whether the log cannot take a snapshot install now or the snapshot boundary lies above the durable applied index.</summary>
-    /// <param name="snapshot">The snapshot to install.</param>
-    /// <returns><see langword="true" /> when the install is refused before anything is written.</returns>
-    /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
-    private bool RefusesInstall(in GroupSnapshot snapshot) => Refuses || snapshot.LastIncludedIndex > _meta.LastAppliedIndex;
 
     /// <summary>Reads one lifecycle bit through a volatile barrier, without <c language="csharp">_gate</c>.</summary>
     /// <param name="bit">The bit of <see cref="FollowerLogLifecycle" /> to read.</param>
@@ -1464,23 +1471,26 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <summary>The lifecycle bits of a follower log that are read without the log gate: disposed, and complete.</summary>
+    /// <remarks>
+    /// The complete bit is a hint for a fast path: a reader that finds it set may be one step behind a state transfer that just cleared it, so the
+    /// log checks the member state again under its gate before it serves a call.
+    /// </remarks>
     private static class FollowerLogLifecycle
     {
         /// <summary>The log has been disposed of.</summary>
         internal const int Disposed = 1;
 
-        /// <summary>The copy is complete; it never stops being complete while the log lives.</summary>
+        /// <summary>The copy is complete; a state transfer clears it when it marks the copy incomplete, and its completion sets it again.</summary>
         internal const int Complete = 2;
 
-        /// <summary>Makes metadata the metadata of the log, and publishes a complete copy to readers outside the gate.</summary>
+        /// <summary>Makes metadata the metadata of the log, and publishes whether the copy is complete to readers outside the gate.</summary>
         /// <param name="slot">The metadata of the log.</param>
         /// <param name="lifecycle">The lifecycle bits of the log.</param>
         /// <param name="value">The new metadata.</param>
         internal static void Assign(ref GroupLogMetadata slot, ref int lifecycle, in GroupLogMetadata value)
         {
             slot = value;
-            if (value.MemberState == GroupMemberState.Complete)
-                _ = Interlocked.Or(ref lifecycle, Complete);
+            _ = value.MemberState == GroupMemberState.Complete ? Interlocked.Or(ref lifecycle, Complete) : Interlocked.And(ref lifecycle, ~Complete);
         }
     }
 
@@ -1665,13 +1675,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// <param name="journal">The paired in-memory journal state.</param>
         /// <param name="logIndex">The log index; zero is the log origin.</param>
         /// <param name="term">The retained term, or zero when the index is the origin or not retained.</param>
-        /// <returns><see langword="true" /> when the index is the origin, a retained frame, or the snapshot baseline.</returns>
+        /// <returns><see langword="true" /> when the index is the origin of a log never compacted, a retained frame, or the snapshot baseline.</returns>
         private static bool TryGetRetainedTerm(FollowerLogJournal journal, ulong logIndex, out ulong term)
         {
+            // Once a snapshot baseline exists the origin is compacted away: the first retained frame follows the baseline, not the origin.
             if (logIndex == 0UL)
             {
                 term = 0UL;
-                return true;
+                return journal.SnapshotBaseline.LastIncludedIndex == 0UL;
             }
 
             if (journal.TryGetEntryOffset(logIndex, out var location))
@@ -2444,64 +2455,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             return compacted.Success ? GroupCompactionOutcome.Compacted : GroupCompactionOutcome.NotReady;
         }
 
-        internal static async Task<GroupSnapshotInstallResult> InstallAsync(
-            FollowerLogJournal journal,
-            IFollowerLogContext owner,
-            GroupSnapshot snapshot,
-            CancellationToken cancellationToken)
-        {
-            if (ValidateInstallEligibility(owner, in snapshot) is { } refusal)
-                return GroupSnapshotInstallResult.Refused(refusal);
-
-            var tail = CollectInstallTail(journal, in snapshot);
-            var retainedLogIndexes = CollectRetainedLogIndexes(tail);
-            var fingerprint = owner.Meta.TopologyFingerprint.IsEmpty ? snapshot.TopologyFingerprint : owner.Meta.TopologyFingerprint;
-            var candidate = BuildInstallCandidateMeta(owner, in snapshot, fingerprint);
-
-            // Publish the snapshot before advancing metadata. If publication fails, the old metadata and log remain
-            // authoritative. If metadata or log rewriting fails afterward, recovery can use the new snapshot while
-            // treating any old log suffix as a durable tail.
-            await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
-            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
-            owner.Meta = candidate;
-
-            // Restore the idempotency baseline before re-appending the retained tail so a durable fault during the
-            // rewrite cannot leave the in-memory map holding entries the installation discarded while the snapshot and
-            // metadata are already durable and readiness stays Ready.
-            // The retained-tail rewrite below rebuilds both indexes; pruning here would mutate state the
-            // rewrite owns, so the baseline is restored without its paired prune.
-            // The restore keeps every committed outcome whatever the idempotency capacity, which bounds new reservations only, so a store
-            // already past its capacity never refuses a valid snapshot after it became durable.
-            owner.RestoreBaseline(new SnapshotBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm));
-            try
-            {
-                owner.Idempotency.RestoreFromSnapshot(snapshot.CommittedOutcomes, snapshot.CapturedUtc, retainedLogIndexes);
-            }
-            catch
-            {
-                // A failed idempotency restore after the snapshot and metadata are durable would leave the
-                // in-memory map holding discarded-prefix records whose journal frames no longer exist; mark
-                // the log failed so it is never surfaced as Ready.
-                owner.Readiness = FollowerLogReadiness.Failed;
-                throw;
-            }
-
-            try
-            {
-                await ApplyInstallLogRewriteAsync(journal, owner, tail, snapshot.LastIncludedIndex, cancellationToken).ConfigureAwait(false);
-            }
-            catch
-            {
-                // A failed durable rewrite leaves the published snapshot and persisted metadata ahead of the journal.
-                // Mark the log failed so it is never surfaced as Ready with inconsistent in-memory indexes; recovery
-                // reconciles durable state from the snapshot on the next OpenAsync.
-                owner.Readiness = FollowerLogReadiness.Failed;
-                throw;
-            }
-
-            return GroupSnapshotInstallResult.Installed;
-        }
-
         /// <summary>
         /// Returns the topology-mismatch refusal when the snapshot's topology fingerprint or configuration generation
         /// conflicts with the durable metadata; an empty durable fingerprint adopts the snapshot's fingerprint and never
@@ -2517,56 +2470,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 ? FollowerLogRefusal.TopologyMismatch : null;
         }
 
-        /// <summary>Atomically rewrites the durable log from the header plus the retained tail.</summary>
-        /// <param name="journal">The paired in-memory journal state.</param>
-        /// <remarks>
-        /// The header plus the retained tail is written to a temp file and swapped into place, so a crash mid-rewrite
-        /// leaves either the previous log (with its durable suffix) or the new log intact. There is no intermediate
-        /// header-only state that could lose committed entries.
-        /// </remarks>
-        /// <param name="owner">The log being rewritten.</param>
-        /// <param name="tail">The retained tail entries.</param>
-        /// <param name="lastIncludedIndex">The snapshot's last included index, used when the tail is empty.</param>
-        /// <param name="cancellationToken">The cancellation token.</param>
-        private static async Task ApplyInstallLogRewriteAsync(
-            FollowerLogJournal journal,
-            IFollowerLogContext owner,
-            List<FollowerLogEntry> tail,
-            ulong lastIncludedIndex,
-            CancellationToken cancellationToken)
-        {
-            var (length, offsets) = await FollowerLogDurable.ReplaceLogAsync(journal, owner, tail, cancellationToken).ConfigureAwait(false);
-            ReindexTail(journal, tail, offsets);
-            owner.LastLogIndex = tail.Count == 0 ? lastIncludedIndex : tail[^1].LogIndex;
-            owner.LogLength = length;
-        }
-
-        /// <summary>Builds the metadata candidate that adopts the snapshot's authoritative prefix and topology.</summary>
-        /// <param name="owner">They log the snapshot targets.</param>
-        /// <param name="snapshot">The snapshot being installed.</param>
-        /// <param name="fingerprint">The topology fingerprint to record.</param>
-        /// <returns>The next metadata value.</returns>
-        private static GroupLogMetadata BuildInstallCandidateMeta(IFollowerLogContext owner, in GroupSnapshot snapshot, ReadOnlyMemory<byte> fingerprint)
-        {
-            return owner.Meta with
-            {
-                TopologyFingerprint = fingerprint,
-                ConfigurationGeneration = Math.Max(owner.Meta.ConfigurationGeneration, snapshot.ConfigurationGeneration),
-                CurrentTerm = Math.Max(owner.Meta.CurrentTerm, snapshot.LastIncludedTerm),
-                VotedFor = snapshot.LastIncludedTerm > owner.Meta.CurrentTerm ? string.Empty : owner.Meta.VotedFor,
-
-                CommitIndex = Math.Max(owner.Meta.CommitIndex, Math.Min(snapshot.CommitIndex, snapshot.LastIncludedIndex)),
-
-                // A snapshot installation rewrites the durable log to a header plus the retained tail above the boundary, so
-                // every frame at or below the boundary leaves the log and nothing can apply it any more. The snapshot carries
-                // no payloads, so a boundary above the applied watermark would count entries as applied that memory never
-                // received. The eligibility check refuses a boundary below the watermark too, so an install is accepted only
-                // when its boundary equals the applied watermark, which then does not move.
-                LastAppliedIndex = Math.Max(owner.Meta.LastAppliedIndex, snapshot.LastIncludedIndex),
-            };
-        }
-
-        private static GroupSnapshot BuildSnapshot(FollowerLogJournal journal, IFollowerLogContext owner, ulong lastIncludedIndex)
+        internal static GroupSnapshot BuildSnapshot(FollowerLogJournal journal, IFollowerLogContext owner, ulong lastIncludedIndex)
         {
             if (!journal.EntryOffsets.TryGetValue(lastIncludedIndex, out var location))
                 return BuildSnapshotFromBaseline(journal, owner, lastIncludedIndex);
@@ -2601,27 +2505,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 lastIncludedIndex,
                 outcomes,
                 capturedUtc);
-        }
-
-        /// <summary>Collects the durable log entries whose index is above the snapshot boundary when the boundary matches.</summary>
-        /// <param name="journal">The paired in-memory journal state.</param>
-        /// <param name="snapshot">The snapshot being installed.</param>
-        /// <returns>The retained tail entries, or an empty list when the boundary does not match.</returns>
-        private static List<FollowerLogEntry> CollectInstallTail(FollowerLogJournal journal, in GroupSnapshot snapshot)
-        {
-            var tail = new List<FollowerLogEntry>();
-            var boundaryMatches = journal.EntryOffsets.TryGetValue(snapshot.LastIncludedIndex, out var boundary) ? boundary.Term == snapshot.LastIncludedTerm
-                : journal.SnapshotBaseline.LastIncludedIndex == snapshot.LastIncludedIndex && journal.SnapshotBaseline.LastIncludedTerm == snapshot.LastIncludedTerm;
-            if (!boundaryMatches)
-                return tail;
-
-            foreach (var pair in journal.Entries)
-            {
-                if (pair.Key > snapshot.LastIncludedIndex)
-                    tail.Add(pair.Value);
-            }
-
-            return tail;
         }
 
         /// <summary>Extracts the journal indexes carried by the retained tail entries.</summary>
@@ -2749,12 +2632,170 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             for (var i = 0; i < tail.Count; i++)
                 journal.AddEntry(tail[i], offsets[i], tail[i].Term);
         }
+    }
 
-        /// <summary>Returns <see langword="true" /> when any committed outcome lies beyond the snapshot boundary.</summary>
-        /// <param name="outcomes">The committed outcomes carried by the snapshot.</param>
-        /// <param name="lastIncludedIndex">The highest journal index covered by the snapshot.</param>
-        /// <returns><see langword="true" /> when at least one outcome exceeds the boundary.</returns>
-        private static bool SnapshotHasOutcomeBeyondBoundary(IReadOnlyList<GroupIdempotencyRecord> outcomes, ulong lastIncludedIndex)
+    /// <summary>Operations of a state transfer: marks a copy incomplete, completes it at a snapshot, and captures the snapshot a leader sends.</summary>
+    /// <remarks>
+    /// The caller holds the log gate. Every metadata record of a transfer is published to both slots through the mirrored path, like the member
+    /// state changes of the first start, so damage to one slot cannot roll the mark back. Recovery never writes the member state: it keeps whatever
+    /// the newest valid record holds.
+    /// </remarks>
+    private static class FollowerLogStateInstall
+    {
+        internal static async Task<string?> BeginAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            bool open,
+            bool topologyMismatch,
+            (ulong LeaderTerm, ulong Index, GroupSnapshot Snapshot) transfer,
+            CancellationToken cancellationToken)
+        {
+            // The snapshot is checked before the copy is marked, so one the completion would refuse costs the copy nothing.
+            var meta = owner.Meta;
+            var refusal = (open, topologyMismatch) switch
+            {
+                (false, _) => FollowerLogRefusal.NotReady,
+                (true, true) => FollowerLogRefusal.TopologyMismatch,
+                _ => RefuseTransfer(in meta, transfer.LeaderTerm, transfer.Index) ?? RefuseSnapshot(journal, owner, in transfer.Snapshot),
+            };
+            if (refusal != null)
+                return refusal;
+
+            // A higher leader term is adopted with the vote cleared, any other term keeps the term and the vote.
+            var candidate = transfer.LeaderTerm > meta.CurrentTerm ? meta with { CurrentTerm = transfer.LeaderTerm, VotedFor = string.Empty } : meta;
+            await StoreAsync(journal, owner, candidate with { MemberState = GroupMemberState.Incomplete }, cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+
+        internal static GroupSnapshotCapture Capture(FollowerLogJournal journal, IFollowerLogContext owner, bool open)
+        {
+            var index = owner.Meta.LastAppliedIndex;
+            var outcome = (open, owner.Meta.MemberState == GroupMemberState.Complete, index == 0UL) switch
+            {
+                (false, _, _) => GroupSnapshotCaptureOutcome.NotReady,
+                (true, false, _) => GroupSnapshotCaptureOutcome.NotComplete,
+                (true, true, true) => GroupSnapshotCaptureOutcome.NothingApplied,
+                _ when owner.Idempotency.HasUnresolvedThrough(index) => GroupSnapshotCaptureOutcome.UnresolvedOutcome,
+                _ => GroupSnapshotCaptureOutcome.Captured,
+            };
+            return outcome == GroupSnapshotCaptureOutcome.Captured
+                ? new GroupSnapshotCapture(outcome, FollowerLogSnapshot.BuildSnapshot(journal, owner, index))
+                : GroupSnapshotCapture.Refused(outcome);
+        }
+
+        internal static async Task<GroupSnapshotInstallResult> CompleteAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            bool open,
+            GroupSnapshot snapshot,
+            ulong leaderTerm,
+            CancellationToken cancellationToken)
+        {
+            var refusal = open ? RefuseCompletion(owner, in snapshot, leaderTerm) : FollowerLogRefusal.NotReady;
+            if (refusal != null)
+                return GroupSnapshotInstallResult.Refused(refusal);
+
+            // The snapshot is published first. If that fails, the old metadata and log remain authoritative; once it is durable, a failure
+            // of any later step leaves the copy incomplete, and recovery restores the baseline from the snapshot on the next open.
+            await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
+            await ReplaceStateAsync(journal, owner, snapshot, leaderTerm).ConfigureAwait(false);
+            return GroupSnapshotInstallResult.Installed;
+        }
+
+        private static async Task ReplaceStateAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupSnapshot snapshot, ulong leaderTerm)
+        {
+            try
+            {
+                // Past the publish there is no way back: a caller's cancellation must not fail the log half way through.
+                await ReplaceLogAndStoreAsync(journal, owner, snapshot, leaderTerm, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+                // The in-memory state may trail the durable one, so the log is never surfaced as ready after a failed step.
+                owner.Readiness = FollowerLogReadiness.Failed;
+                throw;
+            }
+        }
+
+        private static async Task ReplaceLogAndStoreAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken)
+        {
+            // Both restores precede the log replacement, so a fault during it cannot leave the in-memory map holding entries the transfer
+            // discarded. The restore keeps every committed outcome whatever the idempotency capacity, which bounds new reservations only.
+            owner.RestoreBaseline(new SnapshotBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm));
+            owner.Idempotency.RestoreFromSnapshot(snapshot.CommittedOutcomes, snapshot.CapturedUtc, []);
+
+            // The log holds nothing above the baseline: the transferred state is the committed prefix, and the leader sends what follows.
+            var (length, _) = await FollowerLogDurable.ReplaceLogAsync(journal, owner, [], cancellationToken).ConfigureAwait(false);
+            journal.ClearEntries();
+            owner.LastLogIndex = snapshot.LastIncludedIndex;
+            owner.LogLength = length;
+
+            // The complete record is the last step. A higher leader term is adopted with it, with the vote cleared.
+            var meta = owner.Meta;
+            var adopted = leaderTerm > meta.CurrentTerm ? meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty } : meta;
+            var complete = adopted with
+            {
+                MemberState = GroupMemberState.Complete,
+                CommitIndex = snapshot.LastIncludedIndex,
+                LastAppliedIndex = snapshot.LastIncludedIndex,
+                TopologyFingerprint = meta.TopologyFingerprint.IsEmpty ? snapshot.TopologyFingerprint : meta.TopologyFingerprint,
+                ConfigurationGeneration = Math.Max(meta.ConfigurationGeneration, snapshot.ConfigurationGeneration),
+            };
+            await StoreAsync(journal, owner, complete, cancellationToken).ConfigureAwait(false);
+        }
+
+        private static string? RefuseTransfer(in GroupLogMetadata meta, ulong leaderTerm, ulong index)
+        {
+            return true switch
+            {
+                _ when leaderTerm < meta.CurrentTerm => FollowerLogRefusal.StaleTerm,
+                _ when meta.MemberState == GroupMemberState.Unseeded => FollowerLogRefusal.Unseeded,
+                _ when index < meta.CommitIndex => FollowerLogRefusal.NotReady,
+                _ => null,
+            };
+        }
+
+        private static string? RefuseSnapshot(FollowerLogJournal journal, IFollowerLogContext owner, in GroupSnapshot snapshot)
+        {
+            var topologyMismatch = FollowerLogSnapshot.SnapshotTopologyMismatch(owner, in snapshot);
+            return true switch
+            {
+                _ when !string.Equals(snapshot.GroupId, owner.GroupId, StringComparison.Ordinal) => FollowerLogRefusal.NotMember,
+                _ when topologyMismatch != null => topologyMismatch,
+                _ when IsMalformed(owner, in snapshot) || !journal.Snapshot.Fits(snapshot) => FollowerLogRefusal.NotReady,
+                _ => null,
+            };
+        }
+
+        private static string? RefuseCompletion(IFollowerLogContext owner, in GroupSnapshot snapshot, ulong leaderTerm)
+        {
+            var topologyMismatch = FollowerLogSnapshot.SnapshotTopologyMismatch(owner, in snapshot);
+            return true switch
+            {
+                _ when owner.Meta.MemberState != GroupMemberState.Incomplete => FollowerLogRefusal.NotReady,
+                _ when !string.Equals(snapshot.GroupId, owner.GroupId, StringComparison.Ordinal) => FollowerLogRefusal.NotMember,
+                _ when topologyMismatch != null => topologyMismatch,
+                _ when leaderTerm < owner.Meta.CurrentTerm => FollowerLogRefusal.StaleTerm,
+                _ when IsMalformed(owner, in snapshot) => FollowerLogRefusal.NotReady,
+                _ => null,
+            };
+        }
+
+        private static bool IsMalformed(IFollowerLogContext owner, in GroupSnapshot snapshot)
+        {
+            // Terms start at 1, and a zero baseline collides with the "unverifiable term" sentinel and would make recovery discard the whole
+            // durable suffix. The transferred state is authoritative for the covered prefix, so one below the durable commit index is refused:
+            // durable watermarks never move back. A commit index below the included index is internally inconsistent.
+            var baselineInvalid = snapshot.LastIncludedIndex == 0UL || snapshot.LastIncludedTerm == 0UL || snapshot.CommitIndex < snapshot.LastIncludedIndex;
+            var belowCommit = snapshot.LastIncludedIndex < owner.Meta.CommitIndex;
+
+            // A snapshot with an unresolved outcome would write invalid idempotency state to disk and poison the next recovery, and so would
+            // an outcome beyond the boundary, which a direct snapshot bypassing the on-disk decoder can carry. Both are refused before anything
+            // durable is written.
+            return baselineInvalid || belowCommit || HasUnresolvedOutcome(snapshot.CommittedOutcomes) || HasOutcomeBeyond(snapshot.CommittedOutcomes, snapshot.LastIncludedIndex);
+        }
+
+        private static bool HasOutcomeBeyond(IReadOnlyList<GroupIdempotencyRecord> outcomes, ulong lastIncludedIndex)
         {
             for (var i = 0; i < outcomes.Count; i++)
             {
@@ -2765,10 +2806,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             return false;
         }
 
-        /// <summary>Returns <see langword="true" /> when any committed outcome carried by the snapshot is still unresolved.</summary>
-        /// <param name="outcomes">The committed outcomes carried by the snapshot.</param>
-        /// <returns><see langword="true" /> when at least one outcome has no resolution timestamp.</returns>
-        private static bool SnapshotHasUnresolvedOutcome(IReadOnlyList<GroupIdempotencyRecord> outcomes)
+        private static bool HasUnresolvedOutcome(IReadOnlyList<GroupIdempotencyRecord> outcomes)
         {
             for (var i = 0; i < outcomes.Count; i++)
             {
@@ -2779,50 +2817,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             return false;
         }
 
-        /// <summary>Returns the refusal when the snapshot is not eligible for installation; otherwise <see langword="null" />.</summary>
-        /// <param name="owner">They log the snapshot targets.</param>
-        /// <param name="snapshot">The snapshot to validate.</param>
-        /// <returns>The refusal marker, or <see langword="null" /> when the snapshot is eligible.</returns>
-        private static string? ValidateInstallEligibility(IFollowerLogContext owner, in GroupSnapshot snapshot)
+        private static async Task StoreAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupLogMetadata candidate, CancellationToken cancellationToken)
         {
-            var groupMatches = string.Equals(snapshot.GroupId, owner.GroupId, StringComparison.Ordinal);
-            var topologyMismatch = SnapshotTopologyMismatch(owner, in snapshot);
-
-            // Terms start at 1, and a zero baseline collides with the "unverifiable term" sentinel used by
-            // TermAtApplied and would make DivergentBoundary discard the whole durable suffix on the next recovery.
-            var zeroBaseline = snapshot.LastIncludedIndex == 0UL || snapshot.LastIncludedTerm == 0UL;
-
-            // The snapshot is authoritative for the covered prefix; refusing an installation below the current commit
-            // watermark guarantees no committed entry is dropped without a covering snapshot.
-            var belowCommit = snapshot.LastIncludedIndex < owner.Meta.CommitIndex;
-
-            // Refuse an installation whose boundary sits below the replica's already-applied watermark. BuildInstallCandidateMeta
-            // would otherwise set LastAppliedIndex to the included index, moving the applied watermark backward and discarding
-            // committed-and-applied frames via the installation log rewrite. The monotonic-applied-index invariant that
-            // AdvanceAppliedAsync enforces must hold across installation too.
-            var belowApplied = snapshot.LastIncludedIndex < owner.Meta.LastAppliedIndex;
-
-            // A snapshot whose commit index falls below its included index is malformed: the committed prefix it
-            // claims to cover is internally inconsistent, and adopting its boundary would let LastAppliedIndex exceed
-            // CommitIndex. Refuse such snapshots so the watermark invariants stay coherent.
-            var commitBelowIncluded = snapshot.CommitIndex < snapshot.LastIncludedIndex;
-
-            // A snapshot that carries an unresolved outcome is malformed: publishing it would write invalid idempotency
-            // state to disk and poison the next recovery, which would then fail readiness. Refuse before any durable
-            // writing, so the in-memory snapshot is rejected without a partial installation.
-            var unresolvedOutcome = SnapshotHasUnresolvedOutcome(snapshot.CommittedOutcomes);
-
-            // A direct GroupSnapshot input bypasses the on-disk decoder, so enforce its boundary invariant before
-            // publication as well. Otherwise, recovery would later classify the published snapshot as corrupt.
-            var outcomeBeyondBoundary = SnapshotHasOutcomeBeyondBoundary(snapshot.CommittedOutcomes, snapshot.LastIncludedIndex);
-            var malformed = zeroBaseline || belowCommit || belowApplied || commitBelowIncluded || unresolvedOutcome || outcomeBeyondBoundary;
-            return (groupMatches, topologyMismatch, malformed) switch
-            {
-                (false, _, _) => FollowerLogRefusal.NotMember,
-                (true, { } mismatch, _) => mismatch,
-                (true, null, true) => FollowerLogRefusal.NotReady,
-                (true, null, false) => null,
-            };
+            await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
+            owner.Meta = candidate;
         }
     }
 

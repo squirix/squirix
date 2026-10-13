@@ -31,17 +31,20 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
     private readonly ReplicaGroupCommitters _committers;
     private readonly ILogger<ReplicaGroupReadinessService> _log;
     private readonly TimeProvider _timeProvider;
+    private readonly ReplicaStateTransfers? _transfers;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupReadinessService" /> class.</summary>
     /// <param name="committers">The committers of the led groups, which perform the verification.</param>
     /// <param name="log">Logger reporting verification state changes.</param>
     /// <param name="timeProvider">Time source for the retry delay.</param>
     /// <param name="catchUpMetrics">Counts the follower catch-up sessions; none are counted when <see langword="null" />.</param>
+    /// <param name="transfers">Repairs a follower the log cannot catch up by sending it the state of the group; none are sent when <see langword="null" />.</param>
     internal ReplicaGroupReadinessService(
         ReplicaGroupCommitters committers,
         ILogger<ReplicaGroupReadinessService> log,
         TimeProvider timeProvider,
-        ReplicaCatchUpMetrics? catchUpMetrics = null)
+        ReplicaCatchUpMetrics? catchUpMetrics = null,
+        ReplicaStateTransfers? transfers = null)
     {
         ArgumentNullException.ThrowIfNull(committers);
         ArgumentNullException.ThrowIfNull(log);
@@ -50,6 +53,7 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         _log = log;
         _timeProvider = timeProvider;
         _catchUpMetrics = catchUpMetrics;
+        _transfers = transfers;
     }
 
     /// <summary>Gets or initializes the retry schedule of the verification; the default schedule unless set.</summary>
@@ -178,7 +182,7 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
     {
         try
         {
-            return await committer.CatchUpFollowersAsync(catchUp, stoppingToken).ConfigureAwait(false);
+            return await committer.CatchUpFollowersAsync(catchUp, _transfers, stoppingToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (ReplicaRetryableFault.Is(exception) && !stoppingToken.IsCancellationRequested)
         {

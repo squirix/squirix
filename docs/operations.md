@@ -30,8 +30,9 @@ dotnet test squirix.slnx --configuration Release --no-build
 - **Replica group log compaction (RF>1 opt-in)** — each node compacts the group logs it leads and its copies of the
   groups it follows. A follower that is down, or that missed an entry, blocks compaction of the leader's group log
   until it is verified again, so that log keeps growing meanwhile. A follower that needs entries the leader already
-  compacted is not repaired from a snapshot and stays out of the write quorum. All nodes of a replica group must run
-  the same replica log codec version. See
+  compacted is repaired by a state transfer: the leader sends it the data of the group and the follower catches up from
+  the log, with no operator action. A node that lost its disk is not repaired (see the lost disks item above). All
+  nodes of a replica group must run the same replica log codec version. See
   [replication consensus](architecture/replication-consensus.md#group-log-retention-and-compaction)
 - **Journal disk quota is per node** — `JournalMaxTotalBytesMb` (host default 2048 MiB; not a settings JSON section
   in v0.1 public hosting) covers journal segments on that node only

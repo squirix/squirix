@@ -198,6 +198,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the commit gate: appends, commits, applies, starts, and retirements of the group run one at a time under it.</summary>
     internal AsyncLock Gate { get; } = new();
 
+    /// <summary>Gets the hold that keeps the log from being compacted while a state transfer to a follower is alive.</summary>
+    internal ReplicaTransferPin TransferPin { get; } = new();
+
     /// <summary>Gets the follower replication RPCs.</summary>
     internal IReplicaRpcGateway Gateway { get; }
 

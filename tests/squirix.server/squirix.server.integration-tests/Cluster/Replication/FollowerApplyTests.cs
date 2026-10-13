@@ -55,6 +55,7 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
         {
             var host = cluster[follower];
             await AwaitAppliedAsync(host, first + Writes - 2, cancellationToken);
+            _ = await Assert.That(host.GetRequiredService<ReplicaTransferReceiver>()).IsNotNull().Because("A replicated node composes the receiver of state transfers.");
             for (var i = 0; i < Writes - 1; i++)
             {
                 var entry = await LocalChain(host).GetEntryAsync(CacheName, keys[i], cancellationToken);

@@ -1,8 +1,6 @@
 using System;
-using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography.X509Certificates;
-using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Grpc.Core;
@@ -27,6 +25,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     private readonly string _nodeId;
     private readonly string[] _remotePeerNodeIds;
     private readonly TopologyFingerprint _topologyFingerprint;
+    private readonly ReplicaTransferReceiver? _transfers;
     private readonly bool _votesEnabled;
 
     /// <summary>Initializes a new instance of the <see cref="SquirixReplicationServiceAdapter" /> class.</summary>
@@ -35,6 +34,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     /// <param name="mtls">The mTLS material that verifies replication callers.</param>
     /// <param name="groups">Replica group registry of this node; <see langword="null" /> keeps the adapter a refusing stub.</param>
     /// <param name="members">The replica sets of the served groups, which bound who may ask for a vote; required whenever <paramref name="groups" /> is given.</param>
+    /// <param name="transfers">The receiver of state transfers of this node; <see langword="null" /> refuses every transfer message as not ready.</param>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="cluster" />, <paramref name="mtlsOptions" /> or <paramref name="mtls" /> is <see langword="null" />, or
     /// <paramref name="groups" /> is given without <paramref name="members" />.
@@ -44,13 +44,15 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         MtlsOptions mtlsOptions,
         MtlsCertificate mtls,
         ReplicaGroupRegistry? groups = null,
-        IReplicaMembership? members = null)
+        IReplicaMembership? members = null,
+        ReplicaTransferReceiver? transfers = null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(mtlsOptions);
         ArgumentNullException.ThrowIfNull(mtls);
         _mtlsOptions = mtlsOptions;
         _mtls = mtls;
+        _transfers = transfers;
         _remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
         _follower = groups == null ? null : new ReplicaFollower(groups, members ?? throw new ArgumentNullException(nameof(members)));
 
@@ -122,27 +124,6 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         };
     }
 
-    public override async Task<InstallReplicaSnapshotResponse> InstallReplicaSnapshot(IAsyncStreamReader<InstallReplicaSnapshotRequest> requestStream, ServerCallContext context)
-    {
-        ArgumentNullException.ThrowIfNull(requestStream);
-
-        if (!await requestStream.MoveNext(context.CancellationToken).ConfigureAwait(false))
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "InstallReplicaSnapshot requires at least one chunk."));
-
-        var header = EnsureHeader(requestStream.Current.Header, context, true);
-        var first = requestStream.Current;
-        if (_follower == null)
-            return await DrainStubInstallAsync(requestStream, header, context.CancellationToken).ConfigureAwait(false);
-
-        var (result, status) = await ReadAndInstallSnapshotAsync(_follower, requestStream, first, header, context.CancellationToken).ConfigureAwait(false);
-        return new InstallReplicaSnapshotResponse
-        {
-            Term = status?.CurrentTerm ?? 0,
-            Success = result.Success,
-            RefusalCode = result.Refusal,
-        };
-    }
-
     public override async Task<OfferReplicaBootstrapResponse> OfferReplicaBootstrap(OfferReplicaBootstrapRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, false);
@@ -181,64 +162,12 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         return MapVote(in result);
     }
 
-    /// <summary>Accumulates the snapshot chunks and drives the follower install.</summary>
-    /// <param name="follower">The active follower, guaranteed non-null by the caller.</param>
-    /// <param name="requestStream">The snapshot chunk stream.</param>
-    /// <param name="first">The first chunk, already validated as present.</param>
-    /// <param name="header">Validated replication envelope identity.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The installation outcome and the follower status after the installation.</returns>
-    /// <exception cref="RpcException">Thrown when the chunk stream length differs from the declared total bytes.</exception>
-    private static async Task<(GroupSnapshotInstallResult Result, FollowerLogStatus? Status)> ReadAndInstallSnapshotAsync(
-        ReplicaFollower follower,
-        IAsyncStreamReader<InstallReplicaSnapshotRequest> requestStream,
-        InstallReplicaSnapshotRequest first,
-        ReplicationEnvelopeHeader header,
-        CancellationToken cancellationToken)
+    public override async Task<TransferReplicaStateResponse> TransferReplicaState(TransferReplicaStateRequest request, ServerCallContext context)
     {
-        var file = new ArrayBufferWriter<byte>();
-        AccumulateChunk(file, first, header);
-        while (await requestStream.MoveNext(cancellationToken).ConfigureAwait(false))
-            AccumulateChunk(file, requestStream.Current, header);
-
-        if (ulong.CreateChecked(file.WrittenCount) != first.TotalBytes)
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk stream length differs from the declared total bytes."));
-
-        var upload = new ReplicaSnapshotUpload(file.WrittenMemory, first.PayloadChecksum, first.LastIncludedIndex, first.LastIncludedTerm);
-        var result = await follower.InstallSnapshotUploadAsync(
-            header.GroupId,
-            header.LeaderNodeId,
-            header.TopologyFingerprint.ToByteArray(),
-            header.ConfigurationGeneration,
-            upload,
-            header.Term,
-            cancellationToken).ConfigureAwait(false);
-        var status = await follower.GetStatusAsync(header.GroupId, cancellationToken).ConfigureAwait(false);
-        return (result, status);
-    }
-
-    private static void AccumulateChunk(ArrayBufferWriter<byte> file, InstallReplicaSnapshotRequest chunk, ReplicationEnvelopeHeader header)
-    {
-        var chunkHeader = chunk.Header;
-        if (chunkHeader != null)
-        {
-            if (!string.Equals(chunkHeader.SenderNodeId, header.SenderNodeId, StringComparison.Ordinal))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header SenderNodeId differs from the first chunk."));
-
-            if (!string.Equals(chunkHeader.LeaderNodeId, header.LeaderNodeId, StringComparison.Ordinal))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header LeaderNodeId differs from the first chunk."));
-
-            if (!string.Equals(chunkHeader.GroupId, header.GroupId, StringComparison.Ordinal))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header GroupId differs from the first chunk."));
-        }
-
-        if (chunk.Chunk.IsEmpty)
-            return;
-
-        if (file.WrittenCount + chunk.Chunk.Length > GroupSnapshotStore.DefaultMaxSnapshotBytes)
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk stream exceeds the maximum snapshot size."));
-
-        file.Write(chunk.Chunk.Span);
+        _ = EnsureHeader(request.Header, context, true);
+        return _transfers == null
+            ? new TransferReplicaStateResponse { Term = 0, Success = false, RefusalCode = RefusalCodes.NotReady }
+            : await ReplicaTransferWire.ApplyAsync(_transfers, request, context.CancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Builds the ballot of a vote request; the candidate is the verified sender, never the claimed leader.</summary>
@@ -259,35 +188,6 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             records[i] = MapRecord(request.Entries[i]);
 
         return new FollowerBatch(records, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
-    }
-
-    private static async Task<InstallReplicaSnapshotResponse> DrainStubInstallAsync(
-        IAsyncStreamReader<InstallReplicaSnapshotRequest> requestStream,
-        ReplicationEnvelopeHeader header,
-        CancellationToken cancellationToken)
-    {
-        while (await requestStream.MoveNext(cancellationToken).ConfigureAwait(false))
-        {
-            var currentHeader = requestStream.Current.Header;
-            if (currentHeader == null)
-                continue;
-
-            if (!string.Equals(currentHeader.SenderNodeId, header.SenderNodeId, StringComparison.Ordinal))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header SenderNodeId differs from the first chunk."));
-
-            if (!string.Equals(currentHeader.LeaderNodeId, header.LeaderNodeId, StringComparison.Ordinal))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header LeaderNodeId differs from the first chunk."));
-
-            if (!string.Equals(currentHeader.GroupId, header.GroupId, StringComparison.Ordinal))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header GroupId differs from the first chunk."));
-        }
-
-        return new InstallReplicaSnapshotResponse
-        {
-            Term = header.Term,
-            Success = false,
-            RefusalCode = RefusalCodes.NotReady,
-        };
     }
 
     private static ReplicaLogRecord MapRecord(ReplicaLogEntry entry) => new(

@@ -247,7 +247,7 @@ internal sealed class ReplicaGroupElection
         return true switch
         {
             _ when deposed => LeaderExit.Deposed,
-            _ when _deadline.IsOverdue() => LeaderExit.AuthorityTimedOut,
+            _ when _deadline.IsOverdue(_state.TransferProgress.IsRecent(_state.Options.ElectionTimeout)) => LeaderExit.AuthorityTimedOut,
             _ => LeaderExit.None,
         };
     }
@@ -413,7 +413,7 @@ internal sealed class ReplicaGroupElection
             return Lose(ElectionEvent.TermNotDurable, current.CurrentTerm);
         }
 
-        if (!self.Granted || self.CurrentTerm != term)
+        if (!await ElectionHold.SelfVoteStandsAsync(_log, self, term, cancellationToken).ConfigureAwait(false))
         {
             _state.ObserveHigherTerm(self.CurrentTerm);
             return Lose(ElectionEvent.VoteLost, Math.Max(current.CurrentTerm, self.CurrentTerm));

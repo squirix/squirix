@@ -18,6 +18,11 @@ internal interface IFollowerLogSnapshotStore
     /// <summary>Gets the published snapshot file path.</summary>
     string SnapshotPath { get; }
 
+    /// <summary>Tells, without writing, whether the published file image of a snapshot stays within the configured maximum size.</summary>
+    /// <param name="snapshot">The snapshot to check.</param>
+    /// <returns><see langword="true" /> when <see cref="PublishAsync" /> would not refuse the snapshot for its size.</returns>
+    bool Fits(GroupSnapshot snapshot);
+
     /// <summary>Writes a snapshot to a temp file, flushes it, and atomically publishes it.</summary>
     /// <param name="snapshot">The snapshot to persist.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

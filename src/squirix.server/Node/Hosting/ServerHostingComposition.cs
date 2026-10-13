@@ -207,15 +207,20 @@ internal static class ServerHostingComposition
 
     /// <summary>Registers the verification of the followers of the led groups, with its retry schedule.</summary>
     /// <param name="services">DI service collection.</param>
-    private static void AddReplicaGroupReadiness(IServiceCollection services) =>
+    /// <remarks>The readiness service sends the state transfers, so their registrations come with it.</remarks>
+    private static void AddReplicaGroupReadiness(IServiceCollection services)
+    {
+        ReplicaTransferRegistration.Add(services);
         _ = services.AddHostedService(static sp => new ReplicaGroupReadinessService(
             sp.GetRequiredService<ReplicaGroupCommitters>(),
             sp.GetRequiredService<ILogger<ReplicaGroupReadinessService>>(),
             sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<ReplicaCatchUpMetrics>())
+            sp.GetRequiredService<ReplicaCatchUpMetrics>(),
+            sp.GetRequiredService<ReplicaStateTransfers>())
         {
             Options = sp.GetService<ReplicaReadinessOptions>() ?? new ReplicaReadinessOptions(),
         });
+    }
 
     /// <summary>Registers the election drivers of the served groups, which hand won terms to the committers.</summary>
     /// <param name="services">DI service collection.</param>
@@ -274,7 +279,11 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<IGroupLeaderTable>(),
             topology.NodeId,
             owners,
-            clock);
+            clock)
+        {
+            // The receiver is resolved when a leadership starts: it depends on the committers through the state sink.
+            BeforeLeading = (groupId, cancellationToken) => sp.GetRequiredService<ReplicaTransferReceiver>().ReleaseAsync(groupId, cancellationToken),
+        };
     }
 
     /// <summary>Creates the committer of a group this node leads.</summary>
@@ -343,11 +352,13 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<MtlsOptions>(),
             sp.GetRequiredService<MtlsCertificate>(),
             sp.GetService<ReplicaGroupRegistry>(),
-            sp.GetService<IReplicaMembership>()));
+            sp.GetService<IReplicaMembership>(),
+            sp.GetService<ReplicaTransferReceiver>()));
         _ = services.AddSingleton(static sp => new ReplicaRpcGateway(sp.GetRequiredService<IServerClientPool>()));
         _ = services.AddSingleton<IReplicaRpcGateway>(static sp => sp.GetRequiredService<ReplicaRpcGateway>());
         _ = services.AddSingleton<IReplicaVoteGateway>(static sp => sp.GetRequiredService<ReplicaRpcGateway>());
         _ = services.AddSingleton<IReplicaBootstrapGateway>(static sp => new ReplicaBootstrapRpcGateway(sp.GetRequiredService<IServerClientPool>()));
+        _ = services.AddSingleton<IReplicaTransferGateway>(static sp => new ReplicaTransferRpcGateway(sp.GetRequiredService<IServerClientPool>()));
     }
 
     private static async Task ConfigureBuilderCoreAsync(WebApplicationBuilder builder, TopologyOptions cluster, ICompositionArgs args, CancellationToken cancellationToken)

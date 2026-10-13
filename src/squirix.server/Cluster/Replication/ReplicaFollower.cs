@@ -1,5 +1,4 @@
 using System;
-using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,13 +12,16 @@ namespace Squirix.Server.Cluster.Replication;
 /// The transport adapter maps wire messages to these domain calls. Every call first resolves the group
 /// and checks topology agreement (fingerprint and generation mirror the snapshot-install rules: an empty
 /// durable fingerprint adopts nothing here but never conflicts, and an older generation is refused);
-/// term validation stays inside the log, which persists higher terms durably before responding. An accepted append or
-/// snapshot install wakes the group's apply loop, so committed entries reach memory without waiting for its fallback interval; votes
-/// and pre-votes apply nothing and wake nothing. Every leader call the log accepted, and every term a vote made durable, is posted to
-/// the election state of the group; a pre-vote is refused while that state knows a live leader. A vote or pre-vote from a candidate
-/// outside the replica set of the group is refused before the log is reached, and so is an append or snapshot install from a leader
-/// outside it. The owner of a group offers an unseeded copy a place in the first start of the group. The call of a member of the group completes a copy that holds an offer before the log serves it; a copy that is not complete
-/// refuses every such call with term zero and posts nothing to the election state. Any other refusal is the log's own, with its durable term.
+/// term validation stays inside the log, which persists higher terms durably before responding. An accepted append wakes the group's
+/// apply loop, so committed entries reach memory without waiting for its fallback interval; votes and pre-votes apply nothing and wake
+/// nothing. Every leader call the log accepted, and every term a vote made durable, is posted to the election state of the group; a
+/// pre-vote is refused while that state knows a live leader. A vote or pre-vote from a candidate outside the replica set of the group is
+/// refused before the log is reached, and so is an append from a leader outside it. The owner of a group offers an unseeded copy a place
+/// in the first start of the group. The call of a member of the group completes a copy that holds an offer before the log serves it; a copy
+/// that is not complete refuses every append with term zero and posts nothing to the election state, and an unseeded copy refuses ballots
+/// the same way, while an incomplete copy keeps its term, its vote and its log and so answers ballots like a complete one. A group that holds a
+/// state transfer refuses an offer as transfer-busy; its copy is complete or incomplete, never unseeded, so no member call completes an offer meanwhile. Any other refusal
+/// is the log's own, with its durable term.
 /// </remarks>
 [Immutable]
 internal sealed class ReplicaFollower
@@ -64,7 +66,10 @@ internal sealed class ReplicaFollower
         if (!TryGetLog(groupId, out var log) || !string.Equals(groupId, senderNodeId, StringComparison.Ordinal) || !_members.IsMember(groupId, senderNodeId))
             return new ReplicaBootstrapOfferResult(false, null, FollowerLogRefusal.NotMember);
 
-        var refusal = await log.AcceptBootstrapOfferAsync(fingerprint, generation, cancellationToken).ConfigureAwait(false);
+        // A group that holds a state transfer takes no part in a first start: the transfer repairs a copy that holds data.
+        var refusal = _groups.TransferHoldFor(groupId).IsHeld
+            ? RefusalCodes.TransferBusy
+            : await log.AcceptBootstrapOfferAsync(fingerprint, generation, cancellationToken).ConfigureAwait(false);
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         return new ReplicaBootstrapOfferResult(refusal == null, status.MemberState, refusal ?? string.Empty);
     }
@@ -87,8 +92,9 @@ internal sealed class ReplicaFollower
         if (!TryGetLog(groupId, out var log) || !_members.IsMember(groupId, batch.LeaderNodeId))
             return new FollowerLogAppendResult(false, FollowerLogRefusal.NotMember, 0, 0);
 
-        // The call of a member completes a copy that holds an offer; the topology is checked again under the log gate.
-        var refusal = await RefuseNotCompleteAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
+        // The call of a member completes a copy that holds an offer; the topology is checked again under the log gate. An incomplete copy is
+        // answered by the log, with its durable term, so the leader learns a term the copy moved to.
+        var refusal = await RefuseUnseededAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
         if (refusal != null)
             return new FollowerLogAppendResult(false, refusal, 0, 0);
 
@@ -110,8 +116,9 @@ internal sealed class ReplicaFollower
         var result = await log.AppendAsync(request, fingerprint, generation, cancellationToken).ConfigureAwait(false);
         NotifyApplyWhen(result.Success, groupId);
 
-        // A log mismatch still comes from the current leader: the follower only lacks entries, which the leader repairs.
-        if (result.Success || string.Equals(result.RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal))
+        // A log mismatch still comes from the current leader: the follower only lacks entries, which the leader repairs. So does the
+        // refusal of an incomplete copy, which waits for the leader's state transfer.
+        if (result.ShowsLeader(batch.LeaderTerm))
             ObserveLeader(groupId, batch.LeaderNodeId, result.CurrentTerm);
 
         return result;
@@ -127,46 +134,6 @@ internal sealed class ReplicaFollower
         return !TryGetLog(groupId, out var log) ? null : await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Installs a transferred snapshot file into a group log after agreement checks.</summary>
-    /// <param name="groupId">Replica group identifier.</param>
-    /// <param name="leaderNodeId">The leader node identifier, which the transport binds to the peer certificate; it must be a member of the group.</param>
-    /// <param name="fingerprint">Leader topology fingerprint.</param>
-    /// <param name="generation">Leader configuration generation.</param>
-    /// <param name="upload">Reassembled snapshot file with declared framing.</param>
-    /// <param name="leaderTerm">Leader term authorizing the installation.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The installation outcome.</returns>
-    /// <remarks>A call of a member completes a copy that holds an offer; a copy that is not complete refuses the install.</remarks>
-    internal async Task<GroupSnapshotInstallResult> InstallSnapshotUploadAsync(
-        string groupId,
-        string leaderNodeId,
-        ReadOnlyMemory<byte> fingerprint,
-        ulong generation,
-        ReplicaSnapshotUpload upload,
-        ulong leaderTerm,
-        CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
-        if (!TryGetLog(groupId, out var log) || !_members.IsMember(groupId, leaderNodeId))
-            return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotMember);
-
-        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        if (status.IsTopologyMismatch(fingerprint, generation))
-            return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.TopologyMismatch);
-
-        // Malformed transfers are refused without touching storage, mirroring the malformed-snapshot
-        // refusals of the install path.
-        if (!GroupSnapshotStore.TryDecodePublished(upload.FileBytes.Span, GroupSnapshotStore.DefaultMaxSnapshotBytes, out var snapshot))
-            return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
-
-        if (snapshot.LastIncludedIndex != upload.DeclaredLastIncludedIndex || snapshot.LastIncludedTerm != upload.DeclaredLastIncludedTerm)
-            return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
-
-        var storedChecksum = BinaryPrimitives.ReadUInt32LittleEndian(upload.FileBytes.Span[^4..]);
-        return storedChecksum != upload.DeclaredChecksum ? GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady)
-            : await InstallAsync(groupId, log, fingerprint, generation, snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
-    }
-
     /// <summary>Evaluates a pre-vote probe against a group log after agreement checks, without changing the log.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="fingerprint">Candidate topology fingerprint.</param>
@@ -176,8 +143,8 @@ internal sealed class ReplicaFollower
     /// <returns>The probe outcome; a refusal before the log is reached, a candidate outside the replica set included, reports term zero.</returns>
     /// <remarks>
     /// A pre-vote is read-only, with one exception: the call of a candidate that is a member of the group completes a copy that holds an offer,
-    /// which writes metadata. The pre-vote itself stays term-neutral: it adopts no term and records no vote, and a copy that is not complete
-    /// refuses it with term zero.
+    /// which writes metadata. The pre-vote itself stays term-neutral: it adopts no term and records no vote, and an unseeded copy refuses it
+    /// with term zero.
     /// </remarks>
     internal async Task<FollowerLogVoteResult> PreVoteAsync(
         string groupId,
@@ -197,7 +164,7 @@ internal sealed class ReplicaFollower
         if (status.IsTopologyMismatch(fingerprint, generation))
             return new FollowerLogVoteResult(false, FollowerLogRefusal.TopologyMismatch, 0UL);
 
-        var refusal = await RefuseNotCompleteAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
+        var refusal = await RefuseUnseededAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
         if (refusal != null)
             return new FollowerLogVoteResult(false, refusal, 0UL);
 
@@ -239,8 +206,8 @@ internal sealed class ReplicaFollower
         if (status.IsTopologyMismatch(fingerprint, generation))
             return new FollowerLogVoteResult(false, FollowerLogRefusal.TopologyMismatch, 0UL);
 
-        // A refusal here, a copy that is not complete included, reaches neither the log nor the election state.
-        var refusal = await RefuseNotCompleteAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
+        // A refusal here, an unseeded copy included, reaches neither the log nor the election state.
+        var refusal = await RefuseUnseededAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
         if (refusal != null)
             return new FollowerLogVoteResult(false, refusal, 0UL);
 
@@ -308,35 +275,16 @@ internal sealed class ReplicaFollower
             : null;
     }
 
-    /// <summary>Installs a validated snapshot into a group log and wakes the group's apply loop when it was installed.</summary>
-    /// <param name="groupId">Replica group identifier.</param>
+    /// <summary>Completes a copy that holds an offer before the log answers a ballot, and refuses the ballot while the copy is unseeded.</summary>
     /// <param name="log">The group log.</param>
-    /// <param name="fingerprint">Leader topology fingerprint.</param>
-    /// <param name="generation">Leader configuration generation.</param>
-    /// <param name="snapshot">Snapshot to install.</param>
-    /// <param name="leaderTerm">Leader term authorizing the install.</param>
+    /// <param name="fingerprint">Caller topology fingerprint.</param>
+    /// <param name="generation">Caller configuration generation.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The installation outcome.</returns>
-    /// <remarks>The copy is completed here, once the transfer proved well-formed, so a malformed upload completes nothing.</remarks>
-    private async Task<GroupSnapshotInstallResult> InstallAsync(
-        string groupId,
-        IFollowerLog log,
-        ReadOnlyMemory<byte> fingerprint,
-        ulong generation,
-        GroupSnapshot snapshot,
-        ulong leaderTerm,
-        CancellationToken cancellationToken)
+    /// <returns><see cref="FollowerLogRefusal.Unseeded" /> for an unseeded copy; otherwise <see langword="null" />, an incomplete copy included, which keeps its term, its vote and its log, so the log answers.</returns>
+    private static async ValueTask<string?> RefuseUnseededAsync(IFollowerLog log, ReadOnlyMemory<byte> fingerprint, ulong generation, CancellationToken cancellationToken)
     {
         var refusal = await RefuseNotCompleteAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
-        if (refusal != null)
-            return GroupSnapshotInstallResult.Refused(refusal);
-
-        var result = await log.InstallSnapshotAsync(snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
-        NotifyApplyWhen(result.Success, groupId);
-        if (result.Success)
-            ObserveLeader(groupId, null, leaderTerm);
-
-        return result;
+        return string.Equals(refusal, FollowerLogRefusal.Incomplete, StringComparison.Ordinal) ? null : refusal;
     }
 
     /// <summary>Records the contact of a leader whose call the log accepted, which postpones this node's own election.</summary>

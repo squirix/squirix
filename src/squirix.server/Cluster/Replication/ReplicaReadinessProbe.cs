@@ -24,7 +24,10 @@ internal static class ReplicaReadinessProbe
     /// <param name="election">The election state of the group, or <see langword="null" /> for a group led statically.</param>
     /// <param name="results">Per-slot probe outcomes.</param>
     /// <param name="term">The led term the probes carried; a follower answers from its log only at or below it.</param>
-    /// <remarks>The contact is recorded when the probes end; a probe given up before it answered records none.</remarks>
+    /// <remarks>
+    /// The contact is recorded when the probes end; a probe given up before it answered records none. A copy that answered incomplete is a
+    /// contact too: it is alive, under repair, and has not moved to a higher term.
+    /// </remarks>
     internal static void RecordContacts(ReplicaGroupState? election, ReplicaProbeResult[] results, ulong term)
     {
         ArgumentNullException.ThrowIfNull(results);
@@ -33,7 +36,7 @@ internal static class ReplicaReadinessProbe
 
         for (var i = 0; i < results.Length; i++)
         {
-            if (results[i].Kind is ReplicaProbeKind.Accepted or ReplicaProbeKind.LogMismatch)
+            if (results[i].Kind is ReplicaProbeKind.Accepted or ReplicaProbeKind.LogMismatch or ReplicaProbeKind.Incomplete)
                 election.RecordFollowerContact(i, term);
         }
     }

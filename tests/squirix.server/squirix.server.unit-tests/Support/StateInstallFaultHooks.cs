@@ -1,0 +1,58 @@
+using System.IO;
+using System.Threading;
+using Squirix.Server.Attributes;
+using Squirix.Server.Storage.Replication;
+
+namespace Squirix.Server.UnitTests.Support;
+
+/// <summary>Follower-log fault hooks that fail one chosen metadata publish, or the next log flush, after the test arms them.</summary>
+/// <remarks>Models the crash points of a state install: a metadata publish counts as one slot write, so a mirrored record has a first and a second.</remarks>
+[ThreadSafe]
+internal sealed class StateInstallFaultHooks : IFollowerLogFaultHooks
+{
+    private CancellationTokenSource? _cancelOnFlush;
+    private int _failFlush;
+    private int _failPublish = -1;
+    private int _publishes;
+
+    /// <inheritdoc />
+    public void OnBeforeMemoryApply()
+    {
+    }
+
+    /// <inheritdoc />
+    public void OnCommitAdvanced()
+    {
+    }
+
+    /// <inheritdoc />
+    public void OnFlushed()
+    {
+        Interlocked.Exchange(ref _cancelOnFlush, null)?.Cancel();
+        if (Interlocked.Exchange(ref _failFlush, 0) == 1)
+            throw new IOException("simulated failure at a log flush.");
+    }
+
+    /// <inheritdoc />
+    public void OnFrameWritten()
+    {
+    }
+
+    /// <inheritdoc />
+    public void OnMetaPublishing()
+    {
+        if (Interlocked.Increment(ref _publishes) == Volatile.Read(ref _failPublish))
+            throw new IOException("simulated failure at a metadata slot write.");
+    }
+
+    /// <summary>Cancels a source at the next flush, without failing it: the caller's token is cancelled while the operation runs.</summary>
+    /// <param name="source">The source to cancel.</param>
+    internal void CancelOnNextFlush(CancellationTokenSource source) => Volatile.Write(ref _cancelOnFlush, source);
+
+    /// <summary>Arms the fault for a metadata slot write counted from now.</summary>
+    /// <param name="ordinal">One for the next slot write, two for the one after it.</param>
+    internal void FailSlotWrite(int ordinal) => Volatile.Write(ref _failPublish, Volatile.Read(ref _publishes) + ordinal);
+
+    /// <summary>Arms the fault for the next flush of the log file.</summary>
+    internal void FailNextFlush() => Volatile.Write(ref _failFlush, 1);
+}

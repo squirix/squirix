@@ -19,12 +19,24 @@ internal static class ReplicaGroupCommitterRepair
         /// that caught the follower up admits it under the commit gate before the lease ends; the live entries that waited meanwhile are
         /// then acknowledged or sent in order by the resumed sender.
         /// </remarks>
-        internal async Task<bool> CatchUpFollowersAsync(ReplicaCatchUpReporter reporter, CancellationToken cancellationToken)
+        internal Task<bool> CatchUpFollowersAsync(ReplicaCatchUpReporter reporter, CancellationToken cancellationToken) => committer.CatchUpFollowersAsync(reporter, null, cancellationToken);
+
+        /// <summary>Runs one catch-up session per follower the last verification found answering, repairing by state transfer a follower the log cannot catch up.</summary>
+        /// <param name="reporter">Logs and counts the sessions.</param>
+        /// <param name="transfers">Sends the state of the group to a follower the leader no longer retains the entries for, or whose earlier transfer was interrupted; none are sent when <see langword="null" />.</param>
+        /// <param name="cancellationToken">Cancellation token; its cancellation ends the running session by throwing.</param>
+        /// <returns><see langword="true" /> when a follower was admitted to the write quorum, so the caller verifies again at once.</returns>
+        /// <remarks>
+        /// A follower whose entry session ends compacted, or incomplete (its first answer routes it, before any entry is sent), gets a transfer
+        /// and then a fresh entry session from the transferred index, still under the lease of its sender; the admission follows. The pin the
+        /// transfer holds on the log is released on every exit of the follower's pass.
+        /// </remarks>
+        internal async Task<bool> CatchUpFollowersAsync(ReplicaCatchUpReporter reporter, ReplicaStateTransfers? transfers, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(reporter);
             var admitted = false;
             foreach (var target in committer.Probe.TakeCatchUpTargets())
-                admitted |= await committer.CatchUpFollowerAsync(target, reporter, cancellationToken).ConfigureAwait(false);
+                admitted |= await committer.CatchUpFollowerAsync(target, reporter, transfers, cancellationToken).ConfigureAwait(false);
 
             return admitted;
         }
@@ -58,7 +70,7 @@ internal static class ReplicaGroupCommitterRepair
             return true;
         }
 
-        private async Task<bool> CatchUpFollowerAsync(ReplicaCatchUpTarget target, ReplicaCatchUpReporter reporter, CancellationToken cancellationToken)
+        private async Task<bool> CatchUpFollowerAsync(ReplicaCatchUpTarget target, ReplicaCatchUpReporter reporter, ReplicaStateTransfers? transfers, CancellationToken cancellationToken)
         {
             ReplicaFollowerCatchUp lease;
             try
@@ -71,15 +83,43 @@ internal static class ReplicaGroupCommitterRepair
                 return false;
             }
 
+            // One hold on the log for the whole pass: the transfer takes it at its capture, and it is released after the admission, or on any exit.
             using (lease)
+            using (var pin = committer.TransferPin.Begin())
             {
                 var session = new ReplicaEntryCatchUpSession(target.Log, committer.GroupId, target.Term);
                 var result = await session.RunAsync(lease, cancellationToken).ConfigureAwait(false);
+                result = await committer.RepairByTransferAsync(target, lease, pin, transfers, result, cancellationToken).ConfigureAwait(false);
                 var admitted = result.Outcome == ReplicaCatchUpOutcome.CaughtUp &&
                                await committer.TryAdmitAsync(target, result, cancellationToken).ConfigureAwait(false);
                 reporter.Report(target.ReplicaIndex, lease.NodeId, in result, admitted);
                 return admitted;
             }
+        }
+
+        /// <summary>Sends the state of the group to a follower the entry session could not catch up, and runs the entry session again from the transferred index.</summary>
+        /// <param name="target">The catch-up target.</param>
+        /// <param name="lease">The lease of the follower's sender, which the pass holds.</param>
+        /// <param name="pin">The hold of this pass on the log; the transfer takes it at its capture.</param>
+        /// <param name="transfers">Sends the state; none are sent when <see langword="null" />.</param>
+        /// <param name="result">The result of the first entry session.</param>
+        /// <param name="cancellationToken">Cancellation token of the pass.</param>
+        /// <returns>The result of the entry session after the transfer; <paramref name="result" /> when no transfer was made or none reached its end.</returns>
+        /// <remarks>
+        /// Only a follower that needs entries the leader no longer retains, or that answered incomplete, is transferred to. One that answered
+        /// unseeded lost its disk, which is a separate repair, and is left as it is.
+        /// </remarks>
+        private async Task<ReplicaCatchUpResult> RepairByTransferAsync(
+            ReplicaCatchUpTarget target,
+            ReplicaFollowerCatchUp lease,
+            ReplicaTransferPin.Session pin,
+            ReplicaStateTransfers? transfers,
+            ReplicaCatchUpResult result,
+            CancellationToken cancellationToken)
+        {
+            return transfers != null && result.Outcome is ReplicaCatchUpOutcome.Compacted or ReplicaCatchUpOutcome.Incomplete
+                ? await transfers.RepairAsync(committer, target, lease, pin, cancellationToken).ConfigureAwait(false) ?? result
+                : result;
         }
 
         /// <summary>Admits a caught-up follower, giving up when its sender starts draining meanwhile.</summary>

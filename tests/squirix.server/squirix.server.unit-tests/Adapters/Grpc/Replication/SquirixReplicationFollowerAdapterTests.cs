@@ -3,7 +3,6 @@ using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Grpc.Core;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Adapters.Grpc.Replication;
@@ -58,56 +57,6 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         _ = await Assert.That(response.LastLogIndex).IsEqualTo(0UL);
         _ = await Assert.That(response.CommitIndex).IsEqualTo(0UL);
         _ = await Assert.That(response.RefusalCode).IsEqualTo(string.Empty);
-    }
-
-    /// <summary>Verifies that InstallReplicaSnapshot refuses an unserved group.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task InstallOnUnknownGroupIsRefusedAsync(CancellationToken cancellationToken)
-    {
-        await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
-        follower.Header.GroupId = "unknown-group";
-        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>(new InstallReplicaSnapshotRequest { Header = follower.Header, TotalBytes = 0 });
-
-        var response = await follower.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, follower.HttpContext));
-
-        _ = await Assert.That(response.Success).IsFalse();
-        _ = await Assert.That(response.RefusalCode).IsEqualTo(FollowerLogRefusal.NotMember);
-    }
-
-    /// <summary>Verifies that InstallReplicaSnapshot rejects a length-mismatched stream.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task InstallRejectsLengthMismatchAsync(CancellationToken cancellationToken)
-    {
-        await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
-        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>(new InstallReplicaSnapshotRequest { Header = follower.Header, TotalBytes = 99 });
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(follower.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, follower.HttpContext)));
-
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
-    }
-
-    /// <summary>Verifies that InstallReplicaSnapshot rejects a mismatched leader chunk.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task InstallRejectsMismatchedLeaderChunkAsync(CancellationToken cancellationToken)
-    {
-        await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
-        var other = new ReplicationEnvelopeHeader
-        {
-            SchemaVersion = EnvelopeSchema.Version,
-            SenderNodeId = "node-a",
-            LeaderNodeId = "node-b",
-            GroupId = "node-a",
-            Term = 7,
-        };
-        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>(
-            [new InstallReplicaSnapshotRequest { Header = follower.Header, TotalBytes = 0 }, new InstallReplicaSnapshotRequest { Header = other }]);
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(follower.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, follower.HttpContext)));
-
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
 
     /// <summary>Verifies that votes for the group this node statically leads are refused with failover on and leave its metadata unchanged.</summary>

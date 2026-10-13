@@ -316,8 +316,8 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// A crash while an installed snapshot rewrites the journal recovers the same state a completed installation leaves: the applied watermark
-    /// stays at the snapshot boundary persisted before the rewrite, so no entry the snapshot covers is handed out for application.
+    /// A crash while a state transfer replaces the journal recovers the snapshot boundary as the commit and applied watermark, so no entry the
+    /// snapshot covers is handed out for application, and the copy stays incomplete because the complete record was never written.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -351,7 +351,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
             _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
 
             faults.Arm();
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.InstallSnapshotAsync(snapshot, 1UL, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(FollowerSnapshotScenario.InstallAsync(log, snapshot, 1UL, cancellationToken));
         }
 
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
@@ -360,6 +360,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         var status = await reopened.GetStatusAsync(cancellationToken);
         _ = await Assert.That((status.LastLogIndex, status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((3UL, 3UL, 3UL));
+        _ = await Assert.That(status.MemberState).IsEqualTo(GroupMemberState.Incomplete);
         _ = await Assert.That(await reopened.GetCommittedEntriesAsync(cancellationToken)).IsEmpty();
         var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId).ReadPublishedAsync(cancellationToken)).IsNotNull();
         _ = await Assert.That(published.LastIncludedIndex).IsEqualTo(3UL);

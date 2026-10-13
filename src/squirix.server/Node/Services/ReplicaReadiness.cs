@@ -61,6 +61,6 @@ internal static class ReplicaReadiness
 
     private static string DescribeNotComplete(ReplicaReadinessVerdict verdict, string groupId) =>
         verdict == ReplicaReadinessVerdict.Incomplete
-            ? $"replica group '{groupId}' is incomplete on this node: its copy votes for nobody and takes no entries until a state transfer repairs it."
+            ? $"replica group '{groupId}' is incomplete on this node: its copy never stands for election and takes no entries until a state transfer repairs it."
             : $"replica group '{groupId}' is not seeded on this node: its copy votes for nobody and takes no entries until the group is started or the copy is repaired.";
 }

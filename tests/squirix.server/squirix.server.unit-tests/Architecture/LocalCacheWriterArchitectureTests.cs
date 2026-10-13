@@ -25,7 +25,7 @@ public sealed partial class LocalCacheWriterArchitectureTests : ServerUnitTestBa
     [
         new(
             LocalChainKeyPattern,
-            ["Node/Hosting/CachePipelineRegistration.cs", "Node/Hosting/ServerHostingComposition.cs"],
+            ["Node/Hosting/CachePipelineRegistration.cs", "Node/Hosting/ReplicaTransferRegistration.cs", "Node/Hosting/ServerHostingComposition.cs"],
             "The keyed local chain bypasses the replicated pipeline; only the composition roots resolve it."),
         new(
             LocalCacheTypesPattern,

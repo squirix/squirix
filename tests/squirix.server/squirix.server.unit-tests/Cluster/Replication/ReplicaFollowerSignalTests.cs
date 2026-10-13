@@ -1,6 +1,4 @@
 using System;
-using System.Buffers.Binary;
-using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,7 +15,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
-/// <summary>A change the follower path accepts wakes the apply loop of its group; a refused one does not.</summary>
+/// <summary>An append the follower path accepts wakes the apply loop of its group; a refused one does not.</summary>
 [Immutable]
 public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
 {
@@ -38,56 +36,6 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
 
         _ = await Assert.That(result.Success).IsTrue();
         _ = await Assert.That(await IsRaisedAsync(registry, cancellationToken)).IsTrue();
-    }
-
-    /// <summary>An installed snapshot raises the apply signal of its group.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task SnapshotInstallRaisesSignal(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-signal-install");
-        using var sourceDir = new TempDirectory("squirix-follower-signal-install-source");
-        var snapshot = await PublishSnapshotAsync(sourceDir, cancellationToken);
-        await using var registry = await OpenAsync(dir, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
-        var fileBytes = await File.ReadAllBytesAsync(GroupStoragePaths.GetSnapshotPath(sourceDir, GroupId), cancellationToken);
-        var upload = new ReplicaSnapshotUpload(
-            fileBytes,
-            BinaryPrimitives.ReadUInt32LittleEndian(fileBytes.AsSpan(fileBytes.Length - 4)),
-            snapshot.LastIncludedIndex,
-            snapshot.LastIncludedTerm);
-        _ = await follower.AppendAsync(GroupId, Fingerprint, 1, Batch(1, 0, 1), cancellationToken);
-        _ = await Assert.That(registry.TryGetLog(GroupId, out var log)).IsTrue();
-        _ = await Assert.That((await log!.AdvanceAppliedAsync(1UL, cancellationToken)).Success).IsTrue();
-        _ = await IsRaisedAsync(registry, cancellationToken);
-
-        var result = await follower.InstallSnapshotUploadAsync(GroupId, "n2", Fingerprint, 1, upload, 1UL, cancellationToken);
-
-        _ = await Assert.That(result.Success).IsTrue().Because($"refused with '{result.Refusal}'");
-        _ = await Assert.That(await IsRaisedAsync(registry, cancellationToken)).IsTrue();
-    }
-
-    /// <summary>A snapshot install the log refuses leaves the apply signal idle.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RefusedSnapshotInstallLeavesSignalIdle(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-signal-install-refused");
-        using var sourceDir = new TempDirectory("squirix-follower-signal-install-refused-source");
-        var snapshot = await PublishSnapshotAsync(sourceDir, cancellationToken);
-        await using var registry = await OpenAsync(dir, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
-        var fileBytes = await File.ReadAllBytesAsync(GroupStoragePaths.GetSnapshotPath(sourceDir, GroupId), cancellationToken);
-        var upload = new ReplicaSnapshotUpload(
-            fileBytes,
-            BinaryPrimitives.ReadUInt32LittleEndian(fileBytes.AsSpan(fileBytes.Length - 4)),
-            snapshot.LastIncludedIndex,
-            snapshot.LastIncludedTerm);
-
-        var result = await follower.InstallSnapshotUploadAsync(GroupId, "n2", Fingerprint, 1, upload, 1UL, cancellationToken);
-
-        _ = await Assert.That(result.Success).IsFalse();
-        _ = await Assert.That(await IsRaisedAsync(registry, cancellationToken)).IsFalse();
     }
 
     /// <summary>An append the log refuses leaves the apply signal idle.</summary>
@@ -121,31 +69,6 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
 
         return registry;
     }
-
-    /// <summary>Commits one entry on a source log of the group and compacts it, publishing a snapshot through index 1.</summary>
-    /// <param name="dir">The source node data directory.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The published snapshot.</returns>
-    /// <exception cref="InvalidOperationException">The source log refused a step or published no snapshot.</exception>
-    private static async Task<GroupSnapshot> PublishSnapshotAsync(string dir, CancellationToken cancellationToken)
-    {
-        await using var source = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await source.OpenSeededAsync(cancellationToken);
-        await source.AdoptTopologyAsync(Fingerprint, 1, cancellationToken);
-        FollowerLogEntry[] entries = [new(1UL, 1UL, new byte[] { 1 })];
-        var appended = await source.AppendAsync(new FollowerLogAppendRequest("n2", 1UL, 0UL, 0UL, 1UL, entries), cancellationToken);
-        var applied = await source.AdvanceAppliedAsync(1UL, cancellationToken);
-        var compacted = await source.CompactThroughAsync(1UL, cancellationToken);
-        var published = appended.Success && applied.Success && compacted == GroupCompactionOutcome.Compacted
-            ? await new GroupSnapshotStore(dir, GroupId).ReadPublishedAsync(cancellationToken) : null;
-        return published ?? NoSnapshot($"append '{appended.RefusalCode}', apply '{applied.RefusalCode}', compaction '{compacted}'");
-    }
-
-    /// <summary>Fails the snapshot setup.</summary>
-    /// <param name="steps">The outcome of each setup step.</param>
-    /// <returns>Never returns.</returns>
-    /// <exception cref="InvalidOperationException">Always.</exception>
-    private static GroupSnapshot NoSnapshot(string steps) => throw new InvalidOperationException($"The source log published no snapshot: {steps}.");
 
     /// <summary>Takes the pending notification of the group without waiting.</summary>
     /// <param name="registry">The registry of the group.</param>

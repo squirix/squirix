@@ -67,10 +67,10 @@ public sealed class GroupMemberStateLogTests : ServerUnitTestBase
         _ = await Assert.That((status.CurrentTerm, status.VotedFor, status.CommitIndex)).IsEqualTo((4UL, "node-b", 1UL));
     }
 
-    /// <summary>A snapshot install leaves the state and the offer as they were, also after a reopen.</summary>
+    /// <summary>A state transfer marks the copy incomplete durably and its completion marks it complete again, also after a reopen.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task StateSurvivesSnapshotInstall(CancellationToken cancellationToken)
+    public async Task StateFollowsStateInstall(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-member-state-install");
         using var sourceDir = new TempDirectory("squirix-member-state-install-source");
@@ -88,9 +88,14 @@ public sealed class GroupMemberStateLogTests : ServerUnitTestBase
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
             _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
 
-            var result = await log.InstallSnapshotAsync(snapshot, 1UL, cancellationToken);
+            var begin = await FollowerSnapshotScenario.BeginAsync(log, 1UL, 1UL, cancellationToken);
+            var marked = await GroupMetadataFile.ReadAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
+            _ = await Assert.That(begin).IsNull();
+            _ = await Assert.That((marked.MemberState, log.IsComplete)).IsEqualTo((GroupMemberState.Incomplete, false));
 
-            _ = await Assert.That(result.Success).IsTrue();
+            var result = await log.CompleteStateInstallAsync(snapshot, 1UL, cancellationToken);
+
+            _ = await Assert.That((result.Success, log.IsComplete)).IsEqualTo((true, true));
             await AssertCompleteAsync(dir, log, cancellationToken);
         }
 

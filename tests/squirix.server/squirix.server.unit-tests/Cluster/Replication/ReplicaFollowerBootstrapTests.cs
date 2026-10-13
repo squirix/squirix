@@ -1,5 +1,4 @@
 using System;
-using System.Buffers.Binary;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -86,30 +85,6 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
         _ = await Assert.That((status?.CurrentTerm, status?.VotedFor)).IsEqualTo((0UL, string.Empty));
     }
 
-    /// <summary>A well-formed snapshot install to an unseeded copy is refused with the unseeded code, and nothing is written.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task InstallToUnseededCopyRefused(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-bootstrap-commit");
-        using var sourceDir = new TempDirectory("squirix-follower-bootstrap-commit-source");
-        await using var registry = await OpenRegistryAsync(dir, false, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
-        var upload = await PublishUploadAsync(sourceDir, cancellationToken);
-        var path = GroupStoragePaths.GetMetadataPath(dir, GroupId);
-        var before = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
-        var reset = registry.StateFor(GroupId).ElectionResetTimestamp();
-
-        var install = await follower.InstallSnapshotUploadAsync(GroupId, LeaderId, Fingerprint, 1UL, upload, 3UL, cancellationToken);
-
-        _ = await Assert.That((install.Success, install.Refusal)).IsEqualTo((false, FollowerLogRefusal.Unseeded));
-        var after = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
-        await SequenceAssert.EqualAsync(before, after);
-        _ = await Assert.That(File.Exists(GroupStoragePaths.GetSnapshotPath(dir, GroupId))).IsFalse();
-        _ = await Assert.That(registry.StateFor(GroupId).HighestObservedTerm).IsEqualTo(0UL);
-        _ = await Assert.That(registry.StateFor(GroupId).ElectionResetTimestamp()).IsEqualTo(reset);
-    }
-
     /// <summary>A pre-vote from a member completes an offered copy, and the pre-vote is answered by the completed log.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -139,23 +114,6 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
         _ = await Assert.That((result.Granted, result.RefusalCode, result.CurrentTerm)).IsEqualTo((true, string.Empty, 5UL));
         var status = await follower.GetStatusAsync(GroupId, cancellationToken);
         _ = await Assert.That((status?.MemberState, status?.CurrentTerm, status?.VotedFor)).IsEqualTo((GroupMemberState.Complete, 5UL, "n3"));
-    }
-
-    /// <summary>A snapshot install from a member leader completes an offered copy, and the completed log decides the install.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task InstallCompletesOfferedCopy(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-bootstrap-install");
-        using var sourceDir = new TempDirectory("squirix-follower-bootstrap-install-source");
-        await using var registry = await OpenRegistryAsync(dir, true, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
-        var upload = await PublishUploadAsync(sourceDir, cancellationToken);
-
-        var result = await follower.InstallSnapshotUploadAsync(GroupId, LeaderId, Fingerprint, 1UL, upload, 3UL, cancellationToken);
-
-        _ = await Assert.That(result.Refusal).IsNotEqualTo(FollowerLogRefusal.Unseeded);
-        _ = await Assert.That((await follower.GetStatusAsync(GroupId, cancellationToken))?.MemberState).IsEqualTo(GroupMemberState.Complete);
     }
 
     /// <summary>A vote and a pre-vote from a node outside the group are refused as not a member and do not complete an offered copy.</summary>
@@ -244,10 +202,8 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
         var follower = new ReplicaFollower(registry, new ReplicaMembership(new ReplicaGroupLocator(new PhysicalNodeRing(["n1", "n2", "n3"]), 3), registry.GroupIds));
 
         var append = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(OutsiderId), cancellationToken);
-        var install = await follower.InstallSnapshotUploadAsync(GroupId, OutsiderId, Fingerprint, 1UL, new ReplicaSnapshotUpload(ReadOnlyMemory<byte>.Empty, 0U, 1UL, 1UL), 3UL, cancellationToken);
 
         _ = await Assert.That((append.Success, append.RefusalCode, append.CurrentTerm)).IsEqualTo((false, FollowerLogRefusal.NotMember, 0UL));
-        _ = await Assert.That((install.Success, install.Refusal)).IsEqualTo((false, FollowerLogRefusal.NotMember));
         var status = await follower.GetStatusAsync(GroupId, cancellationToken);
         _ = await Assert.That((status?.MemberState, status?.CurrentTerm)).IsEqualTo((GroupMemberState.Unseeded, 0UL));
         _ = await Assert.That((await GroupMetadataFile.ReadAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken)).BootstrapOffered).IsTrue();
@@ -258,20 +214,6 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
 
     private static Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, IFollowerLogFaultHooks faults, CancellationToken cancellationToken) =>
         OpenRegistryAsync(dir, (new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System, FaultHooks = faults }, false), cancellationToken);
-
-    /// <summary>Publishes a snapshot on a source node and reads it back as the upload a leader would send.</summary>
-    /// <param name="sourceDir">The data directory of the source node.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>A well-formed upload of the snapshot file.</returns>
-    private static async Task<ReplicaSnapshotUpload> PublishUploadAsync(string sourceDir, CancellationToken cancellationToken)
-    {
-        var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, [], DateTime.UnixEpoch);
-        var path = GroupStoragePaths.GetSnapshotPath(sourceDir, GroupId);
-        _ = Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await new GroupSnapshotStore(sourceDir, GroupId).PublishAsync(snapshot, cancellationToken);
-        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
-        return new ReplicaSnapshotUpload(bytes, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(bytes.Length - 4)), snapshot.LastIncludedIndex, snapshot.LastIncludedTerm);
-    }
 
     private static async Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, (FollowerLogOptions Options, bool Offered) setup, CancellationToken cancellationToken)
     {

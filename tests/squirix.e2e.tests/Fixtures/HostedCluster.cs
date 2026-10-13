@@ -216,6 +216,8 @@ internal sealed class HostedCluster : IAsyncDisposable
     {
         DataDir = usePersistence ? BuildDataDir(dataDir!, nodeId) : null,
         ReplicaCount = startOptions.ReplicaCount,
+        ReplicaLogCompactionEntries = startOptions.ReplicaLogCompactionEntries,
+        ReplicaLogCompactionInterval = startOptions.ReplicaLogCompactionInterval,
         Security = startOptions.Security,
         MtlsProfile = startOptions.GetProfile(nodeId),
         TimeProvider = startOptions.ClockFor(nodeId),

@@ -285,6 +285,47 @@ Recovery triage:
 
 For corruption suspicion, prefer restoring from a known-good backup over manual file edits.
 
+## State transfer
+
+A follower of a replica group (RF>1) that needs log entries its leader already compacted is repaired by a state
+transfer, with no operator action: the leader sends it the data of the group, and the follower then catches up from the
+log ([how it works](architecture/replication-consensus.md#state-transfer)). The leader repairs one follower at a time,
+so the other followers of the group wait for it while a transfer runs.
+
+What you see:
+
+- **Readiness.** While the copy is marked incomplete (from the first removal step of a transfer until its end, or after
+  one that was interrupted until the next), `/health/ready` fails with `503` and the `replica_readiness` description reads
+  `replica group '{id}' is incomplete on this node: its copy never stands for election and takes no entries until a
+  state transfer repairs it.` `squirix-server doctor` shows `member incomplete` on the group line. The copy still votes.
+- **Leader logs.** `4068` (information) when a transfer to a follower starts, with the group, the follower, the index and
+  the term; `4069` (information) when it ends, with the outcome, the duration and the number of entries and bytes sent;
+  `4070` (debug) when none was started, with the reason, to be retried on the next pass.
+- **Follower logs.** `4064` (information) when the follower begins receiving, `4065` (information) when it completed the
+  copy at the index, `4066` (warning) when it dropped the transfer, with the reason (`Aborted`, `Expired`, `Superseded`
+  or `Failed`), and `4067` (debug) for each message it refused, with the refusal code.
+- **Counter.** `squirix_replication_state_transfers_total` (labels `node`, `group`, `outcome`, `reason`). `outcome` is
+  `transferred`, `capture_not_leading`, `capture_pending_apply`, `capture_unresolved_outcome`, `capture_nothing_applied`,
+  `capture_not_ready`, `capture_snapshot_too_large`, `follower_refused`, `unreachable`, `superseded` or `aborted`;
+  `reason` is the refusal code of the follower for `follower_refused` and empty otherwise.
+
+When a transfer keeps failing, read the `outcome` of the counter and the logs of both nodes:
+
+- The `capture_*` outcomes mean the leader could not take the state yet and tries again on the next pass; a value that
+  does not change means the leader does not lead the term of the follower, has committed entries it cannot apply, or
+  its snapshot exceeds the 64 MiB limit.
+- `follower_refused` names the refusal in `reason`: `transfer-busy` (another transfer holds the group), `not-ready`
+  (the follower leads the group or its log is not ready), or a mismatch of the topology or of the checksum.
+- `unreachable` means a message failed or took longer than 10 seconds, or the follower failed while writing. The
+  follower writes the whole group through its journal, so a journal disk quota smaller than the group makes every
+  attempt fail: see [Journal disk quota](#journal-disk-quota) and raise `JournalMaxTotalBytesMb`.
+- The follower does not apply memory admission to a transfer, as with replicated applies, so a group that does not fit
+  `MaxEstimatedCacheBytes` leaves the follower in the critical state instead of failing the transfer: see
+  [Memory pressure](#memory-pressure).
+
+A node that lost its disk holds an unseeded copy, which a transfer does not repair
+([starting a replica group](clustering.md#starting-a-replica-group)).
+
 ## Activated topology stamp
 
 The first start of an RF>1 node with persistence enabled writes `topology.stamp` into the data directory. It records

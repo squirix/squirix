@@ -30,6 +30,20 @@ internal static class ReplicaGroupCommitterLeadership
         /// </remarks>
         internal async Task<bool> PromoteAsync(ulong term, CancellationToken cancellationToken)
         {
+            try
+            {
+                return await committer.PromoteCoreAsync(term, cancellationToken).ConfigureAwait(false);
+            }
+            catch (ReplicaDriverLeaseHeldException exception)
+            {
+                // A received state transfer or an earlier leadership still holds the applier; the promotion is retried on the next tick.
+                ServerLog.ReplicaPromotionRetry(committer.Log, committer.GroupId, term, exception);
+                return false;
+            }
+        }
+
+        internal async Task<bool> PromoteCoreAsync(ulong term, CancellationToken cancellationToken)
+        {
             ArgumentOutOfRangeException.ThrowIfZero(term);
             committer.ThrowIfDisposed();
             if (committer.Election == null)

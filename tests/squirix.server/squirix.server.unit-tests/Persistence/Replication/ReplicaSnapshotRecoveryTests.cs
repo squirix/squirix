@@ -159,7 +159,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await target.AdvanceAppliedAsync(1UL, cancellationToken);
             _ = await Assert.That((await target.GetStatusAsync(cancellationToken)).VotedFor).IsEqualTo("node-1");
 
-            var result = await target.InstallSnapshotAsync(snapshot, 3UL, cancellationToken);
+            var result = await FollowerSnapshotScenario.InstallAsync(target, snapshot, 3UL, cancellationToken);
             var status = await target.GetStatusAsync(cancellationToken);
 
             _ = await Assert.That(result.Success).IsTrue();
@@ -201,7 +201,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await target.AdvanceCommitAsync(2UL, cancellationToken);
             _ = await target.AdvanceAppliedAsync(2UL, cancellationToken);
 
-            var result = await target.InstallSnapshotAsync(snapshot, 2UL, cancellationToken);
+            var result = await FollowerSnapshotScenario.InstallAsync(target, snapshot, 2UL, cancellationToken);
             _ = await Assert.That(result.Success).IsTrue();
             _ = await Assert.That((await target.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
             _ = await Assert.That(await target.GetUncommittedTailAsync(cancellationToken)).IsEmpty();
@@ -214,7 +214,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await Assert.That(await reopened.GetUncommittedTailAsync(cancellationToken)).IsEmpty();
     }
 
-    /// <summary>Installing a snapshot restores watermarks, retained idempotency, and a divergent tail.</summary>
+    /// <summary>Completing a state transfer restores the watermarks and the snapshot outcomes, and drops the local tail and the reservations of the discarded log.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task InstalledSnapshotRestoresState(CancellationToken cancellationToken)
@@ -243,25 +243,24 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await target.AdvanceAppliedAsync(2UL, cancellationToken);
         _ = target.Idempotency.Reserve("client", "pending-tail", [4], GroupRecordKind.UserMutation, 3UL, 1UL);
 
-        var result = await target.InstallSnapshotAsync(snapshot, 1UL, cancellationToken);
+        var result = await FollowerSnapshotScenario.InstallAsync(target, snapshot, 1UL, cancellationToken);
         var status = await target.GetStatusAsync(cancellationToken);
 
         _ = await Assert.That(result.Success).IsTrue();
         _ = await Assert.That(status.CommitIndex).IsEqualTo(2UL);
         _ = await Assert.That(status.LastAppliedIndex).IsEqualTo(2UL);
-        _ = await Assert.That(status.LastLogIndex).IsEqualTo(3UL);
-        _ = await Assert.That(Encoding.UTF8.GetString((await target.GetUncommittedTailAsync(cancellationToken))[0].Payload.ToArray())).IsEqualTo("old-tail");
+        _ = await Assert.That(status.LastLogIndex).IsEqualTo(2UL);
+        _ = await Assert.That(await target.GetUncommittedTailAsync(cancellationToken)).IsEmpty();
         _ = await Assert.That(snapshot.GroupId).IsEqualTo(GroupId);
         _ = await Assert.That(target.SnapshotPath).IsNotNull();
         _ = await Assert.That(target.Idempotency.Lookup("client", "operation-1", [1, 2, 3], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(record.OutcomePayload.Span is [9]).IsTrue();
-        _ = await Assert.That(target.Idempotency.Lookup("client", "pending-tail", [4], out var pending)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
-        _ = await Assert.That(pending.IsUnresolved).IsTrue();
+        _ = await Assert.That(target.Idempotency.Lookup("client", "pending-tail", [4], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
     }
 
     /// <summary>
-    /// An installed snapshot with committed idempotency outcomes survives a crash (dispose) and reopen,
-    /// restoring watermarks, the retained tail, and the resolved outcome.
+    /// A completed state transfer with committed idempotency outcomes survives a crash (dispose) and reopen,
+    /// restoring watermarks, the complete copy, and the resolved outcome.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -287,7 +286,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await target.AppendAsync(Append(2UL, "b"), cancellationToken);
             _ = await target.AdvanceCommitAsync(2UL, cancellationToken);
             _ = await target.AdvanceAppliedAsync(2UL, cancellationToken);
-            var result = await target.InstallSnapshotAsync(snapshot, 1UL, cancellationToken);
+            var result = await FollowerSnapshotScenario.InstallAsync(target, snapshot, 1UL, cancellationToken);
             _ = await Assert.That(result.Success).IsTrue();
         }
 
@@ -299,6 +298,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await Assert.That(status.CommitIndex).IsEqualTo(2UL);
         _ = await Assert.That(status.LastAppliedIndex).IsEqualTo(2UL);
         _ = await Assert.That(status.LastLogIndex).IsEqualTo(2UL);
+        _ = await Assert.That(status.MemberState).IsEqualTo(GroupMemberState.Complete);
         _ = await Assert.That(reopened.Idempotency.Lookup("client", "operation-1", [1, 2, 3], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(record.OutcomePayload.Span is [9]).IsTrue();
     }

@@ -34,19 +34,24 @@ ready members whose copy is complete. Readiness never changes the quorum denomin
 The group metadata file records, next to the term and the vote, the member state of the copy on that node and whether
 the owner offered it a place in the first start. The file holds two record slots, each written whole. Only a record
 written to both slots survives the loss of one: vote grants and the member state transitions (the fresh unseeded
-record, the offer, and completion) are written to both; other records go to one slot at a time, so damage to the newest
-slot rolls the file back to the previous record. A file written by an earlier build (the single-record layout) is
+record, the offer, completion, and the marking of a copy incomplete and its completion after a state transfer) are
+written to both; other records go to one slot at a time, so damage to the newest slot rolls the file back to the
+previous record. A file written by an earlier build (the single-record layout) is
 refused at open and left unchanged.
 
-- **Unseeded.** A copy on a fresh disk opens unseeded, the fail-safe value. It refuses pre-votes, votes, appends,
-  and snapshot installs with the refusal `unseeded` and adopts no term, so it can never grant a vote
+- **Unseeded.** A copy on a fresh disk opens unseeded, the fail-safe value. It refuses pre-votes, votes, and appends
+  with the refusal `unseeded` and adopts no term, so it can never grant a vote
   that a lost disk would let it grant twice. Its node neither leads it in term one nor campaigns for it
   (`FailoverDenial.Unseeded`), and a static committer does not start over it: reads and writes of the group fail with
   `Unavailable`.
 - **Complete and incomplete.** A complete copy holds the data of the group and takes part as before; an incomplete copy
-  is in the middle of receiving it and takes no part either. It refuses pre-votes, votes, appends (probes included),
-  and snapshot installs with the refusal `incomplete`, which tells it apart from `unseeded`, adopts no
-  term, and never applies log entries. A leader whose probe meets `incomplete` counts the member as one that answered and
+  is in the middle of receiving it and takes no entries. It refuses appends (probes included) with the refusal
+  `incomplete`, which tells it apart from `unseeded`, adopts no term from a leader, and never applies log entries. Its
+  term, vote and log are intact, so it grants pre-votes and votes like a complete copy; it never stands for election.
+  A state transfer marks a copy incomplete first and completes it last: it publishes the group snapshot, replaces the
+  log by the snapshot baseline, and then writes the complete record with the commit and applied index at the snapshot
+  index. Recovery never changes the member state, so a crash anywhere before the complete record leaves the copy
+  incomplete. A leader whose probe meets `incomplete` counts the member as one that answered and
   marks it as catching up, so it stays out of the write quorum; the entry catch-up session ends with the outcome
   `incomplete`, having sent no entries when its first request is the one refused. The bootstrap paths keep refusing such a copy. The offer answers `not-ready`, and the
   completion on a call of a member answers `incomplete`.
@@ -100,7 +105,9 @@ elects a replacement.
   revoked before the leader retires its pipeline. A leader that got no authority within 30 seconds of its first promotion
   attempt steps down the same way, and its node does not campaign for the election timeout plus the largest jitter plus
   two vote timeouts after the retirement completed, so another member can take the group. While the same node keeps
-  being elected without authority, the 30 seconds double, up to 240 seconds; getting authority restarts them.
+  being elected without authority, the 30 seconds double, up to 240 seconds; getting authority restarts them. A state
+  transfer that keeps failing at its last step holds that deadline only while its steps are accepted, so the leader still
+  gives up within about two attempts.
 - **Repair.** A follower out of the write quorum that answers a heartbeat or an append from its log is queued for repair
   at once, at most once per election timeout, instead of waiting for the readiness retry.
 - **Status.** While a driver runs, the replica status reports a node as leader only with authority, its majority contact
@@ -214,13 +221,10 @@ machinery scales across the allowed RF set; operational budgets are validated by
 ### Replica-group snapshots
 
 The storage layer publishes an atomic, CRC32C-validated `group.snapshot` containing the committed baseline and resolved
-idempotency outcomes. Installing a snapshot is accepted only for the same group and compatible topology generation;
-a follower also refuses a snapshot whose boundary is above its applied index, because a snapshot carries no cache
-entries. The committed prefix is replaced while the uncommitted suffix is retained. Compaction removes only the journal
-prefix covered by the published snapshot and preserves the log header and installable snapshot.
-
-Transport streaming and catch-up orchestration are intentionally deferred to M8-08. The snapshot storage contract is
-therefore internal to `Storage.Replication` and does not add a transport dependency.
+idempotency outcomes, and carries no cache entries. Compaction removes only the journal prefix covered by the
+published snapshot and preserves the log header. A snapshot reaches a follower only inside a
+[state transfer](#state-transfer), which also carries the cache entries of the group; there is no request that installs
+a snapshot alone, because it would move the applied index of a follower past data that follower does not hold.
 
 ### Group log retention and compaction
 
@@ -251,8 +255,8 @@ follows.
 - **Every follower must have caught up.** The leader keeps every entry a follower may still need: a follower that is
   down, or that missed an entry, blocks compaction of the owner's group log until it is back. A follower whose append
   failed is taken out of the write quorum; once it answers again, the owner sends it the entries it lacks from the
-  group log through its sender, admits it, and compaction resumes. There is no snapshot catch-up: a follower that needs
-  entries already compacted cannot be caught up and stays out of the quorum.
+  group log through its sender, admits it, and compaction resumes. A follower that needs entries already compacted is
+  repaired by a [state transfer](#state-transfer). The leader does not compact its log while a transfer holds it.
 - **Snapshot size.** A snapshot carries the resolved idempotency outcomes of the covered entries. When they exceed the
   64 MiB snapshot limit, compaction stalls with `snapshot_too_large` until the outcomes age out of idempotency
   retention (15 minutes) or are replaced by new writes. A table that stays full does not empty by aging: each new write
@@ -262,6 +266,49 @@ Each pass reports its outcome through `squirix_replication_log_compactions_total
 `squirix_replication_log_compaction_skipped_total{reason}`, and the retained size through
 `squirix_replication_log_bytes`, `squirix_replication_log_retained_entries`, `squirix_replication_snapshot_index`,
 and the `replicaGroups` section of [readiness details](../diagnostics.md#readiness-details).
+
+### State transfer
+
+A follower that cannot be caught up from the log of the leader is repaired by a state transfer: the leader sends the
+snapshot of the group and every cache entry of the group at its applied index, and the follower then catches up from
+the log above that index.
+
+- **When it starts.** In the catch-up pass of the leader, under the lease of the follower's sender, when the entry
+  session ends `compacted` (the leader no longer retains the entries the follower needs, which includes a complete copy
+  with an empty log) or `incomplete` (the copy was marked incomplete by a transfer that did not end). A copy that
+  answers `unseeded` lost its disk and is left as it is. The passes run one follower after another, so the other
+  followers of the group wait while one transfer runs.
+- **Capture.** Under the commit gate the leader checks that it leads the term of the follower's pipeline, that no
+  committed entry waits to be applied and that every idempotency outcome is known, makes the applied index durable,
+  captures the group snapshot at that index and pins its log there. It then leaves the gate and streams outside it, so
+  writes go on; what they append above the index reaches the follower through the entry session that follows.
+- **Authority.** The leader does not ask for authority to start a transfer: a leader whose only other live member is
+  the follower under repair cannot get authority without it. This is safe because everything captured is committed
+  data, the applied index never passes the commit index, and the transfer changes only the copy of the follower,
+  which counts toward no quorum until the transfer ended and the entry session verified it.
+- **Pin.** While a transfer holds the pin, the compaction of the leader's log is skipped (`follower_not_ready`), so the
+  entries above the index and the term at it stay. The pin is released when the follower's pass ends, whatever way,
+  and lives in memory only: a leader that restarts loses the transfer.
+- **Contact.** Every accepted reply of the follower is a contact of the leader in its term and keeps the authority
+  deadline of the group; a reply of a higher term is observed like any other. Neither counts toward a commit or a read
+  index confirmation.
+- **Order on the follower.** The begin checks membership, the topology, the term and the declared size, waits for the
+  local journal recovery, and takes the apply driver of the group; it is refused while this node leads the group or
+  while another transfer holds the group (`transfer-busy`). The snapshot image arrives next and writes nothing durable.
+  The first wipe step then publishes the incomplete record in both metadata slots, and only after that removes the keys
+  of the group in bounded steps. The entries are written through the local cache chain, so the journal and the memory
+  admission of the node apply. The end compares the count and the CRC32C of the entries, awaits the journal
+  durability barrier, publishes the group snapshot, replaces the log by the snapshot baseline and writes the complete
+  record with the commit and the applied index at the transferred index.
+- **Incomplete copy.** It refuses appends, probes included, with `incomplete`, never applies entries and never stands
+  for election; its term, vote and log are intact, so it still answers pre-votes and votes. Recovery never changes
+  the state, so a crash anywhere before the complete record leaves the copy incomplete, and the next pass of the
+  leader starts a new transfer.
+- **Residual risk.** A node that acknowledged a write and then lost its disk can still be counted for that write
+  for a short time, until the leader meets its refusal and takes it out of the quorum.
+
+Each attempt is logged when it starts and ends on the leader and on the follower, and counted by
+`squirix_replication_state_transfers_total`; see [diagnostics](../diagnostics.md#state-transfer-metrics-and-events).
 
 ### Replicated mutation effects
 

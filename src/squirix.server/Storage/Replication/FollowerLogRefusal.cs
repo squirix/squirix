@@ -38,6 +38,6 @@ internal static class FollowerLogRefusal
     /// <summary>The copy of the group on this node is not complete, so it takes no entries, grants no vote and adopts no term.</summary>
     internal const string Unseeded = "unseeded";
 
-    /// <summary>The copy of the group on this node is marked incomplete and awaits a state transfer, so it takes no entries, grants no vote and adopts no term.</summary>
+    /// <summary>The copy of the group on this node is marked incomplete and awaits a state transfer, so it takes no entries and adopts no term from a leader; it still answers ballots.</summary>
     internal const string Incomplete = "incomplete";
 }
