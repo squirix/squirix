@@ -116,18 +116,18 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     [Test]
     public async Task ConcurrentForwardsAreUnreachable(CancellationToken cancellationToken)
     {
-        const int Forwards = 20;
+        const int forwards = 20;
         await using var pool = CreatePool(
             static () => new SocketsHttpHandler { ConnectCallback = static (_, ct) => NeverConnectsAsync(ct) },
             new Uri("https://localhost:6500"),
             TimeSpan.FromMilliseconds(200));
         var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(3), 1));
 
-        var calls = new Task<GetValueAsyncResponse>[Forwards];
-        for (var i = 0; i < Forwards; i++)
+        var calls = new Task<GetValueAsyncResponse>[forwards];
+        for (var i = 0; i < forwards; i++)
             calls[i] = forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken);
 
-        for (var i = 0; i < Forwards; i++)
+        for (var i = 0; i < forwards; i++)
         {
             var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(calls[i]);
             _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsTrue().Because($"forward {i} must fail as unreachable, not as {failure.Status}");
