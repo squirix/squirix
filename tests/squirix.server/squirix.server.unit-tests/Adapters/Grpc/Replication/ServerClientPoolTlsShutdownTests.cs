@@ -73,7 +73,7 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
 
         _ = await Assert.That(pool.OpenConnections).IsEqualTo(0).Because("Disposal must return only once the stalled connection was torn down.");
         _ = await Assert.That(material.IsReleased).IsFalse().Because("The loader still holds the material after the pool released its hold.");
-        DisposeAsLoader(material);
+        material.ReleaseHold();
         _ = await Assert.That(material.IsReleased).IsTrue().Because("The pool must have released its hold once the stalled connection closed.");
         await connectionClosed.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(call);
@@ -113,14 +113,6 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
         throw new InvalidOperationException(
             $"The {(callEnded ? "call" : "stub peer")} ended before the stub accepted the connection: {cause?.ToString() ?? "completed without an error"}{callText}",
             cause);
-    }
-
-    /// <summary>Releases the loader's hold the way the DI container does on host shutdown.</summary>
-    /// <param name="material">The material.</param>
-    private static void DisposeAsLoader(MtlsCertificate material)
-    {
-        IDisposable loader = material;
-        loader.Dispose();
     }
 
     /// <summary>Listens on a loopback port, accepts one connection, never answers, records whether a ClientHello arrived, and reports when the client closed the connection.</summary>
