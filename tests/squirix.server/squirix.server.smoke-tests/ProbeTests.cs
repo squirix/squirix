@@ -10,7 +10,7 @@ using TUnit.Core;
 namespace Squirix.Server.SmokeTests;
 
 /// <summary>Smoke tests for health probe endpoints that remain public when JWT auth is enabled.</summary>
-public sealed class ProbeSmokeTests : SmokeTestBase
+public sealed class ProbeTests : SmokeTestBase
 {
     /// <summary>Ensures documented health probes stay reachable without JWT when auth is enabled.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

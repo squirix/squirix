@@ -11,7 +11,7 @@ using TUnit.Core;
 namespace Squirix.Server.SmokeTests;
 
 /// <summary>Smoke tests verifying JWT auth on gRPC cache RPCs when credentials are configured.</summary>
-public sealed class AuthSmokeTests : SmokeTestBase
+public sealed class AuthTests : SmokeTestBase
 {
     private const string InvalidBearerToken = "invalid.jwt.token";
 

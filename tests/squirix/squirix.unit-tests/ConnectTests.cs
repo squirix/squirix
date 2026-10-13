@@ -12,7 +12,7 @@ namespace Squirix.UnitTests;
 
 /// <summary>Covers the public remote-only client factory surface.</summary>
 [Immutable]
-public sealed class ConnectTests : UnitTestBase
+public sealed class ConnectTests : TestBase
 {
     /// <summary>Verifies explicit remote mode requires at least one endpoint.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

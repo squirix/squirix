@@ -23,7 +23,7 @@ namespace Squirix.Server.IntegrationTests;
 
 /// <summary>
 /// Integration coverage for client operation_id propagation across cluster routing hops.
-/// Uses <see cref="IntegrationTwoNodeFixture" /> to share two servers across all tests.
+/// Uses <see cref="TwoNodeFixture" /> to share two servers across all tests.
 /// Each test generates its own unique operation_id to avoid idempotency-store cross-contamination.
 /// </summary>
 public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
@@ -54,8 +54,8 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
     }
 
     /// <summary>Gets the shared two-node fixture injected once per test class.</summary>
-    [ClassDataSource<IntegrationTwoNodeFixture>(Shared = SharedType.PerClass)]
-    public required IntegrationTwoNodeFixture Fixture { get; init; }
+    [ClassDataSource<TwoNodeFixture>(Shared = SharedType.PerClass)]
+    public required TwoNodeFixture Fixture { get; init; }
 
     private Uri UriA => Fixture.UriA;
 

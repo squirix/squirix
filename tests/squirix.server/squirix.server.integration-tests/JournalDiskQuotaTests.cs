@@ -16,7 +16,7 @@ using TUnit.Core;
 namespace Squirix.Server.IntegrationTests;
 
 /// <summary>Integration coverage for on-disk journal quota hard-limit rejection.</summary>
-public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
+public sealed class JournalDiskQuotaTests : NodeIntegrationTestBase
 {
     /// <summary>Size of each filling append: the smallest cap fills in a few appends, and a rejected one leaves less room than another.</summary>
     private const int FillBytes = 1024 * 1024;

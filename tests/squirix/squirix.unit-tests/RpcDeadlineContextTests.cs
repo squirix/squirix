@@ -11,7 +11,7 @@ namespace Squirix.UnitTests;
 
 /// <summary>Unit tests for the ambient absolute-deadline context shared with transport retries.</summary>
 [Immutable]
-public sealed class RpcDeadlineContextTests : UnitTestBase
+public sealed class RpcDeadlineContextTests : TestBase
 {
     /// <summary>Disposing an outer scope while an inner scope with the same deadline is current leaves the inner scope in place.</summary>
     [Test]

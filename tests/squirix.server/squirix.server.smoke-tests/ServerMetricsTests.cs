@@ -9,7 +9,7 @@ using TUnit.Core;
 namespace Squirix.Server.SmokeTests;
 
 /// <summary>Smoke tests for the built-in Prometheus-compatible metrics endpoint on the server host.</summary>
-public sealed class ServerMetricsSmokeTests : SmokeTestBase
+public sealed class ServerMetricsTests : SmokeTestBase
 {
     /// <summary>Verifies that the server host exposes <c language="csharp">/metrics</c> and that basic cache operations appear in the scrape output.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
