@@ -55,9 +55,9 @@ public sealed class ReplicaReadinessProbeTests
         _ = state.BecomeLeader(2UL);
         time.Advance(options.ElectionTimeout);
 
-        ReplicaReadinessProbe.RecordContacts(state, [default, new(ReplicaProbeKind.Refused, 0), new(ReplicaProbeKind.Unreachable, 0), default, default], 2UL);
+        ReplicaReadinessProbe.RecordContacts(state, [default, new ReplicaProbeResult(ReplicaProbeKind.Refused, 0), new ReplicaProbeResult(ReplicaProbeKind.Unreachable, 0), default, default], 2UL);
         var silent = state.HasQuorumContact(0, options.ElectionTimeout);
-        ReplicaReadinessProbe.RecordContacts(state, [default, new(ReplicaProbeKind.Accepted, 3), new(ReplicaProbeKind.LogMismatch, 1), default, default], 2UL);
+        ReplicaReadinessProbe.RecordContacts(state, [default, new ReplicaProbeResult(ReplicaProbeKind.Accepted, 3), new ReplicaProbeResult(ReplicaProbeKind.LogMismatch, 1), default, default], 2UL);
 
         _ = await Assert.That(silent).IsFalse();
         _ = await Assert.That(state.HasQuorumContact(0, options.ElectionTimeout)).IsTrue();
@@ -145,7 +145,7 @@ public sealed class ReplicaReadinessProbeTests
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, 0, in leader, Fingerprint, 1);
         var onlyLeader = eligibility.AnswersForMajority(0);
 
-        ReplicaReadinessProbe.ApplyAll(eligibility, 0, [default, new(ReplicaProbeKind.Accepted, 3), default], in leader, Fingerprint, 1, null);
+        ReplicaReadinessProbe.ApplyAll(eligibility, 0, [default, new ReplicaProbeResult(ReplicaProbeKind.Accepted, 3), default], in leader, Fingerprint, 1, null);
 
         _ = await Assert.That(onlyLeader).IsEqualTo(1);
         _ = await Assert.That(eligibility.AnswersForMajority(0)).IsEqualTo(int.MaxValue);
