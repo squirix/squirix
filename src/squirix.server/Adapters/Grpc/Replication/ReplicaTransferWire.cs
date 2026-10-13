@@ -73,7 +73,12 @@ internal static class ReplicaTransferWire
     {
         ArgumentOutOfRangeException.ThrowIfNegative(message.Sequence);
         ArgumentOutOfRangeException.ThrowIfNegative(message.Offset);
-        var request = new TransferReplicaStateRequest { Header = ReplicaRpcGateway.MapHeader(in header), TransferId = message.TransferId, Sequence = uint.CreateChecked(message.Sequence) };
+        var request = new TransferReplicaStateRequest
+        {
+            Header = ReplicaRpcGateway.MapHeader(in header),
+            TransferId = message.TransferId,
+            Sequence = uint.CreateChecked(message.Sequence),
+        };
         switch (message.Step)
         {
             case ReplicaTransferStep.Snapshot:
@@ -120,9 +125,12 @@ internal static class ReplicaTransferWire
     private static async Task<ReplicaTransferReply> EndAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken)
     {
         var end = request.End;
-        return request.Sequence > int.MaxValue
-            ? OutOfRange()
-            : await receiver.EndAsync(SenderOf(request), int.CreateChecked(request.Sequence), end.EntryCount, end.EntriesCrc32C, cancellationToken).ConfigureAwait(false);
+        return request.Sequence > int.MaxValue ? OutOfRange() : await receiver.EndAsync(
+            SenderOf(request),
+            int.CreateChecked(request.Sequence),
+            end.EntryCount,
+            end.EntriesCrc32C,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<ReplicaTransferReply> EntriesAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken)
@@ -146,13 +154,14 @@ internal static class ReplicaTransferWire
         var batch = new ReplicaTransferEntries();
         for (var i = 0; i < entries.Length; i++)
         {
-            batch.Entries.Add(new ReplicaTransferEntry
-            {
-                CacheName = entries[i].CacheName,
-                Key = UnsafeByteOperations.UnsafeWrap(entries[i].Key),
-                Payload = UnsafeByteOperations.UnsafeWrap(entries[i].Payload),
-                ExpiresUtcTicks = entries[i].ExpiresUtcTicks,
-            });
+            batch.Entries.Add(
+                new ReplicaTransferEntry
+                {
+                    CacheName = entries[i].CacheName,
+                    Key = UnsafeByteOperations.UnsafeWrap(entries[i].Key),
+                    Payload = UnsafeByteOperations.UnsafeWrap(entries[i].Payload),
+                    ExpiresUtcTicks = entries[i].ExpiresUtcTicks,
+                });
         }
 
         return batch;
@@ -161,27 +170,25 @@ internal static class ReplicaTransferWire
     /// <summary>Names the transfer of a request with the sender the adapter verified against the peer certificate and the term of the envelope.</summary>
     /// <param name="request">The request whose envelope the caller verified.</param>
     /// <returns>The transfer identity every step and the abort are bound to.</returns>
-    private static ReplicaTransferHeader SenderOf(TransferReplicaStateRequest request) =>
-        new(request.Header.GroupId, request.TransferId, request.Header.LeaderNodeId, request.Header.Term);
+    private static ReplicaTransferHeader SenderOf(TransferReplicaStateRequest request) => new(
+        request.Header.GroupId,
+        request.TransferId,
+        request.Header.LeaderNodeId,
+        request.Header.Term);
 
     private static ReplicaTransferReply OutOfRange() => ReplicaTransferReply.Refused(0UL, RefusalCodes.ChecksumMismatch);
 
     private static async Task<ReplicaTransferReply> WipeAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken) =>
-        request.Sequence > int.MaxValue
-            ? OutOfRange()
-            : await receiver.WipeAsync(SenderOf(request), int.CreateChecked(request.Sequence), cancellationToken).ConfigureAwait(false);
+        request.Sequence > int.MaxValue ? OutOfRange() : await receiver.WipeAsync(SenderOf(request), int.CreateChecked(request.Sequence), cancellationToken).ConfigureAwait(false);
 
     private static async Task<ReplicaTransferReply> SnapshotAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken)
     {
         var snapshot = request.Snapshot;
-        return request.Sequence > int.MaxValue || snapshot.Offset > long.MaxValue
-            ? OutOfRange()
-            : await receiver.SnapshotAsync(
-                                SenderOf(request),
-                                int.CreateChecked(request.Sequence),
-                                long.CreateChecked(snapshot.Offset),
-                                snapshot.Chunk.Memory,
-                                cancellationToken)
-                            .ConfigureAwait(false);
+        return request.Sequence > int.MaxValue || snapshot.Offset > long.MaxValue ? OutOfRange() : await receiver.SnapshotAsync(
+            SenderOf(request),
+            int.CreateChecked(request.Sequence),
+            long.CreateChecked(snapshot.Offset),
+            snapshot.Chunk.Memory,
+            cancellationToken).ConfigureAwait(false);
     }
 }
