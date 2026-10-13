@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Benchmarks.Support.Client;
@@ -21,10 +20,6 @@ internal static class BenchmarkNodeCluster
         BenchmarkDurabilityMode durabilityMode = BenchmarkDurabilityMode.Ephemeral,
         CancellationToken cancellationToken = default) => StartAsync($"bench-{Guid.NewGuid():N}", ListenPortPool.ServerBenchmarks.HoldHttpUri(), durabilityMode, cancellationToken);
 
-    [SuppressMessage(
-        "Design",
-        "CA1031:Do not catch general exception types",
-        Justification = "Best-effort rollback: the cluster disposal failure is logged and swallowed so the original start failure always propagates.")]
     private static async Task<TestCluster<ClusterStartOptions>> StartAsync(string nodeId, Uri uri, BenchmarkDurabilityMode mode, CancellationToken cancellationToken)
     {
         var cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode(nodeId, uri), dir: mode is BenchmarkDurabilityMode.Persistence ? "squirix-bench" : null);
@@ -38,14 +33,9 @@ internal static class BenchmarkNodeCluster
         }
         catch (Exception)
         {
-            try
-            {
-                await cluster.DisposeAsync().ConfigureAwait(false);
-            }
-            catch (Exception disposeException)
-            {
-                TestLog.Suppressed("BenchmarkNodeCluster.StartAsync rollback: cluster disposal failed after a start failure.", disposeException);
-            }
+            var disposeFailure = await cluster.CaptureDisposeFailureAsync().ConfigureAwait(false);
+            if (disposeFailure != null)
+                TestLog.Suppressed("BenchmarkNodeCluster.StartAsync rollback: cluster disposal failed after a start failure.", disposeFailure);
 
             throw;
         }
