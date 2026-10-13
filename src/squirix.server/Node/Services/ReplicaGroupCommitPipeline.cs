@@ -158,9 +158,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <exception cref="InvalidOperationException">The pipeline leads statically and confirms no read index.</exception>
     /// <remarks>Called outside the commit gate; readers that arrive while a round is in flight share the next round.</remarks>
     internal ValueTask<ulong> ConfirmReadIndexAsync(CancellationToken cancellationToken) =>
-        ReadIndex is { } rounds
-            ? rounds.ConfirmAsync(this, static pipeline => pipeline.ReadCommitIndex(), static pipeline => pipeline.Heartbeat(true), cancellationToken)
-            : ValueTask.FromException<ulong>(new InvalidOperationException("A pipeline of a static leader confirms no read index."));
+        ReadIndex?.ConfirmAsync(this, static pipeline => pipeline.ReadCommitIndex(), static pipeline => pipeline.Heartbeat(true), cancellationToken) ?? ValueTask.FromException<ulong>(new InvalidOperationException("A pipeline of a static leader confirms no read index."));
 
     /// <summary>Gets what a catch-up of a follower slot runs against: this pipeline, the slot's sender, the leader log and term.</summary>
     /// <param name="replicaIndex">Zero-based follower slot, never the leader slot.</param>
