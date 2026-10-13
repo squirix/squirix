@@ -18,7 +18,7 @@ namespace Squirix.E2ETests.Fixtures;
 internal sealed class FaultSchedule
 {
     /// <summary>The name of the environment variable that overrides the seed of every schedule.</summary>
-    internal const string SeedVariable = "SQUIRIX_FAULT_SEED";
+    private const string SeedVariable = "SQUIRIX_FAULT_SEED";
 
     private readonly string _anchor;
     private readonly List<string> _isolated = [];

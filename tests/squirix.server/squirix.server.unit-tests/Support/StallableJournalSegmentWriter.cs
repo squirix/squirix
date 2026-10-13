@@ -24,7 +24,7 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
 
     /// <summary>Initializes a new instance of the <see cref="StallableJournalSegmentWriter" /> class.</summary>
     /// <param name="inner">Writer that performs the real I/O once a call is not (or no longer) stalled.</param>
-    internal StallableJournalSegmentWriter(IJournalSegmentWriter inner)
+    private StallableJournalSegmentWriter(IJournalSegmentWriter inner)
     {
         ArgumentNullException.ThrowIfNull(inner);
         _inner = inner;

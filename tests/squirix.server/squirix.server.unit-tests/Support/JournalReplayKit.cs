@@ -58,11 +58,11 @@ internal sealed class JournalReplayKit
         };
     }
 
-    /// <summary>Gets the data directory.</summary>
-    internal string Dir { get; }
-
     /// <summary>Gets the persistence options every write and recovery uses.</summary>
     internal PersistenceOptions Persistence { get; }
+
+    /// <summary>Gets the data directory.</summary>
+    private string Dir { get; }
 
     /// <summary>Creates a write clock relative to <see cref="WriteEpoch" />, aligned to the whole millisecond the journal stores deadlines at.</summary>
     /// <param name="startOffset">The offset from <see cref="WriteEpoch" />.</param>
