@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.TestKit.Hosting;
 
@@ -217,27 +217,20 @@ internal sealed class FailoverTimeline<TOptions> : IAsyncDisposable
             throw new InvalidOperationException($"The failover timeline of group {_groupId} stopped sampling.", _fault);
     }
 
-    [SuppressMessage(
-        "Design",
-        "CA1031:Do not catch general exception types",
-        Justification = "A failed sample must not vanish in an unobserved task: it is kept and surfaced through the phase indexer and the dump.")]
     private async Task RunAsync(CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(10), TimeProvider.System);
-        try
-        {
-            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
-                Sample();
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // The timeline was disposed: sampling ends.
-        }
-        catch (Exception exception)
-        {
-            lock (_gate)
-                _fault = exception;
-        }
+        var failure = await SampleLoopAsync(timer, cancellationToken).CaptureFailureAsync().ConfigureAwait(false);
+        if (failure == null || (failure is OperationCanceledException && cancellationToken.IsCancellationRequested))
+            return;
+        lock (_gate)
+            _fault = failure;
+    }
+
+    private async Task SampleLoopAsync(PeriodicTimer timer, CancellationToken cancellationToken)
+    {
+        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            Sample();
     }
 
     private void Sample()

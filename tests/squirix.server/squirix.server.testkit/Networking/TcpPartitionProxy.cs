@@ -421,7 +421,7 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
         private TaskCompletionSource _next = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <summary>Gets the completion of the next pulse.</summary>
-        internal Task Next
+        private Task Next
         {
             get
             {

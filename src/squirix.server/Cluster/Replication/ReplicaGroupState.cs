@@ -432,12 +432,11 @@ internal sealed class ReplicaGroupState
         if (term > _highestObservedTerm)
             _highestObservedTerm = term;
 
-        if (term > _term && _role == ReplicaGroupRole.Leader && _hasAuthority)
-        {
-            _hasAuthority = false;
-            RouteChanged.Publish();
-        }
+        if (term <= _term || _role != ReplicaGroupRole.Leader || !_hasAuthority)
+            return _driven && term > _term;
 
+        _hasAuthority = false;
+        RouteChanged.Publish();
         return _driven && term > _term;
     }
 }

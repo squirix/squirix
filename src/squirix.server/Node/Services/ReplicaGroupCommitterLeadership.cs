@@ -69,14 +69,12 @@ internal static class ReplicaGroupCommitterLeadership
                 // The start is retried on the next call: a storage fault, a full journal, memory that refused the write, an inconsistent record,
                 // a log that moved past the term, or committed entries of a replaced coordinator still to apply. The same fault repeats every
                 // tick, so it is logged when it changes.
-                if (tenure.ReportFault(exception.GetType()))
-                {
-                    if (exception is IOException or InvalidDataException or JournalCapacityExceededException or ResourceExhaustedException)
-                        ServerLog.ReplicaPromotionStorageRetry(committer.Log, committer.GroupId, term, exception);
-                    else
-                        ServerLog.ReplicaPromotionRetry(committer.Log, committer.GroupId, term, exception);
-                }
-
+                if (!tenure.ReportFault(exception.GetType()))
+                    return false;
+                if (exception is IOException or InvalidDataException or JournalCapacityExceededException or ResourceExhaustedException)
+                    ServerLog.ReplicaPromotionStorageRetry(committer.Log, committer.GroupId, term, exception);
+                else
+                    ServerLog.ReplicaPromotionRetry(committer.Log, committer.GroupId, term, exception);
                 return false;
             }
         }

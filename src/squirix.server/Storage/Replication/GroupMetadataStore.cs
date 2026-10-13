@@ -75,7 +75,7 @@ internal sealed class GroupMetadataStore : IDisposable
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
     internal static GroupMetadataRead Read(string path)
     {
-        using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, ReaderShare, FileOptions.None);
+        using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, ReaderShare);
         var length = RandomAccess.GetLength(handle);
 
         // A file of another size is only told apart by its first bytes, the earlier magic, so no more than that is read of it.

@@ -17,18 +17,14 @@ internal sealed class TrackedWrappedStream : Stream
 
     private readonly Stream _inner;
 
-    private readonly bool _canRead;
-
-    private readonly bool _canWrite;
-
     private int _released;
 
     private TrackedWrappedStream(Stream inner, TrackedConnections connections, bool canRead, bool canWrite)
     {
         _inner = inner;
         _connections = connections;
-        _canRead = canRead;
-        _canWrite = canWrite;
+        CanRead = canRead;
+        CanWrite = canWrite;
     }
 
     /// <inheritdoc />
@@ -36,14 +32,14 @@ internal sealed class TrackedWrappedStream : Stream
     /// Taken from the wrapped stream as it was connected, not as it is now: an abort may close the wrapped stream before the handler wraps this
     /// one in TLS, and a stream that reports itself unreadable makes the TLS constructor throw, after which the handler never disposes it.
     /// </remarks>
-    public override bool CanRead => _canRead && IsOpen();
+    public override bool CanRead => field && IsOpen();
 
     /// <inheritdoc />
     public override bool CanSeek => false;
 
     /// <inheritdoc />
     /// <remarks>Taken from the wrapped stream as it was connected, for the reason given on <see cref="CanRead" />.</remarks>
-    public override bool CanWrite => _canWrite && IsOpen();
+    public override bool CanWrite => field && IsOpen();
 
     /// <inheritdoc />
     public override long Length => throw new NotSupportedException();

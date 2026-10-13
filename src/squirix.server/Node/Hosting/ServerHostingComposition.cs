@@ -125,8 +125,11 @@ internal static class ServerHostingComposition
         // The cluster locator registered the static leader table; an election-led node replaces it with the table of its election state.
         if (LeadsByElection(cluster))
         {
-            _ = services.Replace(ServiceDescriptor.Singleton<IGroupLeaderTable>(static sp => new ReplicaLeaderTable(
-                sp.GetRequiredService<ReplicaGroupRegistry>(), sp.GetRequiredService<TopologyOptions>().NodeId, sp.GetRequiredService<IReplicaGroupLocator>())));
+            _ = services.Replace(
+                ServiceDescriptor.Singleton<IGroupLeaderTable>(static sp => new ReplicaLeaderTable(
+                    sp.GetRequiredService<ReplicaGroupRegistry>(),
+                    sp.GetRequiredService<TopologyOptions>().NodeId,
+                    sp.GetRequiredService<IReplicaGroupLocator>())));
         }
 
         // Factory registrations let the container own disposal: the registry closes follower-log durability workers
@@ -197,13 +200,12 @@ internal static class ServerHostingComposition
 
     /// <summary>Registers the appliers of every served group, which the committers of the led groups and the apply loops of the others drive.</summary>
     /// <param name="services">DI service collection.</param>
-    private static void AddReplicaGroupAppliers(IServiceCollection services) =>
-        _ = services.AddSingleton(static sp => new ReplicaGroupAppliers(
-            sp.GetRequiredService<ReplicaGroupRegistry>(),
-            sp.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey),
-            sp.GetRequiredService<TopologyOptions>().NodeId,
-            sp.GetRequiredService<ILogger<ReplicaGroupAppliers>>(),
-            sp.GetRequiredService<ReplicationMetrics>()));
+    private static void AddReplicaGroupAppliers(IServiceCollection services) => _ = services.AddSingleton(static sp => new ReplicaGroupAppliers(
+        sp.GetRequiredService<ReplicaGroupRegistry>(),
+        sp.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey),
+        sp.GetRequiredService<TopologyOptions>().NodeId,
+        sp.GetRequiredService<ILogger<ReplicaGroupAppliers>>(),
+        sp.GetRequiredService<ReplicationMetrics>()));
 
     /// <summary>Registers the verification of the followers of the led groups, with its retry schedule.</summary>
     /// <param name="services">DI service collection.</param>
@@ -224,23 +226,26 @@ internal static class ServerHostingComposition
 
     /// <summary>Registers the election drivers of the served groups, which hand won terms to the committers.</summary>
     /// <param name="services">DI service collection.</param>
-    private static void AddReplicaElection(IServiceCollection services) =>
-        _ = services.AddHostedService(static sp => new ReplicaElectionService(
+    private static void AddReplicaElection(IServiceCollection services) => _ = services.AddHostedService(static sp =>
+    {
+        var activation = sp.GetRequiredService<ReplicaGroupActivation>();
+        var topology = sp.GetRequiredService<TopologyOptions>();
+        return new ReplicaElectionService(
             sp.GetRequiredService<ReplicaGroupRegistry>(),
             sp.GetRequiredService<IReplicaGroupLocator>(),
             sp.GetRequiredService<IReplicaVoteGateway>(),
             sp.GetRequiredService<ReplicaGroupCommitters>(),
-            (sp.GetRequiredService<ReplicaGroupActivation>().Fingerprint.AsMemory(), sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration, sp.GetRequiredService<TopologyOptions>().NodeId),
-            sp.GetRequiredService<ILogger<ReplicaElectionService>>()));
+            (activation.Fingerprint.AsMemory(), topology.ConfigurationGeneration, topology.NodeId),
+            sp.GetRequiredService<ILogger<ReplicaElectionService>>());
+    });
 
     /// <summary>Registers the sweep that expires the keys of the led groups no read touches, through committed tombstones.</summary>
     /// <param name="services">DI service collection.</param>
-    private static void AddReplicaExpirationSweep(IServiceCollection services) =>
-        _ = services.AddHostedService(static sp => new ReplicaExpirationSweepService(
-            sp.GetRequiredService<ReplicaGroupCommitters>(),
-            sp.GetRequiredService<ILocalCacheSnapshotReader<object?>>(),
-            sp.GetRequiredService<INodeLocator>(),
-            sp.GetRequiredService<ILogger<ReplicaExpirationSweepService>>()));
+    private static void AddReplicaExpirationSweep(IServiceCollection services) => _ = services.AddHostedService(static sp => new ReplicaExpirationSweepService(
+        sp.GetRequiredService<ReplicaGroupCommitters>(),
+        sp.GetRequiredService<ILocalCacheSnapshotReader<object?>>(),
+        sp.GetRequiredService<INodeLocator>(),
+        sp.GetRequiredService<ILogger<ReplicaExpirationSweepService>>()));
 
     /// <summary>Returns the settings of the replica group logs: the idempotency window of the replication policy and the host clock.</summary>
     /// <param name="sp">The service provider.</param>
@@ -338,11 +343,7 @@ internal static class ServerHostingComposition
     {
         _ = services.AddSquirixClusterLocator(cluster);
         _ = services.AddHealthChecks().Add(
-            new HealthCheckRegistration(
-                "ring_agreement",
-                static sp => new RingAgreementHealthCheck(sp.GetRequiredService<RingAgreement>()),
-                HealthStatus.Unhealthy,
-                ["ready"]));
+            new HealthCheckRegistration("ring_agreement", static sp => new RingAgreementHealthCheck(sp.GetRequiredService<RingAgreement>()), HealthStatus.Unhealthy, ["ready"]));
         _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory, (args.BackpressureOptions ?? new AdmissionOptions()).MaxInFlight);
         _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
         if (!args.FoundationOnly && cluster.ReplicaCount <= 1)

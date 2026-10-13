@@ -66,24 +66,6 @@ internal static class ProxyTestSockets
         }
     }
 
-    /// <summary>Tells whether a freshly connected socket is reset by the proxy instead of being served.</summary>
-    /// <param name="socket">The connected socket to probe.</param>
-    /// <param name="cancellationToken">Bounds the probe.</param>
-    /// <returns><see langword="true" /> when the send or the following read fails or ends without an echo.</returns>
-    internal static async Task<bool> IsRefusedAsync(Socket socket, CancellationToken cancellationToken)
-    {
-        try
-        {
-            _ = await socket.SendAsync(Probe, SocketFlags.None, cancellationToken);
-        }
-        catch (SocketException)
-        {
-            return true;
-        }
-
-        return await IsClosedAsync(socket, cancellationToken);
-    }
-
     /// <summary>Binds and listens on an ephemeral loopback port.</summary>
     /// <returns>The listening socket; the caller disposes it.</returns>
     internal static Socket Listen()
@@ -131,5 +113,23 @@ internal static class ProxyTestSockets
         using var probe = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         probe.Bind(new IPEndPoint(IPAddress.Loopback, 0));
         return LocalEndPointOf(probe);
+    }
+
+    /// <summary>Tells whether a freshly connected socket is reset by the proxy instead of being served.</summary>
+    /// <param name="socket">The connected socket to probe.</param>
+    /// <param name="cancellationToken">Bounds the probe.</param>
+    /// <returns><see langword="true" /> when the send or the following read fails or ends without an echo.</returns>
+    private static async Task<bool> IsRefusedAsync(Socket socket, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _ = await socket.SendAsync(Probe, SocketFlags.None, cancellationToken);
+        }
+        catch (SocketException)
+        {
+            return true;
+        }
+
+        return await IsClosedAsync(socket, cancellationToken);
     }
 }

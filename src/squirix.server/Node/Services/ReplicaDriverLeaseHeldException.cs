@@ -1,8 +1,10 @@
 using System;
+using JetBrains.Annotations;
 
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Thrown when a leadership asks for the applier lease while another leadership or a received state transfer holds it; nothing changed.</summary>
+[UsedImplicitly]
 internal sealed class ReplicaDriverLeaseHeldException : InvalidOperationException
 {
     /// <summary>Initializes a new instance of the <see cref="ReplicaDriverLeaseHeldException" /> class.</summary>

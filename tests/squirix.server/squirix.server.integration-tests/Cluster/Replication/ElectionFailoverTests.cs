@@ -103,7 +103,8 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
     [Test]
     public async Task FlagOffRegistersNoElection(CancellationToken cancellationToken)
     {
-        await using var cluster = CreateCluster([new ClusterNode(Nodes[0], GetNextHttpUri()), new ClusterNode(Nodes[1], GetNextHttpUri()), new ClusterNode(Nodes[2], GetNextHttpUri())]);
+        await using var cluster = CreateCluster(
+            [new ClusterNode(Nodes[0], GetNextHttpUri()), new ClusterNode(Nodes[1], GetNextHttpUri()), new ClusterNode(Nodes[2], GetNextHttpUri())]);
         var options = new IntegrationStartOptions { ReplicaCount = 3, UsePersistence = true, ExtraScope = "election-flag-off" };
         var host = await cluster.StartNodeAsync(OwnerId, options, cancellationToken);
 
@@ -157,8 +158,8 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
         (await Log(node).GetStatusAsync(cancellationToken)).CurrentTerm >= follower.Term && Table(node).TryGetLeader(OwnerId, out var route) &&
         !string.Equals(route.NodeId, follower.NodeId, StringComparison.Ordinal);
 
-    private static IFollowerLog Log(ITestNodeHost host) =>
-        host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(OwnerId, out var log) ? log : throw new InvalidOperationException($"The group log {OwnerId} is not open.");
+    private static IFollowerLog Log(ITestNodeHost host) => host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(OwnerId, out var log) ? log
+        : throw new InvalidOperationException($"The group log {OwnerId} is not open.");
 
     /// <summary>Reads the leader-term entry the leader of the owner group appended in its term, and whether it is committed.</summary>
     /// <param name="leader">The leader.</param>
@@ -170,13 +171,12 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
     {
         var committers = leader.GetRequiredService<ReplicaGroupCommitters>();
         var tenure = committers.Leads(OwnerId) ? committers.For(OwnerId).Tenure : throw new InvalidOperationException($"The leader no longer leads group {OwnerId}.");
-        var index = tenure is { } held && held.Term == term ? held.NoopIndex : throw new InvalidOperationException($"The leader holds no leadership of term {term}.");
+        var index = tenure != null && tenure.Term == term ? tenure.NoopIndex : throw new InvalidOperationException($"The leader holds no leadership of term {term}.");
         var log = Log(leader);
         var status = await log.GetStatusAsync(cancellationToken);
         var read = await log.ReadEntriesAsync(index, 1, cancellationToken);
         var record = read.Entries.Count == 1 ? ReplicaLogCodec.Decode(read.Entries[0].Payload) : null;
-        return record is { } noop ? (noop, status.CommitIndex >= index)
-            : throw new InvalidOperationException($"The group log {OwnerId} holds no decodable entry at {index}.");
+        return record is { } noop ? (noop, status.CommitIndex >= index) : throw new InvalidOperationException($"The group log {OwnerId} holds no decodable entry at {index}.");
     }
 
     private static IntegrationStartOptions Options(string scope, bool clean) => new()
@@ -187,13 +187,14 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
         ExtraScope = scope,
         AutomaticFailoverEnabled = true,
         QuorumReadsEnabled = true,
-        ServicesConfigure = static services => services.AddSingleton(new ElectionTimerOptions
-        {
-            ElectionTimeout = TimeSpan.FromSeconds(4),
-            HeartbeatInterval = TimeSpan.FromMilliseconds(250),
-            MaxJitter = TimeSpan.FromSeconds(2),
-            VoteRpcTimeout = TimeSpan.FromSeconds(2),
-        }),
+        ServicesConfigure = static services => services.AddSingleton(
+            new ElectionTimerOptions
+            {
+                ElectionTimeout = TimeSpan.FromSeconds(4),
+                HeartbeatInterval = TimeSpan.FromMilliseconds(250),
+                MaxJitter = TimeSpan.FromSeconds(2),
+                VoteRpcTimeout = TimeSpan.FromSeconds(2),
+            }),
     };
 
     private static IGroupLeaderTable Table(ITestNodeHost host) => host.GetRequiredService<IGroupLeaderTable>();

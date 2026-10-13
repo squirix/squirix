@@ -110,11 +110,11 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
     [Arguments(900, false)]
     public async Task SustainedRateIsAdmittedOnlyWithFloor(int floorSeconds, bool admittedAll)
     {
-        const int Capacity = 64;
+        const int capacity = 64;
         var clock = new FakeTimeProvider(Epoch);
-        var state = new GroupIdempotencyState(Capacity, Retention, clock, TimeSpan.FromSeconds(floorSeconds));
+        var state = new GroupIdempotencyState(capacity, Retention, clock, TimeSpan.FromSeconds(floorSeconds));
         var firstRefused = -1;
-        for (var i = 0; i < Capacity * 10 && firstRefused < 0; i++)
+        for (var i = 0; i < capacity * 10 && firstRefused < 0; i++)
         {
             var id = $"op{i}";
             var index = Convert.ToUInt64(i + 1);
@@ -129,7 +129,7 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(firstRefused < 0).IsEqualTo(admittedAll);
-        _ = await Assert.That(admittedAll || firstRefused == Capacity).IsTrue();
+        _ = await Assert.That(admittedAll || firstRefused == capacity).IsTrue();
     }
 
     /// <summary>A follower trims the oldest outcomes past the minimum retention above the capacity and keeps the ones inside it.</summary>

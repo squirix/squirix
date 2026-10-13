@@ -28,11 +28,11 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
     /// <summary>The group the harness serves.</summary>
     internal const string GroupId = TransferFixtures.GroupId;
 
-    /// <summary>The leader that sends the transfer.</summary>
-    internal const string LeaderId = "n2";
-
     /// <summary>The cache the entries of the tests belong to.</summary>
     internal const string CacheName = "cache";
+
+    /// <summary>The leader that sends the transfer.</summary>
+    private const string LeaderId = "n2";
 
     private readonly List<ReplicaTransferHeader> _begun = [];
     private ReplicaGroupCommitters? _committers;

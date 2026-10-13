@@ -23,7 +23,7 @@ public sealed class CsharpSourceMaskerTests : ServerUnitTestBase
         for (var index = 0; index < source.Length; index++)
         {
             var isLineBreak = source[index] is '\r' or '\n';
-            if (isLineBreak != (masked[index] is '\r' or '\n'))
+            if (isLineBreak != masked[index] is '\r' or '\n')
                 mismatches++;
         }
 

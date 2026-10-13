@@ -59,7 +59,7 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
 
         var samples = new List<FailoverSample>(Stops);
         var series = new List<(RegisterHistory History, string[] Keys)>(Stops);
-        FailoverTimingEvidence? evidence = null;
+        FailoverTimingEvidence? evidence;
         var completed = false;
         try
         {
@@ -153,13 +153,6 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
                 var stopStarted = 0L;
                 var stale = false;
 
-                ValueTask StopLeaderAsync()
-                {
-                    stopStarted = Stopwatch.GetTimestamp();
-                    stale = timeline.Baseline != (former, formerTerm) || probe.Ledger(Group).Observe(FailoverSteps.ThreeNodes) != (former, formerTerm);
-                    return stale ? throw new InvalidOperationException($"The leader of {Group} changed before the stop began.") : cluster.StopNodeAsync(former);
-                }
-
                 var scene = new FailoverFault.Scene(cluster, probe, timeline, CacheName, Group, KeyOwnerHelper.ThreeNode);
                 var fault = (former, $"stop {iteration}: leader {former} stops", (Func<ValueTask>?)StopLeaderAsync);
                 FailoverFault.FaultRun run;
@@ -185,6 +178,13 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
                 _ = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
                 _ = await GroupLogAudit.RunAsync(cluster.Cluster, Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
                 return (sample, history, run.Keys);
+
+                ValueTask StopLeaderAsync()
+                {
+                    stopStarted = Stopwatch.GetTimestamp();
+                    stale = timeline.Baseline != (former, formerTerm) || probe.Ledger(Group).Observe(FailoverSteps.ThreeNodes) != (former, formerTerm);
+                    return stale ? throw new InvalidOperationException($"The leader of {Group} changed before the stop began.") : cluster.StopNodeAsync(former);
+                }
             }
             catch (Exception exception) when (exception is not AssertionException)
             {

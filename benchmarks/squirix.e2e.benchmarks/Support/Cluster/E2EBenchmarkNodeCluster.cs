@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2EBenchmarks.Scenarios;
@@ -21,14 +20,9 @@ internal static class E2EBenchmarkNodeCluster
     internal static Task<TestCluster<ClusterStartOptions>> StartAsync(DurabilityMode durabilityMode = DurabilityMode.Ephemeral, CancellationToken cancellationToken = default) =>
         StartAsync($"bench-{Guid.NewGuid():N}", ListenPortPool.EndToEndBenchmarks.HoldHttpUri(), durabilityMode, cancellationToken);
 
-    [SuppressMessage(
-        "Design",
-        "CA1031:Do not catch general exception types",
-        Justification = "Best-effort rollback: the cluster disposal failure is logged and swallowed so the original start failure always propagates.")]
     private static async Task<TestCluster<ClusterStartOptions>> StartAsync(string nodeId, Uri uri, DurabilityMode durabilityMode, CancellationToken cancellationToken)
     {
-        var dataDirName = durabilityMode is DurabilityMode.Persistence ? "squirix-e2e-bench" : null;
-        var cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode(nodeId, uri), dir: dataDirName);
+        var cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode(nodeId, uri), dir: durabilityMode is DurabilityMode.Persistence ? "squirix-e2e-bench" : null);
 
         try
         {
@@ -42,14 +36,9 @@ internal static class E2EBenchmarkNodeCluster
         }
         catch (Exception)
         {
-            try
-            {
-                await cluster.DisposeAsync().ConfigureAwait(false);
-            }
-            catch (Exception disposeException)
-            {
-                TestLog.Suppressed("E2EBenchmarkNodeCluster.StartAsync rollback: cluster disposal failed after a start failure.", disposeException);
-            }
+            var disposeFailure = await cluster.CaptureDisposeFailureAsync().ConfigureAwait(false);
+            if (disposeFailure != null)
+                TestLog.Suppressed("E2EBenchmarkNodeCluster.StartAsync rollback: cluster disposal failed after a start failure.", disposeFailure);
 
             throw;
         }

@@ -59,7 +59,7 @@ public sealed class OwnershipGuardWiringTests : ServerUnitTestBase
             new IBackpressureClientIdResolverCreateExpectations().Instance());
         var services = new ServiceCollection().AddSquirixCachePipeline()
                                               .AddSingleton(new TopologyOptions(new ServerPeer { NodeId = Self, Uri = new Uri("https://localhost:6001") }) { ClusterId = "c", NodeId = Self, Uri = new Uri("https://localhost:6001") })
-                                              .AddSingleton<INodeLocator>(locator.Instance())
+                                              .AddSingleton(locator.Instance())
                                               .AddSingleton(leaders)
                                               .AddSingleton(below);
         await using var provider = services.BuildServiceProvider();

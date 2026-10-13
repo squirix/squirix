@@ -301,7 +301,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).CommitIndex).IsEqualTo(3UL);
     }
 
-    private static ReplicaCatchUpReporter Reporter() => new("n1", Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, null);
+    private static ReplicaCatchUpReporter Reporter() => new("n1", NullLogger.Instance, null);
 
     /// <summary>Follower double that runs a scripted action on the first request, before answering it like the wrapped gateway.</summary>
     private sealed class FirstCallGateway : IReplicaRpcGateway

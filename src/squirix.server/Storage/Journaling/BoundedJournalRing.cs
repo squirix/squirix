@@ -23,12 +23,7 @@ internal sealed class BoundedJournalRing : IDisposable
     private long _head;
     private long _tail;
 
-    internal BoundedJournalRing(int capacity)
-        : this(capacity, true)
-    {
-    }
-
-    internal BoundedJournalRing(int capacity, bool useHighResolutionTimer)
+    internal BoundedJournalRing(int capacity, bool useHighResolutionTimer = true)
     {
         if (capacity <= 0 || !BitOperations.IsPow2(capacity))
             throw new ArgumentOutOfRangeException(nameof(capacity), "capacity must be a power of two.");

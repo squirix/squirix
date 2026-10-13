@@ -79,12 +79,10 @@ internal sealed class ClusterLeaderProbe<TOptions>
     {
         lock (_gate)
         {
-            if (!_ledgers.TryGetValue(groupId, out var ledger))
-            {
-                ledger = new GroupAuthorityLedger<TOptions>(_cluster, groupId);
-                _ledgers.Add(groupId, ledger);
-            }
-
+            if (_ledgers.TryGetValue(groupId, out var ledger))
+                return ledger;
+            ledger = new GroupAuthorityLedger<TOptions>(_cluster, groupId);
+            _ledgers.Add(groupId, ledger);
             return ledger;
         }
     }

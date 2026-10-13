@@ -79,11 +79,6 @@ public sealed class FaultScheduleTests : EndToEndTestBase
         var history = new List<(RegisterHistory History, string[] Keys)>();
         var leaderFaults = 0;
 
-        string Context()
-        {
-            return $"seed {seed.ToString(CultureInfo.InvariantCulture)} (fixes the kinds of the steps; the victims depend on which node led), anchor {anchor}, initial leader {initialLeader}, steps: {string.Join(" -> ", trace)}";
-        }
-
         try
         {
             for (var step = 1; step <= replicas * 4; step++)
@@ -101,6 +96,13 @@ public sealed class FaultScheduleTests : EndToEndTestBase
         catch (Exception exception) when (exception is not AssertionException)
         {
             throw new InvalidOperationException($"The fault schedule failed: {exception.Message}{Environment.NewLine}{Context()}", exception);
+        }
+
+        return;
+
+        string Context()
+        {
+            return $"seed {seed.ToString(CultureInfo.InvariantCulture)} (fixes the kinds of the steps; the victims depend on which node led), anchor {anchor}, initial leader {initialLeader}, steps: {string.Join(" -> ", trace)}";
         }
     }
 

@@ -46,66 +46,6 @@ internal static class GroupLogAudit
         CancellationToken cancellationToken)
         where TOptions : ClusterStartOptions => RunAsync(cluster, groupId, members, bound, false, cancellationToken);
 
-    /// <summary>Waits until a group is quiet, then audits the committed log of each of its members.</summary>
-    /// <typeparam name="TOptions">Node startup options type of the cluster.</typeparam>
-    /// <param name="cluster">The cluster.</param>
-    /// <param name="groupId">The replica group.</param>
-    /// <param name="members">The members to audit; each must run, and one of them must lead the group.</param>
-    /// <param name="bound">The longest wait for the group to become quiet.</param>
-    /// <param name="allowCompactedPrefix">
-    /// Whether a member may have compacted a prefix of the committed log into a snapshot; when <see langword="true" />, only the range every
-    /// member still retains is audited, and that range may be empty.
-    /// </param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>What the audit compared.</returns>
-    /// <exception cref="ArgumentException">A member does not run.</exception>
-    /// <exception cref="TimeoutException">The group did not become quiet within the bound.</exception>
-    /// <exception cref="InvalidOperationException">
-    /// A client operation was committed twice, two members retain different committed entries, or, unless a compacted prefix is allowed,
-    /// a member does not retain the committed log from index one.
-    /// </exception>
-    internal static async Task<GroupLogAuditReport> RunAsync<TOptions>(
-        TestCluster<TOptions> cluster,
-        string groupId,
-        IReadOnlyList<string> members,
-        TimeSpan bound,
-        bool allowCompactedPrefix,
-        CancellationToken cancellationToken)
-        where TOptions : ClusterStartOptions
-    {
-        ArgumentNullException.ThrowIfNull(cluster);
-        ArgumentNullException.ThrowIfNull(members);
-        var hosts = new ITestNodeHost[members.Count];
-        for (var i = 0; i < hosts.Length; i++)
-            hosts[i] = cluster.TryGetNode(members[i], out var host) ? host : throw new ArgumentException($"Member {members[i]} does not run.", nameof(members));
-
-        try
-        {
-            await (Hosts: hosts, Group: groupId).WaitUntilValueAsync(static (s, token) => IsQuietAsync(s.Hosts, s.Group, token), bound, cancellationToken).ConfigureAwait(false);
-        }
-        catch (TimeoutException exception)
-        {
-            throw new TimeoutException($"Timed out waiting until group {groupId} is quiet on {string.Join(", ", members)}.", exception);
-        }
-
-        var logs = new Dictionary<string, IReadOnlyList<AuditedLogEntry>>(StringComparer.Ordinal);
-        var commitIndex = 0UL;
-        for (var i = 0; i < hosts.Length; i++)
-        {
-            var (entries, commit) = await ReadCommittedAsync(Log(hosts[i], groupId), cancellationToken).ConfigureAwait(false);
-            logs.Add(members[i], entries);
-            commitIndex = Math.Max(commitIndex, commit);
-        }
-
-        var findings = new List<string>();
-        foreach (var (member, entries) in logs)
-            FindRepeatedOperations(member, entries, findings);
-
-        var report = CompareCommittedRanges(logs, commitIndex, allowCompactedPrefix, findings);
-        return findings.Count == 0 ? report
-            : throw new InvalidOperationException($"The committed log of group {groupId} failed its audit:{Environment.NewLine}{string.Join(Environment.NewLine, findings)}");
-    }
-
     /// <summary>Compares the committed range every member retains, entry by entry: term, operation identifier and payload hash.</summary>
     /// <param name="logs">The retained committed entries of each member, dense and in index order.</param>
     /// <param name="commitIndex">The commit index of the group.</param>
@@ -180,6 +120,66 @@ internal static class GroupLogAudit
             if (!seen.TryAdd((entry.OperationScope, entry.OperationId), entry.Index))
                 findings.Add($"{member}: operation {entry.OperationScope}/{entry.OperationId} is committed at {seen[(entry.OperationScope, entry.OperationId)]} and again at {entry.Index}.");
         }
+    }
+
+    /// <summary>Waits until a group is quiet, then audits the committed log of each of its members.</summary>
+    /// <typeparam name="TOptions">Node startup options type of the cluster.</typeparam>
+    /// <param name="cluster">The cluster.</param>
+    /// <param name="groupId">The replica group.</param>
+    /// <param name="members">The members to audit; each must run, and one of them must lead the group.</param>
+    /// <param name="bound">The longest wait for the group to become quiet.</param>
+    /// <param name="allowCompactedPrefix">
+    /// Whether a member may have compacted a prefix of the committed log into a snapshot; when <see langword="true" />, only the range every
+    /// member still retains is audited, and that range may be empty.
+    /// </param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>What the audit compared.</returns>
+    /// <exception cref="ArgumentException">A member does not run.</exception>
+    /// <exception cref="TimeoutException">The group did not become quiet within the bound.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// A client operation was committed twice, two members retain different committed entries, or, unless a compacted prefix is allowed,
+    /// a member does not retain the committed log from index one.
+    /// </exception>
+    private static async Task<GroupLogAuditReport> RunAsync<TOptions>(
+        TestCluster<TOptions> cluster,
+        string groupId,
+        IReadOnlyList<string> members,
+        TimeSpan bound,
+        bool allowCompactedPrefix,
+        CancellationToken cancellationToken)
+        where TOptions : ClusterStartOptions
+    {
+        ArgumentNullException.ThrowIfNull(cluster);
+        ArgumentNullException.ThrowIfNull(members);
+        var hosts = new ITestNodeHost[members.Count];
+        for (var i = 0; i < hosts.Length; i++)
+            hosts[i] = cluster.TryGetNode(members[i], out var host) ? host : throw new ArgumentException($"Member {members[i]} does not run.", nameof(members));
+
+        try
+        {
+            await (Hosts: hosts, Group: groupId).WaitUntilValueAsync(static (s, token) => IsQuietAsync(s.Hosts, s.Group, token), bound, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException exception)
+        {
+            throw new TimeoutException($"Timed out waiting until group {groupId} is quiet on {string.Join(", ", members)}.", exception);
+        }
+
+        var logs = new Dictionary<string, IReadOnlyList<AuditedLogEntry>>(StringComparer.Ordinal);
+        var commitIndex = 0UL;
+        for (var i = 0; i < hosts.Length; i++)
+        {
+            var (entries, commit) = await ReadCommittedAsync(Log(hosts[i], groupId), cancellationToken).ConfigureAwait(false);
+            logs.Add(members[i], entries);
+            commitIndex = Math.Max(commitIndex, commit);
+        }
+
+        var findings = new List<string>();
+        foreach (var (member, entries) in logs)
+            FindRepeatedOperations(member, entries, findings);
+
+        var report = CompareCommittedRanges(logs, commitIndex, allowCompactedPrefix, findings);
+        return findings.Count == 0 ? report
+            : throw new InvalidOperationException($"The committed log of group {groupId} failed its audit:{Environment.NewLine}{string.Join(Environment.NewLine, findings)}");
     }
 
     private static void FindHiddenPrefixes(IReadOnlyDictionary<string, IReadOnlyList<AuditedLogEntry>> logs, ulong commitIndex, bool sharedEmpty, List<string> findings)

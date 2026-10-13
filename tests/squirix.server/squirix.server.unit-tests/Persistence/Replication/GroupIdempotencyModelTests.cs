@@ -448,11 +448,10 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
             Entry? head = null;
             foreach (var (id, entry) in _table)
             {
-                if (entry.IsResolved && (head == null || entry.Birth < head.Birth || (entry.Birth == head.Birth && entry.Order < head.Order)))
-                {
-                    oldest = id;
-                    head = entry;
-                }
+                if (!entry.IsResolved || (head != null && entry.Birth >= head.Birth && (entry.Birth != head.Birth || entry.Order >= head.Order)))
+                    continue;
+                oldest = id;
+                head = entry;
             }
 
             return oldest != null && head != null && _elapsed - head.Birth >= _floor && _table.Remove(oldest);

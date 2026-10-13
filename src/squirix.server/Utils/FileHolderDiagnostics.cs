@@ -10,7 +10,7 @@ namespace Squirix.Server.Utils;
 internal static class FileHolderDiagnostics
 {
     /// <summary>Maximum number of holders listed in a description.</summary>
-    internal const int MaxHolders = 8;
+    private const int MaxHolders = 8;
 
     /// <summary>
     /// Size of the native <c language="csharp">RM_PROCESS_INFO</c> record: RM_UNIQUE_PROCESS (12 bytes: pid, start time), strAppName[256],

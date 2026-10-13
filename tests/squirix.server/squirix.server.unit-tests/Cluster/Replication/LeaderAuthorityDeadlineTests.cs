@@ -156,11 +156,6 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
     {
         await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
         scope.Leadership.PromotionsPending = true;
-        void Slow()
-        {
-            scope.Time.Advance(TimeSpan.FromSeconds(6));
-            scope.Leadership.DuringNextPromotion = Slow;
-        }
 
         scope.Leadership.DuringNextPromotion = Slow;
         var election = CreateElection(scope, Three);
@@ -178,6 +173,13 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
 
         _ = await Assert.That(elected.Event).IsEqualTo(ElectionEvent.Elected);
         _ = await Assert.That((pending, outcome.Event, outcome.Waited.TotalSeconds)).IsEqualTo((6, ElectionEvent.SteppedDown, 30d));
+        return;
+
+        void Slow()
+        {
+            scope.Time.Advance(TimeSpan.FromSeconds(6));
+            scope.Leadership.DuringNextPromotion = Slow;
+        }
     }
 
     /// <summary>A step-down on a higher term or a silent majority reports no wait for authority.</summary>

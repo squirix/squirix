@@ -142,12 +142,11 @@ internal sealed class StallRun
         lock (op)
         {
             op.Request.ClientEndMs = NowMs();
-            if (!completed && !op.Done)
-            {
-                op.GaveUp = true;
-                gaveUp = true;
-                _ = Interlocked.Increment(ref _orphans);
-            }
+            if (completed || op.Done)
+                return Classify(op, gaveUp);
+            op.GaveUp = true;
+            gaveUp = true;
+            _ = Interlocked.Increment(ref _orphans);
         }
 
         return Classify(op, gaveUp);

@@ -101,9 +101,6 @@ internal sealed class ParkingFollowerGateway : IReplicaRpcGateway
         /// <summary>Gets the log index of the first entry of the request.</summary>
         internal ulong FirstIndex => _batch.Records[0].LogIndex;
 
-        /// <summary>Gets the log index of the last entry of the request.</summary>
-        internal ulong LastIndex => _batch.Records[^1].LogIndex;
-
         /// <summary>Gets the node the request was sent to.</summary>
         internal string NodeId { get; }
 
@@ -114,6 +111,9 @@ internal sealed class ParkingFollowerGateway : IReplicaRpcGateway
         internal CancellationToken Token { get; }
 
         internal Task<FollowerLogAppendResult> Answer => _answer.Task;
+
+        /// <summary>Gets the log index of the last entry of the request.</summary>
+        private ulong LastIndex => _batch.Records[^1].LogIndex;
 
         /// <summary>Answers the request as accepted through its last entry, or through its predecessor when it carried none.</summary>
         internal void Accept() => _ = _answer.TrySetResult(new FollowerLogAppendResult(true, string.Empty, _batch.LeaderTerm, Count == 0 ? PrevLogIndex : LastIndex));

@@ -131,16 +131,15 @@ internal sealed class ReplicaStateTransfers
         GroupSnapshot snapshot,
         CancellationToken cancellationToken)
     {
-        var (target, lease) = catchUp;
+        var ((slot, _, replicaFollowerSender, _, term), lease) = catchUp;
         var clock = committer.BudgetTimeProvider;
         var started = clock.GetTimestamp();
-        var (_, header) = committer.Probe.BuildMembership(target.Term);
-        ReplicaTransferLog.Sending(_log, committer.GroupId, lease.NodeId, snapshot.LastIncludedIndex, target.Term);
+        var (_, header) = committer.Probe.BuildMembership(term);
+        ReplicaTransferLog.Sending(_log, committer.GroupId, lease.NodeId, snapshot.LastIncludedIndex, term);
         var election = committer.Election;
-        var slot = target.ReplicaIndex;
         var stream = new ReplicaTransferStream(_gateway, _options, in header, lease.NodeId, clock)
         {
-            Draining = target.Sender.DrainStarted,
+            Draining = replicaFollowerSender.DrainStarted,
             Replies = election == null ? null : reply => Post(election, slot, in reply),
         };
         var result = await stream.RunAsync(snapshot, _entries, cancellationToken).ConfigureAwait(false);

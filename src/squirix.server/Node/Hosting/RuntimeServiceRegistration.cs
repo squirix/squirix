@@ -34,9 +34,11 @@ internal static class RuntimeServiceRegistration
             _ = services.AddSingleton<IRemoteInvocationState>(static sp => sp.GetRequiredService<RemoteInvocationContextAccessor>());
             _ = services.AddHttpContextAccessor();
             _ = services.AddSingleton<IBackpressureClientIdResolver>(static sp => sp.GetRequiredService<AdmissionOptions>().HasPerClientLimits
-                ? new HttpContextClientIdResolver(sp.GetRequiredService<IHttpContextAccessor>())
-                : SharedClientIdResolver.Instance);
-            _ = services.AddSingleton<IBackpressureGate>(static sp => new AdmissionGate(sp.GetRequiredService<AdmissionOptions>(), sp.GetRequiredService<BackpressureMetrics>(), sp.GetRequiredService<TimeProvider>()));
+                ? new HttpContextClientIdResolver(sp.GetRequiredService<IHttpContextAccessor>()) : SharedClientIdResolver.Instance);
+            _ = services.AddSingleton<IBackpressureGate>(static sp => new AdmissionGate(
+                sp.GetRequiredService<AdmissionOptions>(),
+                sp.GetRequiredService<BackpressureMetrics>(),
+                sp.GetRequiredService<TimeProvider>()));
             _ = services.AddSingleton<IMemoryPressureStateEvaluator>(static sp => new StateEvaluator(sp.GetRequiredService<IOptions<PressureOptions>>()));
             _ = services.AddSingleton<MemoryUsageAccounting>();
             _ = services.AddSingleton<IMemoryUsageAccounting>(static sp => sp.GetRequiredService<MemoryUsageAccounting>());
@@ -104,10 +106,11 @@ internal static class RuntimeServiceRegistration
             // Who decides expiry, read by the cache, its snapshots, recovery and journal compaction alike. FeatureState is the single
             // source of truth: on network-replication-activated hosts only committed records remove an entry, so the leader decides expiry;
             // RF=1 and foundation-only hosts keep the local clock. AddSingleton<T>(T) is constrained to class, so the descriptor boxes the enum.
-            services.Add(new ServiceDescriptor(
-                typeof(CacheExpiryAuthority),
-                static sp => sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled ? CacheExpiryAuthority.CommittedRecords : CacheExpiryAuthority.LocalClock,
-                ServiceLifetime.Singleton));
+            services.Add(
+                new ServiceDescriptor(
+                    typeof(CacheExpiryAuthority),
+                    static sp => sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled ? CacheExpiryAuthority.CommittedRecords : CacheExpiryAuthority.LocalClock,
+                    ServiceLifetime.Singleton));
             _ = services.AddSingleton(static sp => new PhysicalCache<object?>(
                 sp.GetRequiredService<TimeProvider>(),
                 sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),

@@ -21,7 +21,7 @@ internal static class PlantedCopyTestKit
     internal static async Task<ReplicaGroupRegistry> ReopenWithStateAsync(string dir, string[] groupIds, string groupId, (GroupMemberState State, bool Offered) copy, CancellationToken cancellationToken)
     {
         var path = GroupStoragePaths.GetMetadataPath(dir, groupId);
-        var planted = (await GroupMetadataFile.ReadAsync(path, cancellationToken)) with { MemberState = copy.State, BootstrapOffered = copy.Offered };
+        var planted = await GroupMetadataFile.ReadAsync(path, cancellationToken) with { MemberState = copy.State, BootstrapOffered = copy.Offered };
         await GroupMetadataFile.WriteAsync(path, in planted, cancellationToken);
         var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System };
         var registry = new ReplicaGroupRegistry(dir, groupIds, 3, ReplicaOwnerTestKit.Fingerprint, 1, NullLoggerFactory.Instance, options) { ElectionClock = TimeProvider.System };

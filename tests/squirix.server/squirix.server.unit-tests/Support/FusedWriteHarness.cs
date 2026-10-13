@@ -83,26 +83,16 @@ internal sealed class FusedWriteHarness
     /// <summary>Gets the number of journal flushes completed so far.</summary>
     internal long FlushCount => Journal.Journal.FlushCount;
 
-    /// <summary>Gets the journal over the stallable writer.</summary>
-    internal StallableJournal Journal { get; }
-
     /// <summary>Gets the memory the decorator applies to.</summary>
     internal PhysicalCache<object?> Physical { get; }
 
     /// <summary>Gets the idempotency store.</summary>
     internal RpcMutationIdempotencyStore Store { get; }
 
-    private DurableMutationExecutor Executor { get; }
+    /// <summary>Gets the journal over the stallable writer.</summary>
+    private StallableJournal Journal { get; }
 
-    /// <summary>Creates the wire form of an entry holding a string.</summary>
-    /// <param name="value">The value.</param>
-    /// <param name="ttl">The relative expiration, or <see langword="null" /> for none.</param>
-    /// <returns>The wire entry.</returns>
-    internal static CacheEntryWire Entry(string value, TimeSpan? ttl = null) => new()
-    {
-        Value = Struct.Parser.ParseJson("{\"__v\":\"" + value + "\"}"),
-        Expiration = ttl is { } span ? Duration.FromTimeSpan(span) : null,
-    };
+    private DurableMutationExecutor Executor { get; }
 
     /// <summary>Builds a GetOrAdd request.</summary>
     /// <param name="operationId">Operation id.</param>
@@ -208,6 +198,16 @@ internal sealed class FusedWriteHarness
         await new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, dependencies).StartAsync(cancellationToken);
         return (memory, store);
     }
+
+    /// <summary>Creates the wire form of an entry holding a string.</summary>
+    /// <param name="value">The value.</param>
+    /// <param name="ttl">The relative expiration, or <see langword="null" /> for none.</param>
+    /// <returns>The wire entry.</returns>
+    private static CacheEntryWire Entry(string value, TimeSpan? ttl = null) => new()
+    {
+        Value = Struct.Parser.ParseJson("{\"__v\":\"" + value + "\"}"),
+        Expiration = ttl is { } span ? Duration.FromTimeSpan(span) : null,
+    };
 
     private SquirixServiceAdapter<object?> CreateAdapter(ILogicalNamespacedCache<object?> api)
     {

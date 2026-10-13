@@ -44,13 +44,13 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     public async Task EarlierSentAttemptIsNotUnreachable(bool raw, CancellationToken cancellationToken)
     {
         var attempt = 0;
-        var invoker = new CapturingCallInvoker(failure: () =>
-        {
-            var cause = ++attempt == 1
-                ? new HttpRequestException(HttpRequestError.ResponseEnded, "the response ended")
-                : new HttpRequestException(HttpRequestError.ConnectionError, "connection refused");
-            return raw ? cause : new RpcException(new Status(StatusCode.Unavailable, "start failed", cause));
-        });
+        var invoker = new CapturingCallInvoker(
+            failure: () =>
+            {
+                var cause = ++attempt == 1 ? new HttpRequestException(HttpRequestError.ResponseEnded, "the response ended")
+                    : new HttpRequestException(HttpRequestError.ConnectionError, "connection refused");
+                return raw ? cause : new RpcException(new Status(StatusCode.Unavailable, "start failed", cause));
+            });
         var forwarder = CreateForwarder(invoker);
 
         var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
@@ -116,18 +116,18 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     [Test]
     public async Task ConcurrentForwardsAreUnreachable(CancellationToken cancellationToken)
     {
-        const int Forwards = 20;
+        const int forwards = 20;
         await using var pool = CreatePool(
             static () => new SocketsHttpHandler { ConnectCallback = static (_, ct) => NeverConnectsAsync(ct) },
             new Uri("https://localhost:6500"),
             TimeSpan.FromMilliseconds(200));
         var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(3), 1));
 
-        var calls = new Task<GetValueAsyncResponse>[Forwards];
-        for (var i = 0; i < Forwards; i++)
+        var calls = new Task<GetValueAsyncResponse>[forwards];
+        for (var i = 0; i < forwards; i++)
             calls[i] = forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken);
 
-        for (var i = 0; i < Forwards; i++)
+        for (var i = 0; i < forwards; i++)
         {
             var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(calls[i]);
             _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsTrue().Because($"forward {i} must fail as unreachable, not as {failure.Status}");
@@ -176,7 +176,8 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         var elapsed = Stopwatch.GetElapsedTime(started);
 
         // The delay, the ping timeout and the two heartbeat ticks of the handler add up to at most five seconds (the delay of one, the ping timeout of two and two ticks of one); the bound doubles it for slack for a loaded host.
-        _ = await Assert.That(elapsed).IsLessThan(TimeSpan.FromSeconds(10)).Because($"the keepalive must close the connection long before the 30 s attempt timeout, took {elapsed}");
+        _ = await Assert.That(elapsed).IsLessThan(TimeSpan.FromSeconds(10))
+                        .Because($"the keepalive must close the connection long before the 30 s attempt timeout, took {elapsed}");
         _ = await Assert.That(failure.StatusCode).IsNotEqualTo(StatusCode.DeadlineExceeded);
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsFalse().Because($"the request was written, got {failure.Status}");
         _ = await Assert.That(stream.RequestHeadersWritten).IsTrue().Because("a HEADERS frame after the connection preface proves the request itself was written");
@@ -191,14 +192,14 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     {
         var created = new List<SocketsHttpHandler>();
         await using (CreatePool(
-            () =>
-            {
-                var handler = new SocketsHttpHandler { ConnectCallback = static (_, ct) => NeverConnectsAsync(ct) };
-                created.Add(handler);
-                return handler;
-            },
-            new Uri("https://localhost:6500"),
-            TimeSpan.FromMilliseconds(300)))
+                         () =>
+                         {
+                             var handler = new SocketsHttpHandler { ConnectCallback = static (_, ct) => NeverConnectsAsync(ct) };
+                             created.Add(handler);
+                             return handler;
+                         },
+                         new Uri("https://localhost:6500"),
+                         TimeSpan.FromMilliseconds(300)))
         {
             _ = await Assert.That(created.Count).IsEqualTo(2);
             var bounded = 0;
@@ -221,14 +222,14 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     {
         var created = new List<SocketsHttpHandler>();
         await using (CreatePool(
-            () =>
-            {
-                var handler = new SocketsHttpHandler { ConnectCallback = static (_, ct) => NeverConnectsAsync(ct) };
-                created.Add(handler);
-                return handler;
-            },
-            new Uri("https://localhost:6500"),
-            TimeSpan.FromMilliseconds(300)))
+                         () =>
+                         {
+                             var handler = new SocketsHttpHandler { ConnectCallback = static (_, ct) => NeverConnectsAsync(ct) };
+                             created.Add(handler);
+                             return handler;
+                         },
+                         new Uri("https://localhost:6500"),
+                         TimeSpan.FromMilliseconds(300)))
         {
             _ = await Assert.That(created.Count).IsEqualTo(2);
             var pinging = 0;

@@ -96,7 +96,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         var applied = kind switch
         {
             ReplicaMutationKinds.Set => await SetAsync(admission, cancellationToken),
-            ReplicaMutationKinds.TryAdd => await admission.TryAddEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("w", 1), cancellationToken),
+            ReplicaMutationKinds.TryAdd => await admission.TryAddEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("w"), cancellationToken),
             _ => await admission.TouchAsync(NewOperationId(), CacheName, Key, Ttl, cancellationToken),
         };
 
@@ -223,7 +223,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
 
             // Both followers park the next write, which holds the commit gate; the expiry queues behind it.
             gateway.Arm();
-            var stuck = committer.CommitSetAsync(NewOperationId(), CacheName, "other", new NodeCacheEntry<object?>("w", 1), cancellationToken);
+            var stuck = committer.CommitSetAsync(NewOperationId(), CacheName, "other", new NodeCacheEntry<object?>("w"), cancellationToken);
             await gateway.Entered.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             var expiry = committer.ExpireAsync(CacheName, Key, cancellationToken);
 
@@ -323,7 +323,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, IdempotencyCapacity = 4 };
         var clock = new FakeTimeProvider(Start);
         var operationId = NewOperationId();
-        var entry = new NodeCacheEntry<object?>("v", 1);
+        var entry = new NodeCacheEntry<object?>("v");
         ulong written;
         await using (var registry = await OpenRegistryAsync(dir, options, cancellationToken))
         await using (var leader = new Leader(registry, clock))
@@ -354,7 +354,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
 
     private static async Task<bool> SetAsync(MemoryAdmissionCacheDecorator<object?> admission, CancellationToken cancellationToken)
     {
-        await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("w", 1), cancellationToken);
+        await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("w"), cancellationToken);
         return true;
     }
 

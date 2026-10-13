@@ -192,8 +192,8 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     /// </exception>
     internal ReplicaGroupCommitter ForKey(string cacheName, string key)
     {
-        if (_ownOnly is { } own)
-            return own;
+        if (_ownOnly != null)
+            return _ownOnly;
 
         var owner = _owners.GetOwner(cacheName, key);
         return FindAuthorized(owner) ?? ThrowHelper.Throw<ReplicaGroupCommitter>(Refusal(owner));
@@ -206,10 +206,10 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     /// <remarks>A copy never becomes unseeded again, so the first complete status is remembered and later reads cost nothing.</remarks>
     internal async ValueTask EnsureSeededAsync(CancellationToken cancellationToken)
     {
-        if (_ownOnly is not { } own || Volatile.Read(ref _ownSeeded))
+        if (_ownOnly == null || Volatile.Read(ref _ownSeeded))
             return;
 
-        var seeded = own.Registry.TryGetLog(own.GroupId, out var log) && (await log.GetStatusAsync(cancellationToken).ConfigureAwait(false)).MemberState == GroupMemberState.Complete;
+        var seeded = _ownOnly.Registry.TryGetLog(_ownOnly.GroupId, out var log) && (await log.GetStatusAsync(cancellationToken).ConfigureAwait(false)).MemberState == GroupMemberState.Complete;
         if (!seeded)
             throw ServerOpContract.NoLeaderAuthority();
 
@@ -236,12 +236,10 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
         var create = ThrowHelper.Required(_create, "The led groups of this node are fixed; none is promoted.");
         lock (_sync)
         {
-            if (!_created.TryGetValue(groupId, out var committer))
-            {
-                committer = create(groupId);
-                _created.Add(groupId, committer);
-            }
-
+            if (_created.TryGetValue(groupId, out var committer))
+                return committer;
+            committer = create(groupId);
+            _created.Add(groupId, committer);
             return committer;
         }
     }
@@ -256,10 +254,10 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     /// <remarks>The leader table hides refuted routes on purpose, so this refusal never names a leader that already answered as stale.</remarks>
     private Grpc.Core.RpcException Refusal(string groupId)
     {
-        if (_authority is not { } table)
+        if (_authority == null)
             return StaleOwnerFailure.Create(groupId, _selfId);
 
-        var view = table.Read(groupId);
+        var view = _authority.Read(groupId);
         return LeaderRefusal.Create(LeaderRefusal.Classify(in view, _selfId), in view, _selfId, true);
     }
 

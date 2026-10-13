@@ -45,10 +45,6 @@ public abstract class JournalStartupRepairTestBase : IsolatedStorageTestBase
 
     private protected static byte[] OversizedLength() => [0xFF, 0xFF, 0xFF, 0x7F];
 
-    private protected static State NewManifest() => new() { Format = 1, CurrentJournal = 1, NextSequence = 1 };
-
-    private protected static PersistenceOptions NewPersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16 };
-
     private protected byte[] BuildFrame(ulong sequence, string key)
     {
         var scratch = NodePathKit.Combine(Dir, "frame-scratch.bin");
@@ -87,4 +83,8 @@ public abstract class JournalStartupRepairTestBase : IsolatedStorageTestBase
         await File.WriteAllBytesAsync(path, content, cancellationToken);
         return path;
     }
+
+    private static State NewManifest() => new() { Format = 1, CurrentJournal = 1, NextSequence = 1 };
+
+    private static PersistenceOptions NewPersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16 };
 }

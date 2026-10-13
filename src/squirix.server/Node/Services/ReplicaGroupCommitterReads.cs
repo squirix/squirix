@@ -42,7 +42,7 @@ internal static class ReplicaGroupCommitterReads
 
             using var bound = new CancellationTokenSource(election.Options.ElectionTimeout, election.Clock);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, bound.Token);
-            var readIndex = 0UL;
+            ulong readIndex;
             var confirmed = false;
             try
             {

@@ -82,10 +82,9 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var now = _clock.GetUtcNow().UtcDateTime;
-        if (current == null || ReplicaMutationDecisions.DecideExpire(current, now) is not { } decision)
+        if (current == null || ReplicaMutationDecisions.DecideExpire(current, now) is not var (payload, outcome, deadlineTicks))
             return (null, current);
 
-        var deadlineTicks = decision.ExpiresUtcTicks;
         var operationId = ReplicaExpirationOperationId.Create(_groupId, cacheName, key, current.Version, new DateTime(deadlineTicks, DateTimeKind.Utc));
         var record = new ReplicaLogRecord(
             index,
@@ -97,9 +96,9 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             cacheName,
             Encoding.UTF8.GetBytes(key),
             ReplicaMutationKinds.Expire,
-            decision.Payload,
-            decision.Outcome,
-            decision.ExpiresUtcTicks,
+            payload,
+            outcome,
+            deadlineTicks,
             now.Ticks,
             0,
             0);

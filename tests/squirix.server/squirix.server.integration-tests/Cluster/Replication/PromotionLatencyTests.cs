@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Services;
@@ -85,7 +84,7 @@ public sealed class PromotionLatencyTests : NodeIntegrationTestBase
     {
         var committers = leader.GetRequiredService<ReplicaGroupCommitters>();
         var tenure = committers.Leads(Group) ? committers.For(Group).Tenure : throw new InvalidOperationException($"The leader no longer leads group {Group}.");
-        var index = tenure is { } held && held.Term == term ? held.NoopIndex : throw new InvalidOperationException($"The leader holds no leadership of term {term}.");
+        var index = tenure != null && tenure.Term == term ? tenure.NoopIndex : throw new InvalidOperationException($"The leader holds no leadership of term {term}.");
         var registry = leader.GetRequiredService<ReplicaGroupRegistry>();
         var log = registry.TryGetLog(Group, out var opened) ? opened : throw new InvalidOperationException($"The group log {Group} is not open.");
         var status = await log.GetStatusAsync(cancellationToken);

@@ -49,7 +49,8 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
 
         var refusedInvoker = new CapturingCallInvoker(static _ => new RemoveAsyncResponse());
         var refusing = CreateForwarder(refusedInvoker, CreatePolicy(), CreateGate([], Decision.Rejected("busy")));
-        var refusal = await NodeAsyncAssert.ThrowsAsync<SquirixException>(refusing.RemoveAsync(Owner, new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken));
+        var refusal = await NodeAsyncAssert.ThrowsAsync<SquirixException>(
+            refusing.RemoveAsync(Owner, new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken));
 
         _ = await Assert.That(refusal.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
         _ = await Assert.That(refusedInvoker.Requests.Count).IsEqualTo(0);
@@ -80,8 +81,9 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
     public async Task ConnectionFailureMapsToUnavailable(CancellationToken cancellationToken)
     {
         var refused = CreateForwarder(new CapturingCallInvoker(failure: static () => new HttpRequestException(HttpRequestError.ConnectionError, "connection refused")));
-        var started = CreateForwarder(new CapturingCallInvoker(
-            failure: static () => new RpcException(new Status(StatusCode.Unavailable, "start failed", new HttpRequestException(HttpRequestError.ConnectionError, "refused")))));
+        var started = CreateForwarder(
+            new CapturingCallInvoker(
+                failure: static () => new RpcException(new Status(StatusCode.Unavailable, "start failed", new HttpRequestException(HttpRequestError.ConnectionError, "refused")))));
         var reset = CreateForwarder(new CapturingCallInvoker(failure: static () => new IOException("connection reset")));
         var request = new GetValueAsyncRequest { CacheName = "c", Key = "k" };
 
@@ -105,10 +107,11 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
     [Test]
     public async Task RelayedUnreachableIsNotLocal(CancellationToken cancellationToken)
     {
-        var relayed = CreateForwarder(new CapturingCallInvoker(
-            failure: static () => new RpcException(new Status(StatusCode.Unavailable, ServerOpContract.OwnerUnreachableDetail))));
-        var broken = CreateForwarder(new CapturingCallInvoker(
-            failure: static () => new RpcException(new Status(StatusCode.Unavailable, "start failed", new HttpRequestException(HttpRequestError.ResponseEnded, "ended")))));
+        var relayed = CreateForwarder(
+            new CapturingCallInvoker(failure: static () => new RpcException(new Status(StatusCode.Unavailable, ServerOpContract.OwnerUnreachableDetail))));
+        var broken = CreateForwarder(
+            new CapturingCallInvoker(
+                failure: static () => new RpcException(new Status(StatusCode.Unavailable, "start failed", new HttpRequestException(HttpRequestError.ResponseEnded, "ended")))));
         var request = new GetValueAsyncRequest { CacheName = "c", Key = "k" };
 
         var relayedFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(relayed.GetValueAsync(Owner, request, cancellationToken));
@@ -331,7 +334,10 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
     {
         var instrumentation = new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter));
         await using var policy = ForwardingCallPolicyDefaults.Create(instrumentation, Owner, 8, TimeProvider.System);
-        using var gate = new AdmissionGate(new AdmissionOptions { MaxInFlight = 8, MaxQueue = 1, SlowdownThreshold = 1, MaxSlowdownDelay = TimeSpan.Zero }, new BackpressureMetrics(_testMeter), TimeProvider.System);
+        using var gate = new AdmissionGate(
+            new AdmissionOptions { MaxInFlight = 8, MaxQueue = 1, SlowdownThreshold = 1, MaxSlowdownDelay = TimeSpan.Zero },
+            new BackpressureMetrics(_testMeter),
+            TimeProvider.System);
         var invoker = new CapturingCallInvoker(failure: static () => new RpcException(new Status(StatusCode.Unavailable, "owner is down")));
         var forwarder = CreateForwarder(invoker, policy, gate);
 
@@ -371,12 +377,11 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
     private static IBackpressureGate CreateGate(List<(string Transport, string Operation, string ClientId)> seen, Decision decision)
     {
         var expectations = new IBackpressureGateCreateExpectations();
-        _ = expectations.Setups.AcquireAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                        .Callback((transport, operation, clientId, _) =>
-                         {
-                             seen.Add((transport, operation, clientId));
-                             return ValueTask.FromResult((decision, Lease.Empty));
-                         });
+        _ = expectations.Setups.AcquireAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback((transport, operation, clientId, _) =>
+        {
+            seen.Add((transport, operation, clientId));
+            return ValueTask.FromResult((decision, Lease.Empty));
+        });
         return expectations.Instance();
     }
 

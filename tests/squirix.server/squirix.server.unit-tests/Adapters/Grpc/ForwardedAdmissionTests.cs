@@ -177,10 +177,10 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
         /// <summary>Gets the number of calls that reached this owner.</summary>
         internal int Calls => Volatile.Read(ref _calls);
 
-        /// <summary>Gets a task that completes once the first call reached this owner.</summary>
-        internal TaskCompletionSource EnteredSource { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
         internal Task Entered => EnteredSource.Task;
+
+        /// <summary>Gets a task that completes once the first call reached this owner.</summary>
+        private TaskCompletionSource EnteredSource { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <inheritdoc />
         public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(

@@ -280,12 +280,10 @@ public sealed class ReplicaCommitterAuthorityTests : ServerUnitTestBase
                 await _released.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
             }
 
-            if (batch.Records.Count > 0 && HoldEntries)
-            {
-                _ = _entriesHeld.TrySetResult();
-                await _never.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-            }
-
+            if (batch.Records.Count == 0 || !HoldEntries)
+                return await _followers.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
+            _ = _entriesHeld.TrySetResult();
+            await _never.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
             return await _followers.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
         }
 

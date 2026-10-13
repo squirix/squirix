@@ -1,4 +1,5 @@
 using System;
+using JetBrains.Annotations;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -6,8 +7,10 @@ namespace Squirix.Server.Storage.Journaling;
 /// The journal refused work, or faulted a waiter, because shutdown began. It is the single marker of a failure the shutdown itself caused, so
 /// a stop can tell it from a data failure without matching on names.
 /// </summary>
+[UsedImplicitly]
 #pragma warning disable RCS1194 // ObjectDisposedException has no parameterless constructor to forward to, so the standard set cannot be matched exactly.
 internal sealed class JournalShutdownRefusedException : ObjectDisposedException
+#pragma warning restore RCS1194
 {
     /// <summary>Initializes a new instance of the <see cref="JournalShutdownRefusedException" /> class.</summary>
     internal JournalShutdownRefusedException()
@@ -30,4 +33,3 @@ internal sealed class JournalShutdownRefusedException : ObjectDisposedException
     {
     }
 }
-#pragma warning restore RCS1194

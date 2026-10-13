@@ -84,14 +84,14 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
         lock (_lifetimeSync)
         {
             ObjectDisposedException.ThrowIf(!_accepting, this);
-            if (!_inFlight.TryGetValue((cacheName, key), out shared!))
-            {
-                _drain.Enter();
+            if (_inFlight.TryGetValue((cacheName, key), out shared!))
+                return shared.WaitAsync(cancellationToken);
 
-                // The run starts on the pool; its completion takes the lock to leave the in-flight set, so it waits until the run is in it.
-                shared = StartRunAsync(cacheName, key);
-                _inFlight[(cacheName, key)] = shared;
-            }
+            _drain.Enter();
+
+            // The run starts on the pool; its completion takes the lock to leave the in-flight set, so it waits until the run is in it.
+            shared = StartRunAsync(cacheName, key);
+            _inFlight[(cacheName, key)] = shared;
         }
 
         return shared.WaitAsync(cancellationToken);

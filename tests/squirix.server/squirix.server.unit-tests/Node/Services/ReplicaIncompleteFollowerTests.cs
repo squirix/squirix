@@ -42,7 +42,7 @@ public sealed class ReplicaIncompleteFollowerTests : ServerUnitTestBase
         if (string.Equals(kind, "append", StringComparison.Ordinal))
             state.RecordFollowerReply(1, new FollowerLogAppendResult(false, RefusalCodes.Incomplete, 0UL, 0UL));
         else
-            ReplicaReadinessProbe.RecordContacts(state, [default, new(ReplicaProbeKind.Incomplete, 0), default], 2UL);
+            ReplicaReadinessProbe.RecordContacts(state, [default, new ReplicaProbeResult(ReplicaProbeKind.Incomplete, 0), default], 2UL);
 
         _ = await Assert.That(unseeded).IsFalse();
         _ = await Assert.That(state.HasQuorumContact(0, Options.ElectionTimeout)).IsTrue();
@@ -59,7 +59,7 @@ public sealed class ReplicaIncompleteFollowerTests : ServerUnitTestBase
         _ = await Assert.That(eligibility.TryMarkCatchingUp(2, in progress)).IsTrue();
         var counted = eligibility.CanCountInWriteQuorum(1);
 
-        ReplicaReadinessProbe.ApplyAll(eligibility, 0, [default, new(ReplicaProbeKind.Incomplete, 0), new(ReplicaProbeKind.Incomplete, 0)], in leader, Fingerprint, 1, null);
+        ReplicaReadinessProbe.ApplyAll(eligibility, 0, [default, new ReplicaProbeResult(ReplicaProbeKind.Incomplete, 0), new ReplicaProbeResult(ReplicaProbeKind.Incomplete, 0)], in leader, Fingerprint, 1, null);
 
         _ = await Assert.That(counted).IsTrue();
         _ = await Assert.That((eligibility.StateFor(1), eligibility.StateFor(2))).IsEqualTo((ReplicaParticipantState.CatchingUp, ReplicaParticipantState.CatchingUp));

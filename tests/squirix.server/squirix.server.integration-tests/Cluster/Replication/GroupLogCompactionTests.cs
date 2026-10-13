@@ -110,12 +110,11 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
                 if (i >= writes && Volatile.Read(ref compactions.Value) >= requiredCompactions)
                     break;
 
-                if (Stopwatch.GetElapsedTime(started) >= Bound * 2)
-                {
-                    var fired = Volatile.Read(ref compactions.Value);
-                    var state = await DescribeLogsAsync(cluster, cancellationToken);
-                    throw new TimeoutException($"The steady load made {i} of {writes} writes and {fired} of {requiredCompactions} compactions within twice the bound; {state}.");
-                }
+                if (Stopwatch.GetElapsedTime(started) < Bound * 2)
+                    continue;
+                var fired = Volatile.Read(ref compactions.Value);
+                var state = await DescribeLogsAsync(cluster, cancellationToken);
+                throw new TimeoutException($"The steady load made {i} of {writes} writes and {fired} of {requiredCompactions} compactions within twice the bound; {state}.");
             }
         }
         finally
