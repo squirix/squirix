@@ -21,7 +21,7 @@ namespace Squirix.Server.SmokeTests;
 /// Smoke tests validating that W3C trace-context (traceparent/tracestate) is propagated
 /// from an incoming gRPC call handled by node A to an outgoing gRPC call to node B.
 /// </summary>
-public sealed class CorrelationSmokeTests : SmokeTestBase
+public sealed class CorrelationTests : SmokeTestBase
 {
     private const string TraceParentHeader = "traceparent";
     private const string TraceStateHeader = "tracestate";

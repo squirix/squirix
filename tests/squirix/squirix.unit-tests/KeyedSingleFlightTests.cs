@@ -11,7 +11,7 @@ namespace Squirix.UnitTests;
 
 /// <summary>Unit tests for per-key single-flight coordination.</summary>
 [Immutable]
-public sealed class KeyedSingleFlightTests : UnitTestBase
+public sealed class KeyedSingleFlightTests : TestBase
 {
     /// <summary>Ensures concurrent callers observe the same factory exception.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

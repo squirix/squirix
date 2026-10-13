@@ -8,4 +8,4 @@ namespace Squirix.IntegrationTests;
 /// and creating test-scoped persistence directories.
 /// </summary>
 [Immutable]
-public abstract class IntegrationTestBase;
+public abstract class NodeTestBase;

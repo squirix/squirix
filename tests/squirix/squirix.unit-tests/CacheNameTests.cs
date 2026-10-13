@@ -11,7 +11,7 @@ namespace Squirix.UnitTests;
 
 /// <summary>Tests for <see cref="CacheName" /> validation and equality semantics.</summary>
 [Immutable]
-public sealed class CacheNameTests : UnitTestBase
+public sealed class CacheNameTests : TestBase
 {
     /// <summary>Verifies equality and hash codes follow ordinal canonical strings.</summary>
     [Test]

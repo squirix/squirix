@@ -13,17 +13,17 @@ using TUnit.Core;
 
 namespace Squirix.Server.SmokeTests;
 
-/// <summary>Smoke tests verifying JWT auth rules on the <c language="csharp">/health/ready/details</c> endpoint.</summary>
-public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
+/// <summary>Smoke tests verifying JWT auth rules on the Prometheus-compatible <c language="csharp">/metrics</c> endpoint.</summary>
+public sealed class MetricsAuthTests : SmokeTestBase
 {
     private const string InvalidBearerToken = "invalid.jwt.token";
-    private static readonly SocketsHttpHandler RemoteHandler = LoopbackHttp.CreateHandlerAllowingCertNameMismatch();
-    private static readonly HttpClient RemoteClient = new(RemoteHandler, false);
+    private static readonly SocketsHttpHandler RemoteMetricsHandler = LoopbackHttp.CreateHandlerAllowingCertNameMismatch();
+    private static readonly HttpClient RemoteMetricsClient = new(RemoteMetricsHandler, false);
 
-    /// <summary>Ensures <c language="csharp">/health/ready/details</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.</summary>
+    /// <summary>Ensures <c language="csharp">/metrics</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ReadyDetailsValidatesJwtConfigured(CancellationToken cancellationToken)
+    public async Task MetricsValidatesJwtWhenConfigured(CancellationToken cancellationToken)
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
         _ = await Assert.That(string.IsNullOrWhiteSpace(localIp)).IsFalse();
@@ -32,18 +32,18 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
         using var held = ListenPortPool.SmokeTests.HoldPort();
         var uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port), UriKind.Absolute);
         var loopbackUrl = NodeInvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", held.Port);
-        var remoteDetailsUrl = NodeInvariantIndexStrings.FormatHttpsAbsolute(localIp!, held.Port, "/health/ready/details");
-        var loopbackDetailsUrl = $"{loopbackUrl}/health/ready/details";
+        var remoteMetricsUrl = NodeInvariantIndexStrings.FormatHttpsAbsolute(localIp!, held.Port, "/metrics");
+        var loopbackMetricsUrl = $"{loopbackUrl}/metrics";
 
         await using var cluster = await StartClusterAsync(
-            new ClusterNode("node-ready-details-auth", uri),
+            new ClusterNode("node-metrics-auth", uri),
             _ => new BlackBoxStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
 
-        var loopbackAnonymous = await HttpClient.GetAsync(new Uri(loopbackDetailsUrl), cancellationToken);
+        var loopbackAnonymous = await HttpClient.GetAsync(new Uri(loopbackMetricsUrl), cancellationToken);
         _ = await Assert.That(loopbackAnonymous.IsSuccessStatusCode).IsTrue();
 
-        using (var loopbackAuthorized = new HttpRequestMessage(HttpMethod.Get, loopbackDetailsUrl))
+        using (var loopbackAuthorized = new HttpRequestMessage(HttpMethod.Get, loopbackMetricsUrl))
         {
             loopbackAuthorized.Version = HttpVersion.Version20;
             loopbackAuthorized.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
@@ -52,19 +52,19 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
             _ = await Assert.That(loopbackWithJwt.IsSuccessStatusCode).IsTrue();
         }
 
-        var remoteAnonymous = await RemoteClient.GetAsync(new Uri(remoteDetailsUrl), cancellationToken);
+        var remoteAnonymous = await RemoteMetricsClient.GetAsync(new Uri(remoteMetricsUrl), cancellationToken);
         _ = await Assert.That(remoteAnonymous.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
 
-        using (var remoteInvalid = new HttpRequestMessage(HttpMethod.Get, remoteDetailsUrl))
+        using (var remoteInvalid = new HttpRequestMessage(HttpMethod.Get, remoteMetricsUrl))
         {
             remoteInvalid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", InvalidBearerToken);
-            var remoteInvalidJwt = await RemoteClient.SendAsync(remoteInvalid, cancellationToken);
+            var remoteInvalidJwt = await RemoteMetricsClient.SendAsync(remoteInvalid, cancellationToken);
             _ = await Assert.That(remoteInvalidJwt.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
         }
 
-        using var remoteValid = new HttpRequestMessage(HttpMethod.Get, remoteDetailsUrl);
+        using var remoteValid = new HttpRequestMessage(HttpMethod.Get, remoteMetricsUrl);
         remoteValid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
-        var remoteWithJwt = await RemoteClient.SendAsync(remoteValid, cancellationToken);
+        var remoteWithJwt = await RemoteMetricsClient.SendAsync(remoteValid, cancellationToken);
         _ = await Assert.That(remoteWithJwt.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 }

@@ -10,7 +10,7 @@ namespace Squirix.IntegrationTests;
 
 /// <summary>Exported-client coverage for bootstrap connect against an unreachable endpoint.</summary>
 [Immutable]
-public sealed class BootstrapConnectTests : IntegrationTestBase
+public sealed class BootstrapConnectTests : NodeTestBase
 {
     /// <summary>Verifies caller cancellation ends a connect that is still retrying an unreachable bootstrap endpoint.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

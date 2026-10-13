@@ -18,7 +18,7 @@ namespace Squirix.UnitTests;
 /// When the public surface changes intentionally, update <c language="csharp">ApiSnapshots/SquirixPublicTypes.golden.txt</c>.
 /// </summary>
 [Immutable]
-public sealed class PublicApiGoldenSnapshotTests : UnitTestBase
+public sealed class PublicApiGoldenSnapshotTests : TestBase
 {
     /// <summary>Ensures the on-disk golden snapshot matches the assembly; fails on unexpected additions or removals.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

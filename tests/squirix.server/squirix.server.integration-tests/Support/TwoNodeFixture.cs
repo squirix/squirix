@@ -21,7 +21,7 @@ namespace Squirix.Server.IntegrationTests.Support;
 ///     </para>
 /// </remarks>
 [UsedImplicitly]
-public sealed class IntegrationTwoNodeFixture : NodeIntegrationTestBase, IAsyncInitializer, IAsyncDisposable
+public sealed class TwoNodeFixture : NodeIntegrationTestBase, IAsyncInitializer, IAsyncDisposable
 {
     private TestCluster<IntegrationStartOptions>? _cluster;
 

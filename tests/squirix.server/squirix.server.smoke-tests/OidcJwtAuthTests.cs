@@ -11,7 +11,7 @@ using TUnit.Core;
 namespace Squirix.Server.SmokeTests;
 
 /// <summary>Thin smoke coverage for OIDC authority JWT authentication on gRPC cache RPCs.</summary>
-public sealed class OidcJwtAuthSmokeTests : SmokeTestBase
+public sealed class OidcJwtAuthTests : SmokeTestBase
 {
     private const string Audience = "squirix-oidc-smoke";
 
