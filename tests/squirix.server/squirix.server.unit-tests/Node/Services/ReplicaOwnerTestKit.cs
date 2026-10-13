@@ -340,6 +340,7 @@ internal static class ReplicaOwnerTestKit
     /// holds its log only through a scripted index: it refuses a batch whose predecessor it lacks (the probe at the leader's last
     /// entry) and accepts one whose predecessor it holds (the re-sent tail), then holds that batch too.
     /// </summary>
+    /// <remarks>A stateful fake: every member's held log index advances as the leader re-sends its tail, so the answer depends on what that member received before.</remarks>
     internal sealed class ScriptedGateway : IReplicaRpcGateway
     {
         private readonly ConcurrentDictionary<string, ulong> _held = new(StringComparer.Ordinal);
@@ -413,6 +414,7 @@ internal static class ReplicaOwnerTestKit
     }
 
     /// <summary>In-memory local cache double that records the key of every applied write, in order.</summary>
+    /// <remarks>A stateful fake: the leader reads a key back before deciding a conditional add, so the double has to hold what it wrote, which a Rocks mock without state cannot model.</remarks>
     internal sealed class StubCache : ILogicalNamespacedCache<object?>
     {
         private readonly ConcurrentDictionary<string, NodeCacheEntry<object?>> _entries = new(StringComparer.Ordinal);

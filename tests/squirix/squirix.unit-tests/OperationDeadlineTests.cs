@@ -307,6 +307,8 @@ public sealed class OperationDeadlineTests
         }
     }
 
+    /// <summary>A unary transport that scripts one answer per mode, records the deadline and operation id of every call, and lets the fake clock end a stalled gRPC deadline.</summary>
+    /// <remarks>A hand-written double, not a Rocks mock: the scripted call invoker is an abstract class of Grpc.Core, which Rocks cannot mock, and the modes model answers across calls.</remarks>
     private sealed class ScriptedTransport : CallInvoker, IDisposable
     {
         private readonly ConcurrentQueue<CapturedCall> _calls = new();
