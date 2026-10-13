@@ -171,7 +171,7 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
     {
         var committers = leader.GetRequiredService<ReplicaGroupCommitters>();
         var tenure = committers.Leads(OwnerId) ? committers.For(OwnerId).Tenure : throw new InvalidOperationException($"The leader no longer leads group {OwnerId}.");
-        var index = tenure is { } held && held.Term == term ? held.NoopIndex : throw new InvalidOperationException($"The leader holds no leadership of term {term}.");
+        var index = tenure != null && tenure.Term == term ? tenure.NoopIndex : throw new InvalidOperationException($"The leader holds no leadership of term {term}.");
         var log = Log(leader);
         var status = await log.GetStatusAsync(cancellationToken);
         var read = await log.ReadEntriesAsync(index, 1, cancellationToken);
