@@ -32,7 +32,7 @@ public sealed class DeadlineBudgetProbe
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<GrpcServiceOptions>>(new ProbeOptionsConfigurator(this)));
     }
 
-    internal void Record(TimeSpan? budget) => _budgets.Enqueue(budget);
+    private void Record(TimeSpan? budget) => _budgets.Enqueue(budget);
 
     [Immutable]
     internal sealed class ProbeInterceptor : Interceptor

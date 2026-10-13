@@ -44,9 +44,6 @@ internal sealed class GroupAuthorityLedger<TOptions>
             _nodes[i] = cluster.Topology[i].NodeId;
     }
 
-    /// <summary>Gets the longest wait of each wait this ledger runs.</summary>
-    internal TimeSpan Bound { get; }
-
     /// <summary>Gets the number of terms in which some node held authority so far.</summary>
     internal int Terms
     {
@@ -56,6 +53,9 @@ internal sealed class GroupAuthorityLedger<TOptions>
                 return _holders.Count;
         }
     }
+
+    /// <summary>Gets the longest wait of each wait this ledger runs.</summary>
+    private TimeSpan Bound { get; }
 
     /// <summary>Checks that an invariant holds on every poll for a while, checking election safety over every node as well.</summary>
     /// <param name="invariant">The invariant.</param>
