@@ -16,6 +16,7 @@ using Squirix.Server.TestKit.Diagnostics;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.TestKit.Hosting;
 
@@ -172,10 +173,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>This cluster, with every topology entry started.</returns>
     /// <exception cref="InvalidOperationException">Thrown when some topology entries are already running.</exception>
-    [SuppressMessage(
-        "Design",
-        "CA1031:Do not catch general exception types",
-        Justification = "Best-effort rollback: the cluster disposal failure is logged and swallowed so the original start failure always propagates.")]
     public async ValueTask<TestCluster<TOptions>> StartAllAsync(
         Func<string, TOptions?>? factory = null,
         Action<int>? releaseUnstarted = null,
@@ -198,14 +195,9 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             // Stop the nodes that did start, then release the held resources of nodes that never bound.
             // The start failure caught here must always propagate, even if disposal itself fails.
             var started = StartedCount;
-            try
-            {
-                await DisposeAsync().ConfigureAwait(false);
-            }
-            catch (Exception disposeException)
-            {
-                TestLog.Suppressed("StartAllAsync rollback: cluster disposal failed after a node start failure.", disposeException);
-            }
+            var disposeFailure = await this.CaptureFailureAsync().ConfigureAwait(false);
+            if (disposeFailure != null)
+                TestLog.Suppressed("StartAllAsync rollback: cluster disposal failed after a node start failure.", disposeFailure);
 
             if (releaseUnstarted == null)
                 throw;
@@ -350,10 +342,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     /// Thrown when one or more nodes fail to shut down. Every node is still given a shutdown attempt, and the
     /// shared identity and data directory are still disposed, regardless of individual node failures.
     /// </exception>
-    [SuppressMessage(
-        "Design",
-        "CA1031:Do not catch general exception types",
-        Justification = "Every node must get a shutdown attempt regardless of another node's failure; failures are aggregated and rethrown.")]
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
@@ -365,30 +353,20 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
 
         foreach (var pending in pendingStops)
         {
-            try
-            {
-                await pending.ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                // Observed by the original StopNodeAsync caller; this wait only needs the in-flight
-                // stop to finish — successfully or not — before the shared identity/data directory
-                // below are released.
-                TestLog.Suppressed("DisposeAsync: an in-flight StopNodeAsync failed; its caller observes the failure.", ex);
-            }
+            // Observed by the original StopNodeAsync caller; this wait only needs the in-flight
+            // stop to finish — successfully or not — before the shared identity/data directory
+            // below are released.
+            var stopFailure = await pending.CaptureFailureAsync().ConfigureAwait(false);
+            if (stopFailure != null)
+                TestLog.Suppressed("DisposeAsync: an in-flight StopNodeAsync failed; its caller observes the failure.", stopFailure);
         }
 
         List<Exception>? failures = null;
         foreach (var (_, node) in _nodes)
         {
-            try
-            {
-                await node.ShutdownAsync().ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                (failures ??= []).Add(ex);
-            }
+            var shutdownFailure = await node.ShutdownAsync().CaptureFailureAsync(static _ => true).ConfigureAwait(false);
+            if (shutdownFailure != null)
+                (failures ??= []).Add(shutdownFailure);
         }
 
         _nodes.Clear();
