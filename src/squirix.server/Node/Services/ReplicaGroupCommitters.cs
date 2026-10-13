@@ -236,12 +236,10 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
         var create = ThrowHelper.Required(_create, "The led groups of this node are fixed; none is promoted.");
         lock (_sync)
         {
-            if (!_created.TryGetValue(groupId, out var committer))
-            {
-                committer = create(groupId);
-                _created.Add(groupId, committer);
-            }
-
+            if (_created.TryGetValue(groupId, out var committer))
+                return committer;
+            committer = create(groupId);
+            _created.Add(groupId, committer);
             return committer;
         }
     }

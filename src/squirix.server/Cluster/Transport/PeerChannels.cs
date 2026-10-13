@@ -122,12 +122,11 @@ internal sealed class PeerChannels
             return;
 
         BoundedDial.Apply(socketsHandler, dial);
-        if (owned || socketsHandler.KeepAlivePingDelay == Timeout.InfiniteTimeSpan)
-        {
-            socketsHandler.KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always;
-            socketsHandler.KeepAlivePingDelay = KeepAlivePingDelay;
-            socketsHandler.KeepAlivePingTimeout = KeepAlivePingTimeout;
-        }
+        if (!owned && socketsHandler.KeepAlivePingDelay != Timeout.InfiniteTimeSpan)
+            return;
+        socketsHandler.KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always;
+        socketsHandler.KeepAlivePingDelay = KeepAlivePingDelay;
+        socketsHandler.KeepAlivePingTimeout = KeepAlivePingTimeout;
     }
 
     private static GrpcChannelOptions CreateChannelOptions(string nodeId, ServerClientPoolArgs args, TrackedConnections connections, TimeSpan? dialTimeout)
