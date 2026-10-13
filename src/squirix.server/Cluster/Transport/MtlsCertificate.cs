@@ -51,8 +51,8 @@ internal sealed class MtlsCertificate : IDisposable
     /// <summary>Gets a disabled material instance with no loaded certificates.</summary>
     private static MtlsCertificate Disabled { get; } = new();
 
-    /// <summary>Releases the loader's hold; the certificates are freed once no other hold remains. Repeated calls do nothing.</summary>
-    void IDisposable.Dispose() => _loader?.Dispose();
+    /// <summary>Releases the loader's hold the way the DI container does on host shutdown.</summary>
+    void IDisposable.Dispose() => ReleaseHold();
 
     /// <summary>Creates enabled certificate material from an already-loaded node certificate and trust anchor.</summary>
     /// <param name="nodeCertificate">The local node certificate including its private key.</param>
@@ -85,6 +85,9 @@ internal sealed class MtlsCertificate : IDisposable
         MtlsCertificateLoader.EnsureNodeCertificateMatchesNodeId(nodeCertificate, localNodeId);
         return Create(nodeCertificate, trustAnchor);
     }
+
+    /// <summary>Releases the loader's hold; the certificates are freed once no other hold remains. Repeated calls do nothing.</summary>
+    internal void ReleaseHold() => _loader?.Dispose();
 
     /// <summary>Takes one more hold on the certificates so they stay loaded until the hold is disposed.</summary>
     /// <returns>The hold; dispose it once the certificates are no longer referenced.</returns>

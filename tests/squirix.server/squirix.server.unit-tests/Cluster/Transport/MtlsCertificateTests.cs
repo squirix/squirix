@@ -33,11 +33,11 @@ public sealed class MtlsCertificateTests : ServerUnitTestBase
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var nodeCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
-        var material = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
+        using var material = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
         using var hold = material.Retain();
 
-        DisposeAsLoader(material);
-        DisposeAsLoader(material);
+        material.ReleaseHold();
+        material.ReleaseHold();
 
         _ = await Assert.That(material.IsReleased).IsFalse();
         _ = await Assert.That(nodeCertificate.Handle).IsNotEqualTo(nint.Zero);
@@ -50,7 +50,7 @@ public sealed class MtlsCertificateTests : ServerUnitTestBase
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var nodeCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
-        var material = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
+        using var material = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
         var hold = material.Retain();
 
         hold.Dispose();
@@ -58,7 +58,7 @@ public sealed class MtlsCertificateTests : ServerUnitTestBase
 
         _ = await Assert.That(hold.IsReleased).IsTrue();
         _ = await Assert.That(material.IsReleased).IsFalse();
-        DisposeAsLoader(material);
+        material.ReleaseHold();
         _ = await Assert.That(material.IsReleased).IsTrue();
     }
 
@@ -69,14 +69,14 @@ public sealed class MtlsCertificateTests : ServerUnitTestBase
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var nodeCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
-        var material = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
+        using var material = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
         var hold = material.Retain();
 
         hold.Dispose();
         _ = await Assert.That(material.IsReleased).IsFalse();
         _ = await Assert.That(nodeCertificate.Handle).IsNotEqualTo(nint.Zero);
 
-        DisposeAsLoader(material);
+        material.ReleaseHold();
         _ = await Assert.That(material.IsReleased).IsTrue();
         _ = await Assert.That(nodeCertificate.Handle).IsEqualTo(nint.Zero);
     }
@@ -88,11 +88,11 @@ public sealed class MtlsCertificateTests : ServerUnitTestBase
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var nodeCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
-        var material = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
+        using var material = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
         var first = material.Retain();
         var second = material.Retain();
 
-        DisposeAsLoader(material);
+        material.ReleaseHold();
         first.Dispose();
         _ = await Assert.That(material.IsReleased).IsFalse();
         _ = await Assert.That(nodeCertificate.Handle).IsNotEqualTo(nint.Zero);
@@ -109,17 +109,9 @@ public sealed class MtlsCertificateTests : ServerUnitTestBase
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var nodeCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
-        var material = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
-        DisposeAsLoader(material);
+        using var material = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
+        material.ReleaseHold();
 
         _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(material, static m => _ = m.Retain());
-    }
-
-    /// <summary>Releases the loader's hold the way the DI container does on host shutdown.</summary>
-    /// <param name="material">The material.</param>
-    private static void DisposeAsLoader(MtlsCertificate material)
-    {
-        IDisposable loader = material;
-        loader.Dispose();
     }
 }

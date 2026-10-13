@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.IO;
@@ -40,6 +41,30 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
     private const int MaterialReleasedLateEventId = 5007;
 
     private const string PoolDisposalsTotalInstrumentName = "squirix_peer_pool_disposals_total";
+
+    /// <summary>
+    /// A connection aborted before the handler started its TLS handshake still reaches the handler as a readable, writable stream, so the
+    /// handshake fails on I/O and the handler disposes the stream instead of dropping it unclosed.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AbortBeforeHandshakeLeavesGate(CancellationToken cancellationToken)
+    {
+        var connections = new TrackedConnections();
+        using var handler = new SocketsHttpHandler();
+        handler.ConnectCallback = (_, _) =>
+        {
+            connections.AbortAll();
+            return ValueTask.FromResult<Stream>(new MemoryStream());
+        };
+        ServerClientPool.TrackFactoryConnections(handler, connections);
+        using var client = new HttpClient(handler, false);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.GetAsync(new Uri("https://localhost:1/"), cancellationToken));
+        await connections.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(connections.Pending).IsEqualTo(0);
+    }
 
     /// <summary>Aborting closes the wrapped stream of a connection a handler dialed itself, but the gate is left only when the owner disposes the returned stream.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -115,7 +140,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(log.Find(MaterialLeakedEventId)).IsNull();
-        DisposeAsLoader(certificate);
+        certificate.ReleaseHold();
         _ = await Assert.That(certificate.IsReleased).IsTrue();
     }
 
@@ -141,30 +166,6 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         // Ending the connection from the server side fails the handshake; the handler disposes the stream, which leaves the gate.
         accepted.Dispose();
         _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request);
-        await connections.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
-
-        _ = await Assert.That(connections.Pending).IsEqualTo(0);
-    }
-
-    /// <summary>
-    /// A connection aborted before the handler started its TLS handshake still reaches the handler as a readable, writable stream, so the
-    /// handshake fails on I/O and the handler disposes the stream instead of dropping it unclosed.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task AbortBeforeHandshakeLeavesGate(CancellationToken cancellationToken)
-    {
-        var connections = new TrackedConnections();
-        using var handler = new SocketsHttpHandler();
-        handler.ConnectCallback = (_, _) =>
-        {
-            connections.AbortAll();
-            return ValueTask.FromResult<Stream>(new MemoryStream());
-        };
-        ServerClientPool.TrackFactoryConnections(handler, connections);
-        using var client = new HttpClient(handler, false);
-
-        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.GetAsync(new Uri("https://localhost:1/"), cancellationToken));
         await connections.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(connections.Pending).IsEqualTo(0);
@@ -220,7 +221,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
         await AssertAllDisposedAsync(created, 1);
         _ = await Assert.That(certificate.IsReleased).IsFalse();
-        DisposeAsLoader(certificate);
+        certificate.ReleaseHold();
         _ = await Assert.That(certificate.IsReleased).IsTrue();
     }
 
@@ -342,18 +343,27 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         using var spare = new SocketsHttpHandler();
         var supplied = new Queue<HttpMessageHandler>([handler, spare]);
         var args = MtlsArgs(certificate, _ => supplied.Dequeue(), null);
+        Task<HttpResponseMessage> request;
         var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
-
-        // The listener never answers, so the TLS handshake stays open until the pool aborts the connection.
-        var request = client.GetAsync(new Uri("https://localhost:1/"), cancellationToken);
-        await connected.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(pool.OpenConnections).IsEqualTo(1);
-
-        await pool.DisposeAsync();
+        try
+        {
+            // The listener accepts but never answers, so the TLS handshake stays open until the pool aborts the connection.
+            // Waiting for the client's first flight proves the handshake is in flight: disposal always aborts a registered
+            // connection instead of racing the tracking, which a TCP connect alone does not guarantee.
+            request = client.GetAsync(new Uri("https://localhost:1/"), cancellationToken);
+            using var accepted = await listener.AcceptTcpClientAsync(cancellationToken);
+            await connected.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+            _ = await Assert.That(pool.OpenConnections).IsEqualTo(1);
+            await WaitForHandshakeStartAsync(accepted, cancellationToken);
+        }
+        finally
+        {
+            await pool.DisposeAsync();
+        }
 
         _ = await Assert.That(pool.OpenConnections).IsEqualTo(0);
         _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request);
-        DisposeAsLoader(certificate);
+        certificate.ReleaseHold();
         _ = await Assert.That(certificate.IsReleased).IsTrue();
     }
 
@@ -415,7 +425,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
         _ = await Assert.That(log.Find(MaterialLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
         _ = await Assert.That(log.FindMessage(MaterialLeakedEventId)).Contains($"{HandlersPerPeer} connections were still open", StringComparison.Ordinal);
-        DisposeAsLoader(certificate);
+        certificate.ReleaseHold();
         _ = await Assert.That(certificate.IsReleased).IsFalse();
         _ = await Assert.That(certificate.NodeCertificate!.Handle).IsNotEqualTo(nint.Zero);
     }
@@ -482,7 +492,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
         await AssertAllDisposedAsync(created, 1);
         _ = await Assert.That(log.Find(LeaseCancelFailedEventId)?.Level).IsEqualTo(LogLevel.Warning);
-        DisposeAsLoader(certificate);
+        certificate.ReleaseHold();
         _ = await Assert.That(certificate.IsReleased).IsTrue().Because("The pool must have released its hold despite the throwing callback.");
     }
 
@@ -564,7 +574,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log);
         var disposing = pool.DisposeAsync().AsTask();
         await AdvanceUntilCompletedAsync(clock, disposing, cancellationToken);
-        DisposeAsLoader(certificate);
+        certificate.ReleaseHold();
         _ = await Assert.That(log.Find(MaterialLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
         _ = await Assert.That(certificate.IsReleased).IsFalse();
         _ = await Assert.That(pool.LateMaterialRelease.IsCompleted).IsFalse();
@@ -619,7 +629,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
         await AssertAllDisposedAsync(created, 2);
         _ = await Assert.That(certificate.IsReleased).IsFalse();
-        DisposeAsLoader(certificate);
+        certificate.ReleaseHold();
         _ = await Assert.That(certificate.IsReleased).IsTrue();
     }
 
@@ -704,14 +714,6 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         }
     }
 
-    /// <summary>Releases the loader's hold the way the DI container does on host shutdown.</summary>
-    /// <param name="material">The material.</param>
-    private static void DisposeAsLoader(MtlsCertificate material)
-    {
-        IDisposable loader = material;
-        loader.Dispose();
-    }
-
     private static MtlsCertificate LoadCertificate(MtlsTestCertificateBundle bundle) => MtlsCertificate.Load(
         new MtlsOptions { CaPath = bundle.CaPath, CertPfxPath = bundle.PfxPath, InternalListenPort = 6601 },
         6001,
@@ -747,6 +749,24 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         var handler = new TrackingHandler();
         created.Add(handler);
         return handler;
+    }
+
+    /// <summary>Waits until the client sent its first TLS flight on <paramref name="accepted" />; the handshake then stalls on the silent peer.</summary>
+    /// <param name="accepted">The connection the silent listener accepted.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    private static async Task WaitForHandshakeStartAsync(TcpClient accepted, CancellationToken cancellationToken)
+    {
+        var rented = ArrayPool<byte>.Shared.Rent(1);
+        try
+        {
+            var read = await accepted.GetStream().ReadAsync(new Memory<byte>(rented, 0, 1), cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+            _ = await Assert.That(read).IsGreaterThan(0);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
     }
 
     [Immutable]
