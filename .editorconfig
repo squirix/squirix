@@ -98,6 +98,15 @@ dotnet_style_qualification_for_method = false:warning # do not qualify methods w
 dotnet_style_qualification_for_property = false:warning # do not qualify properties with this.
 dotnet_style_require_accessibility_modifiers = for_non_interface_members:suggestion # nullable/language enforced via MSBuild too
 
+# Local constants must be camelCase (mirrors the Rider naming inspection): violations fail the build as IDE1006 errors.
+dotnet_naming_symbols.local_constants.applicable_kinds = local
+dotnet_naming_symbols.local_constants.applicable_accessibilities = *
+dotnet_naming_symbols.local_constants.required_modifiers = const
+dotnet_naming_style.camel_case.capitalization = camel_case
+dotnet_naming_rule.local_constants_must_be_camel_case.symbols = local_constants
+dotnet_naming_rule.local_constants_must_be_camel_case.style = camel_case
+dotnet_naming_rule.local_constants_must_be_camel_case.severity = error
+
 resharper_arrange_this_qualifier_highlighting = error # legacy alias of arrange_this_qualifier (Rider deprecates redundant_this_qualifier)
 resharper_instance_members_qualify_members = none # do not require this. qualification (Rider)
 
