@@ -1,8 +1,10 @@
 using System;
+using JetBrains.Annotations;
 
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Thrown when a group is to be led over a copy that is not complete: the leadership refuses its start, and nothing was written.</summary>
+[UsedImplicitly]
 internal sealed class ReplicaUnseededException : InvalidOperationException
 {
     /// <summary>Initializes a new instance of the <see cref="ReplicaUnseededException" /> class.</summary>

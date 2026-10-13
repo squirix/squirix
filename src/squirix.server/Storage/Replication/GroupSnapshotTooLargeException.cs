@@ -1,8 +1,10 @@
 using System;
+using JetBrains.Annotations;
 
 namespace Squirix.Server.Storage.Replication;
 
 /// <summary>Thrown when a replica group snapshot would exceed the configured maximum snapshot size; nothing was written.</summary>
+[UsedImplicitly]
 internal sealed class GroupSnapshotTooLargeException : InvalidOperationException
 {
     /// <summary>Initializes a new instance of the <see cref="GroupSnapshotTooLargeException" /> class.</summary>

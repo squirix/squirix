@@ -1,4 +1,5 @@
 using System;
+using JetBrains.Annotations;
 
 namespace Squirix.Server.Node.Services;
 
@@ -6,6 +7,7 @@ namespace Squirix.Server.Node.Services;
 /// Thrown when a group this node leads without an election has a log term above one, which only an election sets: the static leader
 /// refuses its start, and nothing was written.
 /// </summary>
+[UsedImplicitly]
 internal sealed class StaticLeaderTermExceededException : InvalidOperationException
 {
     /// <summary>Initializes a new instance of the <see cref="StaticLeaderTermExceededException" /> class.</summary>

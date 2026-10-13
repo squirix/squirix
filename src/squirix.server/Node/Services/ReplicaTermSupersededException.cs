@@ -1,4 +1,5 @@
 using System;
+using JetBrains.Annotations;
 
 namespace Squirix.Server.Node.Services;
 
@@ -6,6 +7,7 @@ namespace Squirix.Server.Node.Services;
 /// Thrown when the durable term of a group log moved past the led term, at the start of a leadership or at a local append the log refused:
 /// a newer leader exists, and nothing was written.
 /// </summary>
+[UsedImplicitly]
 internal sealed class ReplicaTermSupersededException : InvalidOperationException
 {
     /// <summary>Initializes a new instance of the <see cref="ReplicaTermSupersededException" /> class.</summary>
