@@ -20,6 +20,9 @@ public class ReplicaSnapshotBenchmarks
     private const string GroupId = "grp-snapshot-bench";
     private const ulong SnapshotIndex = 256UL;
 
+    /// <summary>The leader of the benchmarked transfers: term one, into a copy that did not lose its disk.</summary>
+    private static readonly StateInstallLeader Leader = new(1UL, "leader-1", false);
+
     private TempDirectory? _dir;
     private TempDirectory? _dir2;
     private GroupSnapshot _snapshot;
@@ -70,7 +73,7 @@ public class ReplicaSnapshotBenchmarks
     public async Task CompleteStateInstallAsync()
     {
         var target = ThrowHelper.Required(_target, "Benchmark target log was not initialized.");
-        var result = await target.CompleteStateInstallAsync(_snapshot, 1UL, CancellationToken.None).ConfigureAwait(false);
+        var result = await target.CompleteStateInstallAsync(_snapshot, Leader, CancellationToken.None).ConfigureAwait(false);
         if (!result.Success)
             throw new InvalidOperationException($"Snapshot install was refused: {result.Refusal}.");
     }
@@ -123,7 +126,7 @@ public class ReplicaSnapshotBenchmarks
         var target = ThrowHelper.Required(_target, "Benchmark target log was not initialized.");
         await SeedSourceLogAsync(target, false).ConfigureAwait(false);
         var status = await target.GetStatusAsync(CancellationToken.None).ConfigureAwait(false);
-        var refusal = await target.BeginStateInstallAsync(1UL, SnapshotIndex, status.TopologyFingerprint, status.ConfigurationGeneration, _snapshot, CancellationToken.None).ConfigureAwait(false);
+        var refusal = await target.BeginStateInstallAsync(Leader, SnapshotIndex, status.TopologyFingerprint, status.ConfigurationGeneration, _snapshot, CancellationToken.None).ConfigureAwait(false);
         if (refusal != null)
             throw new InvalidOperationException($"Beginning the state install was refused: {refusal}.");
     }
