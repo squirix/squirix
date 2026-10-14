@@ -12,6 +12,7 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using static Squirix.Server.UnitTests.Persistence.Replication.StateInstallLeaders;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -228,7 +229,7 @@ public sealed class StateInstallCrashTests : ServerUnitTestBase
         _ = await Assert.That(await FollowerSnapshotScenario.BeginAsync(log, StateInstallScenario.SnapshotIndex, 1UL, cancellationToken)).IsNull();
         faults.FailSlotWrite(1);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteStateInstallAsync(snapshot, 1UL, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteStateInstallAsync(snapshot, Leader(1UL), cancellationToken));
 
         _ = await Assert.That((log.Readiness, log.IsComplete)).IsEqualTo((FollowerLogReadiness.Failed, false));
     }
@@ -252,7 +253,7 @@ public sealed class StateInstallCrashTests : ServerUnitTestBase
                 throw new ArgumentOutOfRangeException(nameof(point), point, "Unsupported crash point.");
         }
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteStateInstallAsync(snapshot, 1UL, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteStateInstallAsync(snapshot, Leader(1UL), cancellationToken));
     }
 
     private static async Task AssertAppendsRefusedAsync(FollowerLog log, ulong lastLogIndex, CancellationToken cancellationToken)

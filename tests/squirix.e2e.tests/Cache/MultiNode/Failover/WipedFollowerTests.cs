@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.E2ETests.Fixtures;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
@@ -15,8 +16,8 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 
 /// <summary>
-/// A follower that restarts on an empty data directory holds unseeded copies: clients keep reading and writing through the other members,
-/// and the node itself reports not ready.
+/// A follower that restarts on an empty data directory holds unseeded copies until the leaders repair them (#1126): clients keep reading and
+/// writing through the other members meanwhile, and the node reports ready again once every copy is repaired.
 /// </summary>
 public sealed class WipedFollowerTests : EndToEndTestBase
 {
@@ -25,14 +26,14 @@ public sealed class WipedFollowerTests : EndToEndTestBase
     /// <summary>The group under test, named after its owner; the test finds its leader at run time.</summary>
     private const string Group = "nodeA";
 
-    /// <summary>The follower restarts without its data; the group serves through the survivors, and the restarted node answers not ready with the unseeded text.</summary>
+    /// <summary>The follower restarts without its data; the group serves through the survivors, and the restarted node is repaired and answers ready.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
-    public async Task WipedFollowerReportsNotReady(CancellationToken cancellationToken)
+    public async Task WipedFollowerIsRepaired(CancellationToken cancellationToken)
     {
-        const string testName = nameof(WipedFollowerReportsNotReady);
+        const string testName = nameof(WipedFollowerIsRepaired);
         await using var cluster = await HostedCluster.StartThreeNodeAsync(testName, FailoverSteps.Options(testName), true, cancellationToken);
         var probe = new ClusterLeaderProbe<ClusterStartOptions>(cluster.Cluster);
         var (leader, _) = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
@@ -46,14 +47,16 @@ public sealed class WipedFollowerTests : EndToEndTestBase
         await cluster.RestartWipedNodeAsync(follower, cancellationToken);
         await Eventually.SucceedsAsync((Cache: cache, Key: key), static (s, token) => s.Cache.SetAsync(s.Key, 2L, cancellationToken: token), FailoverSteps.Bound, attempts, cancellationToken);
         var read = await Eventually.SucceedsAsync((Cache: cache, Key: key), static (s, token) => s.Cache.GetValueAsync(s.Key, token), FailoverSteps.Bound, attempts, cancellationToken);
-        var (status, description) = await cluster.Cluster[follower].ReplicaGroupsAsync(cancellationToken);
+        await cluster.Cluster[follower].WaitUntilValueAsync(
+            static async (host, token) => (await host.ReplicaGroupsAsync(token)).Status == HealthStatus.Healthy,
+            FailoverSteps.Bound,
+            TimeProvider.System,
+            cancellationToken);
         using var handler = LoopbackHttp.CreateHandler();
         using var http = new HttpClient(handler, false);
         using var ready = await http.GetAsync(new Uri(cluster.GetUri(follower), "/health/ready"), cancellationToken);
 
         _ = await Assert.That(read).IsEqualTo(new CacheValueResult<long>(true, 2L)).Because(Eventually.Dump(attempts));
-        _ = await Assert.That(status).IsEqualTo(HealthStatus.Unhealthy);
-        _ = await Assert.That(description).Contains("is not seeded on this node", StringComparison.Ordinal);
-        _ = await Assert.That(ready.StatusCode).IsEqualTo(HttpStatusCode.ServiceUnavailable);
+        _ = await Assert.That(ready.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 }

@@ -64,10 +64,19 @@ vote, takes no entries, and does not lead or campaign.
   ready before it starts the next.
 - All members of a group losing their disks at once cannot be told from a new cluster: the group starts empty.
 - A member that starts on an empty data directory while its group already runs (for example after a disk loss) holds an
-  unseeded copy and is not repaired in this release: it grants no vote, takes no entries, and reports not ready. An
-  unseeded copy is the safe state of such a node. The group keeps working on its other members: three copies tolerate
-  one such member, five tolerate two. The only way to bring the node back in this release is to recreate the cluster.
-  Do not restore the data directory of a replicated node from an older backup: the restored copy opens complete with an
+  unseeded copy until the leader of the group repairs it, with no operator action: meanwhile it grants no vote, takes no
+  entries, and reports not ready, and the group keeps working on its other members. Before the repair the leader asks
+  the other members for their current term. It needs answers from members that kept their copies and that, with the
+  leader and without the wiped member, form a majority: the other member of three, three of the four others of five.
+  When none of them holds a term above the leader's, the leader sends the data of the group by a state transfer; a
+  higher term makes the leader step down instead. The copy stays unseeded until the transfer ends; its last step makes
+  it complete and records the leader's term and a vote for the leader, so the member cannot vote a second time in a
+  term it may have voted in before the loss. It then takes entries and votes as before. A leader notices the member
+  at its next heartbeat; with automatic failover off, at the next write of the group.
+- A wiped member is not repaired when too few members kept their copies for that check (for example two wiped members
+  of three: no leader is elected, and the cluster is recreated), nor, with automatic failover off, when it is the owner
+  of the group, since nobody else leads it.
+- Do not restore the data directory of a replicated node from an older backup: the restored copy opens complete with an
   old term, vote, and log, and votes at once, which can help elect a leader that lacks entries the node acknowledged.
 - With automatic failover off, an owner in that state refuses the keys of its group with `Unavailable`; the groups of
   the other nodes are not affected.
@@ -132,9 +141,9 @@ What clients see:
 Known limits:
 
 - RF=2 never promotes after losing a member; RF=1 never elects.
-- A member that came back on an empty data directory holds an unseeded copy that nothing repairs
-  ([Starting a replica group](#starting-a-replica-group)). With automatic failover its absence costs the group one vote:
-  with two such members of three, or three of five, no leader is elected and the group refuses reads and writes.
+- A member that came back on an empty data directory holds an unseeded copy until a leader repairs it
+  ([Starting a replica group](#starting-a-replica-group)). Until then it costs the group one vote: with two such members
+  of three, or three of five, no leader is elected, nothing repairs them, and the group refuses reads and writes.
 - All nodes must run builds that agree on the replication settings and the minimum cluster package version
   (`0.1.0-preview.9`); mixed versions fail readiness through the topology fingerprint, and a data directory activated by
   an older build refuses to start. So does a group metadata file written by an earlier build: the node prints `Replica

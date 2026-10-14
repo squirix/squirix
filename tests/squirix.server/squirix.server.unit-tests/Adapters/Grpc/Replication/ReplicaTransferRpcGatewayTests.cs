@@ -41,7 +41,7 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
         _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(pool, static p => _ = new ReplicaTransferRpcGateway(p!));
     }
 
-    /// <summary>The begin carries the envelope, the transfer id, sequence zero and the baseline, and the reply maps back.</summary>
+    /// <summary>The begin carries the envelope, the transfer id, sequence zero and the baseline with its ceiling flag, and the reply maps back.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task BeginMapsEnvelopeAndBaseline(CancellationToken cancellationToken)
@@ -50,7 +50,7 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
         using var transport = new ScriptedHandler { Reply = new TransferReplicaStateResponse { Term = 5UL, Success = false, RefusalCode = RefusalCodes.TransferBusy } };
         var pool = CreatePool(transport, meter);
         var gateway = new ReplicaTransferRpcGateway(pool);
-        var baseline = new ReplicaTransferBaseline(7UL, 3UL, 1024, 99U, new byte[] { 1, 2 }, 4UL);
+        var baseline = new ReplicaTransferBaseline(7UL, 3UL, 1024, 99U, new byte[] { 1, 2 }, 4UL, true);
 
         var reply = await gateway.BeginAsync(PeerNodeId, Header(), Transfer, baseline, cancellationToken);
         await pool.DisposeAsync();
@@ -61,6 +61,7 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(new byte[] { 1, 2 }, request.Header.TopologyFingerprint.ToByteArray());
         _ = await Assert.That((request.TransferId, request.Sequence, request.StepCase)).IsEqualTo((Transfer, 0U, TransferReplicaStateRequest.StepOneofCase.Begin));
         _ = await Assert.That((request.Begin.Index, request.Begin.IndexTerm, request.Begin.SnapshotBytes, request.Begin.SnapshotChecksum)).IsEqualTo((7UL, 3UL, 1024U, 99U));
+        _ = await Assert.That(request.Begin.CeilingChecked).IsTrue();
         _ = await Assert.That((reply.Term, reply.Success, reply.RefusalCode, reply.More)).IsEqualTo((5UL, false, RefusalCodes.TransferBusy, false));
     }
 

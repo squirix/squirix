@@ -99,11 +99,15 @@ message TransferReplicaStateRequest {
   }
 }
 
+// ceiling_checked is set by a leader that read the current terms of members that, with itself and without the receiver, form a majority of
+// the group, and found none above header.term. Only such a transfer may repair a copy that lost its disk (unseeded); the copy stays unseeded
+// until the end, which records header.term and a vote for header.leader_node_id with the complete state.
 message ReplicaTransferBegin {
   uint64 index = 1;
   uint64 index_term = 2;
   uint32 snapshot_bytes = 3;
   uint32 snapshot_checksum = 4;
+  bool ceiling_checked = 5;
 }
 
 message ReplicaTransferSnapshot {

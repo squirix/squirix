@@ -10,6 +10,7 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using static Squirix.Server.UnitTests.Persistence.Replication.StateInstallLeaders;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -104,7 +105,7 @@ public sealed class IncompleteCopyBallotTests : ServerUnitTestBase
             _ = await Assert.That((afterBegin.Granted, afterBegin.CurrentTerm)).IsEqualTo((true, 3UL));
 
             faults.FailSlotWrite(1);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteStateInstallAsync(snapshot, 3UL, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteStateInstallAsync(snapshot, Leader(3UL), cancellationToken));
         }
 
         await using var reopened = StateInstallScenario.NewLog(dir);

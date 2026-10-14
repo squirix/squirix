@@ -142,7 +142,7 @@ follower is repaired by a state transfer when it returns. When its group log rea
 `squirix_replication_log_compaction_skipped_total` with a closed `reason`: `follower_not_ready`, `follower_behind`, `pending_apply`, `uncommitted_tail`, `unresolved_outcome`,
 `not_ready`, `snapshot_too_large`, or `busy`. The owner counts the entry catch-up sessions it runs for lagging followers in
 `squirix_replication_catch_up_sessions_total` with a closed `outcome`: `caught_up`, `compacted`, `diverged`,
-`stale_term`, `refused`, `unreachable`, `corrupt`, `aborted`, or `incomplete`.
+`stale_term`, `refused`, `unreachable`, `corrupt`, `aborted`, `incomplete`, or `unseeded`.
 A replica group log record whose effect contradicts its outcome, or that cannot be decoded, is never applied; each refusal
 is logged at error level and counted by `squirix_replication_inconsistent_records_total` (labels `node`, `group`).
 The gauge `squirix_replication_role` (labels `node`, `group`) reports the role of the node in each group: `0` follower,
@@ -155,7 +155,8 @@ follows: `follower` is `0`, `candidate` covers `1`, `2` and `3`, and `leader` is
 The leader counts every state transfer it attempts, and every capture it declines, in
 `squirix_replication_state_transfers_total` (labels `node`, `group`, `outcome`, `reason`). `outcome` is `transferred`,
 `capture_not_leading`, `capture_pending_apply`, `capture_unresolved_outcome`, `capture_nothing_applied`,
-`capture_not_ready`, `capture_snapshot_too_large`, `follower_refused`, `unreachable`, `superseded`, or `aborted`;
+`capture_not_ready`, `capture_snapshot_too_large`, `follower_refused`, `unreachable`, `superseded`, `aborted`, or
+`ceiling_unavailable` (a follower that lost its disk, and too few members answered with their term);
 `reason` is the refusal code of the follower for `follower_refused` and empty otherwise.
 
 Log events, in the `Squirix.Server` categories of the sender and the receiver:
@@ -163,6 +164,8 @@ Log events, in the `Squirix.Server` categories of the sender and the receiver:
 - `4068` (information): the leader starts a transfer to a follower.
 - `4069` (information): the leader ended the transfer, with the outcome, the duration, the entries and the bytes.
 - `4070` (debug): the leader did not start a transfer and retries on the next pass.
+- `4072` (information): before repairing a follower that lost its disk, the leader read the term ceiling: how many
+  members answered with their term, how many it needs, and the highest term.
 - `4064` (information): the follower began receiving a transfer.
 - `4065` (information): the follower completed the copy at the transferred index.
 - `4066` (warning): the follower dropped the transfer; the copy stays as it is.

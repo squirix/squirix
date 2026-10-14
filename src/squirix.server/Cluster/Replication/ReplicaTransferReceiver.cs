@@ -299,7 +299,7 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         if (totals.EntryCount != message.EntryCount || totals.Crc != message.EntriesCrc)
             return Fail(group.Slot, ticket, RefusalCodes.ChecksumMismatch, term);
 
-        var installed = await group.Log.CompleteStateInstallAsync(ticket.Snapshot, ticket.Header.LeaderTerm, cancellationToken).ConfigureAwait(false);
+        var installed = await group.Log.CompleteStateInstallAsync(ticket.Snapshot, ticket.Leader, cancellationToken).ConfigureAwait(false);
         if (!installed.Success)
             return Fail(group.Slot, ticket, installed.Refusal, term);
 
@@ -420,7 +420,7 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         if (!ticket.InstallBegun)
         {
             var baseline = ticket.Baseline;
-            var refusal = await group.Log.BeginStateInstallAsync(ticket.Header.LeaderTerm, baseline.Index, baseline.Fingerprint, baseline.Generation, ticket.Snapshot, cancellationToken).ConfigureAwait(false);
+            var refusal = await group.Log.BeginStateInstallAsync(ticket.Leader, baseline.Index, baseline.Fingerprint, baseline.Generation, ticket.Snapshot, cancellationToken).ConfigureAwait(false);
             if (refusal != null)
                 return Fail(group.Slot, ticket, refusal, term);
 

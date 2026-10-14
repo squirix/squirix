@@ -47,6 +47,9 @@ internal sealed class ReplicaTransferTicket
     /// <summary>Gets or sets a value indicating whether the copy was marked incomplete: from then on the transfer has changed the copy.</summary>
     internal bool InstallBegun { get; set; }
 
+    /// <summary>Gets the leader that sends the transfer, as the group log takes it: its term, its node and whether it checked the term ceiling.</summary>
+    internal StateInstallLeader Leader => new(Header.LeaderTerm, Header.LeaderNodeId, Baseline.CeilingChecked);
+
     /// <summary>Gets or sets the timestamp of the last accepted message.</summary>
     internal long LastActivity { get; set; }
 

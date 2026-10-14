@@ -54,19 +54,19 @@ public sealed class ReplicaAnsweringFollowersTests : ServerUnitTestBase
         _ = await Assert.That(await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken)).IsFalse();
     }
 
-    /// <summary>An incomplete follower is queued for repair, and an unseeded one is not.</summary>
+    /// <summary>An incomplete follower is queued for repair, and so is an unseeded one, which a leader that checked the term ceiling repairs.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task IncompleteFollowerIsQueued(CancellationToken cancellationToken)
+    public async Task NotCompleteFollowerIsQueued(CancellationToken cancellationToken)
     {
         var (answering, repairs, _, _) = Create();
 
         answering.Observe(1, new FollowerLogAppendResult(false, FollowerLogRefusal.Unseeded, 0UL, 0UL));
         var unseeded = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
-        answering.Observe(1, new FollowerLogAppendResult(false, FollowerLogRefusal.Incomplete, 0UL, 0UL));
+        answering.Observe(2, new FollowerLogAppendResult(false, FollowerLogRefusal.Incomplete, 0UL, 0UL));
         var incomplete = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((unseeded, incomplete)).IsEqualTo((false, true));
+        _ = await Assert.That((unseeded, incomplete)).IsEqualTo((true, true));
     }
 
     /// <summary>A follower that keeps answering without becoming ready is queued again only once the interval elapsed.</summary>
@@ -86,6 +86,30 @@ public sealed class ReplicaAnsweringFollowersTests : ServerUnitTestBase
         var later = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((early, later)).IsEqualTo((false, true));
+    }
+
+    /// <summary>
+    /// A ready follower that answers with a copy it lost, unseeded or incomplete, leaves the write quorum at once and is queued, without a write it
+    /// fails to acknowledge; an accepted answer of a ready follower changes nothing.
+    /// </summary>
+    /// <param name="code">The refusal of the lost copy.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(FollowerLogRefusal.Unseeded)]
+    [Arguments(FollowerLogRefusal.Incomplete)]
+    public async Task ReadyLostCopyIsDemoted(string code, CancellationToken cancellationToken)
+    {
+        var (answering, repairs, eligibility, _) = Create();
+        var ready = new ReplicaProgress(4, 3, 3, 0, 1, ReadOnlyMemory<byte>.Of(9), 1, 0);
+        _ = eligibility.TryMarkReady(1, in ready, in ready);
+        _ = eligibility.TryMarkReady(2, in ready, in ready);
+
+        answering.Observe(2, in Accepted);
+        answering.Observe(1, new FollowerLogAppendResult(false, code, 0UL, 0UL));
+        var queued = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That((eligibility.StateFor(1), eligibility.StateFor(2))).IsEqualTo((ReplicaParticipantState.CatchingUp, ReplicaParticipantState.Ready));
+        _ = await Assert.That(queued).IsTrue();
     }
 
     private static (ReplicaAnsweringFollowers Answering, ReplicaRepairQueue Repairs, ReplicaEligibility Eligibility, FakeTimeProvider Clock) Create()

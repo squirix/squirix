@@ -406,7 +406,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
     /// <inheritdoc />
     public async Task<string?> BeginStateInstallAsync(
-        ulong leaderTerm,
+        StateInstallLeader leader,
         ulong index,
         ReadOnlyMemory<byte> fingerprint,
         ulong generation,
@@ -419,7 +419,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                                                 this,
                                                 IsOpen,
                                                 CaptureStatus().IsTopologyMismatch(fingerprint, generation),
-                                                (leaderTerm, index, snapshot),
+                                                (leader, index, snapshot),
                                                 cancellationToken)
                                             .ConfigureAwait(false);
     }
@@ -432,10 +432,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    public async Task<GroupSnapshotInstallResult> CompleteStateInstallAsync(GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken)
+    public async Task<GroupSnapshotInstallResult> CompleteStateInstallAsync(GroupSnapshot snapshot, StateInstallLeader leader, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return await FollowerLogStateInstall.CompleteAsync(_journal, this, IsOpen, snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
+        return await FollowerLogStateInstall.CompleteAsync(_journal, this, IsOpen, snapshot, leader, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -2636,9 +2636,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
     /// <summary>Operations of a state transfer: marks a copy incomplete, completes it at a snapshot, and captures the snapshot a leader sends.</summary>
     /// <remarks>
+    /// <para>
     /// The caller holds the log gate. Every metadata record of a transfer is published to both slots through the mirrored path, like the member
     /// state changes of the first start, so damage to one slot cannot roll the mark back. Recovery never writes the member state: it keeps whatever
     /// the newest valid record holds.
+    /// </para>
+    /// <para>
+    /// An unseeded copy, which lost its disk, takes a transfer only from a leader that checked the term ceiling (#1126). It stays unseeded, and
+    /// votes for nobody, for the whole transfer: the begin writes nothing. The completion writes, in its one complete record, the leader's term
+    /// and a vote for the leader, so the copy cannot vote a second time in a term it may have voted in before the loss. A transfer cut short
+    /// leaves the copy unseeded.
+    /// </para>
     /// </remarks>
     private static class FollowerLogStateInstall
     {
@@ -2647,7 +2655,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             IFollowerLogContext owner,
             bool open,
             bool topologyMismatch,
-            (ulong LeaderTerm, ulong Index, GroupSnapshot Snapshot) transfer,
+            (StateInstallLeader Leader, ulong Index, GroupSnapshot Snapshot) transfer,
             CancellationToken cancellationToken)
         {
             // The snapshot is checked before the copy is marked, so one the completion would refuse costs the copy nothing.
@@ -2656,13 +2664,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             {
                 (false, _) => FollowerLogRefusal.NotReady,
                 (true, true) => FollowerLogRefusal.TopologyMismatch,
-                _ => RefuseTransfer(in meta, transfer.LeaderTerm, transfer.Index) ?? RefuseSnapshot(journal, owner, in transfer.Snapshot),
+                _ => RefuseTransfer(in meta, in transfer.Leader, transfer.Index) ?? RefuseSnapshot(journal, owner, in transfer.Snapshot),
             };
-            if (refusal != null)
+            if (refusal != null || meta.MemberState == GroupMemberState.Unseeded)
                 return refusal;
 
             // A higher leader term is adopted with the vote cleared, any other term keeps the term and the vote.
-            var candidate = transfer.LeaderTerm > meta.CurrentTerm ? meta with { CurrentTerm = transfer.LeaderTerm, VotedFor = string.Empty } : meta;
+            var leaderTerm = transfer.Leader.Term;
+            var candidate = leaderTerm > meta.CurrentTerm ? meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty } : meta;
             await StoreAsync(journal, owner, candidate with { MemberState = GroupMemberState.Incomplete }, cancellationToken).ConfigureAwait(false);
             return null;
         }
@@ -2688,26 +2697,26 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             IFollowerLogContext owner,
             bool open,
             GroupSnapshot snapshot,
-            ulong leaderTerm,
+            StateInstallLeader leader,
             CancellationToken cancellationToken)
         {
-            var refusal = open ? RefuseCompletion(owner, in snapshot, leaderTerm) : FollowerLogRefusal.NotReady;
+            var refusal = open ? RefuseCompletion(owner, in snapshot, in leader) : FollowerLogRefusal.NotReady;
             if (refusal != null)
                 return GroupSnapshotInstallResult.Refused(refusal);
 
             // The snapshot is published first. If that fails, the old metadata and log remain authoritative; once it is durable, a failure
-            // of any later step leaves the copy incomplete, and recovery restores the baseline from the snapshot on the next open.
+            // of any later step leaves the copy incomplete, or unseeded, and recovery restores the baseline from the snapshot on the next open.
             await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
-            await ReplaceStateAsync(journal, owner, snapshot, leaderTerm).ConfigureAwait(false);
+            await ReplaceStateAsync(journal, owner, snapshot, leader).ConfigureAwait(false);
             return GroupSnapshotInstallResult.Installed;
         }
 
-        private static async Task ReplaceStateAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupSnapshot snapshot, ulong leaderTerm)
+        private static async Task ReplaceStateAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupSnapshot snapshot, StateInstallLeader leader)
         {
             try
             {
                 // Past the publish there is no way back: a caller's cancellation must not fail the log half way through.
-                await ReplaceLogAndStoreAsync(journal, owner, snapshot, leaderTerm, CancellationToken.None).ConfigureAwait(false);
+                await ReplaceLogAndStoreAsync(journal, owner, snapshot, leader, CancellationToken.None).ConfigureAwait(false);
             }
             catch
             {
@@ -2717,7 +2726,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
         }
 
-        private static async Task ReplaceLogAndStoreAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken)
+        private static async Task ReplaceLogAndStoreAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            GroupSnapshot snapshot,
+            StateInstallLeader leader,
+            CancellationToken cancellationToken)
         {
             // Both restores precede the log replacement, so a fault during it cannot leave the in-memory map holding entries the transfer
             // discarded. The restore keeps every committed outcome whatever the idempotency capacity, which bounds new reservations only.
@@ -2730,9 +2744,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             owner.LastLogIndex = snapshot.LastIncludedIndex;
             owner.LogLength = length;
 
-            // The complete record is the last step. A higher leader term is adopted with it, with the vote cleared.
+            // The complete record is the last step. A higher leader term is adopted with it, with the vote cleared; a copy that was unseeded
+            // takes the leader's term with a vote for the leader, since it may have voted in that term before it lost its disk.
             var meta = owner.Meta;
-            var adopted = leaderTerm > meta.CurrentTerm ? meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty } : meta;
+            var adopted = AdoptedTerm(in meta, in leader);
             var complete = adopted with
             {
                 MemberState = GroupMemberState.Complete,
@@ -2744,12 +2759,19 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             await StoreAsync(journal, owner, complete, cancellationToken).ConfigureAwait(false);
         }
 
-        private static string? RefuseTransfer(in GroupLogMetadata meta, ulong leaderTerm, ulong index)
+        private static GroupLogMetadata AdoptedTerm(in GroupLogMetadata meta, in StateInstallLeader leader) => true switch
+        {
+            _ when meta.MemberState == GroupMemberState.Unseeded => meta with { CurrentTerm = leader.Term, VotedFor = leader.NodeId },
+            _ when leader.Term > meta.CurrentTerm => meta with { CurrentTerm = leader.Term, VotedFor = string.Empty },
+            _ => meta,
+        };
+
+        private static string? RefuseTransfer(in GroupLogMetadata meta, in StateInstallLeader leader, ulong index)
         {
             return true switch
             {
-                _ when leaderTerm < meta.CurrentTerm => FollowerLogRefusal.StaleTerm,
-                _ when meta.MemberState == GroupMemberState.Unseeded => FollowerLogRefusal.Unseeded,
+                _ when leader.Term < meta.CurrentTerm => FollowerLogRefusal.StaleTerm,
+                _ when meta.MemberState == GroupMemberState.Unseeded && !leader.CeilingChecked => FollowerLogRefusal.Unseeded,
                 _ when index < meta.CommitIndex => FollowerLogRefusal.NotReady,
                 _ => null,
             };
@@ -2767,15 +2789,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             };
         }
 
-        private static string? RefuseCompletion(IFollowerLogContext owner, in GroupSnapshot snapshot, ulong leaderTerm)
+        private static string? RefuseCompletion(IFollowerLogContext owner, in GroupSnapshot snapshot, in StateInstallLeader leader)
         {
             var topologyMismatch = FollowerLogSnapshot.SnapshotTopologyMismatch(owner, in snapshot);
+            var state = owner.Meta.MemberState;
             return true switch
             {
-                _ when owner.Meta.MemberState != GroupMemberState.Incomplete => FollowerLogRefusal.NotReady,
+                _ when state == GroupMemberState.Unseeded && !leader.CeilingChecked => FollowerLogRefusal.Unseeded,
+                _ when state == GroupMemberState.Complete => FollowerLogRefusal.NotReady,
                 _ when !string.Equals(snapshot.GroupId, owner.GroupId, StringComparison.Ordinal) => FollowerLogRefusal.NotMember,
                 _ when topologyMismatch != null => topologyMismatch,
-                _ when leaderTerm < owner.Meta.CurrentTerm => FollowerLogRefusal.StaleTerm,
+                _ when leader.Term < owner.Meta.CurrentTerm => FollowerLogRefusal.StaleTerm,
                 _ when IsMalformed(owner, in snapshot) => FollowerLogRefusal.NotReady,
                 _ => null,
             };

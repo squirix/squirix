@@ -261,12 +261,12 @@ public sealed class ReplicaReadinessProbeTests
     }
 
     /// <summary>
-    /// A follower that answers incomplete answered the probe and needs a repair: its slot is marked catching up and stays out of the write quorum,
-    /// while an unseeded follower is a plain refusal that marks nothing.
+    /// A follower that answers incomplete, or unseeded, answered the probe and needs a repair: its slot is marked catching up and stays out of the
+    /// write quorum.
     /// </summary>
     /// <returns>An asynchronous operation.</returns>
     [Test]
-    public async Task IncompleteAnswerNeedsRepair()
+    public async Task NotCompleteAnswerNeedsRepair()
     {
         var followers = new ScriptedFollowers();
         followers.Answer("n2", new FollowerLogAppendResult(false, RefusalCodes.Incomplete, 0, 0));
@@ -277,9 +277,9 @@ public sealed class ReplicaReadinessProbeTests
         var results = await ProbeAsync(followers, [false, true, true], int.MaxValue, CancellationToken.None);
         ReplicaReadinessProbe.ApplyAll(eligibility, 0, results, in leader, Fingerprint, 1, null);
 
-        _ = await Assert.That((results[1].Kind, results[2].Kind)).IsEqualTo((ReplicaProbeKind.Incomplete, ReplicaProbeKind.Refused));
-        _ = await Assert.That((results[1].Answered, results[2].Answered)).IsEqualTo((true, false));
-        _ = await Assert.That((eligibility.StateFor(1), eligibility.StateFor(2))).IsEqualTo((ReplicaParticipantState.CatchingUp, ReplicaParticipantState.Recovering));
+        _ = await Assert.That((results[1].Kind, results[2].Kind)).IsEqualTo((ReplicaProbeKind.Incomplete, ReplicaProbeKind.Unseeded));
+        _ = await Assert.That((results[1].Answered, results[2].Answered)).IsEqualTo((true, true));
+        _ = await Assert.That((eligibility.StateFor(1), eligibility.StateFor(2))).IsEqualTo((ReplicaParticipantState.CatchingUp, ReplicaParticipantState.CatchingUp));
         _ = await Assert.That((eligibility.CanCountInWriteQuorum(1), eligibility.CanCountInWriteQuorum(2))).IsEqualTo((false, false));
     }
 

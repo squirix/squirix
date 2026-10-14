@@ -6,6 +6,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.Utils;
+using static Squirix.Server.UnitTests.Persistence.Replication.StateInstallLeaders;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -54,7 +55,7 @@ internal static class FollowerSnapshotScenario
     internal static async Task<GroupSnapshotInstallResult> InstallAsync(FollowerLog log, GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken)
     {
         var refusal = await BeginAsync(log, snapshot, leaderTerm, cancellationToken);
-        return refusal != null ? GroupSnapshotInstallResult.Refused(refusal) : await log.CompleteStateInstallAsync(snapshot, leaderTerm, cancellationToken);
+        return refusal != null ? GroupSnapshotInstallResult.Refused(refusal) : await log.CompleteStateInstallAsync(snapshot, Leader(leaderTerm), cancellationToken);
     }
 
     /// <summary>Marks the copy incomplete for a state transfer of a snapshot, under the topology the log already holds.</summary>
@@ -66,7 +67,7 @@ internal static class FollowerSnapshotScenario
     internal static async Task<string?> BeginAsync(FollowerLog log, GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken)
     {
         var status = await log.GetStatusAsync(cancellationToken);
-        return await log.BeginStateInstallAsync(leaderTerm, snapshot.LastIncludedIndex, status.TopologyFingerprint, status.ConfigurationGeneration, snapshot, cancellationToken);
+        return await log.BeginStateInstallAsync(Leader(leaderTerm), snapshot.LastIncludedIndex, status.TopologyFingerprint, status.ConfigurationGeneration, snapshot, cancellationToken);
     }
 
     /// <summary>Marks the copy incomplete for a state transfer under the topology the log already holds.</summary>

@@ -39,6 +39,9 @@ internal static class ReplicaTransferRegistration
             sp.GetRequiredService<IJournalCoordinator>(),
             sp.GetService<ReplicaTransferOptions>() ?? new ReplicaTransferOptions(),
             sp.GetRequiredService<ILogger<ReplicaStateTransfers>>(),
-            sp.GetRequiredService<ReplicaCatchUpMetrics>()));
+            sp.GetRequiredService<ReplicaCatchUpMetrics>())
+        {
+            TermCeiling = new ReplicaTermCeiling(sp.GetRequiredService<IReplicaBootstrapGateway>(), ReplicaVerificationProbe.ProbeTimeout),
+        });
     }
 }

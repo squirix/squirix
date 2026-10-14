@@ -12,6 +12,7 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using static Squirix.Server.UnitTests.Persistence.Replication.StateInstallLeaders;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -93,7 +94,7 @@ public sealed class GroupMemberStateLogTests : ServerUnitTestBase
             _ = await Assert.That(begin).IsNull();
             _ = await Assert.That((marked.MemberState, log.IsComplete)).IsEqualTo((GroupMemberState.Incomplete, false));
 
-            var result = await log.CompleteStateInstallAsync(snapshot, 1UL, cancellationToken);
+            var result = await log.CompleteStateInstallAsync(snapshot, Leader(1UL), cancellationToken);
 
             _ = await Assert.That((result.Success, log.IsComplete)).IsEqualTo((true, true));
             await AssertCompleteAsync(dir, log, cancellationToken);

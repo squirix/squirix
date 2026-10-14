@@ -18,7 +18,7 @@ using static Squirix.Server.UnitTests.Cluster.Replication.ReplicaSenderTestKit;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
-/// <summary>Entry catch-up against a follower whose copy is not complete: the session ends at once, and an incomplete copy has its own outcome.</summary>
+/// <summary>Entry catch-up against a follower whose copy is not complete: the session ends at once, with an outcome of its own for each state.</summary>
 [Immutable]
 public sealed class ReplicaEntryCatchUpNotCompleteTests : ServerUnitTestBase
 {
@@ -26,7 +26,7 @@ public sealed class ReplicaEntryCatchUpNotCompleteTests : ServerUnitTestBase
 
     private static readonly byte[] Fingerprint = [9, 8, 7];
 
-    /// <summary>A follower that answers incomplete ends the session with the incomplete outcome after one request, and an unseeded one stays a plain refusal.</summary>
+    /// <summary>A follower that answers incomplete, or unseeded, ends the session with the outcome of that state after one request.</summary>
     /// <param name="incomplete">Whether the follower copy is planted incomplete; otherwise it is unseeded.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -35,7 +35,7 @@ public sealed class ReplicaEntryCatchUpNotCompleteTests : ServerUnitTestBase
     public async Task NotCompleteFollowerEndsTheSession(bool incomplete, CancellationToken cancellationToken)
     {
         var state = incomplete ? GroupMemberState.Incomplete : GroupMemberState.Unseeded;
-        var outcome = incomplete ? ReplicaCatchUpOutcome.Incomplete : ReplicaCatchUpOutcome.Refused;
+        var outcome = incomplete ? ReplicaCatchUpOutcome.Incomplete : ReplicaCatchUpOutcome.Unseeded;
         var code = incomplete ? RefusalCodes.Incomplete : RefusalCodes.Unseeded;
         using var dir = new TempDirectory("squirix-catch-up-not-complete");
         await using var leader = new FollowerLog(Path.Join(dir, "leader"), GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);

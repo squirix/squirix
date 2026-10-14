@@ -245,6 +245,7 @@ internal static class ReplicaReadinessProbe
                 return;
             case ReplicaProbeKind.LogMismatch:
             case ReplicaProbeKind.Incomplete:
+            case ReplicaProbeKind.Unseeded:
                 MarkCatchingUp(eligibility, replicaIndex, 0UL, fingerprint, generation);
                 return;
             case ReplicaProbeKind.Unreachable:
@@ -274,6 +275,7 @@ internal static class ReplicaReadinessProbe
             (true, _) => new ReplicaProbeResult(ReplicaProbeKind.Accepted, response.LastLogIndex),
             (false, RefusalCodes.LogMismatch) => new ReplicaProbeResult(ReplicaProbeKind.LogMismatch, response.LastLogIndex),
             (false, RefusalCodes.Incomplete) => new ReplicaProbeResult(ReplicaProbeKind.Incomplete, 0),
+            (false, RefusalCodes.Unseeded) => new ReplicaProbeResult(ReplicaProbeKind.Unseeded, 0),
             _ => new ReplicaProbeResult(ReplicaProbeKind.Refused, 0),
         };
 

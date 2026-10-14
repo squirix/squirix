@@ -17,4 +17,10 @@ internal enum ReplicaProbeKind
 
     /// <summary>The follower answered that its copy is incomplete: it is reachable and needs a repair, and it takes no entries until then.</summary>
     Incomplete = 4,
+
+    /// <summary>
+    /// The follower answered that its copy lost its disk: it is reachable, takes no entries and votes for nobody until a leader that checked the
+    /// term ceiling repairs it by a state transfer (#1126).
+    /// </summary>
+    Unseeded = 5,
 }
