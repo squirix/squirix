@@ -22,12 +22,15 @@ using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>
-/// The gated compaction step of an RF=3 group owner: it compacts only a committed, applied log that every follower durably holds, and
-/// a write arriving meanwhile appends after the compacted log.
+/// The gated compaction step of an RF=3 group owner: it compacts only a committed, applied log that every follower durably holds, or past
+/// the retention limit every ready follower, and a write arriving meanwhile appends after the compacted log.
 /// </summary>
 public sealed class OwnedLogCompactionTests : ServerUnitTestBase
 {
     private static readonly ReplicaLogCompactionPolicy AnyEntry = new(long.MaxValue, 1);
+
+    /// <summary>Compacts at any entry, and every log is past its retention limit.</summary>
+    private static readonly ReplicaLogCompactionPolicy PastLimit = new(long.MaxValue, 1, 0L);
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(10);
 
     /// <summary>A committed, applied log every follower holds compacts to its header, and keeps its last term from the snapshot baseline.</summary>
@@ -168,6 +171,75 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
 
         _ = await Assert.That(await committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.FollowerNotReady);
         await AssertNotCompactedAsync(registry, cancellationToken);
+    }
+
+    /// <summary>
+    /// Past the retention limit a follower that is down no longer keeps the log: the leader compacts without it and reports it left behind,
+    /// for a state transfer to repair it when it returns.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DownFollowerPastLimitIsLeftBehind(CancellationToken cancellationToken)
+    {
+        var gateway = new ScriptedGateway();
+        using var dir = new TempDirectory("squirix-owned-compaction-past-limit");
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var committer = CreateCommitter(registry, gateway);
+        await WriteAsync(committer, 1, cancellationToken);
+        gateway.Set("n3", FollowerMode.Down);
+        await WriteAsync(committer, 1, cancellationToken);
+        _ = await committer.Probe.Repairs.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(await committer.CompactOwnedLogAsync(PastLimit, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.CompactedPastFollower);
+        _ = await Assert.That(await OwnedLog(registry).GetRetentionAsync(cancellationToken)).IsEqualTo(new FollowerLogRetention(HeaderLength(), 0, 0, 2UL));
+    }
+
+    /// <summary>Below the retention limit a follower that is not ready keeps the log; one byte later it no longer does.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RetentionLimitIsTheLogSize(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-owned-compaction-limit");
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway());
+        await WriteAsync(committer, 2, cancellationToken);
+        _ = registry.EligibilityFor("n1").TryMarkCatchingUp(2, default);
+        var size = (await OwnedLog(registry).GetRetentionAsync(cancellationToken)).LogBytes;
+
+        var below = await committer.CompactOwnedLogAsync(new ReplicaLogCompactionPolicy(long.MaxValue, 1, size + 1), Durable(), cancellationToken);
+        var at = await committer.CompactOwnedLogAsync(new ReplicaLogCompactionPolicy(long.MaxValue, 1, size), Durable(), cancellationToken);
+
+        _ = await Assert.That((below, at)).IsEqualTo((ReplicaLogCompactionOutcome.FollowerNotReady, ReplicaLogCompactionOutcome.CompactedPastFollower));
+    }
+
+    /// <summary>Past the retention limit a ready follower that has not acknowledged every committed entry still keeps the log.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FollowerBehindPastLimitKeepsLog(CancellationToken cancellationToken)
+    {
+        var gateway = new ScriptedGateway();
+        using var dir = new TempDirectory("squirix-owned-compaction-behind-limit");
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var committer = CreateCommitter(registry, gateway);
+        await WriteAsync(committer, 1, cancellationToken);
+        gateway.Set("n3", FollowerMode.Silent);
+        await WriteAsync(committer, 1, cancellationToken);
+
+        _ = await Assert.That(await committer.CompactOwnedLogAsync(PastLimit, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.FollowerBehind);
+        await AssertNotCompactedAsync(registry, cancellationToken);
+    }
+
+    /// <summary>Past the retention limit, with every follower ready and holding the log, the compaction is an ordinary one.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadyFollowersPastLimitCompact(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-owned-compaction-ready-limit");
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway());
+        await WriteAsync(committer, 2, cancellationToken);
+
+        _ = await Assert.That(await committer.CompactOwnedLogAsync(PastLimit, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.Compacted);
     }
 
     /// <summary>A committed entry whose idempotency outcome is still unresolved keeps the log, and readiness stays untouched.</summary>

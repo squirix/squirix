@@ -36,6 +36,7 @@ public sealed class OptionsTests
         _ = await Assert.That(o.IsJournalGroupCommitEnabled).IsFalse();
         _ = await Assert.That(o.ReplicaLogCompactionMb).IsEqualTo(64);
         _ = await Assert.That(o.ReplicaLogCompactionEntries).IsEqualTo(100_000);
+        _ = await Assert.That(o.ReplicaLogRetentionMaxMb).IsEqualTo(1024);
     }
 
     /// <summary>
@@ -90,6 +91,7 @@ public sealed class OptionsTests
     [Arguments(nameof(PersistenceOptions.JournalStallDegradedThreshold))]
     [Arguments(nameof(PersistenceOptions.ReplicaLogCompactionMb))]
     [Arguments(nameof(PersistenceOptions.ReplicaLogCompactionEntries))]
+    [Arguments(nameof(PersistenceOptions.ReplicaLogRetentionMaxMb))]
     public async Task ValidateRejectsNonPositiveScalars(string propertyName)
     {
         var options = CreateWithInvalidScalar(propertyName);
@@ -112,6 +114,18 @@ public sealed class OptionsTests
 
         _ = await Assert.That(segment.Message).Contains(nameof(PersistenceOptions.JournalMaxSegmentMb), StringComparison.Ordinal);
         _ = await Assert.That(total.Message).Contains(nameof(PersistenceOptions.JournalMaxTotalBytesMb), StringComparison.Ordinal);
+    }
+
+    /// <summary>The retention limit of a led group log accepts the compaction threshold and refuses one megabyte less.</summary>
+    [Test]
+    public async Task RetentionLimitHoldsCompactionThreshold()
+    {
+        var equal = new PersistenceOptions { ReplicaLogCompactionMb = 64, ReplicaLogRetentionMaxMb = 64 };
+        equal.Validate();
+
+        var below = NodeExceptionAssert.For<InvalidOperationException>().Throws(equal with { ReplicaLogRetentionMaxMb = 63 }, static value => value.Validate());
+
+        _ = await Assert.That(below.Message).Contains(nameof(PersistenceOptions.ReplicaLogRetentionMaxMb), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -146,6 +160,7 @@ public sealed class OptionsTests
         nameof(PersistenceOptions.JournalStallDegradedThreshold) => new PersistenceOptions { JournalStallDegradedThreshold = TimeSpan.Zero },
         nameof(PersistenceOptions.ReplicaLogCompactionMb) => new PersistenceOptions { ReplicaLogCompactionMb = 0 },
         nameof(PersistenceOptions.ReplicaLogCompactionEntries) => new PersistenceOptions { ReplicaLogCompactionEntries = 0 },
+        nameof(PersistenceOptions.ReplicaLogRetentionMaxMb) => new PersistenceOptions { ReplicaLogRetentionMaxMb = 0 },
         _ => throw new ArgumentOutOfRangeException(nameof(propertyName), propertyName, "Unsupported property name."),
     };
 }

@@ -189,8 +189,8 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
     private void Report(string groupId, ReplicaLogCompactionOutcome outcome)
     {
         var name = ReplicaLogCompactionOutcomeNames.Of(outcome);
-        if (outcome == ReplicaLogCompactionOutcome.Compacted)
-            _metrics.ReportCompaction(_appliers.NodeId, groupId);
+        if (outcome is ReplicaLogCompactionOutcome.Compacted or ReplicaLogCompactionOutcome.CompactedPastFollower)
+            _metrics.ReportCompaction(_appliers.NodeId, groupId, name);
         else if (outcome != ReplicaLogCompactionOutcome.BelowThreshold)
             _metrics.ReportCompactionSkipped(_appliers.NodeId, groupId, name);
 
@@ -200,6 +200,8 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
         _reported[groupId] = outcome;
         if (outcome == ReplicaLogCompactionOutcome.SnapshotTooLarge)
             ServerLog.ReplicaLogCompactionSnapshotTooLarge(_log, groupId);
+        else if (outcome == ReplicaLogCompactionOutcome.CompactedPastFollower)
+            ServerLog.ReplicaLogCompactedPastFollower(_log, groupId);
         else
             ServerLog.ReplicaLogCompactionChanged(_log, groupId, name);
     }

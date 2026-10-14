@@ -95,7 +95,8 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
             SnapshotIndex = 18,
         };
         metrics.ReportGroup(in owned, ReplicaReadinessVerdict.Ready);
-        metrics.ReportCompaction("node-a", "node-a");
+        metrics.ReportCompaction("node-a", "node-a", "compacted");
+        metrics.ReportCompaction("node-a", "node-a", "compacted_past_follower");
         metrics.ReportCompactionSkipped("node-a", "node-a", "follower_behind");
         metrics.ReportCompactionSkipped("node-a", "node-a", "follower_behind");
         metrics.ReportCompactionSkipped("node-a", "node-a", "snapshot_too_large");
@@ -104,7 +105,8 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
         await AssertGaugeAsync(records, "squirix_replication_log_bytes", "node-a", 4096);
         await AssertGaugeAsync(records, "squirix_replication_log_retained_entries", "node-a", 12);
         await AssertGaugeAsync(records, "squirix_replication_snapshot_index", "node-a", 18);
-        _ = await Assert.That(Count(records, "squirix_replication_log_compactions_total", null)).IsEqualTo(1);
+        _ = await Assert.That(Count(records, "squirix_replication_log_compactions_total", "compacted")).IsEqualTo(1);
+        _ = await Assert.That(Count(records, "squirix_replication_log_compactions_total", "compacted_past_follower")).IsEqualTo(1);
         _ = await Assert.That(Count(records, "squirix_replication_log_compaction_skipped_total", "follower_behind")).IsEqualTo(2);
         _ = await Assert.That(Count(records, "squirix_replication_log_compaction_skipped_total", "snapshot_too_large")).IsEqualTo(1);
     }
@@ -259,13 +261,13 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
     private static void Record(object? state, string name, long value, ReadOnlySpan<KeyValuePair<string, object?>> tags)
     {
         if (state is List<MeasurementRecord> captured)
-            captured.Add(new MeasurementRecord(name, value, FindTag(tags, "node"), FindTag(tags, "group"), FindTag(tags, "scope"), FindTag(tags, "reason")));
+            captured.Add(new MeasurementRecord(name, value, FindTag(tags, "node"), FindTag(tags, "group"), FindTag(tags, "scope"), FindTag(tags, "reason") ?? FindTag(tags, "outcome")));
     }
 
     private static void Record(object? state, string name, int value, ReadOnlySpan<KeyValuePair<string, object?>> tags)
     {
         if (state is List<MeasurementRecord> captured)
-            captured.Add(new MeasurementRecord(name, value, FindTag(tags, "node"), FindTag(tags, "group"), FindTag(tags, "scope"), FindTag(tags, "reason")));
+            captured.Add(new MeasurementRecord(name, value, FindTag(tags, "node"), FindTag(tags, "group"), FindTag(tags, "scope"), FindTag(tags, "reason") ?? FindTag(tags, "outcome")));
     }
 
     private sealed class MeasurementRecord

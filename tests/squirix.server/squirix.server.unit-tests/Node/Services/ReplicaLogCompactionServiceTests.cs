@@ -26,6 +26,9 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// </summary>
 public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
 {
+    /// <summary>The event id of a led log compacted while a follower is not ready.</summary>
+    private const int CompactedPastFollowerEventId = 4071;
+
     /// <summary>After the owned log, the pass persists each follower group's applied index and releases the applied payloads from memory.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -99,6 +102,46 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         var retention = await log.GetRetentionAsync(cancellationToken);
         _ = await Assert.That((status.LastLogIndex, status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((4UL, 3UL, 3UL));
         _ = await Assert.That((retention.SnapshotIndex, retention.RetainedEntries)).IsEqualTo((3UL, 1));
+    }
+
+    /// <summary>
+    /// A led log compacted past a follower that is down is logged as a warning when the outcome changes to it, not again by the passes that
+    /// follow with the same outcome.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CompactionPastFollowerIsLoggedOnce(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-maintenance-past-follower");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var gateway = new ScriptedGateway();
+        await using var committer = CreateCommitter(registry, gateway);
+        using var meter = new Meter("test");
+        var metrics = new ReplicationMetrics(meter);
+        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
+        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var events = new EventRecordingLogger();
+        using var service = new ReplicaLogCompactionService(
+            LeadOwn(committer),
+            durability.Instance(),
+            (new ReplicaLogCompactionOptions(), new ReplicaLogCompactionPolicy(long.MaxValue, 1, 0L)),
+            metrics,
+            (new ReplicaGroupAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics), registry),
+            events,
+            TimeProvider.System);
+        await committer.CommitSetAsync(NewOperationId(), "cache", "a", Entry("a"), cancellationToken);
+        gateway.Set("n3", FollowerMode.Down);
+        await committer.CommitSetAsync(NewOperationId(), "cache", "b", Entry("b"), cancellationToken);
+        _ = await committer.Probe.Repairs.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
+        await service.RunOnceAsync(cancellationToken);
+        var first = (await OwnedLogOf(registry).GetRetentionAsync(cancellationToken)).SnapshotIndex;
+        await committer.CommitSetAsync(NewOperationId(), "cache", "c", Entry("c"), cancellationToken);
+        await service.RunOnceAsync(cancellationToken);
+        var second = (await OwnedLogOf(registry).GetRetentionAsync(cancellationToken)).SnapshotIndex;
+
+        _ = await Assert.That((first, second)).IsEqualTo((2UL, 3UL));
+        _ = await Assert.That(events.Count(CompactedPastFollowerEventId)).IsEqualTo(1);
     }
 
     /// <summary>

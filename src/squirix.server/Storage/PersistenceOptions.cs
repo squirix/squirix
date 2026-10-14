@@ -77,6 +77,14 @@ internal sealed record PersistenceOptions
     [JsonInclude]
     internal int ReplicaLogCompactionMb { get; init; } = PersistenceOptionsDefaults.ReplicaLogCompactionMb;
 
+    /// <summary>
+    /// Gets the size in megabytes of the group log this node leads past which it is compacted without waiting for followers that are not
+    /// ready; at least <see cref="ReplicaLogCompactionMb" />.
+    /// </summary>
+    [JsonPropertyName("replicaLogRetentionMaxMb")]
+    [JsonInclude]
+    internal int ReplicaLogRetentionMaxMb { get; init; } = PersistenceOptionsDefaults.ReplicaLogRetentionMaxMb;
+
     /// <summary>Gets the number of manifest versions to retain before pruning older versions.</summary>
     [JsonPropertyName("manifestRetentionCount")]
     [JsonInclude]
@@ -116,6 +124,12 @@ internal sealed record PersistenceOptions
         RequirePositive(ManifestRetentionCount, nameof(ManifestRetentionCount));
         RequirePositive(ReplicaLogCompactionEntries, nameof(ReplicaLogCompactionEntries));
         RequirePositive(ReplicaLogCompactionMb, nameof(ReplicaLogCompactionMb));
+        if (ReplicaLogRetentionMaxMb < ReplicaLogCompactionMb)
+        {
+            throw new InvalidOperationException(
+                $"Persistence {nameof(ReplicaLogRetentionMaxMb)} must be at least {nameof(ReplicaLogCompactionMb)} ({ReplicaLogCompactionMb}).");
+        }
+
         RequirePositive(SnapshotRetentionCount, nameof(SnapshotRetentionCount));
     }
 
@@ -179,6 +193,9 @@ internal sealed record PersistenceOptions
 
         /// <summary>Default owned group log size in megabytes that triggers a compaction.</summary>
         internal const int ReplicaLogCompactionMb = 64;
+
+        /// <summary>Default led group log size in megabytes past which followers that are not ready no longer hold its compaction.</summary>
+        internal const int ReplicaLogRetentionMaxMb = 1024;
 
         /// <summary>Default consecutive manifest retention-cleanup failures required to degrade readiness.</summary>
         internal const int RetentionCleanupDegradedWrites = 3;

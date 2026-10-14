@@ -151,7 +151,10 @@ public sealed class ReplicaStateTransfersTests : IsolatedStorageTestBase
         _ = await Assert.That(transfer.Aborts).IsEqualTo(fault ? 1 : 0);
     }
 
-    /// <summary>While the log is pinned compaction is skipped like a follower that is not ready, and it runs again once the pin is released.</summary>
+    /// <summary>
+    /// While the log is pinned compaction is skipped like a follower that is not ready, past the retention limit too, and it runs again once
+    /// the pin is released.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task CompactionWaitsForThePin(CancellationToken cancellationToken)
@@ -163,10 +166,12 @@ public sealed class ReplicaStateTransfersTests : IsolatedStorageTestBase
         pin.Hold(3UL);
 
         var pinned = await leader.Committer.CompactOwnedLogAsync(policy, Durable(), cancellationToken);
+        var pinnedPastLimit = await leader.Committer.CompactOwnedLogAsync(policy with { MaxRetainedBytes = 0L }, Durable(), cancellationToken);
         pin.Dispose();
         var released = await leader.Committer.CompactOwnedLogAsync(policy, Durable(), cancellationToken);
 
         _ = await Assert.That(pinned).IsEqualTo(ReplicaLogCompactionOutcome.FollowerNotReady);
+        _ = await Assert.That(pinnedPastLimit).IsEqualTo(ReplicaLogCompactionOutcome.FollowerNotReady).Because("A held pin keeps the log past the retention limit too.");
         _ = await Assert.That(released).IsEqualTo(ReplicaLogCompactionOutcome.Compacted);
     }
 

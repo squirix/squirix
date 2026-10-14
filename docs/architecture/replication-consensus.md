@@ -252,17 +252,21 @@ follows.
   It requires no uncommitted tail, every committed entry applied, every idempotency outcome resolved, and every
   follower slot verified ready with a durable match index at the commit index. It then publishes `group.snapshot`
   through the commit index and rewrites `group.log` to its header.
-- **Every follower must have caught up.** The leader keeps every entry a follower may still need: a follower that is
-  down, or that missed an entry, blocks compaction of the owner's group log until it is back. A follower whose append
-  failed is taken out of the write quorum; once it answers again, the owner sends it the entries it lacks from the
-  group log through its sender, admits it, and compaction resumes. A follower that needs entries already compacted is
-  repaired by a [state transfer](#state-transfer). The leader does not compact its log while a transfer holds it.
+- **Every follower must have caught up, up to a limit.** The leader keeps every entry a follower may still need: a
+  follower that is down, or that missed an entry, blocks compaction of the owner's group log until it is back. A
+  follower whose append failed is taken out of the write quorum; once it answers again, the owner sends it the entries
+  it lacks from the group log through its sender, admits it, and compaction resumes. Once `group.log` reaches
+  `ReplicaLogRetentionMaxMb` (default 1 GiB), a follower slot that is not verified ready no longer holds the log: the
+  owner compacts without it and reports `compacted_past_follower`; a pass whose outcome changes to it logs `4071`. A
+  ready follower behind the commit index still holds it. A follower that needs entries already compacted is repaired by
+  a [state transfer](#state-transfer). The leader does not compact its log while a transfer holds it, past the limit
+  too.
 - **Snapshot size.** A snapshot carries the resolved idempotency outcomes of the covered entries. When they exceed the
   64 MiB snapshot limit, compaction stalls with `snapshot_too_large` until the outcomes age out of idempotency
   retention (15 minutes) or are replaced by new writes. A table that stays full does not empty by aging: each new write
   takes the place of the oldest outcome once that outcome is older than one minute.
 
-Each pass reports its outcome through `squirix_replication_log_compactions_total` and
+Each pass reports its outcome through `squirix_replication_log_compactions_total{outcome}` and
 `squirix_replication_log_compaction_skipped_total{reason}`, and the retained size through
 `squirix_replication_log_bytes`, `squirix_replication_log_retained_entries`, `squirix_replication_snapshot_index`,
 and the `replicaGroups` section of [readiness details](../diagnostics.md#readiness-details).

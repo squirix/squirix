@@ -41,8 +41,8 @@ public sealed class LeaderSlotTests : ServerUnitTestBase
         await using var atZero = new ReplicaCommitCoordinator(options, new IdlePipeline(), ReplicaFaultHooks.CreateNoOp(), idempotency) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         var clock = new FakeTimeProvider();
 
-        var leaderAtTwo = await ReplicaLogCompactionStep.AwaitFollowersAsync(atTwo, eligibility, 0UL, clock, cancellationToken);
-        var leaderAtZero = await ReplicaLogCompactionStep.AwaitFollowersAsync(atZero, eligibility, 0UL, clock, cancellationToken);
+        var leaderAtTwo = await ReplicaLogCompactionStep.AwaitFollowersAsync(atTwo, eligibility, false, 0UL, clock, cancellationToken);
+        var leaderAtZero = await ReplicaLogCompactionStep.AwaitFollowersAsync(atZero, eligibility, false, 0UL, clock, cancellationToken);
 
         _ = await Assert.That(leaderAtTwo).IsNull();
         _ = await Assert.That(leaderAtZero).IsEqualTo(ReplicaLogCompactionOutcome.FollowerNotReady);
