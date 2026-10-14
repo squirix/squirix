@@ -188,7 +188,7 @@ Residual risk: larger RF, deeper logs, richer failure interleavings, or states b
 
 Required broken-rule fixtures (must produce expected counterexamples):
 
-- `vote` — grant votes without up-to-date log checks.
+- `vote` — grant a second vote in a term already voted in (the up-to-date log check still applies).
 - `current-term-commit` — commit old-term entries without a current-term commit.
 - `read-index` — serve reads without majority confirm and/or before `applied_index >= read_index`.
 - `repair-ceiling` — repair a member that lost its disk without the term ceiling (#1126); it yields two leaders in one

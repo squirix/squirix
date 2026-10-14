@@ -6,7 +6,7 @@ internal enum BrokenMode
     /// <summary>No broken rule; expect safety invariants to hold.</summary>
     None = 0,
 
-    /// <summary>Grant votes without up-to-date log checks.</summary>
+    /// <summary>Grant a second vote in a term already voted in; the up-to-date log check still applies.</summary>
     Vote = 1,
 
     /// <summary>Allow commit of old-term entries without a current-term commit.</summary>

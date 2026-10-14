@@ -1156,6 +1156,11 @@ internal static class ExploreRunner
                 var match = scratch.Match;
                 var nextId = scratch.NextMessageId;
                 var candidate = nodes[msg.To];
+
+                // A reply to a request sent before a disk loss reaches an unseeded copy, which adopts no term.
+                if (candidate.Unseeded)
+                    return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
+
                 if (msg.Term > candidate.CurrentTerm)
                 {
                     nodes[msg.To] = ModelRpcCommit.DemoteFollower(candidate, msg.Term);

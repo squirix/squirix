@@ -715,7 +715,7 @@ jobs:
     # Two short checks of the ubuntu build outputs in one job, so they hold one of the 20 job slots of the organization
     # plan. A check runs even when the other one failed, so one run reports every failure.
     #  - test discovery: every test project lists at least one test;
-    #  - protocol model explorer, full profile: the safe run plus three required broken-rule counterexamples.
+    #  - protocol model explorer, full profile: the safe run plus four required broken-rule counterexamples.
     post-build-checks:
         name: Post-Build Checks (Ubuntu / Net10.0)
         runs-on: ubuntu-latest
