@@ -14,4 +14,7 @@ internal enum BrokenMode
 
     /// <summary>Mark read-index ready without majority confirm / apply wait.</summary>
     ReadIndex = 3,
+
+    /// <summary>Repair a member that lost its disk without the term ceiling taken from a majority.</summary>
+    RepairCeiling = 4,
 }

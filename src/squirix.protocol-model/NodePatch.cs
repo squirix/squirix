@@ -28,4 +28,6 @@ internal sealed class NodePatch
     internal int? VotedFor { get; init; }
 
     internal int? VotesGranted { get; init; }
+
+    internal bool? Unseeded { get; init; }
 }

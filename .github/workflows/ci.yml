@@ -784,7 +784,7 @@ jobs:
                     done
                     exit "$failed"
 
-            # The four cases run in parallel; each output goes to a file of its own and is printed in order.
+            # The five cases run in parallel; each output goes to a file of its own and is printed in order.
             -   name: Run Full-Profile Explorer
                 if: ${{ !cancelled() }}
                 shell: bash
@@ -836,7 +836,7 @@ jobs:
                       return 1
                     }
 
-                    cases=( "none:" "vote:ElectionSafety" "current-term-commit:CurrentTermCommit" "read-index:ReadIndex" )
+                    cases=( "none:" "vote:ElectionSafety" "current-term-commit:CurrentTermCommit" "read-index:ReadIndex" "repair-ceiling:ElectionSafety" )
                     pids=()
                     for c in "${cases[@]}"; do
                       run_case "${c%%:*}" "${c#*:}" > "$OUT_ROOT/${c%%:*}.log" 2>&1 &

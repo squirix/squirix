@@ -20,7 +20,11 @@ internal sealed class ExploreProfile
         AllowCrash = flags.AllowCrash;
         AllowPartition = flags.AllowPartition;
         SymmetryReduce = flags.SymmetryReduce;
+        AllowDiskLoss = flags.AllowDiskLoss;
     }
+
+    /// <summary>Gets a value indicating whether one node may lose its disk and a leader may repair it.</summary>
+    internal bool AllowDiskLoss { get; }
 
     internal bool AllowCrash { get; }
 
@@ -63,9 +67,26 @@ internal sealed class ExploreProfile
             throw new ArgumentOutOfRangeException(nameof(replicaCount), replicaCount, "Replica count must be between 1 and 32.");
 
         var bounds = new ExploreBounds(replicaCount, maxTerm, maxLogEntries, maxInFlight, maxPendingReads, 50_000);
-        var flags = new ExploreFlags(allowCrash, replicaCount >= 3 && allowCrash, symmetryReduce);
+        var flags = new ExploreFlags(allowCrash, replicaCount >= 3 && allowCrash, symmetryReduce, false);
         return new ExploreProfile("rf-" + replicaCount.ToString(CultureInfo.InvariantCulture), in bounds, flags);
     }
+
+    /// <summary>Builds a profile in which one node may lose its disk and a leader may repair it, with crashes and without partitions.</summary>
+    /// <param name="replicaCount">The number of replicas.</param>
+    /// <param name="maxTerm">The highest term explored.</param>
+    /// <param name="maxInFlight">The most messages in flight.</param>
+    /// <param name="maxStates">The state budget.</param>
+    /// <returns>The profile.</returns>
+    /// <remarks>Message loss stands in for partitions: a dropped message isolates its receiver for that message.</remarks>
+    internal static ExploreProfile ForDiskLoss(int replicaCount, int maxTerm, int maxInFlight, int maxStates)
+    {
+        var bounds = new ExploreBounds(replicaCount, maxTerm, 1, maxInFlight, 0, maxStates);
+        return new ExploreProfile("disk-loss-rf-" + replicaCount.ToString(CultureInfo.InvariantCulture), in bounds, new ExploreFlags(true, false, true, true));
+    }
+
+    /// <summary>Builds the small disk-loss profile: three replicas, two terms, one entry.</summary>
+    /// <returns>The profile.</returns>
+    internal static ExploreProfile SmallDiskLoss() => ForDiskLoss(3, 2, 2, 300_000);
 
     internal static ExploreProfile SmallCommit(bool symmetryReduce = true) => SmallProfile("small-commit", 0, symmetryReduce);
 
@@ -73,14 +94,14 @@ internal sealed class ExploreProfile
 
     internal static ExploreProfile SmallRead(bool symmetryReduce = true) => SmallProfile("small-read", 1, symmetryReduce, 300_000);
 
-    private static ExploreProfile Full(bool symmetryReduce = true) => new("full", new ExploreBounds(3, 3, 3, 4, 1, 50_000), new ExploreFlags(true, true, symmetryReduce));
+    private static ExploreProfile Full(bool symmetryReduce = true) => new("full", new ExploreBounds(3, 3, 3, 4, 1, 50_000), new ExploreFlags(true, true, symmetryReduce, false));
 
     private static ExploreProfile Small(bool symmetryReduce = true) => SmallProfile("small", 0, symmetryReduce);
 
     private static ExploreProfile SmallProfile(string name, int maxPendingReads, bool symmetryReduce, int maxStates = 50_000) => new(
         name,
         new ExploreBounds(3, 2, 1, 2, maxPendingReads, maxStates),
-        new ExploreFlags(false, false, symmetryReduce));
+        new ExploreFlags(false, false, symmetryReduce, false));
 
     [StructLayout(LayoutKind.Auto)]
     [Immutable]
@@ -88,5 +109,5 @@ internal sealed class ExploreProfile
 
     [StructLayout(LayoutKind.Auto)]
     [Immutable]
-    private readonly record struct ExploreFlags(bool AllowCrash, bool AllowPartition, bool SymmetryReduce);
+    private readonly record struct ExploreFlags(bool AllowCrash, bool AllowPartition, bool SymmetryReduce, bool AllowDiskLoss);
 }

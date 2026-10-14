@@ -111,6 +111,11 @@ internal static class ExploreRunner
             var read = ExploreProfile.ForReplicaCount(rf, 2, 2, 4, 1, false, true);
             results.Add((read, Run(read, broken)));
         }
+
+        // One member loses its disk and a leader repairs it. RF=3 is explored to its fixed point; RF=5 needs four messages in flight for
+        // one election and exceeds any affordable state budget before the repair without a ceiling shows, so it is left out of the bounds.
+        var diskLoss = ExploreProfile.SmallDiskLoss();
+        results.Add((diskLoss, Run(diskLoss, broken)));
     }
 
     private static List<(ExploreProfile Profile, ExploreResult Result)> CollectResults(string profileName, BrokenMode broken)
@@ -130,7 +135,7 @@ internal static class ExploreRunner
     private static string ComputeModelVersionHash()
     {
         // Manual semantics fingerprint (Assembly/MVID banned by RS0030). Bump when transitions or invariants change.
-        const string semantic = "squirix-protocol-model-v1-raft-safety-match-entry-aware-commit-json";
+        const string semantic = "squirix-protocol-model-v2-raft-safety-match-entry-aware-commit-json-disk-loss-repair-ceiling";
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(semantic));
         var sb = new StringBuilder(16);
         for (var i = 0; i < 8; i++)
@@ -188,6 +193,7 @@ internal static class ExploreRunner
             BrokenMode.Vote => "Vote",
             BrokenMode.CurrentTermCommit => "CurrentTermCommit",
             BrokenMode.ReadIndex => "ReadIndex",
+            BrokenMode.RepairCeiling => "RepairCeiling",
             _ => throw new ArgumentOutOfRangeException(nameof(broken), broken, "Unsupported enum value."),
         };
     }
@@ -307,6 +313,31 @@ internal static class ExploreRunner
 
             if (profile.AllowCrash)
                 CollectCrashes(state, output);
+
+            if (profile.AllowDiskLoss)
+            {
+                CollectDiskLosses(state, output);
+                ModelRepairs.Collect(state, profile, broken, output);
+            }
+        }
+
+        /// <summary>Wipes the disk of one node, at most once per run: it loses its term, vote, log and commit index and holds an unseeded copy.</summary>
+        /// <param name="state">The state.</param>
+        /// <param name="output">The successors.</param>
+        /// <remarks>Messages the node sent before the loss stay in flight, as on a real network.</remarks>
+        private static void CollectDiskLosses(ClusterState state, List<ClusterState> output)
+        {
+            if (state.DiskLosses > 0)
+                return;
+
+            for (var i = 0; i < state.Nodes.Count; i++)
+            {
+                var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
+                nodes[i] = state.Nodes[i].Wiped();
+                var match = ModelTransitionUtil.CloneInts(state.MatchIndexes);
+                match[i] = 0;
+                output.Add(state.WithDiskLoss(nodes, match));
+            }
         }
 
         private static void AddHealedPartition(ClusterState state, IReadOnlyList<int> parts, List<ClusterState> output)
@@ -381,7 +412,7 @@ internal static class ExploreRunner
                 // Crash after durable writes: keep term/vote/log/commit; reset volatile.
                 var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
                 var runtime = NodeRuntime.Create(node.CommitIndex, 0, 0, 0, 0, false, false);
-                nodes[i] = new NodeState(node.Id, NodeRole.Follower, node.CurrentTerm, node.VotedFor, node.LogEntries, in runtime);
+                nodes[i] = new NodeState(node.Id, NodeRole.Follower, node.CurrentTerm, node.VotedFor, node.LogEntries, in runtime, node.Unseeded);
                 var match = ModelTransitionUtil.CloneInts(state.MatchIndexes);
                 match[i] = 0;
                 output.Add(state.WithNodesMatch(nodes, match));
@@ -531,7 +562,7 @@ internal static class ExploreRunner
         {
             next = state;
             var node = state.Nodes[candidateId];
-            if (node.Role is NodeRole.Leader)
+            if (node.Role is NodeRole.Leader || node.Unseeded)
                 return false;
 
             var nextTerm = node.CurrentTerm + 1;
@@ -605,6 +636,114 @@ internal static class ExploreRunner
 
             old = default;
             return false;
+        }
+
+        /// <summary>
+        /// The repair of a member that lost its disk by a leader: the leader reads the current terms of a majority of the group without the
+        /// wiped member, itself included, steps down when one is higher than its own, and otherwise gives the member its committed entries,
+        /// its term and a vote for itself.
+        /// </summary>
+        /// <remarks>
+        /// The status reads and the transfer are one step: the member stays unseeded, and votes for nobody, until the end of the transfer, and
+        /// the terms only grow after the loss, so a later read could only raise the ceiling. Every subset of the reachable members large enough
+        /// for the majority is tried, the smallest first, since a smaller subset gives the lowest ceiling.
+        /// </remarks>
+        private static class ModelRepairs
+        {
+            internal static void Collect(ClusterState state, ExploreProfile profile, BrokenMode broken, List<ClusterState> output)
+            {
+                for (var leaderId = 0; leaderId < state.Nodes.Count; leaderId++)
+                {
+                    var leader = state.Nodes[leaderId];
+                    if (leader.Role != NodeRole.Leader || leader.Unseeded)
+                        continue;
+
+                    for (var wipedId = 0; wipedId < state.Nodes.Count; wipedId++)
+                    {
+                        if (!state.Nodes[wipedId].Unseeded || !state.CanCommunicate(leaderId, wipedId))
+                            continue;
+
+                        if (broken is BrokenMode.RepairCeiling)
+                            output.Add(Repair(state, leaderId, wipedId));
+                        else
+                            CollectWithCeiling(state, profile, (leaderId, wipedId), output);
+                    }
+                }
+            }
+
+            private static void CollectWithCeiling(ClusterState state, ExploreProfile profile, (int Leader, int Wiped) pair, List<ClusterState> output)
+            {
+                var others = new List<int>(state.Nodes.Count);
+                for (var j = 0; j < state.Nodes.Count; j++)
+                {
+                    if (j != pair.Leader && j != pair.Wiped && state.CanCommunicate(pair.Leader, j))
+                        others.Add(j);
+                }
+
+                // The leader answers for itself; the other members answering make up the rest of the majority.
+                var needed = profile.Majority - 1;
+                if (others.Count < needed)
+                    return;
+
+                var leaderTerm = state.Nodes[pair.Leader].CurrentTerm;
+                var repaired = false;
+                var highest = 0;
+                for (var mask = 0; mask < 1 << others.Count; mask++)
+                {
+                    if (int.PopCount(mask) != needed)
+                        continue;
+
+                    var ceiling = Ceiling(state, others, mask);
+                    if (ceiling <= leaderTerm)
+                        repaired = true;
+                    else
+                        highest = Math.Max(highest, ceiling);
+                }
+
+                if (repaired)
+                    output.Add(Repair(state, pair.Leader, pair.Wiped));
+
+                if (highest > 0)
+                    output.Add(StepDown(state, pair.Leader, highest));
+            }
+
+            private static int Ceiling(ClusterState state, List<int> others, int mask)
+            {
+                var ceiling = 0;
+                for (var k = 0; k < others.Count; k++)
+                {
+                    if ((mask & (1 << k)) != 0)
+                        ceiling = Math.Max(ceiling, state.Nodes[others[k]].CurrentTerm);
+                }
+
+                return ceiling;
+            }
+
+            private static ClusterState Repair(ClusterState state, int leaderId, int wipedId)
+            {
+                var leader = state.Nodes[leaderId];
+                var committed = ModelTransitionUtil.TruncateTo(leader.LogEntries, leader.CommitIndex);
+                var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
+                nodes[wipedId] = ModelTransitionUtil.Patch(
+                    state.Nodes[wipedId],
+                    new NodePatch
+                    {
+                        CurrentTerm = leader.CurrentTerm,
+                        VotedFor = leaderId,
+                        LogEntries = committed,
+                        CommitIndex = leader.CommitIndex,
+                        AppliedIndex = leader.CommitIndex,
+                        Unseeded = false,
+                    });
+                return state.WithNodes(nodes);
+            }
+
+            private static ClusterState StepDown(ClusterState state, int leaderId, int term)
+            {
+                var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
+                nodes[leaderId] = ModelRpcCommit.DemoteFollower(state.Nodes[leaderId], term);
+                return state.WithNodes(nodes);
+            }
         }
 
         private static class ModelRpcCommit
@@ -867,6 +1006,11 @@ internal static class ExploreRunner
                 _ = scratch.Messages;
                 _ = scratch.Match;
                 _ = scratch.NextMessageId;
+
+                // An unseeded copy takes no entries and adopts no term; its refusal carries its own term.
+                if (nodes[msg.To].Unseeded)
+                    return EnqueueAppendResponse(state, in msg, scratch, profile, new AppendOutcome(false, 0));
+
                 var receiver = RefreshAppendReceiver(nodes, in msg);
                 var applied = ApplyAppendIfCurrent(in msg, nodes, receiver, profile);
                 return EnqueueAppendResponse(state, in msg, scratch, profile, applied);
@@ -939,8 +1083,8 @@ internal static class ExploreRunner
                 var match = scratch.Match;
                 var nextId = scratch.NextMessageId;
                 var receiver = nodes[msg.To];
-                var ok = msg.Term >= receiver.CurrentTerm;
-                if (msg.Term > receiver.CurrentTerm)
+                var ok = !receiver.Unseeded && msg.Term >= receiver.CurrentTerm;
+                if (!receiver.Unseeded && msg.Term > receiver.CurrentTerm)
                     nodes[msg.To] = ModelRpcCommit.DemoteFollower(receiver, msg.Term);
 
                 // Response travels receiver → original sender (swap relative to request From/To).
@@ -976,6 +1120,15 @@ internal static class ExploreRunner
                 var match = scratch.Match;
                 var nextId = scratch.NextMessageId;
                 var receiver = nodes[msg.To];
+                if (receiver.Unseeded)
+                {
+                    // An unseeded copy votes for nobody and adopts no term; its refusal carries its own term.
+                    if (messages.Count < profile.MaxInFlight && state.CanCommunicate(msg.To, msg.From))
+                        messages.Add(new InFlightMessage(nextId++, MessagePayload.VoteResponse(msg.To, msg.From, receiver.CurrentTerm, false)));
+
+                    return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
+                }
+
                 if (msg.Term > receiver.CurrentTerm)
                 {
                     nodes[msg.To] = ModelRpcCommit.DemoteFollower(receiver, msg.Term);
