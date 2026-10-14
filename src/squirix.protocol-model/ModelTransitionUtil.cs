@@ -113,7 +113,8 @@ internal static class ModelTransitionUtil
                 patch.ReadIndex ?? node.ReadIndex,
                 patch.ReadAcks ?? node.ReadAcks,
                 patch.ReadReady ?? node.ReadReady,
-                patch.BadOldCommit ?? node.BadOldCommit));
+                patch.BadOldCommit ?? node.BadOldCommit),
+            patch.Unseeded ?? node.Unseeded);
     }
 
     internal static List<LogEntry> TruncateTo(IReadOnlyList<LogEntry> log, int lastIndex)

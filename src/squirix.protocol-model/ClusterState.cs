@@ -10,14 +10,23 @@ namespace Squirix.ProtocolModel;
 [Immutable]
 internal sealed class ClusterState
 {
-    private ClusterState(IReadOnlyList<NodeState> nodes, IReadOnlyList<InFlightMessage> messages, IReadOnlyList<int> partitions, int nextMessageId, IReadOnlyList<int> matchIndexes)
+    private ClusterState(
+        IReadOnlyList<NodeState> nodes,
+        IReadOnlyList<InFlightMessage> messages,
+        IReadOnlyList<int> partitions,
+        int nextMessageId,
+        (IReadOnlyList<int> MatchIndexes, int DiskLosses) progress)
     {
         Nodes = CopyNodes(nodes);
         Messages = CopyMessages(messages);
         Partitions = CopyInts(partitions);
         NextMessageId = nextMessageId;
-        MatchIndexes = CopyInts(matchIndexes);
+        MatchIndexes = CopyInts(progress.MatchIndexes);
+        DiskLosses = progress.DiskLosses;
     }
+
+    /// <summary>Gets the number of disk losses so far; a profile bounds it.</summary>
+    internal int DiskLosses { get; }
 
     internal IReadOnlyList<int> MatchIndexes { get; }
 
@@ -41,12 +50,20 @@ internal sealed class ClusterState
             matchIndexes[i] = 0;
         }
 
-        return new ClusterState(nodes, Array.Empty<InFlightMessage>(), partitions, 1, matchIndexes);
+        return new ClusterState(nodes, Array.Empty<InFlightMessage>(), partitions, 1, (matchIndexes, 0));
     }
 
     internal bool CanCommunicate(int from, int to) => Partitions[from] == Partitions[to];
 
-    internal string Fingerprint(bool symmetryReduce) => FingerprintHelper.Create(Nodes, Messages, Partitions, MatchIndexes, symmetryReduce);
+    internal string Fingerprint(bool symmetryReduce) =>
+        DiskLosses.ToString(CultureInfo.InvariantCulture) + "#" + FingerprintHelper.Create(Nodes, Messages, Partitions, MatchIndexes, symmetryReduce);
+
+    /// <summary>Returns the state after the disk of one node was lost.</summary>
+    /// <param name="nodes">The nodes, the wiped one included.</param>
+    /// <param name="matchIndexes">The match indexes, the wiped node's reset.</param>
+    /// <returns>The state with one more disk loss.</returns>
+    internal ClusterState WithDiskLoss(IReadOnlyList<NodeState> nodes, IReadOnlyList<int> matchIndexes) =>
+        new(nodes, Messages, Partitions, NextMessageId, (matchIndexes, DiskLosses + 1));
 
     internal ClusterState WithMatchIndexes(IReadOnlyList<int> matchIndexes) => With(matchIndexes: matchIndexes);
 
@@ -106,7 +123,7 @@ internal sealed class ClusterState
         messages ?? Messages,
         partitions ?? Partitions,
         nextMessageId ?? NextMessageId,
-        matchIndexes ?? MatchIndexes);
+        (matchIndexes ?? MatchIndexes, DiskLosses));
 
     private static class FingerprintHelper
     {
@@ -144,7 +161,7 @@ internal sealed class ClusterState
                   .Append(n.CommitIndex.ToString(CultureInfo.InvariantCulture)).Append(',').Append(n.AppliedIndex.ToString(CultureInfo.InvariantCulture)).Append(',')
                   .Append(n.VotesGranted.ToString(CultureInfo.InvariantCulture)).Append(',').Append(n.ReadIndex.ToString(CultureInfo.InvariantCulture)).Append(',')
                   .Append(n.ReadAcks.ToString(CultureInfo.InvariantCulture)).Append(',').Append(n.ReadReady ? '1' : '0').Append(',').Append(n.BadOldCommit ? '1' : '0')
-                  .Append(",[");
+                  .Append(',').Append(n.Unseeded ? '1' : '0').Append(",[");
             AppendLog(sb, n);
             _ = sb.Append(']');
         }
@@ -174,7 +191,7 @@ internal sealed class ClusterState
                   .Append(n.AppliedIndex.ToString(CultureInfo.InvariantCulture)).Append(',').Append(VoteMask.CountGranted(n.VotesGranted).ToString(CultureInfo.InvariantCulture))
                   .Append(',').Append(n.ReadIndex.ToString(CultureInfo.InvariantCulture)).Append(',')
                   .Append(VoteMask.CountGranted(n.ReadAcks).ToString(CultureInfo.InvariantCulture)).Append(',').Append(n.ReadReady ? '1' : '0').Append(',')
-                  .Append(n.BadOldCommit ? '1' : '0').Append(",[");
+                  .Append(n.BadOldCommit ? '1' : '0').Append(',').Append(n.Unseeded ? '1' : '0').Append(",[");
             AppendLog(sb, n);
             _ = sb.Append(']');
         }
@@ -322,7 +339,8 @@ internal sealed class ClusterState
                         src.ReadIndex,
                         VoteMask.Remap(src.ReadAcks, map),
                         src.ReadReady,
-                        src.BadOldCommit));
+                        src.BadOldCommit),
+                    src.Unseeded);
             }
 
             return remapped;

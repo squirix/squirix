@@ -36,6 +36,22 @@ public sealed class ProtocolSafetyModelTests
         _ = await Assert.That(broken.Violation.Invariant).IsEqualTo("CurrentTermCommit");
     }
 
+    /// <summary>
+    /// A member that lost its disk and is repaired with the term ceiling of a majority never helps elect a second leader in a term it voted
+    /// in before the loss; repaired without the ceiling, it does.
+    /// </summary>
+    [Test]
+    public async Task RepairAfterDiskLossNeedsTermCeiling()
+    {
+        var safe = ExploreRunner.Run(ExploreProfile.SmallDiskLoss(), BrokenMode.None);
+        _ = await Assert.That(safe.Violation).IsNull();
+        _ = await Assert.That(safe.FixedPointReached).IsTrue();
+
+        var broken = ExploreRunner.Run(ExploreProfile.SmallDiskLoss(), BrokenMode.RepairCeiling);
+        _ = await Assert.That(broken.Violation).IsNotNull();
+        _ = await Assert.That(broken.Violation.Invariant).IsEqualTo("ElectionSafety");
+    }
+
     [Test]
     public async Task QuorumReadRequiresCurrentTermMajority()
     {

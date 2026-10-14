@@ -27,7 +27,8 @@ and an NDepend namespace DAG gate before any product election code lands.
 
 Each group stores durable `current_term` and at most one `voted_for` per term. A positive vote response is persisted
 before it is sent. A candidate wins only with a majority of the configured static membership; votes may come only from
-ready members whose copy is complete. Readiness never changes the quorum denominator.
+ready members whose copy is complete, or incomplete with its term, vote and log intact (see below). Readiness never
+changes the quorum denominator.
 
 ### Member state and the first start of a group
 
@@ -164,6 +165,16 @@ Documented explorer bounds for M8-01 full profile:
 - Crash/restart points before and after durable writes of term, vote, log, and `commit_index`.
 - Network: loss, duplicate, reorder; **one-way single-node isolation** (one replica partitioned from the majority
   component) and reconnect/heal. Multi-node split topologies are out of M8-01 model bounds.
+- Disk loss and repair (#1126), RF=3, two terms, one log entry, two messages in flight, crashes, no partitions, explored to
+  its fixed point within `MaxStates = 300_000`: one member may lose its disk once (its term, vote, log and commit index
+  are gone and its copy is unseeded: it refuses votes and appends, adopts no term and never campaigns). A leader repairs
+  it in one step: it reads the current terms of members that, with itself and without the wiped one, form a majority;
+  with a higher term among them it steps down, otherwise the member gets the leader's committed entries, its term and a
+  vote for it. Messages the member sent before the loss stay in flight. RF=5 needs four messages in flight for one
+  election and exceeds any affordable state budget before the repair without the ceiling shows, so it is outside the
+  bounds; the ceiling rule for it rests on the quorum argument in #1126. The model counts an acknowledgement only from
+  a member that stores the entry, so the residual risk of an acknowledgement sent before the loss and counted after it
+  (see State transfer) is outside the model.
 - Per sub-profile BFS cap: **`MaxStates = 50_000`** (symmetric reduction on). Hitting the cap without a safety violation
   is within these documented bounds: `summary.json` reports `fixedPointReached=false` and the CLI exits **4** (distinct
   from exit **0** = fixed point with no violation). It is residual risk inside the finite envelope, not a
@@ -177,9 +188,11 @@ Residual risk: larger RF, deeper logs, richer failure interleavings, or states b
 
 Required broken-rule fixtures (must produce expected counterexamples):
 
-- `vote` — grant votes without up-to-date log checks.
+- `vote` — grant a second vote in a term already voted in (the up-to-date log check still applies).
 - `current-term-commit` — commit old-term entries without a current-term commit.
 - `read-index` — serve reads without majority confirm and/or before `applied_index >= read_index`.
+- `repair-ceiling` — repair a member that lost its disk without the term ceiling (#1126); it yields two leaders in one
+  term: the member voted in a term above that of the stale leader repairing it, and votes again in that term.
 
 Additional negative modes (local term inflation, commit-across-gap) are optional follow-ups and do not block M8-01.
 

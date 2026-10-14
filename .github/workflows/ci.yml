@@ -715,7 +715,7 @@ jobs:
     # Two short checks of the ubuntu build outputs in one job, so they hold one of the 20 job slots of the organization
     # plan. A check runs even when the other one failed, so one run reports every failure.
     #  - test discovery: every test project lists at least one test;
-    #  - protocol model explorer, full profile: the safe run plus three required broken-rule counterexamples.
+    #  - protocol model explorer, full profile: the safe run plus four required broken-rule counterexamples.
     post-build-checks:
         name: Post-Build Checks (Ubuntu / Net10.0)
         runs-on: ubuntu-latest
@@ -784,7 +784,7 @@ jobs:
                     done
                     exit "$failed"
 
-            # The four cases run in parallel; each output goes to a file of its own and is printed in order.
+            # The five cases run in parallel; each output goes to a file of its own and is printed in order.
             -   name: Run Full-Profile Explorer
                 if: ${{ !cancelled() }}
                 shell: bash
@@ -836,7 +836,7 @@ jobs:
                       return 1
                     }
 
-                    cases=( "none:" "vote:ElectionSafety" "current-term-commit:CurrentTermCommit" "read-index:ReadIndex" )
+                    cases=( "none:" "vote:ElectionSafety" "current-term-commit:CurrentTermCommit" "read-index:ReadIndex" "repair-ceiling:ElectionSafety" )
                     pids=()
                     for c in "${cases[@]}"; do
                       run_case "${c%%:*}" "${c#*:}" > "$OUT_ROOT/${c%%:*}.log" 2>&1 &
