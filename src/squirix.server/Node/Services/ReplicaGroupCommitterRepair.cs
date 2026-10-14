@@ -87,7 +87,7 @@ internal static class ReplicaGroupCommitterRepair
             using (lease)
             using (var pin = committer.TransferPin.Begin())
             {
-                var session = new ReplicaEntryCatchUpSession(target.Log, committer.GroupId, target.Term);
+                var session = new ReplicaEntryCatchUpSession(target.Log, committer.Probe.SelfId, target.Term);
                 var result = await session.RunAsync(lease, cancellationToken).ConfigureAwait(false);
                 result = await committer.RepairByTransferAsync(target, lease, pin, transfers, result, cancellationToken).ConfigureAwait(false);
                 var admitted = result.Outcome == ReplicaCatchUpOutcome.CaughtUp &&

@@ -69,6 +69,32 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
     }
 
     /// <summary>
+    /// A leader of a group it does not own names itself in the batches of its catch-up, not the owner the group is named after: a follower
+    /// it catches up records the node that leads, which may be the only live one, as the leader.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CatchUpNamesLeadingNode(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-catch-up-leader");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var gateway = new ScriptedGateway();
+        gateway.Set("n2", FollowerMode.Behind);
+        gateway.Set("n3", FollowerMode.Behind);
+        await using var committer = Elected(registry, "n2", gateway);
+
+        _ = await committer.PromoteAsync(2UL, cancellationToken);
+        _ = await committer.VerifyReplicasAsync(cancellationToken);
+        var admitted = await committer.CatchUpFollowersAsync(new ReplicaCatchUpReporter("n2", NullLogger.Instance, null), cancellationToken);
+
+        _ = await Assert.That(admitted).IsTrue();
+        _ = await Assert.That(gateway.AppendLeaders.IsEmpty).IsFalse();
+        foreach (var (node, leader) in gateway.AppendLeaders)
+            _ = await Assert.That(leader).IsEqualTo("n1").Because($"The batch to {node} names the leading node.");
+    }
+
+    /// <summary>
     /// A promotion stops probing once a follower answered from its log and forms a majority with the leader: a follower that never answers
     /// does not hold the commit gate for the probe timeout, and its probe is canceled when the promotion gives it up.
     /// </summary>
