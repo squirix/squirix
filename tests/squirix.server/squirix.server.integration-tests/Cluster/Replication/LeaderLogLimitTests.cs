@@ -2,12 +2,14 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -26,6 +28,9 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
 
     /// <summary>The number of writes of a large value; together they put more than the one-megabyte limit in the owner log.</summary>
     private const int Writes = 24;
+
+    /// <summary>Bounds the wait for the owner to admit the returned follower; it only absorbs a loaded machine.</summary>
+    private static readonly TimeSpan Bound = TimeSpan.FromSeconds(60);
 
     /// <summary>The maintenance interval of the nodes; no timer pass fires within the test, which compacts by hand.</summary>
     private static readonly TimeSpan ManualMaintenanceInterval = TimeSpan.FromDays(1);
@@ -63,13 +68,28 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
             owner.GetRequiredService<IJournalCoordinator>(),
             cancellationToken);
         var restarted = await cluster.StartNodeAsync("node-c", Options(scope, false), cancellationToken);
-        await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, OwnerId, [("node-c", restarted)], cancellationToken);
+
+        // The owner counts the transfer before it admits the follower, so the counter is read once the follower counts again.
+        await (Owner: owner, Slot: SlotOf(owner, "node-c")).WaitUntilValueAsync(
+            static (state, _) => ValueTask.FromResult(
+                state.Owner.GetRequiredService<ReplicaGroupRegistry>().EligibilityFor(OwnerId).StateFor(state.Slot) == ReplicaParticipantState.Ready),
+            Bound,
+            TimeProvider.System,
+            cancellationToken);
         var held = await restarted.GetRequiredService<PhysicalCache<object?>>().GetValueAsync(new CacheKey(CacheName, key), cancellationToken);
         var metrics = await HttpClient.GetStringAsync(new Uri(owner.Uri, "/metrics"), cancellationToken);
 
         _ = await Assert.That(outcome).IsEqualTo(ReplicaLogCompactionOutcome.CompactedPastFollower);
         _ = await Assert.That(held.Value).IsEqualTo($"{Writes}:{large}");
         _ = await Assert.That(metrics).Contains("outcome=\"transferred\"", StringComparison.Ordinal);
+    }
+
+    private static int SlotOf(ITestNodeHost host, string nodeId)
+    {
+        var locator = host.GetRequiredService<IReplicaGroupLocator>();
+        var members = new string[locator.ReplicaCount];
+        locator.GetReplicaGroup(OwnerId, members);
+        return Array.IndexOf(members, nodeId);
     }
 
     private static IntegrationStartOptions Options(string scope, bool clean) => new()
