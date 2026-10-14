@@ -207,6 +207,10 @@ Required broken-rule fixtures (must produce expected counterexamples):
 - `log-order` — compare the length of the logs before the term of their last entries when granting a vote (#1170); a
   longer log of an older term elects a leader without a committed entry (`LeaderCompleteness`).
 
+A higher term clears the vote has no negative mode: kept across the term change, the vote only makes the member refuse other
+candidates, which can stall an election but never adds a leader or loses a committed entry. The full profile with the vote kept
+found no violation in about two million states (#1170); the rule is pinned by product tests instead.
+
 Additional negative modes (local term inflation, commit-across-gap) are optional follow-ups and do not block M8-01.
 
 ### Mapping model → future product components
