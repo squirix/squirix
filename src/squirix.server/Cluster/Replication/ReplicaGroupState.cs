@@ -425,14 +425,15 @@ internal sealed class ReplicaGroupState
     /// <returns><see langword="true" /> when the term is above the driver's term while a driver runs, so the driver must be woken.</returns>
     /// <remarks>
     /// The driver still steps down and retires; the authority is gone before it even wakes, so no write is admitted meanwhile. A revoked
-    /// authority is published as a route change.
+    /// authority, and a higher term seen by a leader still waiting for its authority, are published as a route change: a call waiting for
+    /// that authority ends at once.
     /// </remarks>
     private bool RaiseLocked(ulong term)
     {
         if (term > _highestObservedTerm)
             _highestObservedTerm = term;
 
-        if (term <= _term || _role != ReplicaGroupRole.Leader || !_hasAuthority)
+        if (term <= _term || _role != ReplicaGroupRole.Leader)
             return _driven && term > _term;
 
         _hasAuthority = false;

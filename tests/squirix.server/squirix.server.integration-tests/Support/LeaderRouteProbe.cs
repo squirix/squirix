@@ -162,6 +162,9 @@ internal sealed class LeaderRouteProbe
 
         public bool TryGetLearnedLeader(string groupId, out LeaderRoute route) => _inner.TryGetLearnedLeader(groupId, out route);
 
+        public ValueTask<bool> WaitForAuthorityAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken) =>
+            _inner.WaitForAuthorityAsync(groupId, timeout, cancellationToken);
+
         public ValueTask<bool> WaitForLeaderAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken) =>
             _inner.WaitForLeaderAsync(groupId, timeout, cancellationToken);
     }
