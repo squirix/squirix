@@ -130,6 +130,25 @@ public sealed class UnseededRepairTests : IsolatedStorageTestBase
         _ = await Assert.That(statuses.Calls).DoesNotContain("b");
     }
 
+    /// <summary>At four replicas the ceiling needs both members other than the leader and the wiped one: with the leader they are three of four.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FourReplicasNeedTwoAnswers(CancellationToken cancellationToken)
+    {
+        string[] members = ["a", "b", "c", "d"];
+        var statuses = new ScriptedStatusGateway();
+        statuses.Set("c", GroupMemberState.Complete, 3UL);
+        var ceiling = new ReplicaTermCeiling(statuses, HangGuard);
+        var header = new ReplicaRpcHeader("a", Fingerprint, 1UL, 4UL, "a", "a");
+
+        var one = await ceiling.ReadAsync(members, header, 1, 0, cancellationToken);
+        statuses.Set("d", GroupMemberState.Incomplete, 4UL);
+        var two = await ceiling.ReadAsync(members, header, 1, 0, cancellationToken);
+
+        _ = await Assert.That((one.Answers, one.Needed, one.Suffices)).IsEqualTo((1, 2, false));
+        _ = await Assert.That((two.Answers, two.Needed, two.Suffices)).IsEqualTo((2, 2, true));
+    }
+
     /// <summary>
     /// The counterexample of the protocol model, replayed: n1 leads group n2 in term 2, n3 lost its disk after it voted in term 3, and n2 holds
     /// term 3. The stale leader observes term 3, which steps it down, and sends n3 nothing.
