@@ -21,12 +21,9 @@ internal sealed class NodeState
         ReadIndex = runtime.ReadIndex;
         ReadAcks = runtime.ReadAcks;
         ReadReady = runtime.ReadReady;
-        BadOldCommit = runtime.BadOldCommit;
     }
 
     internal int AppliedIndex { get; }
-
-    internal bool BadOldCommit { get; }
 
     internal int CommitIndex { get; }
 

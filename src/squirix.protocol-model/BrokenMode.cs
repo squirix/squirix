@@ -9,7 +9,7 @@ internal enum BrokenMode
     /// <summary>Grant a second vote in a term already voted in; the up-to-date log check still applies.</summary>
     Vote = 1,
 
-    /// <summary>Allow commit of old-term entries without a current-term commit.</summary>
+    /// <summary>Commit an entry of an earlier term once a majority stores it, without an entry of the leader's term.</summary>
     CurrentTermCommit = 2,
 
     /// <summary>Mark read-index ready without majority confirm / apply wait.</summary>
@@ -17,4 +17,7 @@ internal enum BrokenMode
 
     /// <summary>Repair a member that lost its disk without the term ceiling taken from a majority.</summary>
     RepairCeiling = 4,
+
+    /// <summary>Grant a vote to a candidate whose log is longer, comparing the length of the logs before the term of their last entries.</summary>
+    LogOrder = 5,
 }

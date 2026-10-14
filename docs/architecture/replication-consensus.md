@@ -175,6 +175,15 @@ Documented explorer bounds for M8-01 full profile:
   bounds; the ceiling rule for it rests on the quorum argument in #1126. The model counts an acknowledgement only from
   a member that stores the entry, so the residual risk of an acknowledgement sent before the loss and counted after it
   (see State transfer) is outside the model.
+- Log rules (#1158, #1170), RF=3, four terms, two log entries, one message in flight, crashes, no partitions, explored to
+  its fixed point within `MaxStates = 1_500_000` (about one million states). An election is one step: a candidate takes
+  the votes of a majority that would grant them under the vote rules, or loses and keeps the term alone. A leader resends
+  the entry after the last one a member confirmed, with the term of the entry before it; a member accepts an entry only
+  when it stores that previous entry with that term, and keeps an entry it already stores with the same term together
+  with what follows it. The applied index stays where it is (reads are explored by the other profiles). Four terms are
+  what an entry of an earlier term needs to be lost to a later leader: written alone in term 1, overwritten on another
+  member in term 2, carried to a majority in term 3, and missing on the leader of term 4. Resends and one-step elections
+  are outside the other profiles, whose leaders send each entry once, when it is appended.
 - Per sub-profile BFS cap: **`MaxStates = 50_000`** (symmetric reduction on). Hitting the cap without a safety violation
   is within these documented bounds: `summary.json` reports `fixedPointReached=false` and the CLI exits **4** (distinct
   from exit **0** = fixed point with no violation). It is residual risk inside the finite envelope, not a
@@ -189,10 +198,18 @@ Residual risk: larger RF, deeper logs, richer failure interleavings, or states b
 Required broken-rule fixtures (must produce expected counterexamples):
 
 - `vote` — grant a second vote in a term already voted in (the up-to-date log check still applies).
-- `current-term-commit` — commit old-term entries without a current-term commit.
+- `current-term-commit` — commit an entry of an earlier term once a majority stores it, without an entry of the leader's
+  term. The checker sees it from the state: the leader of a later term lacks an entry a majority holds as committed
+  (`LeaderCompleteness`).
 - `read-index` — serve reads without majority confirm and/or before `applied_index >= read_index`.
 - `repair-ceiling` — repair a member that lost its disk without the term ceiling (#1126); it yields two leaders in one
   term: the member voted in a term above that of the stale leader repairing it, and votes again in that term.
+- `log-order` — compare the length of the logs before the term of their last entries when granting a vote (#1170); a
+  longer log of an older term elects a leader without a committed entry (`LeaderCompleteness`).
+
+A higher term clears the vote has no negative mode: kept across the term change, the vote only makes the member refuse other
+candidates, which can stall an election but never adds a leader or loses a committed entry. The full profile with the vote kept
+found no violation in about two million states (#1170); the rule is pinned by product tests instead.
 
 Additional negative modes (local term inflation, commit-across-gap) are optional follow-ups and do not block M8-01.
 

@@ -151,7 +151,7 @@ internal sealed class ClusterState
                   .Append(m.To.ToString(CultureInfo.InvariantCulture)).Append(',').Append(m.Term.ToString(CultureInfo.InvariantCulture)).Append(',')
                   .Append(m.LastLogIndex.ToString(CultureInfo.InvariantCulture)).Append(',').Append(m.LastLogTerm.ToString(CultureInfo.InvariantCulture)).Append(',')
                   .Append(m.Success ? '1' : '0').Append(',').Append(m.MatchIndex.ToString(CultureInfo.InvariantCulture)).Append(',')
-                  .Append(m.ReadIndex.ToString(CultureInfo.InvariantCulture));
+                  .Append(m.ReadIndex.ToString(CultureInfo.InvariantCulture)).Append(',').Append(m.PrevLogTerm.ToString(CultureInfo.InvariantCulture));
         }
 
         private static void AppendNode(StringBuilder sb, NodeState n)
@@ -160,8 +160,8 @@ internal sealed class ClusterState
                   .Append(n.CurrentTerm.ToString(CultureInfo.InvariantCulture)).Append(',').Append(n.VotedFor.ToString(CultureInfo.InvariantCulture)).Append(',')
                   .Append(n.CommitIndex.ToString(CultureInfo.InvariantCulture)).Append(',').Append(n.AppliedIndex.ToString(CultureInfo.InvariantCulture)).Append(',')
                   .Append(n.VotesGranted.ToString(CultureInfo.InvariantCulture)).Append(',').Append(n.ReadIndex.ToString(CultureInfo.InvariantCulture)).Append(',')
-                  .Append(n.ReadAcks.ToString(CultureInfo.InvariantCulture)).Append(',').Append(n.ReadReady ? '1' : '0').Append(',').Append(n.BadOldCommit ? '1' : '0')
-                  .Append(',').Append(n.Unseeded ? '1' : '0').Append(",[");
+                  .Append(n.ReadAcks.ToString(CultureInfo.InvariantCulture)).Append(',')
+                  .Append(n.ReadReady ? '1' : '0').Append(',').Append(n.Unseeded ? '1' : '0').Append(",[");
             AppendLog(sb, n);
             _ = sb.Append(']');
         }
@@ -191,7 +191,7 @@ internal sealed class ClusterState
                   .Append(n.AppliedIndex.ToString(CultureInfo.InvariantCulture)).Append(',').Append(VoteMask.CountGranted(n.VotesGranted).ToString(CultureInfo.InvariantCulture))
                   .Append(',').Append(n.ReadIndex.ToString(CultureInfo.InvariantCulture)).Append(',')
                   .Append(VoteMask.CountGranted(n.ReadAcks).ToString(CultureInfo.InvariantCulture)).Append(',').Append(n.ReadReady ? '1' : '0').Append(',')
-                  .Append(n.BadOldCommit ? '1' : '0').Append(',').Append(n.Unseeded ? '1' : '0').Append(",[");
+                  .Append(n.Unseeded ? '1' : '0').Append(",[");
             AppendLog(sb, n);
             _ = sb.Append(']');
         }
@@ -266,7 +266,11 @@ internal sealed class ClusterState
                 return c;
 
             c = a.MatchIndex.CompareTo(b.MatchIndex);
-            return c != 0 ? c : a.ReadIndex.CompareTo(b.ReadIndex);
+            if (c != 0)
+                return c;
+
+            c = a.ReadIndex.CompareTo(b.ReadIndex);
+            return c != 0 ? c : a.PrevLogTerm.CompareTo(b.PrevLogTerm);
         }
 
         private static int MsgKindOrdinal(MsgKind kind) => kind switch
@@ -314,7 +318,7 @@ internal sealed class ClusterState
                     m.Id,
                     new MessagePayload(
                         new MessageRoute(m.Kind, map[m.From], map[m.To], m.Term),
-                        new MessageExtras(m.LastLogIndex, m.LastLogTerm, m.Success, m.MatchIndex, m.ReadIndex)));
+                        new MessageExtras(m.LastLogIndex, m.LastLogTerm, m.Success, m.MatchIndex, m.ReadIndex, m.PrevLogTerm)));
             }
 
             return messages;
@@ -338,8 +342,7 @@ internal sealed class ClusterState
                         VoteMask.Remap(src.VotesGranted, map),
                         src.ReadIndex,
                         VoteMask.Remap(src.ReadAcks, map),
-                        src.ReadReady,
-                        src.BadOldCommit),
+                        src.ReadReady),
                     src.Unseeded);
             }
 
