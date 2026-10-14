@@ -21,6 +21,7 @@ internal static class ReplicaLogCompactionOutcomeNames
         ReplicaLogCompactionOutcome.NotReady => "not_ready",
         ReplicaLogCompactionOutcome.SnapshotTooLarge => "snapshot_too_large",
         ReplicaLogCompactionOutcome.Busy => "busy",
+        ReplicaLogCompactionOutcome.CompactedPastFollower => "compacted_past_follower",
         _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Unsupported replica log compaction outcome."),
     };
 }

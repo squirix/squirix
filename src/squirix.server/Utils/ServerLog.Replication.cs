@@ -75,6 +75,13 @@ internal static partial class ServerLog
     internal static partial void ReplicaLogCompactionSnapshotTooLarge(ILogger logger, string groupId);
 
     [LoggerMessage(
+        EventId = 4071,
+        Level = LogLevel.Warning,
+        Message =
+            "Replica group {GroupId} log reached its retention limit and was compacted while a follower is not ready; that follower is repaired by a state transfer when it returns")]
+    internal static partial void ReplicaLogCompactedPastFollower(ILogger logger, string groupId);
+
+    [LoggerMessage(
         EventId = 4014,
         Level = LogLevel.Error,
         Message =

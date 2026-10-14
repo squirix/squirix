@@ -32,4 +32,10 @@ internal enum ReplicaLogCompactionOutcome
 
     /// <summary>The followers or the commit gate of a led group stayed busy past the wait budget of the step; it is retried on the next pass.</summary>
     Busy = 9,
+
+    /// <summary>
+    /// The log reached its retention limit and was compacted although a follower slot is not ready; that follower is repaired by a state
+    /// transfer when it returns.
+    /// </summary>
+    CompactedPastFollower = 10,
 }

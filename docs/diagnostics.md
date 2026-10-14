@@ -135,9 +135,11 @@ remove paths). Use `GetValueAsync` or `GetEntryAsync` when metrics need miss cla
 
 Replica group log metrics are owned by `ReplicationMetrics`. The readiness probe refreshes the per-group gauges
 `squirix_replication_log_bytes`, `squirix_replication_log_retained_entries`, and `squirix_replication_snapshot_index`
-(labels `node`, `group`). The owner's maintenance pass counts `squirix_replication_log_compactions_total` and, when its
-group log reached a threshold but was not compacted, `squirix_replication_log_compaction_skipped_total` with a closed
-`reason`: `follower_not_ready`, `follower_behind`, `pending_apply`, `uncommitted_tail`, `unresolved_outcome`,
+(labels `node`, `group`). The owner's maintenance pass counts `squirix_replication_log_compactions_total` with a
+closed `outcome`: `compacted`, or `compacted_past_follower` when the log reached `ReplicaLogRetentionMaxMb` and was
+compacted while a follower is not ready. A pass whose outcome changes to the latter also logs `4071` (warning); that
+follower is repaired by a state transfer when it returns. When its group log reached a threshold but was not compacted, the pass counts
+`squirix_replication_log_compaction_skipped_total` with a closed `reason`: `follower_not_ready`, `follower_behind`, `pending_apply`, `uncommitted_tail`, `unresolved_outcome`,
 `not_ready`, `snapshot_too_large`, or `busy`. The owner counts the entry catch-up sessions it runs for lagging followers in
 `squirix_replication_catch_up_sessions_total` with a closed `outcome`: `caught_up`, `compacted`, `diverged`,
 `stale_term`, `refused`, `unreachable`, `corrupt`, `aborted`, or `incomplete`.

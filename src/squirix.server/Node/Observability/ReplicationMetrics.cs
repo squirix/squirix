@@ -32,7 +32,7 @@ internal sealed class ReplicationMetrics
         ArgumentNullException.ThrowIfNull(meter);
         _reportsTotal = new Counter1Label(meter.CreateCounter<long>("squirix_replication_status_reports_total", "{report}", "Replica status read-path reports"), "node");
         _mismatchTotal = meter.CreateCounter<long>("squirix_replication_topology_mismatch_total", "{mismatch}", "Replica topology identity mismatches observed on the read path");
-        _compactionsTotal = meter.CreateCounter<long>("squirix_replication_log_compactions_total", "{compaction}", "Compactions of the replica group log this node owns");
+        _compactionsTotal = meter.CreateCounter<long>("squirix_replication_log_compactions_total", "{compaction}", "Compactions of the replica group log this node owns, by outcome");
         _compactionSkippedTotal = meter.CreateCounter<long>(
             "squirix_replication_log_compaction_skipped_total",
             "{compaction}",
@@ -67,12 +67,14 @@ internal sealed class ReplicationMetrics
     /// <summary>Counts one compaction of the replica group log this node owns.</summary>
     /// <param name="nodeId">The observing node identifier.</param>
     /// <param name="groupId">The compacted replica group identifier.</param>
-    internal void ReportCompaction(string nodeId, string groupId)
+    /// <param name="outcome">The closed compaction outcome name: compacted, or compacted_past_follower when a follower was left behind.</param>
+    internal void ReportCompaction(string nodeId, string groupId, string outcome)
     {
         var tags = new TagList
         {
             { "node", nodeId },
             { "group", groupId },
+            { "outcome", outcome },
         };
         _compactionsTotal.Add(1, in tags);
     }

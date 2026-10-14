@@ -171,7 +171,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         _ = await Assert.That((next.LastLogIndex, next.CommitIndex)).IsEqualTo((before.LastLogIndex + 1, before.LastLogIndex + 1));
     }
 
-    /// <summary>A follower that misses committed entries blocks the compaction: the owner keeps every entry that follower may still need.</summary>
+    /// <summary>Below the retention limit a follower that misses committed entries blocks the compaction: the owner keeps every entry it may still need.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task DownFollowerBlocksCompaction(CancellationToken cancellationToken)
