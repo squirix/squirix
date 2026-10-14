@@ -88,7 +88,7 @@ internal sealed class ReplicaStateTransfers
 
         var sent = await SendStateAsync(committer, (target, lease), snapshot, cancellationToken).ConfigureAwait(false);
         return sent == ReplicaTransferOutcome.Transferred
-            ? await new ReplicaEntryCatchUpSession(target.Log, committer.GroupId, target.Term).RunAsync(lease, cancellationToken).ConfigureAwait(false)
+            ? await new ReplicaEntryCatchUpSession(target.Log, committer.Probe.SelfId, target.Term).RunAsync(lease, cancellationToken).ConfigureAwait(false)
             : null;
     }
 

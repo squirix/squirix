@@ -80,6 +80,55 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         _ = await Assert.That(state.Role).IsEqualTo(ReplicaGroupRole.Leader);
     }
 
+    /// <summary>
+    /// A leader of a group it does not own repairs the owner, back after the failover, by a transfer and names itself, not the owner, in every
+    /// batch it sends after the transfer: node n1 leads group n2.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TransferToOwnerNamesLeadingNode(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-transfer-owner-leader");
+        await using var registry = await OpenLedCompactedAsync(dir, cancellationToken);
+        var gateway = new ScriptedGateway();
+        gateway.Set("n2", FollowerMode.Behind, 2);
+        gateway.Set("n3", FollowerMode.Down);
+        var beforeEnd = -1;
+        var transfer = new ScriptedTransferGateway
+        {
+            OnEnd = () =>
+            {
+                beforeEnd = gateway.AppendLeaders.Count;
+                gateway.Set("n2", FollowerMode.Behind, 3);
+            },
+        };
+        await using var committers = new ReplicaGroupCommitters(
+            group => Elected(registry, group, gateway),
+            new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")),
+            "n1",
+            Owners(),
+            TimeProvider.System);
+        var log = new EventRecordingLogger();
+        using var service = new ReplicaGroupReadinessService(committers, log, TimeProvider.System, null, await TransfersAsync(transfer, "n2", cancellationToken));
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            _ = await committers.PromoteAsync("n2", 2UL, cancellationToken);
+            await log.WhenLoggedAsync(FollowerCaughtUpEventId, "follower n2 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(string.Join(',', transfer.Calls)).IsEqualTo("begin,snapshot,wipe,entries,end");
+        var afterTransfer = gateway.AppendLeaders.ToArray()[beforeEnd..];
+        _ = await Assert.That(afterTransfer.Length).IsGreaterThan(0);
+        foreach (var (node, leader) in afterTransfer)
+            _ = await Assert.That((node, leader)).IsEqualTo(("n2", "n1"));
+    }
+
     /// <summary>Every accepted reply of the transfer is a contact of the follower and a progress of the transfer, and a stalled transfer is neither.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -267,7 +316,10 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         return CreateElectedCommitter(registry, groupId, gateway, cache, new ReplicaGroupApplier(cache, NullLogger.Instance, groupId, "n1"));
     }
 
-    private static async Task<ReplicaStateTransfers> TransfersAsync(ScriptedTransferGateway gateway, CancellationToken cancellationToken)
+    private static Task<ReplicaStateTransfers> TransfersAsync(ScriptedTransferGateway gateway, CancellationToken cancellationToken) =>
+        TransfersAsync(gateway, GroupId, cancellationToken);
+
+    private static async Task<ReplicaStateTransfers> TransfersAsync(ScriptedTransferGateway gateway, string groupId, CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
         var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
@@ -275,8 +327,55 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
             await cache.SetAsync(new CacheKey("cache", $"k{i}"), new NodeCacheEntry<object?>($"v{i}"), cancellationToken);
 
         var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(GroupId);
+        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(groupId);
         return new ReplicaStateTransfers(gateway, new ReplicaGroupEntries(cache, locator.Instance()), Durable(), new ReplicaTransferOptions(), NullLogger<ReplicaStateTransfers>.Instance, null);
+    }
+
+    /// <summary>
+    /// Opens node n1 serving the groups with the log of group n2 holding three committed and applied writes of its owner in term one that were
+    /// dropped from the log by compaction, and in term two, as after a failover to n1; the election state of the group leads term two and has no authority.
+    /// </summary>
+    /// <param name="dir">Node data directory.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The registry.</returns>
+    private static async Task<ReplicaGroupRegistry> OpenLedCompactedAsync(string dir, CancellationToken cancellationToken)
+    {
+        await SeededLogs.SeedGroupsAsync(dir, Groups, cancellationToken);
+        var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System };
+        var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1, NullLoggerFactory.Instance, options) { ElectionClock = new FakeTimeProvider() };
+        try
+        {
+            await registry.OpenAsync(cancellationToken);
+            _ = registry.TryGetLog("n2", out var log);
+            _ = await log!.ObserveTermAsync(1UL, cancellationToken);
+            var factory = new ReplicaMutationFactory(new StubCache(), "n2", 1UL, TimeProvider.System, NullLogger.Instance);
+            var entries = new FollowerLogEntry[3];
+            for (var i = 0; i < entries.Length; i++)
+            {
+                var index = ulong.CreateChecked(i + 1);
+                entries[i] = new FollowerLogEntry(index, 1UL, factory.PrepareSet(NewOperationId(), "cache", $"k{index}", Entry($"k{index}"), index).CanonicalPayload);
+            }
+
+            var appended = await log.AppendAsync(new FollowerLogAppendRequest("n2", 1UL, 0UL, 0UL, 3UL, entries), cancellationToken);
+            if (!appended.Success)
+                throw new InvalidOperationException($"The group log refused the committed entries: {appended.RefusalCode}.");
+
+            var applier = new ReplicaGroupApplier(new StubCache(), NullLogger.Instance, "n2", "n1");
+            await applier.CatchUpAsync(log, 0UL, 3UL, cancellationToken);
+            await applier.FlushAsync(log, Durable(), cancellationToken);
+            _ = await log.CompactThroughAsync(3UL, cancellationToken);
+            _ = await log.ObserveTermAsync(2UL, cancellationToken);
+            var state = registry.StateFor("n2");
+            state.SetElectionDriven(true);
+            _ = state.BecomeLeader(2UL);
+        }
+        catch
+        {
+            await registry.DisposeAsync();
+            throw;
+        }
+
+        return registry;
     }
 
     /// <summary>
