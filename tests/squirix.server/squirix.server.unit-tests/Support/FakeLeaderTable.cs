@@ -30,6 +30,21 @@ internal sealed class FakeLeaderTable : IGroupLeaderTable
     /// <summary>Gets the leader a wait learns; a wait learns none unless set.</summary>
     internal LeaderRoute AfterWait { get; init; }
 
+    /// <summary>Gets the waits for this node's authority, as their timeouts in order.</summary>
+    internal List<TimeSpan> AuthorityWaits { get; } = [];
+
+    /// <summary>Gets a value indicating whether a wait for this node's authority grants it; it times out unless set.</summary>
+    internal bool GrantOnWait { get; init; }
+
+    /// <summary>Gets the highest term this node saw; the term of the known leader unless set.</summary>
+    internal ulong HighestObservedTerm { get; init; }
+
+    /// <summary>Gets a value indicating whether this node leads the group without authority yet, in <see cref="LedTerm" />.</summary>
+    internal bool LedWithoutAuthority { get; init; }
+
+    /// <summary>Gets the term this node leads without authority.</summary>
+    internal ulong LedTerm { get; init; }
+
     /// <summary>Gets a value indicating whether a wait blocks until its cancellation; a wait returns at once unless set.</summary>
     internal bool BlockWaits { get; init; }
 
@@ -57,7 +72,15 @@ internal sealed class FakeLeaderTable : IGroupLeaderTable
     public void Learn(string groupId, in LeaderRoute hint) => Learned.Add(hint);
 
     /// <inheritdoc />
-    public GroupLeaderView Read(string groupId) => Served ? new GroupLeaderView(true, false, false, _leader.Term, _leader.Term, _leader) : default;
+    public GroupLeaderView Read(string groupId)
+    {
+        if (!Served)
+            return default;
+
+        var led = LedWithoutAuthority && !HasLocalAuthority(groupId, out _);
+        var term = led ? LedTerm : _leader.Term;
+        return new GroupLeaderView(true, false, led, term, Math.Max(HighestObservedTerm, term), _leader);
+    }
 
     /// <inheritdoc />
     public void Refute(string groupId, in LeaderRoute route)
@@ -78,6 +101,16 @@ internal sealed class FakeLeaderTable : IGroupLeaderTable
     {
         route = default;
         return false;
+    }
+
+    /// <inheritdoc />
+    public ValueTask<bool> WaitForAuthorityAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        AuthorityWaits.Add(timeout);
+        if (GrantOnWait)
+            _leader = new LeaderRoute(_self, LedTerm);
+
+        return ValueTask.FromResult(GrantOnWait);
     }
 
     /// <inheritdoc />

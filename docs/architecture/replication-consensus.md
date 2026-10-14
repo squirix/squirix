@@ -139,7 +139,10 @@ a live leader answers `Unavailable` (no leader) instead of a stale-owner hint th
 an entry node outside the group can reach no member, or the member it reached answers that it has no leader. This
 happens, for example, to a ring owner cut off from the other members while they elect a new leader. The entry node
 then spends the same single reroute on the next member in slot order. It sends the same request, and it learns the
-leader that member names (#1104).
+leader that member names (#1104). A follower forwards to a new leader as soon as it accepts the leader-term entry,
+usually before that entry commits. A forwarded call that reaches the new leader then waits for its authority, within
+the leader wait and the call deadline, as a call entering there does. It is refused only if the authority does not
+come, and at once when the node steps down or sees a higher term (#1095).
 
 ### Quorum reads (ReadIndex equivalent)
 

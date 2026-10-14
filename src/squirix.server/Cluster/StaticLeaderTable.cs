@@ -64,6 +64,10 @@ internal sealed class StaticLeaderTable : IGroupLeaderTable
     }
 
     /// <inheritdoc />
+    /// <remarks>A statically led group never waits: its ring owner has authority from the start, and no other node ever gets it.</remarks>
+    public ValueTask<bool> WaitForAuthorityAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken) => ValueTask.FromResult(HasLocalAuthority(groupId, out _));
+
+    /// <inheritdoc />
     public ValueTask<bool> WaitForLeaderAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
     private bool IsOwn(string groupId) => string.Equals(groupId, _selfId, StringComparison.Ordinal);

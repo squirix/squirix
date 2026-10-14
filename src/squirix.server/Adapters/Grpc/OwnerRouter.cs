@@ -23,7 +23,8 @@ namespace Squirix.Server.Adapters.Grpc;
 /// or that the target refused for having no leader, takes the single reroute to the leader learned for the group or to the next member in slot
 /// order, and the leader a member names is learned for the next calls: a ring owner cut off from its group answers no leader while the other
 /// members elect one. Other transport failures, an unknown commit outcome, and every other failure are never rerouted; the call policy of a
-/// forward may retry it on a transport failure, with the same request.
+/// forward may retry it on a transport failure, with the same request. A forwarded call that reaches a node leading the group without
+/// authority yet, with no higher term seen, waits for that authority within the same bounds instead of being refused.
 /// </remarks>
 [Immutable]
 internal sealed class OwnerRouter
@@ -83,7 +84,7 @@ internal sealed class OwnerRouter
     /// <exception cref="RpcException">
     /// <see cref="StatusCode.Unavailable" /> with the ring-fenced trailer when this node detected a ring mismatch with a peer; or
     /// <see cref="StatusCode.FailedPrecondition" /> with the stale-owner trailer when a trusted internal owner RPC reaches a node that does not lead
-    /// the key's group; or <see cref="StatusCode.Unavailable" /> when no leader is known within the wait, the route went stale again after the
+    /// the key's group, or the refusal of the group view when a node that leads it gets no authority within the wait; or <see cref="StatusCode.Unavailable" /> when no leader is known within the wait, the route went stale again after the
     /// single reroute, or a forward could not connect to its target, or its target had no leader, and no reroute was left.
     /// </exception>
     internal Task<TResponse> ExecuteAsync<TState, TResponse>(
@@ -103,10 +104,11 @@ internal sealed class OwnerRouter
         var groupId = _ownershipResolver.GetOwner(canonicalName, key);
         var route = ResolveNow(groupId);
 
-        // An internal call is itself the single hop: it runs here or is refused. A static table never refutes a route, so a reroute could
-        // only repeat the refused attempt: one attempt, its refusal relayed.
+        // An internal call is itself the single hop: it runs here or is refused. Elected right before it, this node may still wait for its own
+        // authority. A static table never refutes a route, so a reroute could only repeat the refused attempt: one attempt, its refusal relayed.
         return (Internal: _invocationState.IsInternalOwnerInvocation, Static: _table is StaticLeaderTable) switch
         {
+            (true, false) when !IsSelf(in route) && AwaitsAuthority(groupId) => AwaitAuthorityAsync(groupId, route, state, local, cancellationToken),
             (true, _) when !IsSelf(in route) => throw RefuseInternal(groupId, in route),
             (true, _) or (_, true) => AttemptAsync(in route, state, forward, local, cancellationToken),
             _ => RouteAsync(groupId, route, state, forward, local, cancellationToken),
@@ -125,6 +127,42 @@ internal sealed class OwnerRouter
         Func<TState, string, CancellationToken, Task<TResponse>> forward,
         Func<TState, CancellationToken, Task<TResponse>> local,
         CancellationToken cancellationToken) => IsSelf(in route) ? local(state, cancellationToken) : forward(state, route.NodeId, cancellationToken);
+
+    /// <summary>Tells whether this node leads a group without authority yet and has seen no higher term, so it may still get the authority.</summary>
+    /// <param name="groupId">The group.</param>
+    /// <returns><see langword="true" /> when a trusted internal owner RPC of the group waits for this node's authority instead of being refused.</returns>
+    private bool AwaitsAuthority(string groupId)
+    {
+        var view = _table.Read(groupId);
+        return view.LedWithoutAuthority && view.HighestObservedTerm <= view.Term;
+    }
+
+    /// <summary>Runs a trusted internal owner RPC once this node, which leads the key's group without authority yet, gets it.</summary>
+    /// <typeparam name="TState">The state the call delegates read.</typeparam>
+    /// <typeparam name="TResponse">The response type.</typeparam>
+    /// <param name="groupId">The group.</param>
+    /// <param name="route">The route this node resolved; never this node.</param>
+    /// <param name="state">The call state.</param>
+    /// <param name="local">Runs the call on this node.</param>
+    /// <param name="cancellationToken">The call cancellation token.</param>
+    /// <returns>The response of the local attempt.</returns>
+    /// <remarks>
+    /// A follower forwards to a new leader as soon as it accepts the leader-term entry, so the call usually arrives before that entry commits.
+    /// It waits as a call entering here does, bounded by the leader wait and the remaining deadline, and ends at once when the node steps down or
+    /// sees a higher term. Any other node refuses at once.
+    /// </remarks>
+    /// <exception cref="RpcException">The refusal of <see cref="RefuseInternal" /> when this node does not get authority within the wait.</exception>
+    private async Task<TResponse> AwaitAuthorityAsync<TState, TResponse>(
+        string groupId,
+        LeaderRoute route,
+        TState state,
+        Func<TState, CancellationToken, Task<TResponse>> local,
+        CancellationToken cancellationToken)
+    {
+        return await _table.WaitForAuthorityAsync(groupId, LeaderWait(), cancellationToken).ConfigureAwait(false)
+            ? await local(state, cancellationToken).ConfigureAwait(false)
+            : throw RefuseInternal(groupId, in route);
+    }
 
     private bool IsSelf(in LeaderRoute route) => string.Equals(route.NodeId, _ownershipResolver.SelfNodeId, StringComparison.Ordinal);
 
@@ -215,17 +253,19 @@ internal sealed class OwnerRouter
     private async ValueTask<LeaderRoute> ResolveAsync(string groupId, CancellationToken cancellationToken)
     {
         var route = ResolveNow(groupId);
-        if (!string.IsNullOrEmpty(route.NodeId))
-            return route;
-
-        var remaining = ServerRpcDeadlineContext.GetRemainingBudget();
-        var wait = remaining is { } left && left < _leaderWait ? left : _leaderWait;
-        if (wait < TimeSpan.Zero)
-            wait = TimeSpan.Zero;
-
-        return await _table.WaitForLeaderAsync(groupId, wait, cancellationToken).ConfigureAwait(false) && _table.TryGetLeader(groupId, out route)
+        return !string.IsNullOrEmpty(route.NodeId) ||
+               (await _table.WaitForLeaderAsync(groupId, LeaderWait(), cancellationToken).ConfigureAwait(false) && _table.TryGetLeader(groupId, out route))
             ? route
             : throw ServerOpContract.NoLeaderAuthority();
+    }
+
+    /// <summary>Bounds a wait for a leader, or for this node's own authority, by the leader wait and the remaining deadline.</summary>
+    /// <returns>The longest wait; zero once the deadline passed.</returns>
+    private TimeSpan LeaderWait()
+    {
+        var remaining = ServerRpcDeadlineContext.GetRemainingBudget();
+        var wait = remaining is { } left && left < _leaderWait ? left : _leaderWait;
+        return wait < TimeSpan.Zero ? TimeSpan.Zero : wait;
     }
 
     /// <summary>Tells whether the leader a refusing node named may take the reroute.</summary>

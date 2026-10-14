@@ -124,6 +124,32 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
     public bool TryGetLearnedLeader(string groupId, out LeaderRoute route) => _learned.TryGetValue(groupId, out route);
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The wait runs on the election clock of the group. The state publishes a route change when it grants authority, steps down, or observes a
+    /// higher term, so each of them ends the wait at once.
+    /// </remarks>
+    public async ValueTask<bool> WaitForAuthorityAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        if (!_registry.TryGetState(groupId, out var state))
+            return false;
+
+        var clock = state.Clock;
+        var started = clock.GetTimestamp();
+        while (true)
+        {
+            // The version is read before the check, so a change published between the check and the wait ends the wait at once.
+            var version = state.RouteChanged.Version;
+            var view = state.ReadRoute();
+            if (view.HasAuthority || !view.LedWithoutAuthority || view.HighestObservedTerm > view.Term)
+                return view.HasAuthority;
+
+            var remaining = timeout - clock.GetElapsedTime(started);
+            if (remaining <= TimeSpan.Zero || !await state.RouteChanged.WaitAsync(version, remaining, clock, cancellationToken).ConfigureAwait(false))
+                return state.ReadRoute().HasAuthority;
+        }
+    }
+
+    /// <inheritdoc />
     /// <remarks>The wait runs on the election clock of the group and ends as soon as its state publishes a route change that names a leader.</remarks>
     public async ValueTask<bool> WaitForLeaderAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken)
     {

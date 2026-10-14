@@ -62,6 +62,17 @@ internal interface IGroupLeaderTable
     /// <returns><see langword="true" /> when a leader is kept for the group.</returns>
     bool TryGetLearnedLeader(string groupId, out LeaderRoute route);
 
+    /// <summary>Waits while this node leads a group without authority and has seen no higher term, for at most <paramref name="timeout" />.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="timeout">The longest wait; zero or less checks once without waiting.</param>
+    /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait by throwing.</param>
+    /// <returns>
+    /// <see langword="true" /> when this node now leads the group with authority; <see langword="false" /> on timeout, as soon as it no longer
+    /// leads the group or has seen a higher term, or for an unserved group.
+    /// </returns>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
+    ValueTask<bool> WaitForAuthorityAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken);
+
     /// <summary>Waits until a leader of a group is known, or <paramref name="timeout" /> elapses.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="timeout">

@@ -303,10 +303,12 @@ public sealed class OwnerRouterRerouteTests
         _ = await Assert.That(StaleRouteSignals.TryReadStale(new RpcException(new Status(StatusCode.Unavailable, RefusalCodes.StaleTerm), trailers), out _)).IsFalse();
     }
 
-    private static RpcException StaleOwner(string? leader, ulong term) =>
-        leader == null ? StaleOwnerFailure.Create(Group, First) : StaleOwnerFailure.Create(leader, First, term);
-
-    private static OwnerRouter CreateRouter(IGroupLeaderTable table, bool internalCall, TimeProvider clock)
+    /// <summary>Creates the router of this node over a table, for a call that is or is not a trusted internal owner RPC.</summary>
+    /// <param name="table">The leader table.</param>
+    /// <param name="internalCall">Whether the call is a trusted internal owner RPC.</param>
+    /// <param name="clock">The clock of the deadline.</param>
+    /// <returns>The router.</returns>
+    internal static OwnerRouter CreateRouter(IGroupLeaderTable table, bool internalCall, TimeProvider clock)
     {
         var ownership = new INodeOwnershipResolverCreateExpectations();
         _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
@@ -316,9 +318,12 @@ public sealed class OwnerRouterRerouteTests
         return new OwnerRouter(ownership.Instance(), invocation.Instance(), RingAgreements.Create(), table, LeaderWait, clock, OwnerRouters.Locator(Self, First, Second, Other, Group));
     }
 
+    private static RpcException StaleOwner(string? leader, ulong term) =>
+        leader == null ? StaleOwnerFailure.Create(Group, First) : StaleOwnerFailure.Create(leader, First, term);
+
     /// <summary>Records each attempt and fails the attempts in order with the configured failures; later attempts answer with their target.</summary>
     [Mutable]
-    private sealed class Attempts
+    internal sealed class Attempts
     {
         internal const string Local = "local";
 
