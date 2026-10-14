@@ -101,7 +101,51 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         await committer.CommitSetAsync(NewOperationId(), "cache", "k4", Entry("k4"), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         var caughtUp = new ReplicaCatchUpResult(ReplicaCatchUpOutcome.CaughtUp, 3, 1, 0, 3, 2);
 
-        var admitted = await committer.AdmitCaughtUpFollowerAsync(targets[0].ReplicaIndex, caughtUp, targets[0].Pipeline, cancellationToken);
+        var admitted = await committer.AdmitCaughtUpFollowerAsync(targets[0], caughtUp, cancellationToken);
+
+        _ = await Assert.That(admitted).IsFalse();
+        _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.CatchingUp);
+    }
+
+    /// <summary>
+    /// A newer leader contacts this node while a catch-up session runs: its log leaves the led term, and may have been rewritten under the
+    /// session. What the follower was verified to hold proves nothing for the old term, so the follower is not admitted.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AdmissionAfterNewerTermIsRefused(CancellationToken cancellationToken)
+    {
+        await using var followers = await OpenFollowersAsync(cancellationToken);
+        var gateway = new FollowerLogRoutingGateway(followers.Logs);
+        await SeedBehindFollowerAsync(gateway, cancellationToken);
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        await using var committer = CreateCommitter(registry, gateway);
+        _ = await committer.VerifyReplicasAsync(cancellationToken);
+        var target = committer.Probe.TakeCatchUpTargets()[0];
+        _ = await OwnerLog(registry).ObserveTermAsync(target.Term + 1, cancellationToken);
+        var caughtUp = new ReplicaCatchUpResult(ReplicaCatchUpOutcome.CaughtUp, 3, target.Term, 0, 3, 2);
+
+        var admitted = await committer.AdmitCaughtUpFollowerAsync(target, caughtUp, cancellationToken);
+
+        _ = await Assert.That(admitted).IsFalse();
+        _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.CatchingUp);
+    }
+
+    /// <summary>A follower verified to hold an entry of a term above the led one holds a newer leader's log: it is not admitted.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HeldTermAboveLedTermIsRefused(CancellationToken cancellationToken)
+    {
+        await using var followers = await OpenFollowersAsync(cancellationToken);
+        var gateway = new FollowerLogRoutingGateway(followers.Logs);
+        await SeedBehindFollowerAsync(gateway, cancellationToken);
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        await using var committer = CreateCommitter(registry, gateway);
+        _ = await committer.VerifyReplicasAsync(cancellationToken);
+        var target = committer.Probe.TakeCatchUpTargets()[0];
+        var caughtUp = new ReplicaCatchUpResult(ReplicaCatchUpOutcome.CaughtUp, 3, target.Term + 1, 0, 3, 2);
+
+        var admitted = await committer.AdmitCaughtUpFollowerAsync(target, caughtUp, cancellationToken);
 
         _ = await Assert.That(admitted).IsFalse();
         _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.CatchingUp);
@@ -352,6 +396,9 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         return durability.Instance();
     }
+
+    private static IFollowerLog OwnerLog(ReplicaGroupRegistry registry) =>
+        registry.TryGetLog(GroupId, out var log) ? log : throw new InvalidOperationException($"The group log {GroupId} is not open.");
 
     private static ReplicaCatchUpReporter Reporter() => new(GroupId, NullLogger.Instance, null);
 

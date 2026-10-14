@@ -476,6 +476,27 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(3UL);
     }
 
+    /// <summary>An entry of a term above the request's is refused with its whole batch: a leader never sends one, and the copy keeps its last log term at or below its current term.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EntryAboveRequestTermIsRefused(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-log-entry-term");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await log.OpenSeededAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+
+        var memory = ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("b")), new FollowerLogEntry(3UL, 2UL, Encoding.UTF8.GetBytes("c")));
+        var ahead = new FollowerLogAppendRequest("leader-1", 1UL, 1UL, 1UL, 0UL, memory);
+        var result = await log.AppendAsync(ahead, cancellationToken);
+
+        var status = await log.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((result.Success, result.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.LogMismatch));
+        _ = await Assert.That((status.CurrentTerm, status.LastLogIndex, status.LastLogTerm)).IsEqualTo((1UL, 1UL, 1UL));
+    }
+
     /// <summary>The commit index never moves backward even when a lower request arrives.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
