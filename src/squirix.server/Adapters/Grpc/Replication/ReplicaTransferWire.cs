@@ -61,6 +61,7 @@ internal static class ReplicaTransferWire
             IndexTerm = baseline.IndexTerm,
             SnapshotBytes = uint.CreateChecked(baseline.SnapshotBytes),
             SnapshotChecksum = baseline.SnapshotChecksum,
+            CeilingChecked = baseline.CeilingChecked,
         },
     };
 
@@ -118,7 +119,8 @@ internal static class ReplicaTransferWire
             int.CreateChecked(begin.SnapshotBytes),
             begin.SnapshotChecksum,
             envelope.TopologyFingerprint.Memory,
-            envelope.ConfigurationGeneration);
+            envelope.ConfigurationGeneration,
+            begin.CeilingChecked);
         return await receiver.BeginAsync(SenderOf(request), baseline, cancellationToken).ConfigureAwait(false);
     }
 

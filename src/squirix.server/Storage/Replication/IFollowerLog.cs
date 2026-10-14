@@ -152,7 +152,10 @@ internal interface IFollowerLog : IAsyncDisposable
     ValueTask<IReadOnlyList<FollowerLogEntry>> GetUncommittedTailAsync(CancellationToken cancellationToken);
 
     /// <summary>Marks the copy incomplete at the start of a state transfer, durably in both metadata slots.</summary>
-    /// <param name="leaderTerm">Term of the leader that sends the state; a term below the durable term is refused, a higher one is adopted with the vote cleared.</param>
+    /// <param name="leader">
+    /// The leader that sends the state. A term below the durable term is refused, a higher one is adopted with the vote cleared. An unseeded copy
+    /// is refused unless the leader checked the term ceiling.
+    /// </param>
     /// <param name="index">The applied index the transferred state is taken at; an index below the durable commit index is refused.</param>
     /// <param name="fingerprint">Leader topology fingerprint.</param>
     /// <param name="generation">Leader configuration generation.</param>
@@ -162,14 +165,16 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <see langword="null" /> once the incomplete record is durable in both metadata slots; otherwise the refusal: <see cref="FollowerLogRefusal.NotReady" />
     /// when the log is disposed or not ready, the index is below the durable commit index, or the snapshot is malformed or above the size limit of the log;
     /// <see cref="FollowerLogRefusal.TopologyMismatch" />; <see cref="FollowerLogRefusal.NotMember" /> for a snapshot of another group;
-    /// <see cref="FollowerLogRefusal.StaleTerm" />; <see cref="FollowerLogRefusal.Unseeded" /> for an unseeded copy, which this path does not repair.
+    /// <see cref="FollowerLogRefusal.StaleTerm" />; <see cref="FollowerLogRefusal.Unseeded" /> for an unseeded copy and a leader that did not check the
+    /// term ceiling.
     /// </returns>
     /// <remarks>
     /// Nothing but the member state, and the term and the vote when the leader term is higher, changes: the log, the commit index and the applied
     /// index stay. A copy that is incomplete already accepts again and publishes the record again, which also repairs a half-written earlier record.
-    /// A crash between the two slot writes leaves a legal state either way: complete as before, or incomplete.
+    /// A crash between the two slot writes leaves a legal state either way: complete as before, or incomplete. An unseeded copy accepted for a leader
+    /// that checked the term ceiling writes nothing and stays unseeded until the completion.
     /// </remarks>
-    Task<string?> BeginStateInstallAsync(ulong leaderTerm, ulong index, ReadOnlyMemory<byte> fingerprint, ulong generation, GroupSnapshot snapshot, CancellationToken cancellationToken);
+    Task<string?> BeginStateInstallAsync(StateInstallLeader leader, ulong index, ReadOnlyMemory<byte> fingerprint, ulong generation, GroupSnapshot snapshot, CancellationToken cancellationToken);
 
     /// <summary>Captures the group snapshot at the durable applied index without publishing it or compacting the log.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -178,14 +183,21 @@ internal interface IFollowerLog : IAsyncDisposable
 
     /// <summary>Completes a state transfer: publishes the snapshot, replaces the log by its baseline and marks the copy complete at the snapshot index.</summary>
     /// <param name="snapshot">The group snapshot at the index the state was transferred at.</param>
-    /// <param name="leaderTerm">Term of the leader that sent the state; a term below the durable term is refused, a higher one is adopted with the vote cleared.</param>
+    /// <param name="leader">
+    /// The leader that sent the state. A term below the durable term is refused, a higher one is adopted with the vote cleared. An unseeded copy
+    /// completes only for a leader that checked the term ceiling, and takes the leader's term with a vote for the leader.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The outcome; a copy that is not incomplete, a snapshot below the durable commit index and a malformed snapshot are refused before anything is written.</returns>
+    /// <returns>
+    /// The outcome; a complete copy, an unseeded copy and a leader that did not check the term ceiling, a snapshot below the durable commit index and a
+    /// malformed snapshot are refused before anything is written.
+    /// </returns>
     /// <remarks>
     /// Each step is durable before the next: the snapshot, the log that holds nothing above the snapshot baseline, then the complete record in both
-    /// metadata slots with the commit and the applied index at the snapshot index. A crash before the complete record is read leaves the copy incomplete.
+    /// metadata slots with the commit and the applied index at the snapshot index. A crash before the complete record is read leaves the copy incomplete,
+    /// or unseeded.
     /// </remarks>
-    Task<GroupSnapshotInstallResult> CompleteStateInstallAsync(GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken);
+    Task<GroupSnapshotInstallResult> CompleteStateInstallAsync(GroupSnapshot snapshot, StateInstallLeader leader, CancellationToken cancellationToken);
 
     /// <summary>Evaluates a pre-vote probe against the durable log without changing it.</summary>
     /// <param name="request">The probe; its term is the term the candidate proposes to start.</param>

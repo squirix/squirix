@@ -106,8 +106,8 @@ internal static class ReplicaGroupCommitterRepair
         /// <param name="cancellationToken">Cancellation token of the pass.</param>
         /// <returns>The result of the entry session after the transfer; <paramref name="result" /> when no transfer was made or none reached its end.</returns>
         /// <remarks>
-        /// Only a follower that needs entries the leader no longer retains, or that answered incomplete, is transferred to. One that answered
-        /// unseeded lost its disk, which is a separate repair, and is left as it is.
+        /// Only a follower that needs entries the leader no longer retains, that answered incomplete, or that answered unseeded is transferred to.
+        /// One that answered unseeded lost its disk: the transfer reads the term ceiling first and carries it (#1126).
         /// </remarks>
         private async Task<ReplicaCatchUpResult> RepairByTransferAsync(
             ReplicaCatchUpTarget target,
@@ -117,8 +117,9 @@ internal static class ReplicaGroupCommitterRepair
             ReplicaCatchUpResult result,
             CancellationToken cancellationToken)
         {
-            return transfers != null && result.Outcome is ReplicaCatchUpOutcome.Compacted or ReplicaCatchUpOutcome.Incomplete
-                ? await transfers.RepairAsync(committer, target, lease, pin, cancellationToken).ConfigureAwait(false) ?? result
+            var unseeded = result.Outcome == ReplicaCatchUpOutcome.Unseeded;
+            return transfers != null && (unseeded || result.Outcome is ReplicaCatchUpOutcome.Compacted or ReplicaCatchUpOutcome.Incomplete)
+                ? await transfers.RepairAsync(committer, target, lease, pin, unseeded, cancellationToken).ConfigureAwait(false) ?? result
                 : result;
         }
 

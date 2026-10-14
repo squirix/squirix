@@ -59,6 +59,9 @@ internal sealed class ReplicaTransferStream
     /// <summary>Gets the bytes the stream sent: the snapshot image and the entries as the message budget counts them.</summary>
     internal long Bytes { get; private set; }
 
+    /// <summary>Initializes a value indicating whether the leader checked the term ceiling, which lets the transfer repair a copy that lost its disk.</summary>
+    internal bool CeilingChecked { private get; init; }
+
     /// <summary>Initializes the token that ends the stream when the sender behind the follower starts draining or closes.</summary>
     internal CancellationToken Draining { private get; init; }
 
@@ -94,7 +97,14 @@ internal sealed class ReplicaTransferStream
             var image = rented.AsMemory(0, length);
             GroupSnapshotStore.EncodePublished(image.Span, in snapshot);
             var crc = BinaryPrimitives.ReadUInt32LittleEndian(image.Span[^sizeof(uint)..]);
-            var baseline = new ReplicaTransferBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm, length, crc, _header.TopologyFingerprint, _header.ConfigurationGeneration);
+            var baseline = new ReplicaTransferBaseline(
+                snapshot.LastIncludedIndex,
+                snapshot.LastIncludedTerm,
+                length,
+                crc,
+                _header.TopologyFingerprint,
+                _header.ConfigurationGeneration,
+                CeilingChecked);
             return await RunGuardedAsync(baseline, image, walk, cancellationToken).ConfigureAwait(false);
         }
         finally

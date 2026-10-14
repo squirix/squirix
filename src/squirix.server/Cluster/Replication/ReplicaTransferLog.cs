@@ -47,4 +47,10 @@ internal static partial class ReplicaTransferLog
         Level = LogLevel.Debug,
         Message = "Replica group {GroupId} did not start a state transfer to {NodeId}: {Outcome}; it is retried on the next pass")]
     internal static partial void Declined(ILogger logger, string groupId, string nodeId, string outcome);
+
+    [LoggerMessage(
+        EventId = 4072,
+        Level = LogLevel.Information,
+        Message = "Replica group {GroupId} read the term ceiling before repairing {NodeId}, which lost its disk, in term {Term}: {Answers} of {Needed} members answered, highest term {Highest}")]
+    internal static partial void CeilingRead(ILogger logger, string groupId, string nodeId, ulong term, int answers, int needed, ulong highest);
 }

@@ -9,7 +9,8 @@ namespace Squirix.Server.Node.Services;
 /// <summary>Queues a follower that is out of the write quorum for repair as soon as it answers the leader from its log.</summary>
 /// <remarks>
 /// A follower that was unreachable is verified again only by the readiness service, whose retries back off to several seconds. Its first
-/// answer to a heartbeat or an append (accepted, a log mismatch the leader repairs, or an incomplete copy it reports) proves it reachable, so it is queued at once. A
+/// answer to a heartbeat or an append (accepted, a log mismatch the leader repairs, or an incomplete or unseeded copy it reports) proves it reachable, so it is queued at once.
+/// A ready follower that reports a copy that is not complete, after a lost disk or an interrupted transfer, is taken out of the write quorum first. A
 /// follower that keeps answering without becoming ready is queued at most once per interval, so its repair is retried without spinning.
 /// A quarantined follower waits for an explicit recovery, and a log that is not ready cannot be verified, so neither is queued. Runs on
 /// the follower reply paths; it never waits and never throws.
@@ -48,6 +49,11 @@ internal sealed class ReplicaAnsweringFollowers
         if (replicaIndex < 0 || replicaIndex >= _queuedAt.Length || !AnsweredFromLog(in reply))
             return;
 
+        // A ready follower that answers with a copy that is not complete lost what it was verified to hold, its disk or an interrupted
+        // transfer: it leaves the write quorum at once, without waiting for a write it cannot acknowledge, and is queued for repair.
+        if (IsNotComplete(in reply))
+            _ = _eligibility.TryDemote(replicaIndex, ulong.MaxValue);
+
         var state = _eligibility.StateFor(replicaIndex);
         if (state is ReplicaParticipantState.Ready or ReplicaParticipantState.Quarantined)
             return;
@@ -63,7 +69,9 @@ internal sealed class ReplicaAnsweringFollowers
     }
 
     private static bool AnsweredFromLog(in FollowerLogAppendResult reply) =>
-        reply.Success ||
-        string.Equals(reply.RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal) ||
-        string.Equals(reply.RefusalCode, FollowerLogRefusal.Incomplete, StringComparison.Ordinal);
+        reply.Success || string.Equals(reply.RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal) || IsNotComplete(in reply);
+
+    private static bool IsNotComplete(in FollowerLogAppendResult reply) =>
+        string.Equals(reply.RefusalCode, FollowerLogRefusal.Incomplete, StringComparison.Ordinal) ||
+        string.Equals(reply.RefusalCode, FollowerLogRefusal.Unseeded, StringComparison.Ordinal);
 }

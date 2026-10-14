@@ -83,10 +83,14 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
     /// <summary>Gets the entries every entries message carried, copied when it arrived.</summary>
     internal List<ReplicaStateEntry[]> Sent { get; } = [];
 
+    /// <summary>Gets the baseline of the last begin sent.</summary>
+    internal ReplicaTransferBaseline? Baseline { get; private set; }
+
     /// <inheritdoc />
     public Task<ReplicaTransferReply> BeginAsync(string nodeId, ReplicaRpcHeader header, string transferId, ReplicaTransferBaseline baseline, CancellationToken cancellationToken)
     {
         _transferIds.Enqueue(transferId);
+        Baseline = baseline;
         return StepAsync("begin", cancellationToken);
     }
 

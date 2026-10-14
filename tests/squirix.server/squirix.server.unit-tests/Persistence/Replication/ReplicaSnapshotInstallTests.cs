@@ -12,6 +12,7 @@ using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using static Squirix.Server.UnitTests.Persistence.Replication.StateInstallLeaders;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -232,7 +233,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
         var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 2UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
 
-        var result = await log.CompleteStateInstallAsync(malformed, 1UL, cancellationToken);
+        var result = await log.CompleteStateInstallAsync(malformed, Leader(1UL), cancellationToken);
 
         await AssertRefusedUntouchedAsync(dir, log, result, cancellationToken);
     }
@@ -246,7 +247,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         await using var log = await OpenIncompleteAsync(dir, 2UL, cancellationToken);
         var below = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
 
-        var result = await log.CompleteStateInstallAsync(below, 1UL, cancellationToken);
+        var result = await log.CompleteStateInstallAsync(below, Leader(1UL), cancellationToken);
 
         await AssertRefusedUntouchedAsync(dir, log, result, cancellationToken);
     }
@@ -263,7 +264,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var outcome = new GroupIdempotencyRecord("client", "operation-1", new byte[] { 1, 2, 3 }, new byte[] { 8 }, GroupRecordKind.UserMutation, now, now, 4UL, 1UL);
         var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 2UL, 2UL, new[] { outcome }, now);
 
-        var result = await log.CompleteStateInstallAsync(malformed, 1UL, cancellationToken);
+        var result = await log.CompleteStateInstallAsync(malformed, Leader(1UL), cancellationToken);
 
         await AssertRefusedUntouchedAsync(dir, log, result, cancellationToken);
     }
@@ -289,7 +290,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
         var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 2UL, 2UL, new[] { unresolved }, DateTime.UnixEpoch);
 
-        var result = await log.CompleteStateInstallAsync(malformed, 1UL, cancellationToken);
+        var result = await log.CompleteStateInstallAsync(malformed, Leader(1UL), cancellationToken);
 
         // The invalid snapshot must not have been published, so the next recovery is not poisoned.
         await AssertRefusedUntouchedAsync(dir, log, result, cancellationToken);
@@ -305,7 +306,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
         var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
 
-        var result = await log.CompleteStateInstallAsync(malformed, 1UL, cancellationToken);
+        var result = await log.CompleteStateInstallAsync(malformed, Leader(1UL), cancellationToken);
 
         await AssertRefusedUntouchedAsync(dir, log, result, cancellationToken);
     }
@@ -341,7 +342,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(before, after);
 
         _ = await Assert.That(await FollowerSnapshotScenario.BeginAsync(log, 2UL, 2UL, cancellationToken)).IsNull();
-        var complete = await log.CompleteStateInstallAsync(snapshot, 1UL, cancellationToken);
+        var complete = await log.CompleteStateInstallAsync(snapshot, Leader(1UL), cancellationToken);
 
         _ = await Assert.That((complete.Success, complete.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.StaleTerm));
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
@@ -414,7 +415,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         await log.OpenSeededAsync(cancellationToken);
         _ = await Assert.That(await FollowerSnapshotScenario.BeginAsync(log, 1UL, 1UL, cancellationToken)).IsNull();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<GroupSnapshotTooLargeException>(log.CompleteStateInstallAsync(Large(), 1UL, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<GroupSnapshotTooLargeException>(log.CompleteStateInstallAsync(Large(), Leader(1UL), cancellationToken));
 
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Incomplete);
@@ -470,7 +471,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         };
         var before = await GroupMetadataFile.ReadBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
 
-        var refusal = await log.BeginStateInstallAsync(1UL, 3UL, status.TopologyFingerprint, status.ConfigurationGeneration, snapshot, cancellationToken);
+        var refusal = await log.BeginStateInstallAsync(Leader(1UL), 3UL, status.TopologyFingerprint, status.ConfigurationGeneration, snapshot, cancellationToken);
 
         _ = await Assert.That(refusal).IsEqualTo(expected);
         _ = await Assert.That(log.IsComplete).IsTrue();
@@ -496,7 +497,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await Assert.That(await FollowerSnapshotScenario.BeginAsync(log, snapshot, 1UL, cancellationToken)).IsNull();
         faults.CancelOnNextFlush(cancel);
 
-        var result = await log.CompleteStateInstallAsync(snapshot, 1UL, cancel.Token);
+        var result = await log.CompleteStateInstallAsync(snapshot, Leader(1UL), cancel.Token);
 
         _ = await Assert.That(cancel.IsCancellationRequested).IsTrue().Because("The token was cancelled after the publish.");
         _ = await Assert.That((result.Success, log.Readiness, log.IsComplete)).IsEqualTo((true, FollowerLogReadiness.Ready, true));
@@ -521,7 +522,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(log.CompleteStateInstallAsync(snapshot, 1UL, cancelled.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(log.CompleteStateInstallAsync(snapshot, Leader(1UL), cancelled.Token));
 
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         _ = await Assert.That(log.IsComplete).IsFalse();

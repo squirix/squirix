@@ -306,7 +306,8 @@ What you see:
   or `Failed`), and `4067` (debug) for each message it refused, with the refusal code.
 - **Counter.** `squirix_replication_state_transfers_total` (labels `node`, `group`, `outcome`, `reason`). `outcome` is
   `transferred`, `capture_not_leading`, `capture_pending_apply`, `capture_unresolved_outcome`, `capture_nothing_applied`,
-  `capture_not_ready`, `capture_snapshot_too_large`, `follower_refused`, `unreachable`, `superseded` or `aborted`;
+  `capture_not_ready`, `capture_snapshot_too_large`, `follower_refused`, `unreachable`, `superseded`, `aborted` or
+  `ceiling_unavailable`;
   `reason` is the refusal code of the follower for `follower_refused` and empty otherwise.
 
 When a transfer keeps failing, read the `outcome` of the counter and the logs of both nodes:
@@ -323,8 +324,11 @@ When a transfer keeps failing, read the `outcome` of the counter and the logs of
   `MaxEstimatedCacheBytes` leaves the follower in the critical state instead of failing the transfer: see
   [Memory pressure](#memory-pressure).
 
-A node that lost its disk holds an unseeded copy, which a transfer does not repair
-([starting a replica group](clustering.md#starting-a-replica-group)).
+A node that lost its disk holds an unseeded copy until the leader repairs it by a transfer
+([starting a replica group](clustering.md#starting-a-replica-group)). Before such a transfer the leader reads the current
+terms of the other members and logs `4072` (information) with how many answered and the highest term. Too few answers
+count `ceiling_unavailable` and retry on the next pass; a term above the leader's counts `superseded` and steps the
+leader down.
 
 ## Activated topology stamp
 

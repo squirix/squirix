@@ -11,6 +11,7 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using static Squirix.Server.UnitTests.Persistence.Replication.StateInstallLeaders;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -28,7 +29,7 @@ public sealed class StateInstallBeginTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-begin-not-open");
         await using var log = StateInstallScenario.NewLog(dir);
 
-        var refusal = await log.BeginStateInstallAsync(1UL, 1UL, ReadOnlyMemory<byte>.Empty, 0UL, default, cancellationToken);
+        var refusal = await log.BeginStateInstallAsync(Leader(1UL), 1UL, ReadOnlyMemory<byte>.Empty, 0UL, default, cancellationToken);
 
         _ = await Assert.That(refusal).IsEqualTo(FollowerLogRefusal.NotReady);
         _ = await Assert.That(File.Exists(GroupStoragePaths.GetMetadataPath(dir, StateInstallScenario.GroupId))).IsFalse();
@@ -45,8 +46,8 @@ public sealed class StateInstallBeginTests : ServerUnitTestBase
         await log.AdoptTopologyAsync(Fingerprint, 2UL, cancellationToken);
         var before = await ReadMetaAsync(dir, cancellationToken);
 
-        var other = await log.BeginStateInstallAsync(1UL, 2UL, new byte[] { 4 }, 2UL, default, cancellationToken);
-        var older = await log.BeginStateInstallAsync(1UL, 2UL, Fingerprint, 1UL, default, cancellationToken);
+        var other = await log.BeginStateInstallAsync(Leader(1UL), 2UL, new byte[] { 4 }, 2UL, default, cancellationToken);
+        var older = await log.BeginStateInstallAsync(Leader(1UL), 2UL, Fingerprint, 1UL, default, cancellationToken);
 
         _ = await Assert.That((other, older)).IsEqualTo((FollowerLogRefusal.TopologyMismatch, FollowerLogRefusal.TopologyMismatch));
         await AssertUnchangedAsync(dir, before, cancellationToken);
@@ -215,7 +216,7 @@ public sealed class StateInstallBeginTests : ServerUnitTestBase
 
         _ = await FollowerSnapshotScenario.BeginAsync(log, StateInstallScenario.SnapshotIndex, 1UL, cancellationToken);
         var incomplete = log.IsComplete;
-        var result = await log.CompleteStateInstallAsync(snapshot, 1UL, cancellationToken);
+        var result = await log.CompleteStateInstallAsync(snapshot, Leader(1UL), cancellationToken);
 
         _ = await Assert.That((complete, incomplete, result.Success, log.IsComplete)).IsEqualTo((true, false, true, true));
     }

@@ -10,6 +10,10 @@ namespace Squirix.Server.Cluster.Replication;
 /// <param name="SnapshotChecksum">The CRC32C the image ends with.</param>
 /// <param name="Fingerprint">The topology fingerprint of the leader.</param>
 /// <param name="Generation">The configuration generation of the leader.</param>
+/// <param name="CeilingChecked">
+/// Whether the leader read the current terms of members that, with itself and without the receiver, form a majority, and found none above its
+/// own (#1126); only then may an unseeded copy take the transfer.
+/// </param>
 [Immutable]
 internal readonly record struct ReplicaTransferBaseline(
     ulong Index,
@@ -17,4 +21,5 @@ internal readonly record struct ReplicaTransferBaseline(
     int SnapshotBytes,
     uint SnapshotChecksum,
     ReadOnlyMemory<byte> Fingerprint,
-    ulong Generation);
+    ulong Generation,
+    bool CeilingChecked = false);

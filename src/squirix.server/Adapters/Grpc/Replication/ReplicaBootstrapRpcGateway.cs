@@ -34,7 +34,8 @@ internal sealed class ReplicaBootstrapRpcGateway : IReplicaBootstrapGateway
             string.Equals(response.Readiness, ReplicaReadinessNames.Ready, StringComparison.Ordinal),
             response.TopologyFingerprint.ToByteArray(),
             response.ConfigurationGeneration,
-            response.RefusalCode);
+            response.RefusalCode,
+            response.Term);
     }
 
     /// <inheritdoc />

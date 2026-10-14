@@ -94,9 +94,16 @@ internal sealed class ReplicaEntryCatchUpSession
 
     /// <summary>Maps a refusal that is neither a log mismatch nor a stale term to the outcome that ends the session.</summary>
     /// <param name="refusalCode">The refusal code of the follower.</param>
-    /// <returns><see cref="ReplicaCatchUpOutcome.Incomplete" /> for an incomplete copy, otherwise <see cref="ReplicaCatchUpOutcome.Refused" />.</returns>
-    private static ReplicaCatchUpOutcome RefusedOutcome(string? refusalCode) =>
-        string.Equals(refusalCode, RefusalCodes.Incomplete, StringComparison.Ordinal) ? ReplicaCatchUpOutcome.Incomplete : ReplicaCatchUpOutcome.Refused;
+    /// <returns>
+    /// <see cref="ReplicaCatchUpOutcome.Incomplete" /> for an incomplete copy, <see cref="ReplicaCatchUpOutcome.Unseeded" /> for a copy that lost its disk,
+    /// otherwise <see cref="ReplicaCatchUpOutcome.Refused" />.
+    /// </returns>
+    private static ReplicaCatchUpOutcome RefusedOutcome(string? refusalCode) => refusalCode switch
+    {
+        RefusalCodes.Incomplete => ReplicaCatchUpOutcome.Incomplete,
+        RefusalCodes.Unseeded => ReplicaCatchUpOutcome.Unseeded,
+        _ => ReplicaCatchUpOutcome.Refused,
+    };
 
     /// <summary>Applies the follower's answer: advances on a success, backs up on a log mismatch, ends on any other refusal.</summary>
     /// <param name="lease">The lease, told what the follower now holds.</param>

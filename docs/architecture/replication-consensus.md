@@ -44,7 +44,7 @@ refused at open and left unchanged.
   with the refusal `unseeded` and adopts no term, so it can never grant a vote
   that a lost disk would let it grant twice. Its node neither leads it in term one nor campaigns for it
   (`FailoverDenial.Unseeded`), and a static committer does not start over it: reads and writes of the group fail with
-  `Unavailable`.
+  `Unavailable`. A leader repairs it by a state transfer after the term ceiling (see State transfer).
 - **Complete and incomplete.** A complete copy holds the data of the group and takes part as before; an incomplete copy
   is in the middle of receiving it and takes no entries. It refuses appends (probes included) with the refusal
   `incomplete`, which tells it apart from `unseeded`, adopts no term from a leader, and never applies log entries. Its
@@ -60,8 +60,8 @@ refused at open and left unchanged.
   answer with a ready log, the same topology, and an unseeded copy, it offers each a place, and it completes its own
   copy once all of them accepted. An offered copy completes on the first call of a member of the group. If any
   member holds a complete copy, or does not answer, the owner offers nothing and retries: a member that returns on an
-  empty disk into a running group is not offered a place and stays unseeded. Repairing such a copy is not part of this
-  release. All members of a group losing their disks at once cannot be told from a new cluster, and the group starts empty.
+  empty disk into a running group is not offered a place and stays unseeded until a leader repairs it (#1126). All members
+  of a group losing their disks at once cannot be told from a new cluster, and the group starts empty.
 
 ### Current-term commit before serving
 
@@ -309,9 +309,18 @@ the log above that index.
 
 - **When it starts.** In the catch-up pass of the leader, under the lease of the follower's sender, when the entry
   session ends `compacted` (the leader no longer retains the entries the follower needs, which includes a complete copy
-  with an empty log) or `incomplete` (the copy was marked incomplete by a transfer that did not end). A copy that
-  answers `unseeded` lost its disk and is left as it is. The passes run one follower after another, so the other
-  followers of the group wait while one transfer runs.
+  with an empty log), `incomplete` (the copy was marked incomplete by a transfer that did not end), or `unseeded` (the
+  copy lost its disk; see the term ceiling below). A ready follower that answers a heartbeat with `unseeded` or
+  `incomplete` is taken out of the write quorum at once and queued for this pass. The passes run one follower after
+  another, so the other followers of the group wait while one transfer runs.
+- **Term ceiling (#1126).** Before a transfer to an `unseeded` copy the leader asks the other members, without the wiped
+  one, for their durable current term. Answers count only from copies that kept their term (complete or incomplete);
+  with the leader they must form a majority: the other member of three, three of the four others of five. A term above
+  the leader's among them is observed, which steps the leader down, and nothing is sent; too few answers send nothing
+  either (`ceiling_unavailable`). Otherwise the begin carries `ceiling_checked`, without which the copy refuses it as
+  `unseeded`. Why it is enough: a vote in a term was asked by a candidate that holds the term durably, and a candidate
+  that won the term is held at it by a majority; the answers and the leader form a majority as well, so they meet
+  every majority that elected someone with the lost vote. The protocol model explores it (`repair-ceiling`).
 - **Capture.** Under the commit gate the leader checks that it leads the term of the follower's pipeline, that no
   committed entry waits to be applied and that every idempotency outcome is known, makes the applied index durable,
   captures the group snapshot at that index and pins its log there. It then leaves the gate and streams outside it, so
@@ -338,6 +347,10 @@ the log above that index.
   for election; its term, vote and log are intact, so it still answers pre-votes and votes. Recovery never changes
   the state, so a crash anywhere before the complete record leaves the copy incomplete, and the next pass of the
   leader starts a new transfer.
+- **Unseeded copy.** A transfer with `ceiling_checked` into it writes nothing at the begin and the wipe: the copy stays
+  unseeded, votes for nobody and adopts no term until the end, whose complete record also carries the leader's term and
+  a vote for the leader, in both metadata slots. A transfer cut short, or a crash before the complete record, leaves the
+  copy unseeded, and the next pass starts over.
 - **Residual risk.** A node that acknowledged a write and then lost its disk can still be counted for that write
   for a short time, until the leader meets its refusal and takes it out of the quorum.
 

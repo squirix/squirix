@@ -20,6 +20,7 @@ internal static class ReplicaCatchUpOutcomeNames
         [ReplicaCatchUpOutcome.Corrupt] = "corrupt",
         [ReplicaCatchUpOutcome.Aborted] = "aborted",
         [ReplicaCatchUpOutcome.Incomplete] = "incomplete",
+        [ReplicaCatchUpOutcome.Unseeded] = "unseeded",
     }.ToFrozenDictionary();
 
     /// <summary>Returns the stable name of an outcome.</summary>

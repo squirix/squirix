@@ -35,4 +35,10 @@ internal enum ReplicaTransferOutcome
 
     /// <summary>The sender behind the follower started draining, so the transfer stopped.</summary>
     Aborted = 10,
+
+    /// <summary>
+    /// The follower lost its disk, and the term ceiling could not be read: fewer members than a majority without the follower answered with their
+    /// current term (#1126). Nothing was sent.
+    /// </summary>
+    CeilingUnavailable = 11,
 }

@@ -39,13 +39,14 @@ internal static class WipedCluster
     /// <param name="scope">The scope of the data directories of the cluster.</param>
     /// <param name="failover">Whether automatic failover elects the leaders of the groups.</param>
     /// <param name="persistence">The persistence options of the node, with its data directory; a directory of the cluster when not set.</param>
+    /// <param name="clean">Whether the data directory starts empty; a node started again keeps it.</param>
     /// <returns>The options.</returns>
-    internal static IntegrationStartOptions Options(string scope, bool failover, PersistenceOptions? persistence = null) => new()
+    internal static IntegrationStartOptions Options(string scope, bool failover, PersistenceOptions? persistence = null, bool clean = true) => new()
     {
         PersistenceOptions = persistence,
         ReplicaCount = 3,
         UsePersistence = true,
-        CleanTestDir = true,
+        CleanTestDir = clean,
         ExtraScope = scope,
         AutomaticFailoverEnabled = failover,
         QuorumReadsEnabled = failover,
@@ -142,6 +143,35 @@ internal static class WipedCluster
         var status = await Log(host, groupId).GetStatusAsync(cancellationToken);
 
         _ = await Assert.That((status.MemberState, status.CurrentTerm, status.VotedFor)).IsEqualTo((GroupMemberState.Unseeded, 0UL, string.Empty));
+    }
+
+    /// <summary>Waits until a leader repaired the copy of a group on a node that lost its disk, and checks the vote it recorded.</summary>
+    /// <param name="host">The node.</param>
+    /// <param name="groupId">The group.</param>
+    /// <param name="leaderId">The leader that repairs the copy, which the copy holds its vote for.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The status of the repaired copy.</returns>
+    /// <exception cref="TimeoutException">The copy was not repaired within <see cref="Bound" />.</exception>
+    internal static async Task<FollowerLogStatus> AwaitRepairedCopyAsync(ITestNodeHost host, string groupId, string leaderId, CancellationToken cancellationToken)
+    {
+        var log = Log(host, groupId);
+        try
+        {
+            await log.WaitUntilValueAsync(
+                static async (copy, token) => (await copy.GetStatusAsync(token)).MemberState == GroupMemberState.Complete,
+                Bound,
+                TimeProvider.System,
+                cancellationToken);
+        }
+        catch (TimeoutException exception)
+        {
+            var stuck = await log.GetStatusAsync(cancellationToken);
+            throw new TimeoutException($"The copy of group {groupId} was not repaired within {Bound}; it is {stuck.MemberState} at term {stuck.CurrentTerm}.", exception);
+        }
+
+        var status = await log.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(status.VotedFor).IsEqualTo(leaderId);
+        return status;
     }
 
     /// <summary>Checks that a node holds its copy of a group as a complete one.</summary>

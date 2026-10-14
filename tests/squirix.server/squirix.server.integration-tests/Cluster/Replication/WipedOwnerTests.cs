@@ -18,7 +18,10 @@ public sealed class WipedOwnerTests : NodeIntegrationTestBase
 {
     private static readonly string[] Others = [WipedCluster.Nodes[1], WipedCluster.Nodes[2]];
 
-    /// <summary>With automatic failover the other two members elect a leader and the group keeps working; the owner offers nobody and stays unseeded.</summary>
+    /// <summary>
+    /// With automatic failover the other two members elect a leader and the group keeps working; the owner offers nobody, and the elected leader
+    /// repairs its copy, which records the elected term and a vote for that leader (#1126).
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task OwnerWipedGroupKeepsWorkingByElection(CancellationToken cancellationToken)
@@ -30,9 +33,10 @@ public sealed class WipedOwnerTests : NodeIntegrationTestBase
         var (leader, term) = await ledger.LeaderAsync(Others, 0UL, "the other members elect a leader of the group", cancellationToken);
         await CommitAsync(cluster[leader], cancellationToken);
 
+        var copy = await WipedCluster.AwaitRepairedCopyAsync(owner, WipedCluster.OwnerId, leader, cancellationToken);
+
         _ = await Assert.That(term).IsGreaterThan(0UL);
-        await WipedCluster.AssertUnseededCopyAsync(owner, WipedCluster.OwnerId, cancellationToken);
-        await WipedCluster.AssertUnseededAsync(owner, cancellationToken);
+        _ = await Assert.That(copy.CurrentTerm).IsEqualTo(term);
         _ = await Assert.That(FirstStartAsync(owner).IsCompleted).IsFalse();
         _ = await Assert.That(ledger.Observe([WipedCluster.OwnerId]).Term).IsEqualTo(0UL);
     }

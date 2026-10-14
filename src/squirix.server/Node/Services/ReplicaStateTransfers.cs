@@ -62,31 +62,43 @@ internal sealed class ReplicaStateTransfers
         _metrics = metrics;
     }
 
+    /// <summary>Initializes the reader of the term ceiling; a follower that lost its disk is repaired only when it is set (#1126).</summary>
+    internal ReplicaTermCeiling? TermCeiling { private get; init; }
+
     /// <summary>Sends the state of the group to a follower and runs a fresh entry session from the transferred index.</summary>
     /// <param name="committer">The committer of the led group.</param>
     /// <param name="target">The follower and the pipeline its catch-up runs in.</param>
     /// <param name="lease">The lease of the follower's sender, which the pass holds.</param>
     /// <param name="pin">The hold of this attempt on the log; taken by the capture, released by the caller.</param>
+    /// <param name="unseeded">Whether the follower lost its disk: the term ceiling is read first, and the transfer carries it.</param>
     /// <param name="cancellationToken">Cancellation token of the pass; its cancellation ends the attempt by throwing.</param>
     /// <returns>The result of the entry session that followed the transfer; <see langword="null" /> when nothing was transferred, the reason being logged and counted.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
+    /// <remarks>
+    /// For a follower that lost its disk, a term above the leader's among the answers is observed by the election state, which steps the leader down,
+    /// and nothing is sent; so is nothing when fewer members than the ceiling needs answered.
+    /// </remarks>
     internal async Task<ReplicaCatchUpResult?> RepairAsync(
         ReplicaGroupCommitter committer,
         ReplicaCatchUpTarget target,
         ReplicaFollowerCatchUp lease,
         ReplicaTransferPin.Session pin,
+        bool unseeded,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(committer);
         ArgumentNullException.ThrowIfNull(lease);
-        var (captured, snapshot) = await committer.CaptureForTransferAsync(target, _durability, pin, cancellationToken).ConfigureAwait(false);
+        var ceiling = unseeded ? await CheckCeilingAsync(committer, target, cancellationToken).ConfigureAwait(false) : ReplicaTransferOutcome.Transferred;
+        var (captured, snapshot) = ceiling == ReplicaTransferOutcome.Transferred
+            ? await committer.CaptureForTransferAsync(target, _durability, pin, cancellationToken).ConfigureAwait(false)
+            : (ceiling, default);
         if (captured != ReplicaTransferOutcome.Transferred)
         {
             ReportDeclined(committer, lease.NodeId, captured);
             return null;
         }
 
-        var sent = await SendStateAsync(committer, (target, lease), snapshot, cancellationToken).ConfigureAwait(false);
+        var sent = await SendStateAsync(committer, (target, lease), (snapshot, unseeded), cancellationToken).ConfigureAwait(false);
         return sent == ReplicaTransferOutcome.Transferred
             ? await new ReplicaEntryCatchUpSession(target.Log, committer.Probe.SelfId, target.Term).RunAsync(lease, cancellationToken).ConfigureAwait(false)
             : null;
@@ -112,6 +124,32 @@ internal sealed class ReplicaStateTransfers
         election.TransferProgress.Record();
     }
 
+    /// <summary>Reads the term ceiling before a follower that lost its disk is repaired.</summary>
+    /// <param name="committer">The committer of the led group.</param>
+    /// <param name="target">The follower that lost its disk.</param>
+    /// <param name="cancellationToken">Cancellation token of the pass.</param>
+    /// <returns>
+    /// <see cref="ReplicaTransferOutcome.Transferred" /> when the repair may go on; <see cref="ReplicaTransferOutcome.Superseded" /> when a member holds a
+    /// higher term, which the election state observes; <see cref="ReplicaTransferOutcome.CeilingUnavailable" /> when too few members answered or no
+    /// reader is set.
+    /// </returns>
+    private async Task<ReplicaTransferOutcome> CheckCeilingAsync(ReplicaGroupCommitter committer, ReplicaCatchUpTarget target, CancellationToken cancellationToken)
+    {
+        if (TermCeiling == null)
+            return ReplicaTransferOutcome.CeilingUnavailable;
+
+        var (members, header) = committer.Probe.BuildMembership(target.Term);
+        var read = await TermCeiling.ReadAsync(members, header, target.ReplicaIndex, committer.Probe.LeaderReplicaIndex, cancellationToken).ConfigureAwait(false);
+        ReplicaTransferLog.CeilingRead(_log, committer.GroupId, members[target.ReplicaIndex], target.Term, read.Answers, read.Needed, read.Highest);
+        if (read.Highest > target.Term)
+        {
+            committer.Election?.ObserveHigherTerm(read.Highest);
+            return ReplicaTransferOutcome.Superseded;
+        }
+
+        return read.Suffices ? ReplicaTransferOutcome.Transferred : ReplicaTransferOutcome.CeilingUnavailable;
+    }
+
     private void ReportDeclined(ReplicaGroupCommitter committer, string nodeId, ReplicaTransferOutcome outcome)
     {
         var name = ReplicaTransferOutcomeNames.Of(outcome);
@@ -122,15 +160,16 @@ internal sealed class ReplicaStateTransfers
     /// <summary>Streams the captured state to the follower, logging when it starts and when it ends and counting how it ended.</summary>
     /// <param name="committer">The committer of the led group.</param>
     /// <param name="catchUp">The follower's target and the lease of its sender.</param>
-    /// <param name="snapshot">The captured group snapshot.</param>
+    /// <param name="state">The captured group snapshot, and whether the leader checked the term ceiling for a follower that lost its disk.</param>
     /// <param name="cancellationToken">Cancellation token of the pass.</param>
     /// <returns>How the stream ended.</returns>
     private async Task<ReplicaTransferOutcome> SendStateAsync(
         ReplicaGroupCommitter committer,
         (ReplicaCatchUpTarget Target, ReplicaFollowerCatchUp Lease) catchUp,
-        GroupSnapshot snapshot,
+        (GroupSnapshot Snapshot, bool CeilingChecked) state,
         CancellationToken cancellationToken)
     {
+        var (snapshot, ceilingChecked) = state;
         var ((slot, _, replicaFollowerSender, _, term), lease) = catchUp;
         var clock = committer.BudgetTimeProvider;
         var started = clock.GetTimestamp();
@@ -140,6 +179,7 @@ internal sealed class ReplicaStateTransfers
         var stream = new ReplicaTransferStream(_gateway, _options, in header, lease.NodeId, clock)
         {
             Draining = replicaFollowerSender.DrainStarted,
+            CeilingChecked = ceilingChecked,
             Replies = election == null ? null : reply => Post(election, slot, in reply),
         };
         var result = await stream.RunAsync(snapshot, _entries, cancellationToken).ConfigureAwait(false);

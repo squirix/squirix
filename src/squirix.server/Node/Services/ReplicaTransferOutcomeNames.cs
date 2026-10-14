@@ -22,6 +22,7 @@ internal static class ReplicaTransferOutcomeNames
         ReplicaTransferOutcome.Unreachable => "unreachable",
         ReplicaTransferOutcome.Superseded => "superseded",
         ReplicaTransferOutcome.Aborted => "aborted",
+        ReplicaTransferOutcome.CeilingUnavailable => "ceiling_unavailable",
         _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Unsupported replica transfer outcome."),
     };
 }

@@ -29,4 +29,10 @@ internal enum ReplicaCatchUpOutcome
 
     /// <summary>The follower answered that its copy is incomplete: it takes no entries until a state transfer repairs it. The first request is refused, so nothing was sent; a copy that turned incomplete mid-session ends it after the entries already accepted.</summary>
     Incomplete = 8,
+
+    /// <summary>
+    /// The follower answered that its copy lost its disk: it takes no entries until a leader that checked the term ceiling repairs it by a state
+    /// transfer (#1126). The first request is refused, so nothing was sent.
+    /// </summary>
+    Unseeded = 9,
 }

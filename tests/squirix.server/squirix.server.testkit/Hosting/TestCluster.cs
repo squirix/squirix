@@ -138,6 +138,17 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     public async ValueTask<ITestNodeHost> RestartWipedNodeAsync(string nodeId, TOptions? options = null, CancellationToken cancellationToken = default)
     {
         var effectiveOptions = options ?? (_lastOptions.TryGetValue(nodeId, out var lastOptions) ? lastOptions : null);
+        await WipeNodeAsync(nodeId).ConfigureAwait(false);
+        return await StartWipedNodeAsync(nodeId, effectiveOptions, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Stops the node and empties its data directory, as a node whose disk was lost, and leaves it stopped.</summary>
+    /// <param name="nodeId">Node identifier to stop.</param>
+    /// <returns>A task that completes once the node is stopped and its data directory is empty.</returns>
+    /// <exception cref="InvalidOperationException">The node runs without persistence, so it has no data directory to empty.</exception>
+    /// <remarks>Start it with <see cref="StartWipedNodeAsync" />; a test stops other nodes meanwhile to decide which leader may repair it.</remarks>
+    public async ValueTask WipeNodeAsync(string nodeId)
+    {
         var dataDir = this[nodeId].DataDir;
         if (string.IsNullOrEmpty(dataDir))
             throw new InvalidOperationException($"Cluster node '{nodeId}' runs without persistence, so it has no data directory to empty.");
@@ -150,7 +161,16 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             else
                 File.Delete(entry);
         }
+    }
 
+    /// <summary>Starts a node that <see cref="WipeNodeAsync" /> stopped, from the same topology entry, without waiting for the first start of the groups.</summary>
+    /// <param name="nodeId">Node identifier to start.</param>
+    /// <param name="options">Startup options for the node; the options it was last started with when <see langword="null" />.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started test node host.</returns>
+    public async ValueTask<ITestNodeHost> StartWipedNodeAsync(string nodeId, TOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        var effectiveOptions = options ?? (_lastOptions.TryGetValue(nodeId, out var lastOptions) ? lastOptions : null);
         var host = await StartNodeAsync(FindTopologyNode(nodeId), _topology, effectiveOptions, cancellationToken).ConfigureAwait(false);
         _lastOptions[nodeId] = effectiveOptions;
         return host;
