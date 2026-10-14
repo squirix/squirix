@@ -65,7 +65,7 @@ internal static class WipedCluster
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A task that completes once the owner leads.</returns>
     internal static Task AwaitOwnerLeadsAsync(TestCluster<IntegrationStartOptions> cluster, CancellationToken cancellationToken) =>
-        cluster.WaitUntilAsync(static nodes => nodes[OwnerId].GetRequiredService<IGroupLeaderTable>().HasLocalAuthority(OwnerId, out _), Bound, cancellationToken);
+        cluster.WaitUntilAsync(static nodes => nodes[OwnerId].GetRequiredService<IGroupLeaderTable>().HasLocalAuthority(OwnerId, out _), Bound, TimeProvider.System, cancellationToken);
 
     /// <summary>Waits until the replica group readiness check of every given node reports healthy.</summary>
     /// <param name="cluster">The started cluster.</param>
@@ -85,6 +85,7 @@ internal static class WipedCluster
                 return true;
             },
             Bound,
+            TimeProvider.System,
             cancellationToken);
 
     /// <summary>Checks that a node reports not ready, with the verdict of a copy that is not seeded.</summary>

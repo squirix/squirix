@@ -40,7 +40,7 @@ public sealed class GroupCommitStopTests : IsolatedStorageTestBase
         var mutation = ExecutePutAsync(executor, journal, "k", () => Interlocked.Increment(ref applied));
 
         // The idle journal thread waits without a timeout until a waiter registers in the batch, so this pins the parked path.
-        await journal.WaitUntilAsync(static j => j.GroupCommit!.GetJournalThreadWaitTimeoutMs() != Timeout.Infinite, Bound, cancellationToken);
+        await journal.WaitUntilAsync(static j => j.GroupCommit!.GetJournalThreadWaitTimeoutMs() != Timeout.Infinite, Bound, TimeProvider.System, cancellationToken);
         _ = await Assert.That(mutation.IsCompleted).IsFalse();
 
         await stallable.ShutdownAsync();

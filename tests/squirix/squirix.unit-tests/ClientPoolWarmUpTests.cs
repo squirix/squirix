@@ -58,7 +58,7 @@ public sealed class ClientPoolWarmUpTests
         while (!operation.IsCompleted && TimeProvider.System.GetElapsedTime(guard) < Bound)
         {
             clock.Advance(FakeOnlyConnectOptions.OverallDeadline);
-            await Task.Delay(TimeSpan.FromMilliseconds(1), TimeProvider.System, CancellationToken.None);
+            await Task.Yield();
         }
     }
 }

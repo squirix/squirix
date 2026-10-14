@@ -118,7 +118,7 @@ public sealed class ClusterLeaderProbeTests : NodeIntegrationTestBase
             var survivors = Array.FindAll(Three, id => !string.Equals(id, former, StringComparison.Ordinal));
             _ = await probe.WaitForNewLeaderAsync(Group, formerTerm, Bound, cancellationToken);
             _ = await probe.WaitForStableLeaderAsync(Group, survivors, Bound, cancellationToken);
-            await timeline.WaitUntilAsync(static t => t[FailoverPhase.Converged] != null, Bound, cancellationToken);
+            await timeline.WaitUntilAsync(static t => t[FailoverPhase.Converged] != null, Bound, TimeProvider.System, cancellationToken);
         }
 
         var dump = timeline.Dump();

@@ -13,6 +13,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
@@ -39,6 +40,9 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
 
     /// <summary>The maintenance interval of the test nodes that compact by hand; no timer pass fires within a test.</summary>
     private static readonly TimeSpan ManualMaintenanceInterval = TimeSpan.FromDays(1);
+
+    /// <summary>The poll interval used while waiting for the owner maintenance service.</summary>
+    private static readonly TimeSpan MaintenancePollInterval = TimeSpan.FromMilliseconds(50);
 
     /// <summary>After many overwrites the owner's group log holds a published snapshot and a bounded number of entries, compacted by the production maintenance timer.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -314,15 +318,22 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     /// <exception cref="TimeoutException">The maintenance timer did not compact the log within the bound.</exception>
     private static async Task AwaitCompactedAsync(IFollowerLog log, int retained, CancellationToken cancellationToken)
     {
-        var started = Stopwatch.GetTimestamp();
-        var retention = await log.GetRetentionAsync(cancellationToken);
-        while (retention.SnapshotIndex == 0 || retention.RetainedEntries > retained)
+        var retention = default(FollowerLogRetention);
+        try
         {
-            if (Stopwatch.GetElapsedTime(started) >= Bound)
-                throw new TimeoutException($"The owner group log was not compacted within {Bound}; last retention {retention}.");
-
-            await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken);
-            retention = await log.GetRetentionAsync(cancellationToken);
+            await log.WaitUntilValueAsync(
+                async (current, token) =>
+                {
+                    retention = await current.GetRetentionAsync(token);
+                    return retention.SnapshotIndex > 0 && retention.RetainedEntries <= retained;
+                },
+                Bound,
+                TimeProvider.System,
+                cancellationToken);
+        }
+        catch (TimeoutException exception)
+        {
+            throw new TimeoutException($"The owner group log was not compacted within {Bound}; last retention {retention}.", exception);
         }
     }
 
@@ -364,17 +375,22 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     /// <exception cref="TimeoutException">The step did not compact the log within the bound.</exception>
     private static async Task CompactAsync(ITestNodeHost owner, CancellationToken cancellationToken)
     {
-        var started = Stopwatch.GetTimestamp();
-        while (true)
+        var outcome = ReplicaLogCompactionOutcome.FollowerBehind;
+        try
         {
-            var outcome = await CompactOnceAsync(owner, cancellationToken);
-            if (outcome == ReplicaLogCompactionOutcome.Compacted)
-                return;
-
-            if (Stopwatch.GetElapsedTime(started) >= Bound)
-                throw new TimeoutException($"The compaction step did not compact the owner group log within {Bound}; last outcome {outcome}.");
-
-            await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, cancellationToken);
+            await owner.WaitUntilValueAsync(
+                async (host, token) =>
+                {
+                    outcome = await CompactOnceAsync(host, token);
+                    return outcome == ReplicaLogCompactionOutcome.Compacted;
+                },
+                Bound,
+                TimeProvider.System,
+                cancellationToken);
+        }
+        catch (TimeoutException exception)
+        {
+            throw new TimeoutException($"The compaction step did not compact the owner group log within {Bound}; last outcome {outcome}.", exception);
         }
     }
 
@@ -386,14 +402,18 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     /// <exception cref="TimeoutException">The owner did not verify every slot within the bound.</exception>
     private static async Task VerifyAsync(TestCluster<IntegrationStartOptions> cluster, ITestNodeHost owner, CancellationToken cancellationToken)
     {
-        var started = Stopwatch.GetTimestamp();
         var committer = ReplicaNodeCommitters.OwnCommitter(owner);
-        while (await committer.VerifyReplicasAsync(cancellationToken) != ReplicaVerification.AllReady)
+        try
         {
-            if (Stopwatch.GetElapsedTime(started) >= Bound)
-                throw new TimeoutException($"The restarted owner did not verify every replica slot; {await DescribeLogsAsync(cluster, cancellationToken)}.");
-
-            await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, cancellationToken);
+            await committer.WaitUntilValueAsync(
+                static async (replicaCommitter, token) => await replicaCommitter.VerifyReplicasAsync(token) == ReplicaVerification.AllReady,
+                Bound,
+                TimeProvider.System,
+                cancellationToken);
+        }
+        catch (TimeoutException exception)
+        {
+            throw new TimeoutException($"The restarted owner did not verify every replica slot; {await DescribeLogsAsync(cluster, cancellationToken)}.", exception);
         }
     }
 
@@ -421,7 +441,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
             if (Stopwatch.GetElapsedTime(started) >= Bound)
                 throw new TimeoutException($"The owner group log kept changing; last retention {after}.");
 
-            await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken);
+            await Task.Delay(MaintenancePollInterval, TimeProvider.System, cancellationToken);
         }
     }
 

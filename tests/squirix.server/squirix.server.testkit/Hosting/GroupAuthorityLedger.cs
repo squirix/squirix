@@ -66,14 +66,14 @@ internal sealed class GroupAuthorityLedger<TOptions>
     /// <exception cref="InvalidOperationException">The invariant failed on some poll, or two nodes held authority in one term.</exception>
     internal async Task HoldsAsync(Func<bool> invariant, TimeSpan watch, string what, CancellationToken cancellationToken)
     {
-        var deadline = Environment.TickCount64 + Convert.ToInt64(watch.TotalMilliseconds);
-        while (Environment.TickCount64 < deadline)
+        var started = TimeProvider.System.GetTimestamp();
+        while (TimeProvider.System.GetElapsedTime(started) < watch)
         {
             _ = Observe();
             if (!invariant())
                 throw new InvalidOperationException($"Expected that {what} throughout the watch.");
 
-            await Task.Delay(25, cancellationToken);
+            await Task.Delay(TimeSpan.FromMilliseconds(25), TimeProvider.System, cancellationToken);
         }
     }
 
@@ -165,6 +165,7 @@ internal sealed class GroupAuthorityLedger<TOptions>
                     return wait.Condition();
                 },
                 bound,
+                TimeProvider.System,
                 cancellationToken));
 
     /// <summary>Waits until an asynchronous condition holds, checking election safety over every node on every poll.</summary>
@@ -185,6 +186,7 @@ internal sealed class GroupAuthorityLedger<TOptions>
                     return wait.Condition(wait.State, token);
                 },
                 Bound,
+                TimeProvider.System,
                 cancellationToken));
 
     private static async Task PhaseAsync(string phase, Func<Task> wait)

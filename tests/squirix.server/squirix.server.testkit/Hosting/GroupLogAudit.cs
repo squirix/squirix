@@ -157,7 +157,7 @@ internal static class GroupLogAudit
 
         try
         {
-            await (Hosts: hosts, Group: groupId).WaitUntilValueAsync(static (s, token) => IsQuietAsync(s.Hosts, s.Group, token), bound, cancellationToken).ConfigureAwait(false);
+            await (Hosts: hosts, Group: groupId).WaitUntilValueAsync(static (s, token) => IsQuietAsync(s.Hosts, s.Group, token), bound, TimeProvider.System, cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException exception)
         {

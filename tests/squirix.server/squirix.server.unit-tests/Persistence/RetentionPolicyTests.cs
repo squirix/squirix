@@ -49,7 +49,7 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
 
         // The background retention worker drains asynchronously; give the cleanup the same explicit window the burst
         // tests use under parallel CI load.
-        await staleJournalPaths.WaitUntilAsync(static paths => !FileKit.Exists(paths.Item1) && !FileKit.Exists(paths.Item2), TimeSpan.FromSeconds(30), cancellationToken);
+        await staleJournalPaths.WaitUntilAsync(static paths => !FileKit.Exists(paths.Item1) && !FileKit.Exists(paths.Item2), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(FileKit.Exists(JournalPath(1))).IsFalse();
         _ = await Assert.That(FileKit.Exists(JournalPath(2))).IsFalse();
@@ -90,7 +90,7 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
 
         // The background retention worker drains asynchronously; give the cleanup the same explicit window the burst
         // tests use under parallel CI load.
-        await staleSnapshotPath.WaitUntilAsync(static path => !FileKit.Exists(path), TimeSpan.FromSeconds(30), cancellationToken);
+        await staleSnapshotPath.WaitUntilAsync(static path => !FileKit.Exists(path), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(FileKit.Exists(SnapshotPath(1))).IsFalse();
         _ = await Assert.That(FileKit.Exists(SnapshotPath(2))).IsTrue();

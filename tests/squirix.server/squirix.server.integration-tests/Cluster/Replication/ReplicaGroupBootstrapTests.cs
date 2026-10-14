@@ -74,7 +74,7 @@ public sealed class ReplicaGroupBootstrapTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(Nodes[0], Nodes[1], Nodes[2], Options("bootstrap-elected", true), cancellationToken);
         await AssertOwnGroupsCompleteAsync(cluster, cancellationToken);
         var owner = cluster[OwnerId];
-        await cluster.WaitUntilAsync(static nodes => nodes[OwnerId].GetRequiredService<IGroupLeaderTable>().HasLocalAuthority(OwnerId, out _), Bound, cancellationToken);
+        await cluster.WaitUntilAsync(static nodes => nodes[OwnerId].GetRequiredService<IGroupLeaderTable>().HasLocalAuthority(OwnerId, out _), Bound, TimeProvider.System, cancellationToken);
 
         await WriteAndReadAsync(owner, cancellationToken);
 
@@ -122,6 +122,7 @@ public sealed class ReplicaGroupBootstrapTests : NodeIntegrationTestBase
                 return true;
             },
             Bound,
+            TimeProvider.System,
             cancellationToken);
 
     private static async Task WriteAndReadAsync(ITestNodeHost owner, CancellationToken cancellationToken)

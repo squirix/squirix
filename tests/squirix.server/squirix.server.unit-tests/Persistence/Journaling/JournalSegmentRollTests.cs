@@ -73,7 +73,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         var block = CountManifestDataFiles(Dir);
         await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
 
-        await pipelined.WaitUntilAsync(static j => j.GetJournalThreadFailure() != null, TimeSpan.FromSeconds(15), cancellationToken);
+        await pipelined.WaitUntilAsync(static j => j.GetJournalThreadFailure() != null, TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
         _ = await Assert.That(journal.GetJournalThreadFailure()).IsNotNull();
         _ = await Assert.That(new FileInfo(segmentOnePath).Length).IsEqualTo(bytesBefore);
         _ = await Assert.That(CountManifestDataFiles(Dir)).IsEqualTo(block);
@@ -309,7 +309,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(2)), [], cancellationToken);
         await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
 
-        await pipelined.WaitUntilAsync(static j => j.GetJournalThreadFailure() != null, TimeSpan.FromSeconds(15), cancellationToken);
+        await pipelined.WaitUntilAsync(static j => j.GetJournalThreadFailure() != null, TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
         _ = await Assert.That(journal.GetJournalThreadFailure()).IsNotNull();
 
         // The manifest still advertises segment 1, but the roll already materialized segment 2.

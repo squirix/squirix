@@ -100,7 +100,7 @@ public sealed class JournalCompactionClockTests : IsolatedStorageTestBase
         clock.Advance(MinGap * 1.2);
 
         // The backoff waits on the fake clock, which no longer advances, so the state stays put.
-        await compaction.WaitUntilAsync(static c => c.State == RunState.BackingOff, Bound, cancellationToken);
+        await compaction.WaitUntilAsync(static c => c.State == RunState.BackingOff, Bound, TimeProvider.System, cancellationToken);
         await compaction.StopAsync(cancellationToken);
 
         _ = await Assert.That(armed).IsTrue();
