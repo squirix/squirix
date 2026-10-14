@@ -3,7 +3,7 @@ using System;
 namespace Squirix.Server.TestKit;
 
 /// <summary>Test helpers for building byte memory from literals.</summary>
-public static class ByteMemoryExtensions
+internal static class ByteMemoryExtensions
 {
     /// <param name="memory">The memory type the helpers build.</param>
     extension(ReadOnlyMemory<byte> memory)

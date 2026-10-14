@@ -29,6 +29,7 @@ using TUnit.Core;
 [assembly: Rock(typeof(IBackpressureGate), BuildType.Create)]
 [assembly: Rock(typeof(ILogicalNamespacedCache<>), BuildType.Create)]
 [assembly: Rock(typeof(ISquirixServerEntryCachePipeline<>), BuildType.Create)]
+[assembly: Rock(typeof(IJournalEventLoopHost), BuildType.Create)]
 [assembly: Rock(typeof(IJournalCoordinator), BuildType.Create)]
 [assembly: Rock(typeof(IJournalDurabilityCoordinator), BuildType.Create)]
 [assembly: Rock(typeof(IFollowerLog), BuildType.Create)]

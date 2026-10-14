@@ -82,12 +82,12 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
     public async Task AckLessCapacityRejectionFailsPipeline()
     {
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxTotalBytesMb = 1 };
-        var registry = new PendingAppendRegistry();
         var counter = new MutableInt32();
-        var host = new FakeEventLoopHost(registry, counter);
+        var host = RocksDoubles.CreateEventLoopHost(counter);
+        var registry = host.State.PendingAppends;
         using var ring = new BoundedJournalRing(4);
         using var segmentWriter = new FakeSegmentWriter();
-        var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 1024L * 1024L, 1, JournalSegmentProbe.Probe(Dir, 1)), NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
+        var eventLoop = new JournalEventLoop(host.Host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 1024L * 1024L, 1, JournalSegmentProbe.Probe(Dir, 1)), NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
         var buffer = ArrayPool<byte>.Shared.Rent(64);
         var item = JournalWorkItem.Append(buffer, 64);
         registry.Track(item, buffer, 64, null);
@@ -99,7 +99,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
         eventLoop.Run();
 
-        var failure = await Assert.That(host.PipelineFailure).IsTypeOf<InvalidOperationException>();
+        var failure = await Assert.That(host.State.PipelineFailure).IsTypeOf<InvalidOperationException>();
         _ = await Assert.That(failure?.InnerException).IsTypeOf<JournalCapacityExceededException>();
         _ = await Assert.That(counter.Value).IsEqualTo(0);
         _ = await Assert.That(registry.PendingCount).IsEqualTo(0);
@@ -129,15 +129,15 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
     public async Task AckLessRollRejectionFailsPipeline()
     {
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1, JournalMaxSegmentCount = 2 };
-        var registry = new PendingAppendRegistry();
         var counter = new MutableInt32();
-        var host = new FakeEventLoopHost(registry, counter);
+        var host = RocksDoubles.CreateEventLoopHost(counter);
+        var registry = host.State.PendingAppends;
         using var ring = new BoundedJournalRing(4);
 
         // Every segment the journal thread opens looks nearly full, so the append rolls, and rolls again once the first roll completes.
         using var segmentWriter = new FakeSegmentWriter((1024L * 1024L) - 10L);
-        var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 0L, 1, JournalSegmentProbe.Probe(Dir, 1)), NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
-        host.RollPublished = eventLoop.MarkSegmentRollCompletionPending;
+        var eventLoop = new JournalEventLoop(host.Host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 0L, 1, JournalSegmentProbe.Probe(Dir, 1)), NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
+        host.State.OnRollPublished = eventLoop.MarkSegmentRollCompletionPending;
         var buffer = ArrayPool<byte>.Shared.Rent(64);
         var item = JournalWorkItem.Append(buffer, 64);
         registry.Track(item, buffer, 64, null);
@@ -147,7 +147,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
         eventLoop.Run();
 
-        var failure = await Assert.That(host.PipelineFailure).IsTypeOf<InvalidOperationException>();
+        var failure = await Assert.That(host.State.PipelineFailure).IsTypeOf<InvalidOperationException>();
         var rejection = await Assert.That(failure?.InnerException).IsTypeOf<JournalCapacityExceededException>();
         _ = await Assert.That(rejection?.Message).Contains("segment count");
         _ = await Assert.That(eventLoop.CurrentSegmentIndex).IsEqualTo(2);
@@ -243,11 +243,11 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
     public async Task SegmentOpenFailureFaultsAck()
     {
         var options = new PersistenceOptions { DataDir = Path.Join(Dir, "missing") };
-        var registry = new PendingAppendRegistry();
         var counter = new MutableInt32();
-        var host = new FakeEventLoopHost(registry, counter);
+        var host = RocksDoubles.CreateEventLoopHost(counter);
+        var registry = host.State.PendingAppends;
         using var segmentWriter = JournalSegmentWriterFactory.Create();
-        using var state = new FakeEventLoopState(host, options, new JournalWriteBatchBuffer(), 0, segmentWriter);
+        using var state = new FakeEventLoopState(host.Host, options, new JournalWriteBatchBuffer(), 0, segmentWriter);
         var writer = new JournalEventLoopSegmentWriter(state, new FakeEventLoopRollState());
         var buffer = ArrayPool<byte>.Shared.Rent(64);
         var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -289,13 +289,12 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
     private static WriterSetup CreateSetup(long totalBytes = 0, int batchCapacityBytes = 1024, int maxTotalBytesMb = 0)
     {
         var options = new PersistenceOptions { JournalMaxTotalBytesMb = maxTotalBytesMb };
-        var registry = new PendingAppendRegistry();
         var counter = new MutableInt32();
-        var host = new FakeEventLoopHost(registry, counter);
+        var host = RocksDoubles.CreateEventLoopHost(counter);
         var batch = new JournalWriteBatchBuffer(batchCapacityBytes);
-        var state = new FakeEventLoopState(host, options, batch, totalBytes);
+        var state = new FakeEventLoopState(host.Host, options, batch, totalBytes);
         var roll = new FakeEventLoopRollState("seg-0001");
-        return new WriterSetup(new JournalEventLoopSegmentWriter(state, roll), registry, counter, batch, state);
+        return new WriterSetup(new JournalEventLoopSegmentWriter(state, roll), host.State.PendingAppends, counter, batch, state);
     }
 
     private static async Task AssertNoRollAsync(OversizedFrameRun run)
@@ -326,15 +325,15 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         WriteHeaderOnlySegment(JournalReadPath.BuildSegmentPath(Dir, 1));
 
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1, JournalMaxSegmentCount = 4 };
-        var registry = new PendingAppendRegistry();
         var counter = new MutableInt32();
-        var host = new FakeEventLoopHost(registry, counter);
+        var host = RocksDoubles.CreateEventLoopHost(counter);
+        var registry = host.State.PendingAppends;
         using var ring = new BoundedJournalRing(4);
         using var segmentWriter = JournalSegmentWriterFactory.Create();
         var startup = new JournalEventLoopStartup(1, JournalFraming.FileHeaderSize, 1, JournalSegmentProbe.Probe(Dir, 1));
-        var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, startup, NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
+        var eventLoop = new JournalEventLoop(host.Host, ring, segmentWriter, options, startup, NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
         var rollsPublished = 0;
-        host.RollPublished = () =>
+        host.State.OnRollPublished = () =>
         {
             rollsPublished++;
             eventLoop.MarkSegmentRollCompletionPending();
@@ -352,7 +351,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         eventLoop.Run();
 
         var segmentFiles = Directory.GetFiles(Dir, SegmentSearchPattern, SearchOption.TopDirectoryOnly).Length;
-        return new OversizedFrameRun(host.PipelineFailure, rollsPublished, eventLoop.CurrentSegmentIndex, segmentFiles, counter.Value, registry.PendingCount);
+        return new OversizedFrameRun(host.State.PipelineFailure, rollsPublished, eventLoop.CurrentSegmentIndex, segmentFiles, counter.Value, registry.PendingCount);
     }
 
     private sealed class FakeEventLoopRollState : IJournalEventLoopRollState
@@ -409,7 +408,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
     private sealed class FakeEventLoopState : IJournalEventLoopState, IDisposable
     {
-        private readonly FakeEventLoopHost _host;
+        private readonly IJournalEventLoopHost _host;
         private readonly PersistenceOptions _options;
         private readonly JournalSegmentPolicy _policy;
         private readonly IJournalSegmentWriter _segmentWriter;
@@ -417,7 +416,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         private long _activeBytes;
         private long _totalBytes;
 
-        internal FakeEventLoopState(FakeEventLoopHost host, PersistenceOptions options, JournalWriteBatchBuffer batch, long totalBytes, IJournalSegmentWriter? segmentWriter = null)
+        internal FakeEventLoopState(IJournalEventLoopHost host, PersistenceOptions options, JournalWriteBatchBuffer batch, long totalBytes, IJournalSegmentWriter? segmentWriter = null)
         {
             _host = host;
             _options = options;

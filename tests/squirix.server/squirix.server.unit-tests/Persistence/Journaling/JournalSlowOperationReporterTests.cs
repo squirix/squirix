@@ -471,7 +471,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         {
             _loggerFactory = new FixedLoggerFactory(logger);
             EventLoop = new JournalEventLoop(
-                new FakeEventLoopHost(new PendingAppendRegistry()),
+                RocksDoubles.CreateEventLoopHost().Host,
                 _ring,
                 writer,
                 options,
