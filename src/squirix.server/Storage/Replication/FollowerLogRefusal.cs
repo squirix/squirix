@@ -11,7 +11,7 @@ internal static class FollowerLogRefusal
     /// <summary>The caller advertised a lower term than the durably persisted current term.</summary>
     internal const string StaleTerm = "stale-term";
 
-    /// <summary>The append would skip an index, or an existing entry holds different canonical bytes.</summary>
+    /// <summary>The append would skip an index, an entry carries a term above the request term, or an existing entry holds different canonical bytes.</summary>
     internal const string LogMismatch = "log-mismatch";
 
     /// <summary>

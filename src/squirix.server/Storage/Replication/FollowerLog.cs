@@ -960,8 +960,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             for (var i = 0; i < entries.Length; i++)
             {
+                // A leader never sends an entry of a term above its own: such a batch is malformed, and taking it would leave this
+                // copy with a last log term above its current term.
                 var entry = entries[i];
-                if (entry.LogIndex != nextExpected)
+                if (entry.LogIndex != nextExpected || entry.Term > request.CurrentTerm)
                     return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, owner.Meta.CurrentTerm, owner.LastLogIndex);
 
                 nextExpected++;

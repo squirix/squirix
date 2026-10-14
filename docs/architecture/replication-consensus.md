@@ -69,6 +69,18 @@ After election, a leader appends and majority-commits a **current-term** entry (
 majority replication as a new commit that may be served. This preserves Raft’s “leader completeness” / current-term
 commit rule.
 
+### Deposed leader
+
+A newer leader can reach a node while that node still leads in the old term. It rewrites the uncommitted tail of the
+node's log before the node steps down. The old leader still commits nothing over the rewritten entries. Every follower
+that voted for the newer leader lacked them and has moved past the old term, so it refuses the old leader's appends.
+Without those followers there is no majority. Two term checks back this up locally (#1158):
+
+- A follower that an entry catch-up session caught up is admitted only while the leader's log is still in the led term
+  and the follower holds no entry of a later term. The session may have read entries a newer leader wrote.
+- A copy refuses with `log-mismatch` any batch carrying an entry whose term is above the request term. A leader never
+  sends one, so the copy's last log term never passes its current term.
+
 ### Elected leadership behind the automatic failover switch
 
 Automatic failover is the `AutomaticFailoverEnabled` server option
