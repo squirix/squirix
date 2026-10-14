@@ -52,6 +52,9 @@ internal static class ReplicaOwnerTestKit
 
         /// <summary>Refuses every batch as a copy that lost its data, before its log, with term zero.</summary>
         Unseeded = 9,
+
+        /// <summary>Holds the leader log through a scripted index and answers probes from it, but stores no new entry: every batch with entries fails.</summary>
+        Stalled = 10,
     }
 
     internal static string NewOperationId() => Guid.NewGuid().ToString("N");
@@ -387,6 +390,8 @@ internal static class ReplicaOwnerTestKit
                         : new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last + 5)),
                 FollowerMode.Incomplete => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.Incomplete, 0, 0)),
                 FollowerMode.Unseeded => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.Unseeded, 0, 0)),
+                FollowerMode.Stalled when batch.Records.Count > 0 => Task.FromException<FollowerLogAppendResult>(new IOException("follower stores no entry")),
+                FollowerMode.Stalled => Task.FromResult(AppendBehind(nodeId, in batch, last)),
                 _ => throw new ArgumentOutOfRangeException(nameof(nodeId)),
             };
         }

@@ -107,6 +107,65 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CurrentTerm).IsEqualTo(5UL);
     }
 
+    /// <summary>
+    /// An append of a higher term clears the vote of the earlier term with the term, durably: the follower can vote again in the new term,
+    /// and a restart does not bring the old vote back.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HigherTermAppendClearsVote(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-election-safety-append-clears-vote");
+        await using (var log = OpenLog(dir))
+        {
+            await log.OpenSeededAsync(cancellationToken);
+            var vote = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 0UL, 0UL), cancellationToken);
+            _ = await Assert.That(vote.Granted).IsTrue();
+
+            var append = await log.AppendAsync(Append(1UL, 3UL, "a"), cancellationToken);
+            _ = await Assert.That(append.Success).IsTrue();
+        }
+
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(cancellationToken);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(status.CurrentTerm).IsEqualTo(3UL);
+        _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
+
+        var next = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-b", 3UL, 1UL, 3UL), cancellationToken);
+        _ = await Assert.That(next.Granted).IsTrue();
+    }
+
+    /// <summary>
+    /// A vote compares the term of the last entries before the length of the logs: a longer log that ends in an older term is refused, a
+    /// shorter log that ends in a newer term is granted.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VoteComparesLastTermBeforeLength(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-election-safety-log-order");
+        await using var log = OpenLog(dir);
+        await log.OpenSeededAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
+        var third = new FollowerLogAppendRequest(
+            "leader-2",
+            2UL,
+            2UL,
+            1UL,
+            0UL,
+            ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(3UL, 2UL, Encoding.UTF8.GetBytes("c"))));
+        _ = await Assert.That((await log.AppendAsync(third, cancellationToken)).Success).IsTrue();
+
+        var longerOlder = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 3UL, 5UL, 1UL), cancellationToken);
+        _ = await Assert.That(longerOlder.Granted).IsFalse();
+        _ = await Assert.That(longerOlder.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleLog);
+
+        var shorterNewer = await log.RequestVoteAsync(new ElectionVoteRequest("node-c", 4UL, 1UL, 3UL), cancellationToken);
+        _ = await Assert.That(shorterNewer.Granted).IsTrue();
+    }
+
     /// <summary>An old-term majority waits: commit requires a current-term entry through the candidate index.</summary>
     [Test]
     public async Task OldTermMajorityWaitsForCurrentTermEntry()
