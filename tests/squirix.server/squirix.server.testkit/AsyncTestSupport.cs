@@ -123,6 +123,8 @@ public static class AsyncTestSupport
                 throw new TimeoutException("Timed out waiting for the expected condition.", exception);
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (timeoutSource.IsCancellationRequested)
                 throw new TimeoutException("Timed out waiting for the expected condition.");
 
