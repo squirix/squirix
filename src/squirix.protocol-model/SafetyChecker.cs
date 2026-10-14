@@ -10,7 +10,7 @@ internal static class SafetyChecker
     private const string ReadIndexInvariant = "ReadIndex";
 
     internal static SafetyViolation? Check(ClusterState state) =>
-        CheckElectionSafety(state) ?? CheckCommittedSurvives(state) ?? CheckCurrentTermCommit(state) ?? CheckReadIndex(state);
+        CheckElectionSafety(state) ?? CheckCommittedSurvives(state) ?? CheckReadIndex(state);
 
     internal static string FormatCounterexampleJson(SafetyViolation violation, ClusterState state, IReadOnlyList<string>? counterexamplePath)
     {
@@ -75,21 +75,6 @@ internal static class SafetyChecker
 
         var committed = CollectMajorityCommitted(state);
         return CheckLeaderCompleteness(state, committed);
-    }
-
-    private static SafetyViolation? CheckCurrentTermCommit(ClusterState state)
-    {
-        for (var i = 0; i < state.Nodes.Count; i++)
-        {
-            var node = state.Nodes[i];
-            if (!node.BadOldCommit)
-                continue;
-
-            var detail = "Leader " + node.Id.ToString(CultureInfo.InvariantCulture) + " advanced commit over old-term entries without a current-term commit";
-            return new SafetyViolation("CurrentTermCommit", detail, state.Fingerprint(false));
-        }
-
-        return null;
     }
 
     private static SafetyViolation? CheckElectionSafety(ClusterState state)

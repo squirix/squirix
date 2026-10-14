@@ -24,16 +24,32 @@ public sealed class ProtocolSafetyModelTests
         _ = await Assert.That(result.StatesVisited > 1).IsTrue();
     }
 
+    /// <summary>
+    /// An entry of an earlier term committed without an entry of the leader's term is lost to a later leader: the checker sees it from the
+    /// state, as a committed entry the newest leader does not hold.
+    /// </summary>
     [Test]
     public async Task OldTermEntryNeedsCurrentTermCommit()
     {
-        var safe = ExploreRunner.Run(ExploreProfile.SmallCommit(), BrokenMode.None);
+        var safe = ExploreRunner.Run(ExploreProfile.SmallLogRules(), BrokenMode.None);
         _ = await Assert.That(safe.FixedPointReached).IsTrue();
         _ = await Assert.That(safe.Violation).IsNull();
 
-        var broken = ExploreRunner.Run(ExploreProfile.SmallCommit(), BrokenMode.CurrentTermCommit);
+        var broken = ExploreRunner.Run(ExploreProfile.EarlierTermLogRules(), BrokenMode.CurrentTermCommit);
         _ = await Assert.That(broken.Violation).IsNotNull();
-        _ = await Assert.That(broken.Violation.Invariant).IsEqualTo("CurrentTermCommit");
+        _ = await Assert.That(broken.Violation.Invariant).IsEqualTo("LeaderCompleteness");
+    }
+
+    /// <summary>
+    /// A vote that compares the length of the logs before the term of their last entries elects a leader without a committed entry; the
+    /// correct order holds in the same bounds, explored to their fixed point by the full profile.
+    /// </summary>
+    [Test]
+    public async Task VoteComparesLastTermFirst()
+    {
+        var broken = ExploreRunner.Run(ExploreProfile.EarlierTermLogRules(), BrokenMode.LogOrder);
+        _ = await Assert.That(broken.Violation).IsNotNull();
+        _ = await Assert.That(broken.Violation.Invariant).IsEqualTo("LeaderCompleteness");
     }
 
     /// <summary>

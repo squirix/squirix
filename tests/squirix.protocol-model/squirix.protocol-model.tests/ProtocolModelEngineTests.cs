@@ -21,9 +21,9 @@ public sealed class ProtocolModelEngineTests
     [Test]
     public async Task ExplorerRejectsBrokenTermCommitRule()
     {
-        var result = ExploreRunner.Run(ExploreProfile.SmallCommit(), BrokenMode.CurrentTermCommit);
+        var result = ExploreRunner.Run(ExploreProfile.EarlierTermLogRules(), BrokenMode.CurrentTermCommit);
         _ = await Assert.That(result.Violation).IsNotNull();
-        _ = await Assert.That(result.Violation.Invariant).IsEqualTo("CurrentTermCommit");
+        _ = await Assert.That(result.Violation.Invariant).IsEqualTo("LeaderCompleteness");
     }
 
     [Test]
@@ -39,17 +39,17 @@ public sealed class ProtocolModelEngineTests
     {
         var state = ClusterState.CreateInitial(3).WithNodes(
         [
-            new NodeState(0, NodeRole.Leader, 1, 0, SingleEntryLog, NodeRuntime.Create(1, 1, 0b110, 0, 0, false, false), false),
-            new NodeState(1, NodeRole.Follower, 1, 0, SingleEntryLog, NodeRuntime.Create(1, 1, 0, 0, 0, false, false), false),
-            new NodeState(2, NodeRole.Follower, 1, 0, SingleEntryLog, NodeRuntime.Create(1, 1, 0, 0, 0, false, false), false),
+            new NodeState(0, NodeRole.Leader, 1, 0, SingleEntryLog, NodeRuntime.Create(1, 1, 0b110, 0, 0, false), false),
+            new NodeState(1, NodeRole.Follower, 1, 0, SingleEntryLog, NodeRuntime.Create(1, 1, 0, 0, 0, false), false),
+            new NodeState(2, NodeRole.Follower, 1, 0, SingleEntryLog, NodeRuntime.Create(1, 1, 0, 0, 0, false), false),
         ]);
 
         // Same cluster with replica ids rotated 0->1, 1->2, 2->0.
         var rotated = ClusterState.CreateInitial(3).WithNodes(
         [
-            new NodeState(0, NodeRole.Follower, 1, 1, SingleEntryLog, NodeRuntime.Create(1, 1, 0, 0, 0, false, false), false),
-            new NodeState(1, NodeRole.Leader, 1, 1, SingleEntryLog, NodeRuntime.Create(1, 1, 0b101, 0, 0, false, false), false),
-            new NodeState(2, NodeRole.Follower, 1, 1, SingleEntryLog, NodeRuntime.Create(1, 1, 0, 0, 0, false, false), false),
+            new NodeState(0, NodeRole.Follower, 1, 1, SingleEntryLog, NodeRuntime.Create(1, 1, 0, 0, 0, false), false),
+            new NodeState(1, NodeRole.Leader, 1, 1, SingleEntryLog, NodeRuntime.Create(1, 1, 0b101, 0, 0, false), false),
+            new NodeState(2, NodeRole.Follower, 1, 1, SingleEntryLog, NodeRuntime.Create(1, 1, 0, 0, 0, false), false),
         ]);
 
         _ = await Assert.That(rotated.Fingerprint(true)).IsEqualTo(state.Fingerprint(true), StringComparer.Ordinal);
