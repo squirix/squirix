@@ -82,6 +82,40 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         _ = await Assert.That(leadership.Calls).IsEqualTo("promote:n1:1");
     }
 
+    /// <summary>
+    /// The start of a graceful stop ends every loop before the hosted services stop, while the web server still drains: the own group stops
+    /// heartbeating and loses its authority at once, so its followers can elect while the node finishes its requests in flight.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HostStoppingRevokesAuthorityBeforeDrain(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-election-host-stopping");
+        await using var registry = await OpenAsync(dir, cancellationToken);
+        var own = registry.StateFor("n1");
+        var log = new EventRecordingLogger();
+        using var hostStopping = new CancellationTokenSource();
+        using var service = Create(registry, 3, new Leadership(), log, hostStopping);
+
+        await service.StartAsync(cancellationToken);
+        bool authorized;
+        try
+        {
+            await log.WhenLoggedAsync(AuthorizedEventId, "group n1 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            authorized = own.HasAuthority;
+            await hostStopping.CancelAsync();
+            await service.ExecuteTask!.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(authorized).IsTrue();
+        _ = await Assert.That(log.Count(StoppedEventId)).IsEqualTo(1);
+        _ = await Assert.That((own.HasAuthority, own.IsElectionDriven)).IsEqualTo((false, false));
+    }
+
     /// <summary>A leader that gets no authority within its deadline gives the group up and logs it once, as a warning, naming the group and the term.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -152,13 +186,16 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         _ = await Assert.That((leadership.Calls, registry.StateFor("n1").IsElectionDriven)).IsEqualTo((string.Empty, false));
     }
 
-    private static ReplicaElectionService Create(ReplicaGroupRegistry registry, int replicaCount, Leadership leadership, EventRecordingLogger log) => new(
+    private static ReplicaElectionService Create(ReplicaGroupRegistry registry, int replicaCount, Leadership leadership, EventRecordingLogger log, CancellationTokenSource? hostStopping = null) => new(
         registry,
         new FixedLocator(replicaCount),
         new NoVotes(),
         leadership,
         (Fingerprint, 1UL, "n1"),
-        log);
+        log)
+    {
+        HostStopping = hostStopping?.Token ?? CancellationToken.None,
+    };
 
     private static async Task<ReplicaGroupRegistry> OpenAsync(string dir, CancellationToken cancellationToken, ElectionTimerOptions? election = null)
     {

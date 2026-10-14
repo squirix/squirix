@@ -106,6 +106,10 @@ When a leader goes silent:
   its term. Election timeout (1 s), jitter (up to 1 s), heartbeat (100 ms), and vote timeout (250 ms) are fixed and
   not configurable, so expect a few seconds without a leader.
 - Without a reachable majority no leader is elected and the group refuses reads and writes (fails closed).
+- A leader that stops gracefully stops heartbeating and gives up its authority when the stop begins. Its group elects a
+  new leader while the node is still draining its in-flight requests, so the drain time is not added to the failover.
+  A write that reaches the stopping node after that is refused with nothing written. A write it was already committing
+  runs to its end as before.
 - A deposed or cut-off former leader steps down and refuses requests; when it kept its data directory it rejoins as a
   follower and catches up from the new leader's log.
 - A follower that needs log entries the leader already compacted is repaired by a state transfer: the leader sends it

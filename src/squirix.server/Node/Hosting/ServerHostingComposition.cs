@@ -236,7 +236,10 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<IReplicaVoteGateway>(),
             sp.GetRequiredService<ReplicaGroupCommitters>(),
             (activation.Fingerprint.AsMemory(), topology.ConfigurationGeneration, topology.NodeId),
-            sp.GetRequiredService<ILogger<ReplicaElectionService>>());
+            sp.GetRequiredService<ILogger<ReplicaElectionService>>())
+        {
+            HostStopping = sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping,
+        };
     });
 
     /// <summary>Registers the sweep that expires the keys of the led groups no read touches, through committed tombstones.</summary>
