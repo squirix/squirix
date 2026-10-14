@@ -69,6 +69,11 @@ internal static class ReplicaLogCompactionStep
     /// Below the retention limit every follower must be ready too, so a member that was down catches up from the log; past it, a follower
     /// that is not ready is left behind and repaired by a state transfer when it returns. The cache journal barrier then makes every
     /// applied entry durable before the log persists the applied index and drops the entries.
+    /// <para>
+    /// The slots are read once, before the compaction, and no slot becomes ready meanwhile: an admission takes the commit gate. A slot can
+    /// be taken out of the write quorum meanwhile, which takes no gate; it then already holds every entry through the commit index, and no
+    /// entry is appended while the gate is held, so the compaction drops nothing it needs and the outcome stays true for it.
+    /// </para>
     /// </remarks>
     internal static async Task<ReplicaLogCompactionOutcome> RunAsync(
         IFollowerLog log,

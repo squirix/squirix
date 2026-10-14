@@ -70,12 +70,21 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         var restarted = await cluster.StartNodeAsync("node-c", Options(scope, false), cancellationToken);
 
         // The owner counts the transfer before it admits the follower, so the counter is read once the follower counts again.
-        await (Owner: owner, Slot: SlotOf(owner, "node-c")).WaitUntilValueAsync(
-            static (state, _) => ValueTask.FromResult(
-                state.Owner.GetRequiredService<ReplicaGroupRegistry>().EligibilityFor(OwnerId).StateFor(state.Slot) == ReplicaParticipantState.Ready),
-            Bound,
-            TimeProvider.System,
-            cancellationToken);
+        var eligibility = owner.GetRequiredService<ReplicaGroupRegistry>().EligibilityFor(OwnerId);
+        var slot = SlotOf(owner, "node-c");
+        try
+        {
+            await (Eligibility: eligibility, Slot: slot).WaitUntilValueAsync(
+                static (state, _) => ValueTask.FromResult(state.Eligibility.StateFor(state.Slot) == ReplicaParticipantState.Ready),
+                Bound,
+                TimeProvider.System,
+                cancellationToken);
+        }
+        catch (TimeoutException exception)
+        {
+            throw new TimeoutException($"The owner did not admit node-c within {Bound}; compaction outcome {outcome}, slot state {eligibility.StateFor(slot)}.", exception);
+        }
+
         var held = await restarted.GetRequiredService<PhysicalCache<object?>>().GetValueAsync(new CacheKey(CacheName, key), cancellationToken);
         var metrics = await HttpClient.GetStringAsync(new Uri(owner.Uri, "/metrics"), cancellationToken);
 
