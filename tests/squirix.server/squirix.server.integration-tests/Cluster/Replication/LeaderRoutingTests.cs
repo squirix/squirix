@@ -75,6 +75,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         await cluster.WaitUntilAsync(
             nodes => Table(nodes[entry]).TryGetLeader(OwnerId, out var route) && string.Equals(route.NodeId, second, StringComparison.Ordinal),
             Bound,
+            TimeProvider.System,
             cancellationToken);
 
         var key = KeyOwnedByOwner(cluster[entry]);
@@ -113,7 +114,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var others = Array.FindAll(Nodes, id => !string.Equals(id, leader, StringComparison.Ordinal));
         var (follower, entry) = (others[0], others[1]);
         var term = 0UL;
-        await cluster.WaitUntilAsync(nodes => Follows(nodes[follower], leader, out term) && Follows(nodes[entry], leader, out _), Bound, cancellationToken);
+        await cluster.WaitUntilAsync(nodes => Follows(nodes[follower], leader, out term) && Follows(nodes[entry], leader, out _), Bound, TimeProvider.System, cancellationToken);
         var key = KeyOwnedByOwner(cluster[entry]);
         using var channel = CreateGrpcChannel(cluster[entry].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -228,7 +229,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         string[] survivors = [Nodes[1], Nodes[2]];
         var leader = await LeaderAsync(cluster, survivors, cancellationToken);
         var follower = Array.Find(survivors, id => !string.Equals(id, leader, StringComparison.Ordinal))!;
-        await cluster.WaitUntilAsync(nodes => Follows(nodes[follower], leader, out _), Bound, cancellationToken);
+        await cluster.WaitUntilAsync(nodes => Follows(nodes[follower], leader, out _), Bound, TimeProvider.System, cancellationToken);
 
         var outcomes = new List<string>();
         RpcException? refusal;
@@ -284,11 +285,11 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
 
         // The keepalive pings close the connection the entry node holds to the owner, which drops its open connection count. Without them the
         // connection stays open until the pool's one-minute idle timeout closes it, past the bound.
-        await cluster.WaitUntilAsync(_ => entryPool.OpenConnections < openBefore, KeepAliveDetectionBound, cancellationToken);
+        await cluster.WaitUntilAsync(_ => entryPool.OpenConnections < openBefore, KeepAliveDetectionBound, TimeProvider.System, cancellationToken);
 
         var leader = await LeaderAsync(cluster, survivors, cancellationToken);
         var follower = Array.Find(survivors, id => !string.Equals(id, leader, StringComparison.Ordinal))!;
-        await cluster.WaitUntilAsync(nodes => Follows(nodes[follower], leader, out _), Bound, cancellationToken);
+        await cluster.WaitUntilAsync(nodes => Follows(nodes[follower], leader, out _), Bound, TimeProvider.System, cancellationToken);
 
         // With the dead connection gone, a write dials anew: it fails at the dial bound (one second) and takes the new leader, and at worst one
         // more attempt follows the leader the entry node learns. The bound is the per-attempt timeout (three seconds) of such a failed attempt
@@ -338,7 +339,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var leader = await LeaderAsync(cluster, Nodes, cancellationToken);
         _ = await Assert.That(leader).IsNotEqualTo(SilentEntry);
         var third = Array.Find(Nodes, id => !string.Equals(id, leader, StringComparison.Ordinal) && !string.Equals(id, SilentEntry, StringComparison.Ordinal))!;
-        await cluster.WaitUntilAsync(nodes => Follows(nodes[SilentEntry], leader, out _), Bound, cancellationToken);
+        await cluster.WaitUntilAsync(nodes => Follows(nodes[SilentEntry], leader, out _), Bound, TimeProvider.System, cancellationToken);
         var key = KeyOwnedByOwner(cluster[SilentEntry]);
         using var channel = CreateGrpcChannel(cluster[SilentEntry].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -351,7 +352,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         await fabric.BlackHoleAsync(leader);
         await cluster.StopNodeAsync(leader);
         var state = cluster[SilentEntry].GetRequiredService<ReplicaGroupRegistry>().StateFor(OwnerId);
-        await cluster.WaitUntilAsync(_ => !state.ObserveStatus().HasMajorityContact, Bound, cancellationToken);
+        await cluster.WaitUntilAsync(_ => !state.ObserveStatus().HasMajorityContact, Bound, state.Clock, cancellationToken);
 
         _ = await Assert.That(Table(cluster[SilentEntry]).TryGetLeader(OwnerId, out _)).IsFalse().Because($"{SilentEntry} must not name the silent leader {leader}");
 
@@ -511,6 +512,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
                 return highest != 0;
             },
             Bound,
+            TimeProvider.System,
             cancellationToken);
         return leader;
     }
@@ -645,6 +647,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         return (Leader: leaderLog!, Follower: followerLog!).WaitUntilValueAsync(
             static async (logs, token) => (await logs.Follower.GetStatusAsync(token)).LastLogIndex >= (await logs.Leader.GetStatusAsync(token)).LastLogIndex,
             Bound,
+            TimeProvider.System,
             cancellationToken);
     }
 

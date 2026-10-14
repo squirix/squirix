@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
@@ -95,9 +94,7 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
 
             await ledger.WriteAsync(current, cancellationToken);
 
-            var started = Stopwatch.GetTimestamp();
-            while (recorder.Find(ManifestRetentionCleanupFailedEventId)?.Category == null && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(30))
-                await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken);
+            _ = await recorder.WhenLoggedAsync(ManifestRetentionCleanupFailedEventId, cancellationToken);
         }
         finally
         {
@@ -143,9 +140,7 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
         await ledger.WriteAsync(current, cancellationToken);
         await ledger.WriteAsync(current, cancellationToken);
 
-        var started = Stopwatch.GetTimestamp();
-        while (recorder.Find(ManifestRetentionDeleteFailedEventId)?.Category == null && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(30))
-            await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken);
+        _ = await recorder.WhenLoggedAsync(ManifestRetentionDeleteFailedEventId, cancellationToken);
 
         _ = await Assert.That(recorder.Find(ManifestRetentionDeleteFailedEventId)?.Category).IsEqualTo(typeof(Ledger).FullName);
     }

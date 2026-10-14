@@ -13,6 +13,8 @@ namespace Squirix.E2ETests.Cluster;
 /// <summary>End-to-end write availability of durable RF&gt;1 groups after the owning node restarts.</summary>
 public sealed class ReplicaRestartE2ETests : EndToEndTestBase
 {
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(250);
+
     /// <summary>A restarted group owner with durable RF=3 data commits new writes again without being wiped.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -119,7 +121,7 @@ public sealed class ReplicaRestartE2ETests : EndToEndTestBase
             catch (RpcException)
             {
                 // Refused before the append while the recovered tail is still pending: nothing was written, so retrying is safe.
-                await Task.Delay(TimeSpan.FromMilliseconds(250), TimeProvider.System, cancellationToken);
+                await Task.Delay(RetryDelay, TimeProvider.System, cancellationToken);
             }
         }
     }

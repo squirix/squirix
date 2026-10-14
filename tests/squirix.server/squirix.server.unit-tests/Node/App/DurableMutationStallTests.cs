@@ -243,7 +243,7 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
 
     private static async Task CancelAfterAppendAsync(StallableJournal journal, CancellationTokenSource caller, CancellationToken cancellationToken)
     {
-        await journal.Journal.WaitUntilAsync(static j => j.AppendedOps > 0, StallTimeout, cancellationToken);
+        await journal.Journal.WaitUntilAsync(static j => j.AppendedOps > 0, StallTimeout, TimeProvider.System, cancellationToken);
         await caller.CancelAsync();
     }
 }

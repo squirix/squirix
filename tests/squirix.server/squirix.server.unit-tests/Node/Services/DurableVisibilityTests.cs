@@ -274,7 +274,7 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
         var put = target.PutAsync(OperationId, "a", cancellationToken);
 
         // The idle journal thread waits without a timeout until a waiter registers in the batch, so this pins the parked path.
-        await journal.Journal.WaitUntilAsync(static j => j.GroupCommit!.GetJournalThreadWaitTimeoutMs() != Timeout.Infinite, StallTimeout, cancellationToken);
+        await journal.Journal.WaitUntilAsync(static j => j.GroupCommit!.GetJournalThreadWaitTimeoutMs() != Timeout.Infinite, StallTimeout, TimeProvider.System, cancellationToken);
         await journal.ShutdownAsync();
 
         var originalError = await NodeAsyncAssert.ThrowsAsync<RpcException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));

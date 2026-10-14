@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.TestKit;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
@@ -31,6 +34,16 @@ internal sealed class RecordingLoggerProvider : ILoggerProvider
         }
 
         return null;
+    }
+
+    /// <summary>Waits until the host logger records an entry with <paramref name="eventId" />.</summary>
+    /// <param name="eventId">The event id to wait for.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The first matching entry.</returns>
+    internal async Task<RecordedLogEntry> WhenLoggedAsync(int eventId, CancellationToken cancellationToken)
+    {
+        await this.WaitUntilAsync(provider => provider.Find(eventId) != null, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        return Find(eventId)!;
     }
 
     /// <summary>Takes a snapshot of every recorded entry.</summary>

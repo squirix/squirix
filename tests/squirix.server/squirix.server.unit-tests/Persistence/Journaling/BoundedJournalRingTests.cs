@@ -131,7 +131,7 @@ public sealed class BoundedJournalRingTests
         _ = parked.Wait(TimeSpan.FromSeconds(10), cancellationToken);
 
         // A notification that lands before the wait is kept, so the notify is sent only once the waiter thread is blocked in it.
-        await Volatile.Read(ref waiterThread).WaitUntilAsync(static t => IsBlocked(t), TimeSpan.FromSeconds(10), cancellationToken);
+        await Volatile.Read(ref waiterThread).WaitUntilAsync(static t => IsBlocked(t), TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         ring.NotifyWorkAvailable();
 
         await waiter.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);

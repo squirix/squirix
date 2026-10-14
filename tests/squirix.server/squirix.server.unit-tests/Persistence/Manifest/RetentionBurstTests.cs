@@ -65,6 +65,7 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
         await store.WaitUntilValueAsync(
             static async (s, ct) => (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 20,
             TimeSpan.FromSeconds(30),
+            TimeProvider.System,
             cancellationToken);
 
         Volatile.Read(ref rollError.Value).ThrowIfFaulted();
@@ -105,6 +106,7 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
         await store.WaitUntilValueAsync(
             static async (s, ct) => (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 20,
             TimeSpan.FromSeconds(30),
+            TimeProvider.System,
             cancellationToken);
 
         Volatile.Read(ref rollError.Value).ThrowIfFaulted();

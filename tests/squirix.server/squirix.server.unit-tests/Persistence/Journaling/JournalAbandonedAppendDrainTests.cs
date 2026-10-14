@@ -70,11 +70,11 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
         var pending = StartDurableAppends(journal, payload, AppendDurableAsync, cancellationToken);
 
-        await pipelined.WaitUntilAsync(static j => j.GetJournalThreadFailure() != null, TimeSpan.FromSeconds(15), cancellationToken);
+        await pipelined.WaitUntilAsync(static j => j.GetJournalThreadFailure() != null, TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
         _ = await Assert.That(journal.GetJournalThreadFailure()).IsNotNull();
 
         var all = Task.WhenAll(pending);
-        await all.WaitUntilAsync(static t => t.IsCompleted, TimeSpan.FromSeconds(30), cancellationToken);
+        await all.WaitUntilAsync(static t => t.IsCompleted, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(all.IsFaulted).IsTrue().Because("Append tasks completed instead of faulting.");
         _ = all.Exception;
 
@@ -141,10 +141,10 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
             cancellationToken);
         _ = await Assert.That(thrown).IsSameReferenceAs(gate.Original);
 
-        await pipelined.WaitUntilAsync(static j => j.GetJournalThreadFailure() != null, TimeSpan.FromSeconds(15), cancellationToken);
+        await pipelined.WaitUntilAsync(static j => j.GetJournalThreadFailure() != null, TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
 
         var all = Task.WhenAll(pending);
-        await all.WaitUntilAsync(static t => t.IsCompleted, TimeSpan.FromSeconds(30), cancellationToken);
+        await all.WaitUntilAsync(static t => t.IsCompleted, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(all.IsFaulted).IsTrue().Because("Append tasks completed instead of faulting.");
         _ = all.Exception;
 

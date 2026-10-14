@@ -76,7 +76,7 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
 
         replayDelay.Release();
         await writeTask.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-        await node.Uri.WaitUntilValueAsync(async (uri, token) => await GetReadyStatusCodeAsync(uri, token) == HttpStatusCode.OK, TimeSpan.FromSeconds(10), cancellationToken);
+        await node.Uri.WaitUntilValueAsync(async (uri, token) => await GetReadyStatusCodeAsync(uri, token) == HttpStatusCode.OK, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
     }
 
     private async Task<HttpStatusCode> GetLiveStatusCodeAsync(Uri uri, CancellationToken cancellationToken)
