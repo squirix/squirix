@@ -91,7 +91,10 @@ public sealed class OwnerRouterRerouteTests
         _ = await Assert.That(table.Refuted.Count).IsEqualTo(1);
     }
 
-    /// <summary>Failures that do not prove a stale route reach the caller unchanged after one attempt.</summary>
+    /// <summary>
+    /// Failures that do not prove a stale route reach the caller unchanged after one attempt; for a group this node serves, its own election
+    /// state decides, so a leader without authority is not rerouted either.
+    /// </summary>
     /// <param name="kind">The failure of the first attempt.</param>
     [Test]
     [Arguments(0)]

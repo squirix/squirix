@@ -19,10 +19,11 @@ namespace Squirix.Server.Adapters.Grpc;
 /// for a leader within the deadline (a member stops routing to a leader it has not heard from for one election timeout and waits for the
 /// next one), and when the chosen route answers as stale (nothing was appended), refutes it and reroutes once with
 /// the same request, so with the same operation id: at most two logical attempts. A second stale answer ends the operation as
-/// <see cref="ServerOpContract.LeaderChanged" />. For a group this node does not serve, a forward none of whose attempts connected to its target
-/// takes the single reroute to the leader learned for the group or to the next member in slot order, and the leader a
-/// member names is learned for the next calls. Other transport failures, an unknown commit outcome, and every other failure are never
-/// rerouted; the call policy of a forward may retry it on a transport failure, with the same request.
+/// <see cref="ServerOpContract.LeaderChanged" />. For a group this node does not serve, a forward none of whose attempts connected to its target,
+/// or that the target refused for having no leader, takes the single reroute to the leader learned for the group or to the next member in slot
+/// order, and the leader a member names is learned for the next calls: a ring owner cut off from its group answers no leader while the other
+/// members elect one. Other transport failures, an unknown commit outcome, and every other failure are never rerouted; the call policy of a
+/// forward may retry it on a transport failure, with the same request.
 /// </remarks>
 [Immutable]
 internal sealed class OwnerRouter
@@ -83,7 +84,7 @@ internal sealed class OwnerRouter
     /// <see cref="StatusCode.Unavailable" /> with the ring-fenced trailer when this node detected a ring mismatch with a peer; or
     /// <see cref="StatusCode.FailedPrecondition" /> with the stale-owner trailer when a trusted internal owner RPC reaches a node that does not lead
     /// the key's group; or <see cref="StatusCode.Unavailable" /> when no leader is known within the wait, the route went stale again after the
-    /// single reroute, or a forward could not connect to its target and no reroute was left.
+    /// single reroute, or a forward could not connect to its target, or its target had no leader, and no reroute was left.
     /// </exception>
     internal Task<TResponse> ExecuteAsync<TState, TResponse>(
         string cacheName,
@@ -111,6 +112,12 @@ internal sealed class OwnerRouter
             _ => RouteAsync(groupId, route, state, forward, local, cancellationToken),
         };
     }
+
+    /// <summary>Tells whether an attempt was refused because its target knows no leader of the group with authority; nothing was read or written.</summary>
+    /// <param name="exception">The failure of one attempt.</param>
+    /// <returns><see langword="true" /> for the no-leader refusal, relayed from a forward's target.</returns>
+    private static bool IsNoLeader(RpcException exception) =>
+        exception.StatusCode == StatusCode.Unavailable && string.Equals(exception.Status.Detail, ServerOpContract.NoLeaderAuthorityDetail, StringComparison.Ordinal);
 
     private Task<TResponse> AttemptAsync<TState, TResponse>(
         in LeaderRoute route,
@@ -157,9 +164,9 @@ internal sealed class OwnerRouter
         return route;
     }
 
-    /// <summary>Picks the target of the single reroute after a forward could not reach a node of a group this node does not serve.</summary>
+    /// <summary>Picks the target of the single reroute after a forward could not reach a node of a group this node does not serve, or it had no leader.</summary>
     /// <param name="groupId">The group.</param>
-    /// <param name="unreachable">The route that could not be reached.</param>
+    /// <param name="unreachable">The route that could not be reached or had no leader.</param>
     /// <param name="fromTable">Whether the table reported the target: it is the leader learned for the group.</param>
     /// <returns>
     /// The leader learned for the group when it names another node, else the next member after the unreachable one in slot order;
@@ -171,7 +178,7 @@ internal sealed class OwnerRouter
         if (fromTable)
             return learned;
 
-        // Only a failed connect reaches here, so the replica set is resolved off the common path.
+        // Only a failed connect or a member without a leader reaches here, so the replica set is resolved off the common path.
         var members = new string[_replicaGroups.ReplicaCount];
         _replicaGroups.GetReplicaGroup(groupId, members);
         var at = Array.IndexOf(members, unreachable.NodeId);
@@ -185,15 +192,15 @@ internal sealed class OwnerRouter
         return default;
     }
 
-    /// <summary>Forgets a route that could not be reached and picks the target of the single reroute.</summary>
+    /// <summary>Forgets a route that could not be reached, or that had no leader, and picks the target of the single reroute.</summary>
     /// <param name="groupId">The group, which this node does not serve.</param>
-    /// <param name="unreachable">The route no attempt of the forward connected to.</param>
+    /// <param name="unreachable">The route no attempt of the forward connected to, or that answered it has no leader.</param>
     /// <param name="budget">The budget of the operation; created here when the first attempt failed.</param>
     /// <param name="next">The target of the reroute and whether the table reported it.</param>
     /// <returns><see langword="true" /> when the reroute was taken; <see langword="false" /> when it was already spent, the deadline passed, or no other member exists.</returns>
     private bool TryFallBack(string groupId, in LeaderRoute unreachable, ref RerouteBudget? budget, out (LeaderRoute Route, bool FromTable) next)
     {
-        // A learned leader that is down is forgotten, so the next call does not try it first.
+        // A learned leader that is down or no longer leads is forgotten, so the next call does not try it first.
         _table.Refute(groupId, in unreachable);
         next.Route = PickFallback(groupId, in unreachable, out next.FromTable);
         budget ??= RerouteBudget.FromRemaining(ServerRpcDeadlineContext.GetRemainingBudget(), _clock);
@@ -322,10 +329,11 @@ internal sealed class OwnerRouter
                 (route, fromTable) = await RerouteAsync(groupId, route, fromTable, hint, budget, cancellationToken).ConfigureAwait(false);
                 fellBack = false;
             }
-            catch (RpcException ex) when (OwnerUnreachableFailure.IsLocal(ex) && !_table.Read(groupId).Served)
+            catch (RpcException ex) when ((OwnerUnreachableFailure.IsLocal(ex) || IsNoLeader(ex)) && !_table.Read(groupId).Served)
             {
-                // No attempt of the forward connected; another member of the group may take the same request, whose operation id and the
-                // idempotency of the group log keep it from applying twice.
+                // No attempt of the forward connected, or the member it reached has no leader and wrote nothing: it may be cut off from a
+                // group whose other members elected one. Another member may take the same request, whose operation id and the idempotency
+                // of the group log keep it from applying twice.
                 if (!TryFallBack(groupId, in route, ref budget, out var next))
                     throw;
 

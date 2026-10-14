@@ -23,8 +23,8 @@ using TUnit.Core;
 namespace Squirix.Server.UnitTests.Adapters.Grpc;
 
 /// <summary>
-/// An entry node outside a replica group reaches its leader when the ring owner is unreachable: the single reroute goes to the next member, and
-/// the leader a member names is learned for the next calls.
+/// An entry node outside a replica group reaches its leader when the ring owner is unreachable or has no leader: the single reroute goes to the
+/// next member, and the leader a member names is learned for the next calls.
 /// </summary>
 /// <remarks>Five nodes, three replicas: the group of <see cref="Owner" /> is <see cref="Owner" />, <see cref="Next" /> and <see cref="Leader" />, without this node.</remarks>
 [Immutable]
@@ -54,6 +54,46 @@ public sealed class OwnerRouterFallbackTests
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo($"{Owner},{Next}");
         _ = await Assert.That(attempts.SameRequest).IsTrue();
         _ = await Assert.That((table.TryGetLearnedLeader(Owner, out var learned), learned)).IsEqualTo((true, new LeaderRoute(Next, 0)));
+    }
+
+    /// <summary>
+    /// An owner cut off from its group but reachable from this node answers that it has no leader: the single reroute takes the same request to
+    /// the next member, which is learned, so the next call of the group goes to it in one attempt.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NoLeaderOwnerFallsBackToMember(CancellationToken cancellationToken)
+    {
+        await using var registry = CreateRegistry();
+        var table = CreateTable(registry);
+        var router = CreateRouter(table);
+        var first = new Attempts(ServerOpContract.NoLeaderAuthority());
+        var answer = await first.RunAsync(router, cancellationToken);
+
+        var next = new Attempts();
+        _ = await next.RunAsync(router, cancellationToken);
+
+        _ = await Assert.That(answer).IsEqualTo(Next);
+        _ = await Assert.That(string.Join(',', first.Targets)).IsEqualTo($"{Owner},{Next}");
+        _ = await Assert.That(first.SameRequest).IsTrue();
+        _ = await Assert.That(string.Join(',', next.Targets)).IsEqualTo(Next);
+    }
+
+    /// <summary>A member without a leader takes no more than the single reroute: when the member it reached has none either, its refusal ends the call.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SecondNoLeaderEndsCall(CancellationToken cancellationToken)
+    {
+        await using var registry = CreateRegistry();
+        var table = CreateTable(registry);
+        var second = ServerOpContract.NoLeaderAuthority();
+        var attempts = new Attempts(ServerOpContract.NoLeaderAuthority(), second);
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table), cancellationToken));
+
+        _ = await Assert.That(failure).IsSameReferenceAs(second);
+        _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo($"{Owner},{Next}");
+        _ = await Assert.That(table.TryGetLearnedLeader(Owner, out _)).IsFalse();
     }
 
     /// <summary>The leader a member names is learned, so the next call of the group goes to it in one attempt.</summary>
