@@ -16,7 +16,9 @@ namespace Squirix.Server.Node.Services;
 /// one loop: it steps its driver, reports what the step did when it changed, and waits for the next step or for a higher term that wakes
 /// the driver. Groups of fewer replicas get no loop: their owner leads them statically. A loop that faults stops the others, and the
 /// service ends with its fault once they have ended; host shutdown ends every loop normally and stops every driver, which leaves its
-/// group a follower without authority.
+/// group a follower without authority. The loops end at the start of a graceful stop (<see cref="HostStopping" />), before the web server
+/// drains the requests in flight: a led group stops heartbeating and loses its authority at once, so its followers elect a new leader
+/// while this node finishes those requests (#1092).
 /// </remarks>
 internal sealed class ReplicaElectionService : BackgroundService
 {
@@ -56,13 +58,16 @@ internal sealed class ReplicaElectionService : BackgroundService
         _log = log;
     }
 
+    /// <summary>Gets the token signaled at the start of a graceful host stop, before the hosted services stop; none unless set.</summary>
+    internal CancellationToken HostStopping { get; init; }
+
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (_locator.ReplicaCount < 3)
             return;
 
-        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, HostStopping);
         var groupIds = _registry.GroupIds;
         var loops = new List<Task>(groupIds.Count);
         for (var i = 0; i < groupIds.Count; i++)
@@ -74,7 +79,7 @@ internal sealed class ReplicaElectionService : BackgroundService
         }
 
         await ReplicaGroupLoops.AwaitAllAsync(loops, stopping).ConfigureAwait(false);
-        if (stoppingToken.IsCancellationRequested)
+        if (stoppingToken.IsCancellationRequested || HostStopping.IsCancellationRequested)
             ServerLog.ReplicaElectionStopped(_log);
     }
 
