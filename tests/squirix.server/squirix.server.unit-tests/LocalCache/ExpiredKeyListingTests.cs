@@ -42,7 +42,10 @@ public sealed class ExpiredKeyListingTests : ServerUnitTestBase
         _ = await Assert.That(string.Join(',', Keys(first))).IsEqualTo("early");
     }
 
-    /// <summary>A listed key stays due, and a key the filter skips stays due too: only a committed record removes an expired entry.</summary>
+    /// <summary>
+    /// A listed key stays due, and a key the filter skips stays due too, behind the keys due before it was skipped: only a committed record
+    /// removes an expired entry.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task ListingLeavesKeysDue(CancellationToken cancellationToken)
@@ -57,7 +60,36 @@ public sealed class ExpiredKeyListingTests : ServerUnitTestBase
         var again = cache.ExpiredKeys.ListExpired(now, 10, static _ => true);
 
         _ = await Assert.That(string.Join(',', Keys(skipped))).IsEqualTo("b");
-        _ = await Assert.That(string.Join(',', Keys(again))).IsEqualTo("a,b");
+        _ = await Assert.That(string.Join(',', Keys(again))).IsEqualTo("b,a");
+    }
+
+    /// <summary>
+    /// Keys the caller keeps skipping, such as those of a group whose leader is away, cannot hold back a key it can expire: a call examines
+    /// at most four due keys per key asked for, and a skipped key goes behind the keys due before that call.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SkippedKeysDoNotStarveOthers(CancellationToken cancellationToken)
+    {
+        var (cache, clock) = Create(CacheExpiryAuthority.CommittedRecords);
+        for (var i = 1; i <= 10; i++)
+            await SetAsync(cache, "skipped" + i.ToString(CultureInfo.InvariantCulture), TimeSpan.FromSeconds(i), cancellationToken);
+
+        await SetAsync(cache, "wanted", TimeSpan.FromSeconds(11), cancellationToken);
+        clock.Advance(TimeSpan.FromSeconds(20));
+
+        var calls = 0;
+        IReadOnlyList<CacheKey> listed;
+        do
+        {
+            clock.Advance(TimeSpan.FromSeconds(1));
+            listed = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 1, static key => string.Equals(key.Key, "wanted", StringComparison.Ordinal));
+            calls++;
+        }
+        while (listed.Count == 0 && calls < 10);
+
+        _ = await Assert.That(string.Join(',', Keys(listed))).IsEqualTo("wanted");
+        _ = await Assert.That(calls).IsEqualTo(3);
     }
 
     /// <summary>A key whose deadline moved, lost its deadline, or left the cache is not listed under its old deadline.</summary>

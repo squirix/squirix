@@ -447,7 +447,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         internal long Version { get; set; }
     }
 
-    /// <summary>The deadline index: a heap of the deadlines recorded for the stored entries, earliest first.</summary>
+    /// <summary>The deadline index: a heap of the deadlines recorded for the stored entries, earliest first, apart from skipped keys.</summary>
     /// <remarks>
     /// Kept only under <see cref="CacheExpiryAuthority.CommittedRecords" />, where an entry past its deadline stays until a committed record
     /// removes it. An item whose entry left the store, was replaced, or got another deadline is stale: it is dropped when it reaches the top,
@@ -468,8 +468,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         /// <inheritdoc />
         /// <remarks>
-        /// Pops the heap while its top is due, so the work and the allocations follow the expired entries, not the stored ones. A stale item is
-        /// dropped; every current one is pushed back, listed or not, since only a committed record removes its entry.
+        /// Pops the heap while its top is due, at most four items per key asked for, so the work under the cache lock and the allocations follow
+        /// the expired entries, not the stored ones. A stale item is dropped. Every current item is pushed back, listed or not, since only a
+        /// committed record removes its entry. A listed item keeps its place. A skipped one goes behind every item due before this call, so
+        /// keys the caller skips, such as those of a group whose leader is away, cannot hold back the keys it can expire.
         /// </remarks>
         public IReadOnlyList<CacheKey> ListExpired(DateTime nowUtc, int max, Func<CacheKey, bool> include)
         {
@@ -478,25 +480,28 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             if (_heap == null)
                 return [];
 
+            var budget = max <= int.MaxValue / 4 ? max * 4 : int.MaxValue;
             var listed = new List<CacheKey>();
-            List<(Deadline Item, long Ticks)>? due = null;
+            List<(Deadline Item, long Priority)>? due = null;
             lock (_owner._lock)
             {
-                while (listed.Count < max && _heap.TryPeek(out var item, out var ticks) && ticks <= nowUtc.Ticks)
+                for (var popped = 0; popped < budget && listed.Count < max && _heap.TryPeek(out var item, out var priority) && priority <= nowUtc.Ticks; popped++)
                 {
                     _ = _heap.Dequeue();
                     if (!IsCurrent(in item))
                         continue;
 
-                    (due ??= []).Add((item, ticks));
-                    if (include(item.Key))
+                    var included = include(item.Key);
+                    if (included)
                         listed.Add(item.Key);
+
+                    (due ??= []).Add((item, included ? priority : nowUtc.Ticks));
                 }
 
                 if (due != null)
                 {
-                    foreach (var (item, ticks) in due)
-                        _heap.Enqueue(item, ticks);
+                    foreach (var (item, priority) in due)
+                        _heap.Enqueue(item, priority);
                 }
             }
 
