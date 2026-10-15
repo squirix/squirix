@@ -118,7 +118,7 @@ internal sealed class ReplicaReadIndexRound
             return;
         }
 
-        if (reply.CurrentTerm != _term || slot == _leaderSlot || slot is < 0 or >= 64 || !IsContact(in reply))
+        if (!IsFollowerContact(slot, in reply))
             return;
 
         Round confirmed;
@@ -148,6 +148,13 @@ internal sealed class ReplicaReadIndexRound
     private static bool IsContact(in FollowerLogAppendResult reply) =>
         reply.Success || string.Equals(reply.RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal) ||
         string.Equals(reply.RefusalCode, FollowerLogRefusal.NotReady, StringComparison.Ordinal);
+
+    /// <summary>Tells whether a reply in this term is a contact from a follower slot a round can count.</summary>
+    /// <param name="slot">The slot of the follower.</param>
+    /// <param name="reply">The reply.</param>
+    /// <returns><see langword="false" /> for another term, the leader's own slot, a slot out of range, or a reply that is not a contact.</returns>
+    private bool IsFollowerContact(int slot, in FollowerLogAppendResult reply) =>
+        reply.CurrentTerm == _term && slot != _leaderSlot && slot is >= 0 and < 64 && IsContact(in reply);
 
     /// <summary>Creates the refusal of one reader of a failed round.</summary>
     /// <returns>The refusal.</returns>

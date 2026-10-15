@@ -797,6 +797,23 @@ internal static class ExploreRunner
 
             private static void CollectWithCeiling(ClusterState state, ExploreProfile profile, (int Leader, int Wiped) pair, List<ClusterState> output)
             {
+                var others = ReachableOthers(state, pair);
+
+                // The leader answers for itself; the other members answering make up the rest of the majority.
+                var needed = profile.Majority - 1;
+                if (others.Count < needed)
+                    return;
+
+                var (repaired, highest) = Ceilings(state, others, needed, state.Nodes[pair.Leader].CurrentTerm);
+                if (repaired)
+                    output.Add(Repair(state, pair.Leader, pair.Wiped));
+
+                if (highest > 0)
+                    output.Add(StepDown(state, pair.Leader, highest));
+            }
+
+            private static List<int> ReachableOthers(ClusterState state, (int Leader, int Wiped) pair)
+            {
                 var others = new List<int>(state.Nodes.Count);
                 for (var j = 0; j < state.Nodes.Count; j++)
                 {
@@ -804,12 +821,17 @@ internal static class ExploreRunner
                         others.Add(j);
                 }
 
-                // The leader answers for itself; the other members answering make up the rest of the majority.
-                var needed = profile.Majority - 1;
-                if (others.Count < needed)
-                    return;
+                return others;
+            }
 
-                var leaderTerm = state.Nodes[pair.Leader].CurrentTerm;
+            /// <summary>Reads the ceiling of every subset of the other members that makes up the rest of the majority.</summary>
+            /// <param name="state">The state.</param>
+            /// <param name="others">The other members the leader reaches.</param>
+            /// <param name="needed">The size of a subset.</param>
+            /// <param name="leaderTerm">The term of the leader.</param>
+            /// <returns>Whether some subset allows the repair at the leader's term, and the highest ceiling above that term, or 0.</returns>
+            private static (bool Repaired, int Highest) Ceilings(ClusterState state, List<int> others, int needed, int leaderTerm)
+            {
                 var repaired = false;
                 var highest = 0;
                 for (var mask = 0; mask < 1 << others.Count; mask++)
@@ -824,11 +846,7 @@ internal static class ExploreRunner
                         highest = Math.Max(highest, ceiling);
                 }
 
-                if (repaired)
-                    output.Add(Repair(state, pair.Leader, pair.Wiped));
-
-                if (highest > 0)
-                    output.Add(StepDown(state, pair.Leader, highest));
+                return (repaired, highest);
             }
 
             private static int Ceiling(ClusterState state, List<int> others, int mask)
