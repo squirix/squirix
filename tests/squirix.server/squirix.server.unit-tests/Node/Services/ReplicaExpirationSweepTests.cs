@@ -142,7 +142,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(
             admission.SetEntryAsync(NewOperationId(), CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken).AsTask());
         clock.Advance(Ttl);
-        using var sweep = new ReplicaExpirationSweepService(LeadOwn(committer), physical, LocatorOf("n1"), new EventRecordingLogger()) { MaxPerPass = 10 };
+        using var sweep = new ReplicaExpirationSweepService(LeadOwn(committer), physical.ExpiredKeys, LocatorOf("n1"), new EventRecordingLogger()) { MaxPerPass = 10 };
         _ = await sweep.SweepOnceAsync(cancellationToken);
         await admission.SetEntryAsync(NewOperationId(), CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
 
@@ -168,7 +168,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         await committers.For("n2").CommitSetAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
         await physical.SetAsync(new CacheKey(CacheName, "c"), new NodeCacheEntry<object?>("v", 1, Start.UtcDateTime), cancellationToken);
         clock.Advance(Ttl);
-        using var sweep = new ReplicaExpirationSweepService(committers, physical, Owners(), new EventRecordingLogger());
+        using var sweep = new ReplicaExpirationSweepService(committers, physical.ExpiredKeys, Owners(), new EventRecordingLogger());
 
         var expired = await sweep.SweepOnceAsync(cancellationToken);
 
@@ -226,7 +226,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         ofN1.Set("n3", FollowerMode.Down);
         clock.Advance(Ttl);
         var log = new EventRecordingLogger();
-        using var sweep = new ReplicaExpirationSweepService(committers, physical, Owners(), log);
+        using var sweep = new ReplicaExpirationSweepService(committers, physical.ExpiredKeys, Owners(), log);
 
         var expired = await sweep.SweepOnceAsync(cancellationToken);
 
@@ -263,7 +263,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
     {
         var locator = new INodeLocatorCreateExpectations();
         _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Callback(static (_, key) => string.Equals(key, "followed", StringComparison.Ordinal) ? "n2" : "n1");
-        return new ReplicaExpirationSweepService(LeadOwn(committer), physical, locator.Instance(), log) { MaxPerPass = 2 };
+        return new ReplicaExpirationSweepService(LeadOwn(committer), physical.ExpiredKeys, locator.Instance(), log) { MaxPerPass = 2 };
     }
 
     private static INodeLocator LocatorOf(string owner)

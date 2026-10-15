@@ -108,7 +108,7 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxExamined);
         var work = _work[groupId];
-        var cursor = work.Cursor ??= _entries.EnumerateAsync(groupId, null, CancellationToken.None).GetAsyncEnumerator(CancellationToken.None);
+        var cursor = work.Cursor ??= _entries.EnumerateAsync(groupId, CancellationToken.None).GetAsyncEnumerator(CancellationToken.None);
         for (var examined = 0; examined < maxExamined; examined++)
         {
             cancellationToken.ThrowIfCancellationRequested();

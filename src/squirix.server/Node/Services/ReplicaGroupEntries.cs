@@ -35,25 +35,15 @@ internal sealed class ReplicaGroupEntries
     /// <returns>The identifier of the owning group.</returns>
     internal string OwnerOf(string cacheName, string key) => _locator.GetOwner(cacheName, key);
 
-    /// <summary>Enumerates the stored entries, in the order of the local cache, optionally of one group and optionally only those past their deadline.</summary>
+    /// <summary>Enumerates the stored entries, in the order of the local cache, optionally of one group.</summary>
     /// <param name="groupId">The only group to yield, or <see langword="null" /> for every group.</param>
-    /// <param name="expiredAtUtc">
-    /// When set, only entries whose deadline is at or before this instant are yielded, and the owner is looked up for those alone;
-    /// when <see langword="null" />, every entry is yielded.
-    /// </param>
     /// <param name="cancellationToken">Cancellation token of the walk.</param>
     /// <returns>The matching entries.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
-    internal async IAsyncEnumerable<ReplicaGroupEntry> EnumerateAsync(
-        string? groupId,
-        DateTime? expiredAtUtc,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+    internal async IAsyncEnumerable<ReplicaGroupEntry> EnumerateAsync(string? groupId, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await foreach (var (key, entry) in _reader.EnumerateLiveAsync(cancellationToken).ConfigureAwait(false))
         {
-            if (expiredAtUtc is { } now && (entry.ExpiresUtc is not { } deadline || deadline.Ticks > now.Ticks))
-                continue;
-
             var owner = _locator.GetOwner(key.Namespace, key.Key);
             if (groupId != null && !string.Equals(owner, groupId, StringComparison.Ordinal))
                 continue;

@@ -170,7 +170,7 @@ internal sealed class ReplicaTransferStream
     private async Task<Result?> EntriesAsync(string transferId, ReplicaGroupEntries walk, CancellationToken token)
     {
         using var batch = new ReplicaTransferBatch();
-        await foreach (var item in walk.EnumerateAsync(_header.GroupId, null, token).ConfigureAwait(false))
+        await foreach (var item in walk.EnumerateAsync(_header.GroupId, token).ConfigureAwait(false))
         {
             var payload = ReplicaCacheApplier.EncodeEntry(item.Entry);
             var size = ReplicaTransferBatch.SizeOf(item.CacheName, item.Key, payload.Length);

@@ -448,7 +448,8 @@ its deadline until a committed record removes it; RF=1 and foundation-only hosts
   `replica_expiration_pending`; nothing was read, and a retry may succeed. It is never reported as `COMMIT_OUTCOME_UNKNOWN`.
 - A background sweep on the leader expires, every 10 seconds, up to 1024 owned keys that no read touched; a pass stops
   at its first failure, logs it once, and the next pass retries. Keys of groups the node only follows are left to their
-  leader.
+  leader. The sweep reads the due keys from a deadline index of the local cache. It does not copy the stored keys, so a pass
+  costs in proportion to the expired keys, not to all keys.
 - A follower never expires an entry on its own: it keeps the entry until it applies the Expire record or a conditional
   write that folded the expiry.
 - Leader clocks can disagree. An entry expires when the leader that serves the key finds its deadline passed; a leader

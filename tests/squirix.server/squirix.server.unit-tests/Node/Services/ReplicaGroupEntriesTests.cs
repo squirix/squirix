@@ -35,8 +35,8 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
         await SeedAsync(physical, cancellationToken);
         var entries = new ReplicaGroupEntries(physical, Locator());
 
-        var n1 = await CollectAsync(entries.EnumerateAsync("n1", null, cancellationToken), cancellationToken);
-        var n2 = await CollectAsync(entries.EnumerateAsync("n2", null, cancellationToken), cancellationToken);
+        var n1 = await CollectAsync(entries.EnumerateAsync("n1", cancellationToken), cancellationToken);
+        var n2 = await CollectAsync(entries.EnumerateAsync("n2", cancellationToken), cancellationToken);
 
         n1.Sort(StringComparer.Ordinal);
         var ticks = (Start.UtcDateTime + Ttl).Ticks.ToString(CultureInfo.InvariantCulture);
@@ -53,31 +53,11 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
         var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
         await SeedAsync(physical, cancellationToken);
 
-        var all = await CollectAsync(new ReplicaGroupEntries(physical, Locator()).EnumerateAsync(null, null, cancellationToken), cancellationToken);
+        var all = await CollectAsync(new ReplicaGroupEntries(physical, Locator()).EnumerateAsync(null, cancellationToken), cancellationToken);
 
         all.Sort(StringComparer.Ordinal);
         _ = await Assert.That(all.Count).IsEqualTo(3);
         _ = await Assert.That((all[0][..2], all[1][..2], all[2][..2])).IsEqualTo(("n1", "n1", "n2"));
-    }
-
-    /// <summary>With an expiry instant, only entries with a deadline at or before it are yielded, as the sweep selects them.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ExpiredAtYieldsEntriesDueByThenOnly(CancellationToken cancellationToken)
-    {
-        var clock = new FakeTimeProvider(Start);
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
-        await SeedAsync(physical, cancellationToken);
-        var entries = new ReplicaGroupEntries(physical, Locator());
-        var deadline = Start.UtcDateTime + Ttl;
-
-        var before = await CollectAsync(entries.EnumerateAsync(null, deadline - TimeSpan.FromTicks(1), cancellationToken), cancellationToken);
-        var atDeadline = await CollectAsync(entries.EnumerateAsync(null, deadline, cancellationToken), cancellationToken);
-
-        atDeadline.Sort(StringComparer.Ordinal);
-        var ticks = deadline.Ticks.ToString(CultureInfo.InvariantCulture);
-        _ = await Assert.That(before.Count).IsEqualTo(0);
-        await SequenceAssert.EqualAsync([$"n1/cache/n1-a/{ticks}", $"n2/cache/n2-a/{ticks}"], atDeadline, StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -93,7 +73,7 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
         await SeedAsync(physical, cancellationToken);
         clock.Advance(Ttl + Ttl);
 
-        var kept = await CollectAsync(new ReplicaGroupEntries(physical, Locator()).EnumerateAsync("n1", null, cancellationToken), cancellationToken);
+        var kept = await CollectAsync(new ReplicaGroupEntries(physical, Locator()).EnumerateAsync("n1", cancellationToken), cancellationToken);
 
         _ = await Assert.That(kept.Count).IsEqualTo(2);
     }
@@ -108,7 +88,7 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
         await SeedAsync(physical, cancellationToken);
         clock.Advance(Ttl + Ttl);
 
-        var live = await CollectAsync(new ReplicaGroupEntries(physical, Locator()).EnumerateAsync("n1", null, cancellationToken), cancellationToken);
+        var live = await CollectAsync(new ReplicaGroupEntries(physical, Locator()).EnumerateAsync("n1", cancellationToken), cancellationToken);
 
         await SequenceAssert.EqualAsync(["n1/cache/n1-b/-"], live, StringComparer.Ordinal);
     }
