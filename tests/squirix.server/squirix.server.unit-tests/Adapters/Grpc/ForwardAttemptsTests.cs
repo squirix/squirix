@@ -521,12 +521,11 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
             }
 
             _payloadRemaining -= skip;
-            if (_payloadRemaining == 0 && _pingFilled >= 0)
-            {
-                _ = _replies.Writer.TryWrite(Frame(PingFrameType, AckFlag, _pingPayload));
-                _pingFilled = -1;
-            }
+            if (_payloadRemaining != 0 || _pingFilled < 0)
+                return data[skip..];
 
+            _ = _replies.Writer.TryWrite(Frame(PingFrameType, AckFlag, _pingPayload));
+            _pingFilled = -1;
             return data[skip..];
         }
     }

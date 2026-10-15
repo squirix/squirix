@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -33,10 +34,11 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     private readonly IGroupLeaderTable? _authority;
     private readonly Func<string, ReplicaGroupCommitter>? _create;
     private readonly Dictionary<string, ReplicaGroupCommitter> _created = [with(StringComparer.Ordinal)];
-    private readonly INodeLocator _owners;
 
     /// <summary>The committer of the own group when it is the only group this node leads statically; otherwise <see langword="null" />.</summary>
     private readonly ReplicaGroupCommitter? _ownOnly;
+
+    private readonly INodeLocator _owners;
 
     private readonly Channel<ReplicaPromotion>? _promotions;
     private readonly string _selfId;
@@ -61,11 +63,10 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
         var byGroup = new Dictionary<string, ReplicaGroupCommitter>(led.Count, StringComparer.Ordinal);
         for (var i = 0; i < committers.Length; i++)
         {
-            var committer = led[i] ?? ThrowHelper.Throw<ReplicaGroupCommitter>(new ArgumentException("A led group has no committer.", nameof(led)));
-            if (!byGroup.TryAdd(committer.GroupId, committer))
-                throw new ArgumentException($"The replica group '{committer.GroupId}' is led twice.", nameof(led));
+            if (!byGroup.TryAdd(led[i].GroupId, led[i]))
+                throw new ArgumentException($"The replica group '{led[i].GroupId}' is led twice.", nameof(led));
 
-            committers[i] = committer;
+            committers[i] = led[i];
         }
 
         _led = new LedGroups(byGroup.ToFrozenDictionary(StringComparer.Ordinal), committers);
@@ -91,6 +92,10 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
         _promotions = Channel.CreateUnbounded<ReplicaPromotion>(new UnboundedChannelOptions { SingleReader = true });
     }
 
+    /// <summary>Initializes the step that runs before this node starts leading a group, given the group; none unless set.</summary>
+    /// <remarks>The node ends the state transfer it receives for the group there, so the leadership does not wait for the apply driver the transfer holds.</remarks>
+    internal Func<string, CancellationToken, Task>? BeforeLeading { private get; init; }
+
     /// <summary>Gets the leader clock that decides expiry and times the expiration sweep.</summary>
     internal TimeProvider Clock { get; }
 
@@ -99,10 +104,6 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
 
     /// <summary>Gets the leaderships the election starts, in order, for the readiness service; <see langword="null" /> when the led set is fixed.</summary>
     internal ChannelReader<ReplicaPromotion>? Promotions => _promotions?.Reader;
-
-    /// <summary>Initializes the step that runs before this node starts leading a group, given the group; none unless set.</summary>
-    /// <remarks>The node ends the state transfer it receives for the group there, so the leadership does not wait for the apply driver the transfer holds.</remarks>
-    internal Func<string, CancellationToken, Task>? BeforeLeading { private get; init; }
 
     /// <inheritdoc />
     /// <remarks>
@@ -170,6 +171,23 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
         return retired;
     }
 
+    /// <summary>Refuses a read of the group this node leads statically while its copy is not complete.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes once the read may be served; it completes at once when the led set is handed over by election, whose reads are fenced.</returns>
+    /// <exception cref="Grpc.Core.RpcException">The copy of the group on this node is not complete: Unavailable, nothing was read.</exception>
+    /// <remarks>A copy never becomes unseeded again, so the first complete status is remembered and later reads cost nothing.</remarks>
+    internal async ValueTask EnsureSeededAsync(CancellationToken cancellationToken)
+    {
+        if (_ownOnly == null || Volatile.Read(ref _ownSeeded))
+            return;
+
+        var seeded = _ownOnly.Registry.TryGetLog(_ownOnly.GroupId, out var log) && (await log.GetStatusAsync(cancellationToken).ConfigureAwait(false)).MemberState == GroupMemberState.Complete;
+        if (!seeded)
+            throw ServerOpContract.NoLeaderAuthority();
+
+        Volatile.Write(ref _ownSeeded, true);
+    }
+
     /// <summary>Finds the committer of a group this node may write to: a led group, with local authority when the election leads it.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <returns>The committer, or <see langword="null" /> when this node does not lead the group or has no authority in it.</returns>
@@ -199,23 +217,6 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
         return FindAuthorized(owner) ?? ThrowHelper.Throw<ReplicaGroupCommitter>(Refusal(owner));
     }
 
-    /// <summary>Refuses a read of the group this node leads statically while its copy is not complete.</summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes once the read may be served; it completes at once when the led set is handed over by election, whose reads are fenced.</returns>
-    /// <exception cref="Grpc.Core.RpcException">The copy of the group on this node is not complete: Unavailable, nothing was read.</exception>
-    /// <remarks>A copy never becomes unseeded again, so the first complete status is remembered and later reads cost nothing.</remarks>
-    internal async ValueTask EnsureSeededAsync(CancellationToken cancellationToken)
-    {
-        if (_ownOnly == null || Volatile.Read(ref _ownSeeded))
-            return;
-
-        var seeded = _ownOnly.Registry.TryGetLog(_ownOnly.GroupId, out var log) && (await log.GetStatusAsync(cancellationToken).ConfigureAwait(false)).MemberState == GroupMemberState.Complete;
-        if (!seeded)
-            throw ServerOpContract.NoLeaderAuthority();
-
-        Volatile.Write(ref _ownSeeded, true);
-    }
-
     /// <summary>Tells whether this node leads a group.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <returns><see langword="true" /> when this node leads the group.</returns>
@@ -226,10 +227,6 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
         lock (_sync)
             return _created.GetValueOrDefault(groupId);
     }
-
-    /// <summary>Reads the current snapshot of the led groups.</summary>
-    /// <returns>The snapshot; a promotion or a retirement publishes a new one.</returns>
-    private LedGroups Snapshot() => Volatile.Read(ref _led);
 
     private ReplicaGroupCommitter GetOrCreate(string groupId)
     {
@@ -242,23 +239,6 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
             _created.Add(groupId, committer);
             return committer;
         }
-    }
-
-    /// <summary>Builds the refusal of a write to a group this node may not write to.</summary>
-    /// <param name="groupId">Replica group identifier, the original owner of the key.</param>
-    /// <returns>
-    /// The stale-owner refusal naming the owner when the led set is fixed. Otherwise the refusal of the leader view: stale-term when a higher
-    /// term deposed this node, stale-owner naming the known leader in the hint trailers, or the retryable Unavailable refusal while this
-    /// node leads the group without authority yet or knows no leader.
-    /// </returns>
-    /// <remarks>The leader table hides refuted routes on purpose, so this refusal never names a leader that already answered as stale.</remarks>
-    private Grpc.Core.RpcException Refusal(string groupId)
-    {
-        if (_authority == null)
-            return StaleOwnerFailure.Create(groupId, _selfId);
-
-        var view = _authority.Read(groupId);
-        return LeaderRefusal.Create(LeaderRefusal.Classify(in view, _selfId), in view, _selfId, true);
     }
 
     /// <summary>Adds a committer to the led groups or removes it, as a new snapshot.</summary>
@@ -280,6 +260,27 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
             Volatile.Write(ref _led, new LedGroups(byGroup.ToFrozenDictionary(StringComparer.Ordinal), committers));
         }
     }
+
+    /// <summary>Builds the refusal of a write to a group this node may not write to.</summary>
+    /// <param name="groupId">Replica group identifier, the original owner of the key.</param>
+    /// <returns>
+    /// The stale-owner refusal naming the owner when the led set is fixed. Otherwise the refusal of the leader view: stale-term when a higher
+    /// term deposed this node, stale-owner naming the known leader in the hint trailers, or the retryable Unavailable refusal while this
+    /// node leads the group without authority yet or knows no leader.
+    /// </returns>
+    /// <remarks>The leader table hides refuted routes on purpose, so this refusal never names a leader that already answered as stale.</remarks>
+    private RpcException Refusal(string groupId)
+    {
+        if (_authority == null)
+            return StaleOwnerFailure.Create(groupId, _selfId);
+
+        var view = _authority.Read(groupId);
+        return LeaderRefusal.Create(LeaderRefusal.Classify(in view, _selfId), in view, _selfId, true);
+    }
+
+    /// <summary>Reads the current snapshot of the led groups.</summary>
+    /// <returns>The snapshot; a promotion or a retirement publishes a new one.</returns>
+    private LedGroups Snapshot() => Volatile.Read(ref _led);
 
     /// <summary>One snapshot of the led groups.</summary>
     /// <param name="ByGroup">The committers by group identifier.</param>

@@ -141,13 +141,10 @@ internal sealed class ReplicaStateTransfers
         var (members, header) = committer.Probe.BuildMembership(target.Term);
         var read = await TermCeiling.ReadAsync(members, header, target.ReplicaIndex, committer.Probe.LeaderReplicaIndex, cancellationToken).ConfigureAwait(false);
         ReplicaTransferLog.CeilingRead(_log, committer.GroupId, members[target.ReplicaIndex], target.Term, read.Answers, read.Needed, read.Highest);
-        if (read.Highest > target.Term)
-        {
-            committer.Election?.ObserveHigherTerm(read.Highest);
-            return ReplicaTransferOutcome.Superseded;
-        }
-
-        return read.Suffices ? ReplicaTransferOutcome.Transferred : ReplicaTransferOutcome.CeilingUnavailable;
+        if (read.Highest <= target.Term)
+            return read.Suffices ? ReplicaTransferOutcome.Transferred : ReplicaTransferOutcome.CeilingUnavailable;
+        committer.Election?.ObserveHigherTerm(read.Highest);
+        return ReplicaTransferOutcome.Superseded;
     }
 
     private void ReportDeclined(ReplicaGroupCommitter committer, string nodeId, ReplicaTransferOutcome outcome)

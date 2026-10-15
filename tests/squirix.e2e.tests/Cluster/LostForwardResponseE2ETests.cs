@@ -24,6 +24,21 @@ public sealed class LostForwardResponseE2ETests : EndToEndTestBase
 {
     private const string CacheName = "default";
 
+    /// <summary>TryAdd keeps its first outcome and does not add the entry again when the client fails over.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ConditionalAddReplaysAfterLostResponse(CancellationToken cancellationToken)
+    {
+        var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy(CacheName, "nodeB", "lost-forward-try-add");
+        await using var scenario = await Scenario.StartAsync(nameof(ConditionalAddReplaysAfterLostResponse), key, static async (owner, k, ct) => _ = await owner.RemoveAsync(k, ct), cancellationToken);
+
+        var added = await scenario.Cache.TryAddAsync(key, "first", cancellationToken: cancellationToken);
+
+        _ = await Assert.That(added).IsTrue();
+        await scenario.AssertFailedOverWithSingleExecutionAsync();
+        _ = await Assert.That((await scenario.Owner.GetValueAsync(key, cancellationToken)).Found).IsFalse();
+    }
+
     /// <summary>GetOrAdd keeps its first outcome and does not add the entry again when the client fails over.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -56,19 +71,20 @@ public sealed class LostForwardResponseE2ETests : EndToEndTestBase
         _ = await Assert.That(read.Value).IsEqualTo("second");
     }
 
-    /// <summary>TryAdd keeps its first outcome and does not add the entry again when the client fails over.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ConditionalAddReplaysAfterLostResponse(CancellationToken cancellationToken)
+    private sealed class EntryProbe
     {
-        var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy(CacheName, "nodeB", "lost-forward-try-add");
-        await using var scenario = await Scenario.StartAsync(nameof(ConditionalAddReplaysAfterLostResponse), key, static async (owner, k, ct) => _ = await owner.RemoveAsync(k, ct), cancellationToken);
+        private readonly LostForwardResponseProbe _probe;
 
-        var added = await scenario.Cache.TryAddAsync(key, "first", cancellationToken: cancellationToken);
+        internal EntryProbe(LostForwardResponseProbe probe)
+        {
+            _probe = probe;
+        }
 
-        _ = await Assert.That(added).IsTrue();
-        await scenario.AssertFailedOverWithSingleExecutionAsync();
-        _ = await Assert.That((await scenario.Owner.GetValueAsync(key, cancellationToken)).Found).IsFalse();
+        internal void Configure(string nodeId, IServiceCollection services)
+        {
+            if (string.Equals(nodeId, "nodeA", StringComparison.Ordinal))
+                _probe.Register(services);
+        }
     }
 
     private sealed class Scenario : IAsyncDisposable
@@ -89,9 +105,9 @@ public sealed class LostForwardResponseE2ETests : EndToEndTestBase
 
         internal ICache<string> Cache { get; }
 
-        internal ISquirixClient Client { get; }
-
         internal ICache<string> Owner { get; }
+
+        private ISquirixClient Client { get; }
 
         public async ValueTask DisposeAsync()
         {
@@ -131,22 +147,6 @@ public sealed class LostForwardResponseE2ETests : EndToEndTestBase
         {
             _ = await Assert.That(_probe.OwnerExecutions(_key)).IsEqualTo(1);
             _ = await Assert.That(_probe.ForwardAttempts(_key)).IsEqualTo(3);
-        }
-    }
-
-    private sealed class EntryProbe
-    {
-        private readonly LostForwardResponseProbe _probe;
-
-        internal EntryProbe(LostForwardResponseProbe probe)
-        {
-            _probe = probe;
-        }
-
-        internal void Configure(string nodeId, IServiceCollection services)
-        {
-            if (string.Equals(nodeId, "nodeA", StringComparison.Ordinal))
-                _probe.Register(services);
         }
     }
 }

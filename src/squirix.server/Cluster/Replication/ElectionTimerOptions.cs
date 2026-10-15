@@ -41,7 +41,7 @@ internal sealed class ElectionTimerOptions
     /// <see cref="LeaderWaitTimeoutOverride" /> when set; otherwise <see cref="ElectionTimeout" /> plus <see cref="MaxJitter" />, the longest a
     /// follower waits before it campaigns. The remaining deadline of the request caps it further.
     /// </remarks>
-    internal TimeSpan LeaderWaitTimeout => LeaderWaitTimeoutOverride ?? (ElectionTimeout + MaxJitter);
+    internal TimeSpan LeaderWaitTimeout => LeaderWaitTimeoutOverride ?? ElectionTimeout + MaxJitter;
 
     /// <summary>Initializes the explicit longest wait for a leader; <see langword="null" /> keeps the default of <see cref="LeaderWaitTimeout" />.</summary>
     /// <remarks>

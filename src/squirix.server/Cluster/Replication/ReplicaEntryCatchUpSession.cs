@@ -82,15 +82,14 @@ internal sealed class ReplicaEntryCatchUpSession
     /// <param name="exception">The failure.</param>
     /// <param name="cancellationToken">The session token.</param>
     /// <returns>The outcome, or <see langword="null" /> when the failure is not one of the session's.</returns>
-    private static ReplicaCatchUpOutcome? Classify(ReplicaFollowerCatchUp lease, Exception exception, CancellationToken cancellationToken) =>
-        exception switch
-        {
-            OperationCanceledException when cancellationToken.IsCancellationRequested => null,
-            OperationCanceledException => lease.IsClosed ? ReplicaCatchUpOutcome.Aborted : ReplicaCatchUpOutcome.Unreachable,
-            ObjectDisposedException => ReplicaCatchUpOutcome.Aborted,
-            RpcException or IOException or HttpRequestException or TimeoutException or InvalidOperationException => ReplicaCatchUpOutcome.Unreachable,
-            _ => null,
-        };
+    private static ReplicaCatchUpOutcome? Classify(ReplicaFollowerCatchUp lease, Exception exception, CancellationToken cancellationToken) => exception switch
+    {
+        OperationCanceledException when cancellationToken.IsCancellationRequested => null,
+        OperationCanceledException => lease.IsClosed ? ReplicaCatchUpOutcome.Aborted : ReplicaCatchUpOutcome.Unreachable,
+        ObjectDisposedException => ReplicaCatchUpOutcome.Aborted,
+        RpcException or IOException or HttpRequestException or TimeoutException or InvalidOperationException => ReplicaCatchUpOutcome.Unreachable,
+        _ => null,
+    };
 
     /// <summary>Maps a refusal that is neither a log mismatch nor a stale term to the outcome that ends the session.</summary>
     /// <param name="refusalCode">The refusal code of the follower.</param>
@@ -112,7 +111,12 @@ internal sealed class ReplicaEntryCatchUpSession
     /// <param name="records">The records the request carried.</param>
     /// <param name="result">The follower's answer.</param>
     /// <returns>The outcome that ends the session, or <see langword="null" /> to run another round.</returns>
-    private ReplicaCatchUpOutcome? Apply(ReplicaFollowerCatchUp lease, Progress state, in FollowerLogEntriesRead read, ReplicaLogRecord[] records, in FollowerLogAppendResult result)
+    private ReplicaCatchUpOutcome? Apply(
+        ReplicaFollowerCatchUp lease,
+        Progress state,
+        in FollowerLogEntriesRead read,
+        ReplicaLogRecord[] records,
+        in FollowerLogAppendResult result)
     {
         if (result.Success)
         {
@@ -222,17 +226,17 @@ internal sealed class ReplicaEntryCatchUpSession
 
         internal int BackUps { get; set; }
 
-        internal int EntriesSent { get; private set; }
-
         internal ulong FollowerTerm { get; set; }
-
-        internal ulong HeldTerm { get; private set; }
 
         internal ulong HeldThrough { get; private set; }
 
         internal ulong Next { get; set; }
 
         internal int Rounds { get; set; }
+
+        private int EntriesSent { get; set; }
+
+        private ulong HeldTerm { get; set; }
 
         internal void Advance(ulong heldThrough, ulong heldTerm, int entriesSent)
         {

@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -32,206 +33,6 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
 
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
-    /// <summary>A start that fails after it appended the leader-term entry is retried without a second entry: the promotion keeps its index.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task FailedStartKeepsOneNoop(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-elected-start-fault");
-        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var log = await TermAsync(registry, "n2", 2UL, cancellationToken);
-        var gateway = new HoldingGateway { FailProbes = true };
-        await using var committer = Elected(registry, gateway);
-
-        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(committer.PromoteAsync(2UL, cancellationToken));
-        var noopIndex = committer.Tenure?.NoopIndex ?? 0UL;
-        gateway.FailProbes = false;
-        _ = await committer.PromoteAsync(2UL, cancellationToken);
-        _ = await committer.VerifyReplicasAsync(cancellationToken);
-        _ = await committer.CatchUpFollowersAsync(new ReplicaCatchUpReporter("n2", NullLogger.Instance, null), cancellationToken);
-        var authorized = await committer.PromoteAsync(2UL, cancellationToken);
-
-        _ = await Assert.That((noopIndex, committer.Tenure?.NoopIndex ?? 0UL, authorized)).IsEqualTo((1UL, 1UL, true));
-        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(1UL);
-    }
-
-    /// <summary>
-    /// A leadership whose start throws is still published once: the group joins the led set and its readiness loop is queued, so the start
-    /// is retried; a later promotion of the same leadership queues nothing more.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ThrowingStartStillPublishesLeadership(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-elected-start-publish");
-        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
-        var gateway = new HoldingGateway { FailProbes = true };
-        await using var committers = new ReplicaGroupCommitters(_ => Elected(registry, gateway), new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")), "n1", Owners(), TimeProvider.System);
-
-        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(committers.PromoteAsync("n2", 2UL, cancellationToken));
-        var led = committers.Leads("n2");
-        var queued = committers.Promotions!.TryRead(out var promotion);
-        gateway.FailProbes = false;
-        _ = await committers.PromoteAsync("n2", 2UL, cancellationToken);
-
-        _ = await Assert.That((led, queued, promotion.Committer.GroupId, promotion.Tenure.IsCancellationRequested)).IsEqualTo((true, true, "n2", false));
-        _ = await Assert.That(committers.Promotions.TryRead(out _)).IsFalse();
-        _ = await Assert.That(registry.StateFor("n2").HasAuthority).IsFalse();
-    }
-
-    /// <summary>
-    /// A retirement while the readiness loop of the leadership catches a follower up neither faults the loop nor waits on it: the retirement
-    /// returns, and the loop ends normally with the leadership.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RetireDuringCatchUpEndsLoop(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-elected-retire-catch-up");
-        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
-        var gateway = new HoldingGateway { HoldEntries = true };
-        await using var committers = new ReplicaGroupCommitters(
-            _ => Elected(registry, gateway),
-            new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")),
-            "n1",
-            Owners(),
-            TimeProvider.System);
-        using var service = new ReplicaGroupReadinessService(committers, new EventRecordingLogger(), TimeProvider.System);
-
-        await service.StartAsync(cancellationToken);
-        bool retired;
-        try
-        {
-            _ = await committers.PromoteAsync("n2", 2UL, cancellationToken);
-            await gateway.EntriesHeld.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-            retired = await committers.RetireAsync("n2", cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-        }
-        finally
-        {
-            await service.StopAsync(cancellationToken);
-        }
-
-        _ = await Assert.That(retired).IsTrue();
-        _ = await Assert.That(service.ExecuteTask?.IsCompletedSuccessfully).IsTrue().Because("A retirement ends the leadership loop normally.");
-    }
-
-    /// <summary>
-    /// A verification whose probe was out while the leadership retired admits nothing: it reports blocked and starts no coordinator for the
-    /// leadership that is over.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task VerifyAfterRetireIsBlocked(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-elected-verify-retire");
-        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
-        var gateway = new HoldingGateway();
-        await using var committer = Elected(registry, gateway);
-        _ = await committer.PromoteAsync(2UL, cancellationToken);
-        gateway.HoldProbes = true;
-
-        var verifying = committer.VerifyReplicasAsync(cancellationToken);
-        await gateway.ProbesHeld.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-        var retired = await committer.RetireAsync(cancellationToken);
-        gateway.ReleaseProbes();
-        var verdict = await verifying.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-
-        _ = await Assert.That((retired, verdict)).IsEqualTo((true, ReplicaVerification.Blocked));
-        _ = await Assert.That(committer.RunningPipeline).IsNull();
-    }
-
-    /// <summary>
-    /// A write that holds the committer of a leadership that retired reaches the next leadership before its leader-term entry is committed:
-    /// it is refused as retryable, and nothing is appended.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task WriteIntoUnauthorizedTenureIsRefused(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-elected-write-next-tenure");
-        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var log = await TermAsync(registry, "n2", 2UL, cancellationToken);
-        var gateway = new HoldingGateway { MatchFollowers = true };
-        await using var committer = Elected(registry, gateway);
-        _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
-        _ = await committer.RetireAsync(cancellationToken);
-        _ = await log.ObserveTermAsync(3UL, cancellationToken);
-        gateway.DownFollowers = true;
-        _ = await committer.PromoteAsync(3UL, cancellationToken);
-        var appended = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
-
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "b", Entry("b"), cancellationToken));
-
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
-        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(appended);
-    }
-
-    /// <summary>A leader-term entry that a leader of a higher term replaced in the log never authorizes the leadership of the old term.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ReplacedNoopNeverAuthorizes(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-elected-replaced-noop");
-        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var log = await TermAsync(registry, "n2", 2UL, cancellationToken);
-        var gateway = new HoldingGateway { DownFollowers = true };
-        await using var committer = Elected(registry, gateway);
-        _ = await committer.PromoteAsync(2UL, cancellationToken);
-
-        // Leader n3 of term 3 replaces the uncommitted entry at index 1 with its own and commits it.
-        var foreign = new ReplicaMutationFactory(new StubCache(), "n2", 3UL, TimeProvider.System, NullLogger.Instance).PrepareLeaderTerm(1UL);
-        FollowerLogEntry[] entries = [new(1UL, 3UL, foreign.CanonicalPayload)];
-        var replaced = await log.AppendAsync(new FollowerLogAppendRequest("n3", 3UL, 0UL, 0UL, 1UL, entries), cancellationToken);
-        gateway.DownFollowers = false;
-
-        _ = await Assert.That(replaced.Success).IsTrue();
-        _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
-        _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsFalse();
-        _ = await Assert.That(await log.GetTermAtAsync(1UL, cancellationToken)).IsEqualTo(3UL);
-    }
-
-    /// <summary>
-    /// A node that led fruitlessly in several terms, lost its uncommitted tail to a shorter log of another leader, and is elected again with
-    /// one follower matching is authorized: the progress its slot retained from the earlier leaderships does not keep it out of the quorum.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ShorterTailAfterEarlierTermsAuthorizes(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-elected-shorter-tail");
-        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var log = await TermAsync(registry, "n2", 2UL, cancellationToken);
-        var gateway = new HoldingGateway { DownFollowers = true };
-        await using var committer = Elected(registry, gateway);
-        _ = await committer.PromoteAsync(2UL, cancellationToken);
-        for (var term = 3UL; term <= 5UL; term++)
-        {
-            _ = await committer.RetireAsync(cancellationToken);
-            _ = await log.ObserveTermAsync(term, cancellationToken);
-            _ = await committer.PromoteAsync(term, cancellationToken);
-        }
-
-        var longTail = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
-        _ = await committer.RetireAsync(cancellationToken);
-
-        // Leader n3 of term 6 replaces the whole uncommitted tail with one entry of its own and commits it.
-        var foreign = new ReplicaMutationFactory(new StubCache(), "n2", 6UL, TimeProvider.System, NullLogger.Instance).PrepareLeaderTerm(1UL);
-        FollowerLogEntry[] entries = [new(1UL, 6UL, foreign.CanonicalPayload)];
-        var replaced = await log.AppendAsync(new FollowerLogAppendRequest("n3", 6UL, 0UL, 0UL, 1UL, entries), cancellationToken);
-        _ = await log.ObserveTermAsync(7UL, cancellationToken);
-        gateway.DownFollowers = false;
-        gateway.DownNode = "n3";
-        gateway.MatchFollowers = true;
-
-        var authorized = await committer.PromoteAsync(7UL, cancellationToken);
-
-        _ = await Assert.That((replaced.Success, longTail)).IsEqualTo((true, 4UL));
-        _ = await Assert.That(authorized).IsTrue();
-    }
-
     /// <summary>
     /// A leadership whose leader-term entry append failed leaves a tail of an older term: verification reports it blocked with a warning
     /// once per blocked state, and warns again when the blocked tail grows.
@@ -255,7 +56,7 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         hooks.StallNextFrameWrite();
         var promotion = committer.PromoteAsync(2UL, cancellationToken);
         await hooks.Entered.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-        hooks.ReleaseWithFailure(new System.IO.IOException("Injected leader-term entry write failure."));
+        hooks.ReleaseWithFailure(new IOException("Injected leader-term entry write failure."));
         await hooks.Exited.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         var authorized = await promotion.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
@@ -271,6 +72,29 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         _ = await Assert.That(events.Count(OlderTermTailEventId)).IsEqualTo(2);
         var status = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That((status.CurrentTerm, status.LastLogIndex, status.LastLogTerm, status.CommitIndex)).IsEqualTo((2UL, 2UL, 1UL, 0UL));
+    }
+
+    /// <summary>A start that fails after it appended the leader-term entry is retried without a second entry: the promotion keeps its index.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedStartKeepsOneNoop(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-start-fault");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var log = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var gateway = new HoldingGateway { FailProbes = true };
+        await using var committer = Elected(registry, gateway);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(committer.PromoteAsync(2UL, cancellationToken));
+        var noopIndex = committer.Tenure?.NoopIndex ?? 0UL;
+        gateway.FailProbes = false;
+        _ = await committer.PromoteAsync(2UL, cancellationToken);
+        _ = await committer.VerifyReplicasAsync(cancellationToken);
+        _ = await committer.CatchUpFollowersAsync(new ReplicaCatchUpReporter("n2", NullLogger.Instance, null), cancellationToken);
+        var authorized = await committer.PromoteAsync(2UL, cancellationToken);
+
+        _ = await Assert.That((noopIndex, committer.Tenure?.NoopIndex ?? 0UL, authorized)).IsEqualTo((1UL, 1UL, true));
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(1UL);
     }
 
     /// <summary>
@@ -340,6 +164,183 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(2UL);
     }
 
+    /// <summary>A leader-term entry that a leader of a higher term replaced in the log never authorizes the leadership of the old term.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplacedNoopNeverAuthorizes(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-replaced-noop");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var log = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var gateway = new HoldingGateway { DownFollowers = true };
+        await using var committer = Elected(registry, gateway);
+        _ = await committer.PromoteAsync(2UL, cancellationToken);
+
+        // Leader n3 of term 3 replaces the uncommitted entry at index 1 with its own and commits it.
+        var foreign = new ReplicaMutationFactory(new StubCache(), "n2", 3UL, TimeProvider.System, NullLogger.Instance).PrepareLeaderTerm(1UL);
+        FollowerLogEntry[] entries = [new(1UL, 3UL, foreign.CanonicalPayload)];
+        var replaced = await log.AppendAsync(new FollowerLogAppendRequest("n3", 3UL, 0UL, 0UL, 1UL, entries), cancellationToken);
+        gateway.DownFollowers = false;
+
+        _ = await Assert.That(replaced.Success).IsTrue();
+        _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
+        _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsFalse();
+        _ = await Assert.That(await log.GetTermAtAsync(1UL, cancellationToken)).IsEqualTo(3UL);
+    }
+
+    /// <summary>
+    /// A retirement while the readiness loop of the leadership catches a follower up neither faults the loop nor waits on it: the retirement
+    /// returns, and the loop ends normally with the leadership.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RetireDuringCatchUpEndsLoop(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-retire-catch-up");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var gateway = new HoldingGateway { HoldEntries = true };
+        await using var committers = new ReplicaGroupCommitters(
+            _ => Elected(registry, gateway),
+            new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")),
+            "n1",
+            Owners(),
+            TimeProvider.System);
+        using var service = new ReplicaGroupReadinessService(committers, new EventRecordingLogger(), TimeProvider.System);
+
+        await service.StartAsync(cancellationToken);
+        bool retired;
+        try
+        {
+            _ = await committers.PromoteAsync("n2", 2UL, cancellationToken);
+            await gateway.EntriesHeld.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            retired = await committers.RetireAsync("n2", cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(retired).IsTrue();
+        _ = await Assert.That(service.ExecuteTask?.IsCompletedSuccessfully).IsTrue().Because("A retirement ends the leadership loop normally.");
+    }
+
+    /// <summary>
+    /// A node that led fruitlessly in several terms, lost its uncommitted tail to a shorter log of another leader, and is elected again with
+    /// one follower matching is authorized: the progress its slot retained from the earlier leaderships does not keep it out of the quorum.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ShorterTailAfterEarlierTermsAuthorizes(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-shorter-tail");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var log = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var gateway = new HoldingGateway { DownFollowers = true };
+        await using var committer = Elected(registry, gateway);
+        _ = await committer.PromoteAsync(2UL, cancellationToken);
+        for (var term = 3UL; term <= 5UL; term++)
+        {
+            _ = await committer.RetireAsync(cancellationToken);
+            _ = await log.ObserveTermAsync(term, cancellationToken);
+            _ = await committer.PromoteAsync(term, cancellationToken);
+        }
+
+        var longTail = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
+        _ = await committer.RetireAsync(cancellationToken);
+
+        // Leader n3 of term 6 replaces the whole uncommitted tail with one entry of its own and commits it.
+        var foreign = new ReplicaMutationFactory(new StubCache(), "n2", 6UL, TimeProvider.System, NullLogger.Instance).PrepareLeaderTerm(1UL);
+        FollowerLogEntry[] entries = [new(1UL, 6UL, foreign.CanonicalPayload)];
+        var replaced = await log.AppendAsync(new FollowerLogAppendRequest("n3", 6UL, 0UL, 0UL, 1UL, entries), cancellationToken);
+        _ = await log.ObserveTermAsync(7UL, cancellationToken);
+        gateway.DownFollowers = false;
+        gateway.DownNode = "n3";
+        gateway.MatchFollowers = true;
+
+        var authorized = await committer.PromoteAsync(7UL, cancellationToken);
+
+        _ = await Assert.That((replaced.Success, longTail)).IsEqualTo((true, 4UL));
+        _ = await Assert.That(authorized).IsTrue();
+    }
+
+    /// <summary>
+    /// A leadership whose start throws is still published once: the group joins the led set and its readiness loop is queued, so the start
+    /// is retried; a later promotion of the same leadership queues nothing more.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ThrowingStartStillPublishesLeadership(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-start-publish");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var gateway = new HoldingGateway { FailProbes = true };
+        await using var committers = new ReplicaGroupCommitters(_ => Elected(registry, gateway), new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")), "n1", Owners(), TimeProvider.System);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(committers.PromoteAsync("n2", 2UL, cancellationToken));
+        var led = committers.Leads("n2");
+        var queued = committers.Promotions!.TryRead(out var promotion);
+        gateway.FailProbes = false;
+        _ = await committers.PromoteAsync("n2", 2UL, cancellationToken);
+
+        _ = await Assert.That((led, queued, promotion.Committer.GroupId, promotion.Tenure.IsCancellationRequested)).IsEqualTo((true, true, "n2", false));
+        _ = await Assert.That(committers.Promotions.TryRead(out _)).IsFalse();
+        _ = await Assert.That(registry.StateFor("n2").HasAuthority).IsFalse();
+    }
+
+    /// <summary>
+    /// A verification whose probe was out while the leadership retired admits nothing: it reports blocked and starts no coordinator for the
+    /// leadership that is over.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VerifyAfterRetireIsBlocked(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-verify-retire");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var gateway = new HoldingGateway();
+        await using var committer = Elected(registry, gateway);
+        _ = await committer.PromoteAsync(2UL, cancellationToken);
+        gateway.HoldProbes = true;
+
+        var verifying = committer.VerifyReplicasAsync(cancellationToken);
+        await gateway.ProbesHeld.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        var retired = await committer.RetireAsync(cancellationToken);
+        gateway.ReleaseProbes();
+        var verdict = await verifying.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That((retired, verdict)).IsEqualTo((true, ReplicaVerification.Blocked));
+        _ = await Assert.That(committer.RunningPipeline).IsNull();
+    }
+
+    /// <summary>
+    /// A write that holds the committer of a leadership that retired reaches the next leadership before its leader-term entry is committed:
+    /// it is refused as retryable, and nothing is appended.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WriteIntoUnauthorizedTenureIsRefused(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-write-next-tenure");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var log = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var gateway = new HoldingGateway { MatchFollowers = true };
+        await using var committer = Elected(registry, gateway);
+        _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
+        _ = await committer.RetireAsync(cancellationToken);
+        _ = await log.ObserveTermAsync(3UL, cancellationToken);
+        gateway.DownFollowers = true;
+        _ = await committer.PromoteAsync(3UL, cancellationToken);
+        var appended = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
+
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "b", Entry("b"), cancellationToken));
+
+        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(appended);
+    }
+
     private static async Task AppendCommittedAsync(IFollowerLog log, string[] keys, CancellationToken cancellationToken)
     {
         var factory = new ReplicaMutationFactory(new StubCache(), "n2", 1UL, TimeProvider.System, NullLogger.Instance);
@@ -355,16 +356,16 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
             throw new InvalidOperationException($"The group log refused the committed entries: {appended.RefusalCode}.");
     }
 
-    private static FollowerLogEntry[] OlderEntry(ulong index, TimeProvider clock)
-    {
-        var record = new ReplicaMutationFactory(new StubCache(), "n2", 1UL, clock, NullLogger.Instance).PrepareLeaderTerm(index);
-        return [new FollowerLogEntry(index, 1UL, record.CanonicalPayload)];
-    }
-
     private static ReplicaGroupCommitter Elected(ReplicaGroupRegistry registry, HoldingGateway gateway)
     {
         var cache = new StubCache();
         return CreateElectedCommitter(registry, "n2", gateway, cache, new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1"));
+    }
+
+    private static FollowerLogEntry[] OlderEntry(ulong index, TimeProvider clock)
+    {
+        var record = new ReplicaMutationFactory(new StubCache(), "n2", 1UL, clock, NullLogger.Instance).PrepareLeaderTerm(index);
+        return [new FollowerLogEntry(index, 1UL, record.CanonicalPayload)];
     }
 
     /// <summary>Makes a term durable in a group log, as the election driver does before it promotes.</summary>
@@ -391,9 +392,9 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
     private sealed class HoldingGateway : IReplicaRpcGateway
     {
         private readonly TaskCompletionSource _entriesHeld = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly ScriptedGateway _followers = new();
         private readonly TaskCompletionSource _probesHeld = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _probesReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly ScriptedGateway _followers = new();
 
         internal HoldingGateway()
         {
@@ -407,20 +408,20 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
 
         internal Task EntriesHeld => _entriesHeld.Task;
 
+        internal bool FailProbes { get; set; }
+
+        internal bool HoldEntries { get; init; }
+
         internal bool HoldProbes { get; set; }
 
         internal bool MatchFollowers { get; set; }
 
         internal Task ProbesHeld => _probesHeld.Task;
 
-        internal bool FailProbes { get; set; }
-
-        internal bool HoldEntries { get; set; }
-
         public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
             if (DownFollowers || string.Equals(nodeId, DownNode, StringComparison.Ordinal))
-                throw new System.IO.IOException("follower is down");
+                throw new IOException("follower is down");
 
             var empty = batch.Records.Count == 0;
             if (empty && FailProbes)
