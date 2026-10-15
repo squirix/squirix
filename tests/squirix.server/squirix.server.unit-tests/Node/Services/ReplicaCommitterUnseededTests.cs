@@ -95,7 +95,7 @@ public sealed class ReplicaCommitterUnseededTests : ServerUnitTestBase
         _ = await Assert.That(events.Count(BlockedEventId)).IsEqualTo(0);
     }
 
-    /// <summary>A read over an unseeded copy is refused instead of answering from an empty cache, and is served once the copy is complete.</summary>
+    /// <summary>A read over an unseeded copy, of the entry or of the value, is refused instead of answering from an empty cache, and is served once the copy is complete.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task UnseededOwnerRefusesRead(CancellationToken cancellationToken)
@@ -109,11 +109,13 @@ public sealed class ReplicaCommitterUnseededTests : ServerUnitTestBase
         var replicated = new ReplicatedCache(cache, committers);
 
         var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(replicated.GetEntryAsync(CacheName, "k1", cancellationToken));
+        var valueRefused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheValueResult<object?>>(replicated.GetValueAsync(CacheName, "k1", cancellationToken));
         _ = registry.TryGetLog("n1", out var log);
         await log!.CompleteBootstrapAsync(cancellationToken);
         var served = await replicated.GetEntryAsync(CacheName, "k1", cancellationToken);
 
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That(valueRefused.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         _ = await Assert.That(served?.Value).IsEqualTo("k1");
     }
 
