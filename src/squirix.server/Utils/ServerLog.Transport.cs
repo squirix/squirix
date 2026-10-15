@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server.Utils;
 
-/// <summary>Internode gRPC client pool drain and disposal logs, and cluster ring agreement logs.</summary>
+/// <content>Internode gRPC client pool drain and disposal logs, and cluster ring agreement logs.</content>
 internal static partial class ServerLog
 {
     [LoggerMessage(EventId = 5001, Level = LogLevel.Debug, Message = "Failed to dispose server call policy for node {NodeId} during pool drain")]

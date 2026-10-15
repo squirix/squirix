@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server.Utils;
 
-/// <summary>Replica group verification, committer and follower-log lifecycle logs.</summary>
+/// <content>Replica group verification, committer and follower-log lifecycle logs.</content>
 internal static partial class ServerLog
 {
     [LoggerMessage(

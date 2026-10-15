@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server.Utils;
 
-/// <summary>Compaction and journal storage lifecycle logs.</summary>
+/// <content>Compaction and journal storage lifecycle logs.</content>
 internal static partial class ServerLog
 {
     [LoggerMessage(EventId = 1002, Level = LogLevel.Warning, Message = "Compaction backoff after {Failures} failures: delaying {DelayMs} ms")]
