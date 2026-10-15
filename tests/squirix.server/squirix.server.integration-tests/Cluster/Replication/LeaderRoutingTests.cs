@@ -51,6 +51,12 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     /// <summary>Bounds the forward channel's keepalive detection of a silent peer: five seconds at worst, doubled for a loaded host.</summary>
     private static readonly TimeSpan KeepAliveDetectionBound = TimeSpan.FromSeconds(10);
 
+    /// <summary>The election timeout of the owner under <see cref="OwnerLeadsOptions" />: shorter than <see cref="OthersElectionTimeout" />, so it campaigns first.</summary>
+    private static readonly TimeSpan OwnerElectionTimeout = TimeSpan.FromSeconds(4);
+
+    /// <summary>The election timeout of the other members under <see cref="OwnerLeadsOptions" />, longer than the owner's plus the one-second jitter.</summary>
+    private static readonly TimeSpan OthersElectionTimeout = TimeSpan.FromSeconds(6);
+
     private static readonly string[] Nodes = [OwnerId, "node-b", "node-c"];
 
     private static readonly TimeSpan SilentMaxJitter = TimeSpan.FromSeconds(40);
@@ -553,9 +559,16 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     };
 
     /// <summary>
-    /// Options under which the owner wins the first election of its group: its election timeout is a quarter of the others, so it campaigns
-    /// first, while the others still elect a successor well within <see cref="Bound" /> once it stops.
+    /// Options under which the owner wins the first election of its group: its election timeout ends at most five seconds after start
+    /// (<see cref="OwnerElectionTimeout" /> plus the jitter) and the others' no sooner than six, so it campaigns first, while the others still
+    /// elect a successor well within <see cref="Bound" /> once it stops.
     /// </summary>
+    /// <remarks>
+    /// The election timeout of a leader is also how long it waits for a majority to answer before it steps down. With one second the owner
+    /// gave up its first term when the followers of a loaded runner were slow to answer just after start (#1111); four seconds, after the
+    /// grace of one more window from its election, leave them eight. It stays below the others' timeout, so an owner that is cut off still
+    /// steps down before the others elect its successor.
+    /// </remarks>
     /// <param name="scope">The persistence scope.</param>
     /// <param name="fabric">The fabric the nodes dial each other through.</param>
     /// <returns>The options.</returns>
@@ -570,7 +583,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         PartitionFabric = fabric,
         ServicesConfigure = static services => _ = services.AddSingleton(static sp => new ElectionTimerOptions
         {
-            ElectionTimeout = string.Equals(sp.GetRequiredService<TopologyOptions>().NodeId, OwnerId, StringComparison.Ordinal) ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(4),
+            ElectionTimeout = string.Equals(sp.GetRequiredService<TopologyOptions>().NodeId, OwnerId, StringComparison.Ordinal) ? OwnerElectionTimeout : OthersElectionTimeout,
             HeartbeatInterval = TimeSpan.FromMilliseconds(250),
             MaxJitter = TimeSpan.FromSeconds(1),
             VoteRpcTimeout = TimeSpan.FromSeconds(2),
@@ -600,7 +613,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             {
                 var nodeId = sp.GetRequiredService<TopologyOptions>().NodeId;
                 var entry = string.Equals(nodeId, SilentEntry, StringComparison.Ordinal);
-                var election = TimeSpan.FromSeconds(string.Equals(nodeId, OwnerId, StringComparison.Ordinal) ? 1 : 4);
+                var election = string.Equals(nodeId, OwnerId, StringComparison.Ordinal) ? OwnerElectionTimeout : OthersElectionTimeout;
                 return new ElectionTimerOptions
                 {
                     ElectionTimeout = entry ? TimeSpan.FromSeconds(2) : election,
