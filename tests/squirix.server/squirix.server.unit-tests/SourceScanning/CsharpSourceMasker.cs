@@ -19,13 +19,94 @@ internal static class CsharpSourceMasker
     {
         ArgumentNullException.ThrowIfNull(source);
 
-        var text = source.ToCharArray();
-        var position = 0;
-        ScanCode(text, ref position, false);
-        return new string(text);
+        // A single allocation: the result string itself is the scratch buffer.
+        return string.Create(
+            source.Length,
+            source,
+            static (span, src) =>
+            {
+                src.AsSpan().CopyTo(span);
+                var position = 0;
+                ScanCode(span, ref position, false);
+            });
     }
 
-    private static void ScanCode(char[] text, ref int position, bool inHole)
+    private static int CountRun(Span<char> text, int start, char value)
+    {
+        var index = start;
+        while (index < text.Length && text[index] == value)
+            index++;
+
+        return index - start;
+    }
+
+    private static int IndexOfLineEnd(Span<char> text, int start)
+    {
+        var index = text[start..].IndexOf('\n');
+        return index < 0 ? text.Length : start + index;
+    }
+
+    private static bool IsDoubled(Span<char> text, int index) => index + 1 < text.Length && text[index + 1] == text[index];
+
+    private static bool IsGap(char current) =>
+        current is ' ' or '\t' or '\r' or '\v' or '\f' || char.IsWhiteSpace(current);
+
+    private static bool IsHoleEnd(Span<char> text, int position, ref int depth)
+    {
+        var current = text[position];
+        switch (current)
+        {
+            case '(' or '[' or '{':
+                depth++;
+                return false;
+
+            case ')' or ']':
+            case '}' when depth > 0:
+                depth--;
+                return false;
+
+            default:
+                // A top-level ':' starts the format clause; '::' is the alias qualifier.
+                return current == '}'
+                    || (current == ':'
+                        && depth == 0
+                        && (position + 1 >= text.Length || text[position + 1] != ':')
+                        && (position == 0 || text[position - 1] != ':'));
+        }
+    }
+
+    private static void MaskRange(Span<char> range)
+    {
+        for (var index = 0; index < range.Length; index++)
+        {
+            if (range[index] is not ('\r' or '\n'))
+                range[index] = ' ';
+        }
+    }
+
+    private static int ScanCharLiteral(Span<char> text, int start)
+    {
+        var index = start + 1;
+        while (index < text.Length)
+        {
+            var current = text[index];
+            if (current == '\\')
+            {
+                index += 2;
+                continue;
+            }
+
+            index++;
+            if (current == '\'')
+                break;
+        }
+
+        index = Math.Min(index, text.Length);
+        MaskRange(text[start..index]);
+        return index;
+    }
+
+    private static void ScanCode(Span<char> text, ref int position, bool inHole)
     {
         var depth = 0;
         var atLineStart = !inHole;
@@ -39,7 +120,8 @@ internal static class CsharpSourceMasker
                 continue;
             }
 
-            if (char.IsWhiteSpace(current))
+            // ASCII whitespace covers virtually every code gap; the Unicode table is a slow-path fallback.
+            if (IsGap(current))
             {
                 position++;
                 continue;
@@ -62,30 +144,79 @@ internal static class CsharpSourceMasker
         }
     }
 
-    private static bool IsHoleEnd(char[] text, int position, ref int depth)
+    private static int ScanHole(Span<char> text, ref int literalStart, int holeStart, int closingBraces)
     {
-        var current = text[position];
-        if (current is '(' or '[' or '{')
-        {
-            depth++;
-            return false;
-        }
+        MaskRange(text[literalStart..holeStart]);
+        var position = holeStart;
+        ScanCode(text, ref position, true);
 
-        if (current is ')' or ']' || (current == '}' && depth > 0))
-        {
-            depth--;
-            return false;
-        }
-
-        // A top-level ':' starts the format clause; '::' is the alias qualifier.
-        return current == '}'
-            || (current == ':'
-                && depth == 0
-                && (position + 1 >= text.Length || text[position + 1] != ':')
-                && (position == 0 || text[position - 1] != ':'));
+        // The format clause and the closing braces belong to the literal text.
+        literalStart = position;
+        var close = text[position..].IndexOf('}');
+        return close < 0 ? text.Length : Math.Min(close + closingBraces + position, text.Length);
     }
 
-    private static bool TryMaskComment(char[] text, ref int position)
+    private static int ScanQuotedString(Span<char> text, int start, int contentStart, bool verbatim, bool interpolated)
+    {
+        var literalStart = start;
+        var index = contentStart;
+        while (index < text.Length)
+        {
+            var current = text[index];
+            if (current == '"' && !(verbatim && IsDoubled(text, index)))
+            {
+                index++;
+                break;
+            }
+
+            if (interpolated && current == '{' && !IsDoubled(text, index))
+            {
+                index = ScanHole(text, ref literalStart, index + 1, 1);
+                continue;
+            }
+
+            // Skips an escape sequence, a doubled verbatim quote, or a doubled interpolation brace as a pair.
+            var pair = (current == '\\' && !verbatim) || current == '"' || (interpolated && current == '{');
+            index += pair ? 2 : 1;
+        }
+
+        index = Math.Min(index, text.Length);
+        MaskRange(text[literalStart..index]);
+        return index;
+    }
+
+    private static int ScanRawString(Span<char> text, int start, int contentStart, int quotes, int dollars)
+    {
+        var literalStart = start;
+        var index = contentStart;
+        while (index < text.Length)
+        {
+            var current = text[index];
+            if (current == '"')
+            {
+                var run = CountRun(text, index, '"');
+                index += run;
+                if (run >= quotes)
+                    break;
+
+                continue;
+            }
+
+            if (dollars > 0 && current == '{')
+            {
+                var run = CountRun(text, index, '{');
+                index = run >= dollars ? ScanHole(text, ref literalStart, index + run, dollars) : index + run;
+                continue;
+            }
+
+            index++;
+        }
+
+        MaskRange(text[literalStart..index]);
+        return index;
+    }
+
+    private static bool TryMaskComment(Span<char> text, ref int position)
     {
         if (text[position] != '/' || position + 1 >= text.Length)
             return false;
@@ -97,7 +228,7 @@ internal static class CsharpSourceMasker
         }
         else if (text[position + 1] == '*')
         {
-            var close = text.AsSpan(position + 2).IndexOf("*/".AsSpan());
+            var close = text[(position + 2)..].IndexOf("*/".AsSpan());
             end = close < 0 ? text.Length : position + 2 + close + 2;
         }
         else
@@ -105,12 +236,12 @@ internal static class CsharpSourceMasker
             return false;
         }
 
-        MaskRange(text, position, end);
+        MaskRange(text[position..end]);
         position = end;
         return true;
     }
 
-    private static bool TryMaskLiteral(char[] text, ref int position)
+    private static bool TryMaskLiteral(Span<char> text, ref int position)
     {
         if (text[position] == '\'')
         {
@@ -141,125 +272,5 @@ internal static class CsharpSourceMasker
             ? ScanRawString(text, position, quote + quotes, quotes, dollars)
             : ScanQuotedString(text, position, quote + 1, verbatim, dollars > 0);
         return true;
-    }
-
-    private static int ScanCharLiteral(char[] text, int start)
-    {
-        var index = start + 1;
-        while (index < text.Length)
-        {
-            var current = text[index];
-            if (current == '\\')
-            {
-                index += 2;
-                continue;
-            }
-
-            index++;
-            if (current == '\'')
-                break;
-        }
-
-        index = Math.Min(index, text.Length);
-        MaskRange(text, start, index);
-        return index;
-    }
-
-    private static int ScanQuotedString(char[] text, int start, int contentStart, bool verbatim, bool interpolated)
-    {
-        var literalStart = start;
-        var index = contentStart;
-        while (index < text.Length)
-        {
-            var current = text[index];
-            if (current == '"' && !(verbatim && IsDoubled(text, index)))
-            {
-                index++;
-                break;
-            }
-
-            if (interpolated && current == '{' && !IsDoubled(text, index))
-            {
-                index = ScanHole(text, ref literalStart, index + 1, 1);
-                continue;
-            }
-
-            // Skips an escape sequence, a doubled verbatim quote, or a doubled interpolation brace as a pair.
-            var pair = (current == '\\' && !verbatim) || current == '"' || (interpolated && current == '{');
-            index += pair ? 2 : 1;
-        }
-
-        index = Math.Min(index, text.Length);
-        MaskRange(text, literalStart, index);
-        return index;
-    }
-
-    private static int ScanRawString(char[] text, int start, int contentStart, int quotes, int dollars)
-    {
-        var literalStart = start;
-        var index = contentStart;
-        while (index < text.Length)
-        {
-            var current = text[index];
-            if (current == '"')
-            {
-                var run = CountRun(text, index, '"');
-                index += run;
-                if (run >= quotes)
-                    break;
-
-                continue;
-            }
-
-            if (dollars > 0 && current == '{')
-            {
-                var run = CountRun(text, index, '{');
-                index = run >= dollars ? ScanHole(text, ref literalStart, index + run, dollars) : index + run;
-                continue;
-            }
-
-            index++;
-        }
-
-        MaskRange(text, literalStart, index);
-        return index;
-    }
-
-    private static int ScanHole(char[] text, ref int literalStart, int holeStart, int closingBraces)
-    {
-        MaskRange(text, literalStart, holeStart);
-        var position = holeStart;
-        ScanCode(text, ref position, true);
-
-        // The format clause and the closing braces belong to the literal text.
-        literalStart = position;
-        var close = Array.IndexOf(text, '}', position);
-        return close < 0 ? text.Length : Math.Min(close + closingBraces, text.Length);
-    }
-
-    private static bool IsDoubled(char[] text, int index) => index + 1 < text.Length && text[index + 1] == text[index];
-
-    private static int CountRun(char[] text, int start, char value)
-    {
-        var index = start;
-        while (index < text.Length && text[index] == value)
-            index++;
-
-        return index - start;
-    }
-
-    private static int IndexOfLineEnd(char[] text, int start)
-    {
-        var index = Array.IndexOf(text, '\n', start);
-        return index < 0 ? text.Length : index;
-    }
-
-    private static void MaskRange(char[] text, int start, int end)
-    {
-        for (var index = start; index < end; index++)
-        {
-            if (text[index] is not ('\r' or '\n'))
-                text[index] = ' ';
-        }
     }
 }

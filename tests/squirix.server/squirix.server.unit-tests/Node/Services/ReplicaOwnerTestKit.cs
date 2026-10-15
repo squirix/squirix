@@ -57,11 +57,44 @@ internal static class ReplicaOwnerTestKit
         Stalled = 10,
     }
 
-    internal static string NewOperationId() => Guid.NewGuid().ToString("N");
+    /// <summary>
+    /// Appends conditional adds of the given keys to the owned group log of an open registry without committing them, each decided
+    /// against <paramref name="decisionCache" />, then raises the log's current term.
+    /// </summary>
+    /// <param name="registry">The open registry of the owner.</param>
+    /// <param name="currentTerm">Current term of the log after the tail; above one, the tail is of an older term.</param>
+    /// <param name="decisionCache">The memory the leader read when it decided the adds: a key it holds makes its add decide false.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <param name="keys">Keys of the uncommitted conditional adds, in log order.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="InvalidOperationException">The owned group log is not open or refused the tail.</exception>
+    internal static async Task AppendTailAsync(
+        ReplicaGroupRegistry registry,
+        ulong currentTerm,
+        ILogicalNamespacedCache<object?> decisionCache,
+        CancellationToken cancellationToken,
+        params string[] keys)
+    {
+        if (!registry.TryGetLog("n1", out var log))
+            throw new InvalidOperationException("The owned group log is not open.");
 
-    internal static string TailOperationId(string key) => "tail-" + key;
+        var status = await log.GetStatusAsync(cancellationToken);
+        var factory = new ReplicaMutationFactory(decisionCache, "n1", 1, TimeProvider.System, NullLogger.Instance);
+        var index = status.LastLogIndex;
+        foreach (var key in keys)
+        {
+            var mutation = await factory.PrepareTryAddAsync(TailOperationId(key), "cache", key, Entry(key), index + 1, cancellationToken);
+            FollowerLogEntry[] entry = [new(mutation.LogIndex, mutation.Term, mutation.CanonicalPayload)];
+            var appended = await log.AppendAsync(new FollowerLogAppendRequest("n1", 1, index, 1, status.CommitIndex, entry), cancellationToken);
+            if (!appended.Success)
+                throw new InvalidOperationException($"The owned group log refused the tail entry: {appended.RefusalCode}.");
 
-    internal static NodeCacheEntry<object?> Entry(string key) => new() { Value = key, Version = 1 };
+            index++;
+        }
+
+        if (currentTerm > 1)
+            _ = await log.AppendAsync(new FollowerLogAppendRequest("n1", currentTerm, index, 1, status.CommitIndex, ReadOnlyMemory<FollowerLogEntry>.Empty), cancellationToken);
+    }
 
     internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway) => CreateCommitter(registry, gateway, new StubCache(), NullLogger<ReplicaGroupCommitter>.Instance);
 
@@ -174,6 +207,10 @@ internal static class ReplicaOwnerTestKit
         };
     }
 
+    internal static NodeCacheEntry<object?> Entry(string key) => new() { Value = key, Version = 1 };
+
+    internal static string NewOperationId() => Guid.NewGuid().ToString("N");
+
     internal static Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, CancellationToken cancellationToken) => OpenRegistryAsync(dir, null, cancellationToken);
 
     internal static Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, FollowerLogOptions? options, CancellationToken cancellationToken) =>
@@ -202,6 +239,25 @@ internal static class ReplicaOwnerTestKit
         return registry;
     }
 
+    /// <summary>Raises the owned group log's current term without appending an entry, as a new leader term that has not written yet.</summary>
+    /// <param name="registry">The open registry of the owner.</param>
+    /// <param name="currentTerm">The new current term.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="InvalidOperationException">The owned group log is not open or refused the term.</exception>
+    internal static async Task RaiseTermAsync(ReplicaGroupRegistry registry, ulong currentTerm, CancellationToken cancellationToken)
+    {
+        if (!registry.TryGetLog("n1", out var log))
+            throw new InvalidOperationException("The owned group log is not open.");
+
+        var status = await log.GetStatusAsync(cancellationToken);
+        var raised = await log.AppendAsync(
+            new FollowerLogAppendRequest("n1", currentTerm, status.LastLogIndex, status.LastLogTerm, status.CommitIndex, ReadOnlyMemory<FollowerLogEntry>.Empty),
+            cancellationToken);
+        if (!raised.Success)
+            throw new InvalidOperationException($"The owned group log refused term {currentTerm}: {raised.RefusalCode}.");
+    }
+
     /// <summary>
     /// Commits one write on a fresh group and persists its applied index, leaving durable RF=3 progress on disk for the restart under
     /// test, as an owner whose applied-index flush ran before it stopped: the restarted owner applies nothing of it again.
@@ -222,6 +278,28 @@ internal static class ReplicaOwnerTestKit
         var applied = await log.AdvanceAppliedAsync(status.CommitIndex, cancellationToken);
         if (!applied.Success)
             throw new InvalidOperationException($"The owned group log refused the applied index: {applied.RefusalCode}.");
+    }
+
+    /// <summary>Appends one prepared record to the owned group log as the next entry, committed or as an uncommitted tail, without applying it.</summary>
+    /// <param name="dir">Node data directory holding the seeded, committed group.</param>
+    /// <param name="record">The record; its log index and term are replaced by the next position of the log.</param>
+    /// <param name="committed">Whether the commit index moves onto the appended entry.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="InvalidOperationException">The owned group log is not open or refused the entry.</exception>
+    internal static async Task SeedRecordAsync(string dir, ReplicaLogRecord record, bool committed, CancellationToken cancellationToken)
+    {
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        if (!registry.TryGetLog("n1", out var log))
+            throw new InvalidOperationException("The owned group log is not open.");
+
+        var status = await log.GetStatusAsync(cancellationToken);
+        var index = status.LastLogIndex + 1;
+        var positioned = record with { LogIndex = index, Term = 1 };
+        FollowerLogEntry[] entry = [new(index, 1, ReplicaLogCodec.Encode(in positioned))];
+        var appended = await log.AppendAsync(new FollowerLogAppendRequest("n1", 1, status.LastLogIndex, 1, committed ? index : status.CommitIndex, entry), cancellationToken);
+        if (!appended.Success)
+            throw new InvalidOperationException($"The owned group log refused the entry: {appended.RefusalCode}.");
     }
 
     /// <summary>
@@ -254,89 +332,11 @@ internal static class ReplicaOwnerTestKit
         await AppendTailAsync(registry, currentTerm, decisionCache, cancellationToken, keys);
     }
 
-    /// <summary>
-    /// Appends conditional adds of the given keys to the owned group log of an open registry without committing them, each decided
-    /// against <paramref name="decisionCache" />, then raises the log's current term.
-    /// </summary>
-    /// <param name="registry">The open registry of the owner.</param>
-    /// <param name="currentTerm">Current term of the log after the tail; above one, the tail is of an older term.</param>
-    /// <param name="decisionCache">The memory the leader read when it decided the adds: a key it holds makes its add decide false.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <param name="keys">Keys of the uncommitted conditional adds, in log order.</param>
-    /// <returns>An asynchronous operation.</returns>
-    /// <exception cref="InvalidOperationException">The owned group log is not open or refused the tail.</exception>
-    internal static async Task AppendTailAsync(
-        ReplicaGroupRegistry registry,
-        ulong currentTerm,
-        ILogicalNamespacedCache<object?> decisionCache,
-        CancellationToken cancellationToken,
-        params string[] keys)
-    {
-        if (!registry.TryGetLog("n1", out var log))
-            throw new InvalidOperationException("The owned group log is not open.");
-
-        var status = await log.GetStatusAsync(cancellationToken);
-        var factory = new ReplicaMutationFactory(decisionCache, "n1", 1, TimeProvider.System, NullLogger.Instance);
-        var index = status.LastLogIndex;
-        foreach (var key in keys)
-        {
-            var mutation = await factory.PrepareTryAddAsync(TailOperationId(key), "cache", key, Entry(key), index + 1, cancellationToken);
-            FollowerLogEntry[] entry = [new(mutation.LogIndex, mutation.Term, mutation.CanonicalPayload)];
-            var appended = await log.AppendAsync(new FollowerLogAppendRequest("n1", 1, index, 1, status.CommitIndex, entry), cancellationToken);
-            if (!appended.Success)
-                throw new InvalidOperationException($"The owned group log refused the tail entry: {appended.RefusalCode}.");
-
-            index++;
-        }
-
-        if (currentTerm > 1)
-            _ = await log.AppendAsync(new FollowerLogAppendRequest("n1", currentTerm, index, 1, status.CommitIndex, ReadOnlyMemory<FollowerLogEntry>.Empty), cancellationToken);
-    }
-
-    /// <summary>Appends one prepared record to the owned group log as the next entry, committed or as an uncommitted tail, without applying it.</summary>
-    /// <param name="dir">Node data directory holding the seeded, committed group.</param>
-    /// <param name="record">The record; its log index and term are replaced by the next position of the log.</param>
-    /// <param name="committed">Whether the commit index moves onto the appended entry.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>An asynchronous operation.</returns>
-    /// <exception cref="InvalidOperationException">The owned group log is not open or refused the entry.</exception>
-    internal static async Task SeedRecordAsync(string dir, ReplicaLogRecord record, bool committed, CancellationToken cancellationToken)
-    {
-        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        if (!registry.TryGetLog("n1", out var log))
-            throw new InvalidOperationException("The owned group log is not open.");
-
-        var status = await log.GetStatusAsync(cancellationToken);
-        var index = status.LastLogIndex + 1;
-        var positioned = record with { LogIndex = index, Term = 1 };
-        FollowerLogEntry[] entry = [new(index, 1, ReplicaLogCodec.Encode(in positioned))];
-        var appended = await log.AppendAsync(new FollowerLogAppendRequest("n1", 1, status.LastLogIndex, 1, committed ? index : status.CommitIndex, entry), cancellationToken);
-        if (!appended.Success)
-            throw new InvalidOperationException($"The owned group log refused the entry: {appended.RefusalCode}.");
-    }
-
-    /// <summary>Raises the owned group log's current term without appending an entry, as a new leader term that has not written yet.</summary>
-    /// <param name="registry">The open registry of the owner.</param>
-    /// <param name="currentTerm">The new current term.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>An asynchronous operation.</returns>
-    /// <exception cref="InvalidOperationException">The owned group log is not open or refused the term.</exception>
-    internal static async Task RaiseTermAsync(ReplicaGroupRegistry registry, ulong currentTerm, CancellationToken cancellationToken)
-    {
-        if (!registry.TryGetLog("n1", out var log))
-            throw new InvalidOperationException("The owned group log is not open.");
-
-        var status = await log.GetStatusAsync(cancellationToken);
-        var raised = await log.AppendAsync(
-            new FollowerLogAppendRequest("n1", currentTerm, status.LastLogIndex, status.LastLogTerm, status.CommitIndex, ReadOnlyMemory<FollowerLogEntry>.Empty),
-            cancellationToken);
-        if (!raised.Success)
-            throw new InvalidOperationException($"The owned group log refused term {currentTerm}: {raised.RefusalCode}.");
-    }
-
     internal static async Task<FollowerLogStatus> StatusAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken) =>
         registry.TryGetLog("n1", out var log) ? await log.GetStatusAsync(cancellationToken)
             : throw new InvalidOperationException("The owned group log is not open.");
+
+    internal static string TailOperationId(string key) => "tail-" + key;
 
     /// <summary>
     /// Follower double: matches the leader batch, refuses it as a log mismatch, or fails the transport. A follower behind the leader
@@ -350,50 +350,26 @@ internal static class ReplicaOwnerTestKit
         private readonly ConcurrentDictionary<string, FollowerMode> _modes = new(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, TaskCompletionSource> _sent = new(StringComparer.Ordinal);
 
-        /// <summary>Gets or sets a hook that runs, before it answers, on every batch with entries a follower receives.</summary>
-        internal Action? OnAppend { get; set; }
-
-        /// <summary>Gets the node, predecessor index, and entry count of every non-empty batch sent.</summary>
-        internal ConcurrentQueue<(string Node, ulong PrevLogIndex, int Count)> Appends { get; } = new();
-
         /// <summary>Gets the node and the replication envelope of every non-empty batch sent, in the order of <see cref="Appends" />.</summary>
         internal ConcurrentQueue<(string Node, ReplicaRpcHeader Header)> AppendHeaders { get; } = new();
 
         /// <summary>Gets the node and the leader the batch itself names, of every non-empty batch sent, in the order of <see cref="Appends" />.</summary>
         internal ConcurrentQueue<(string Node, string LeaderNodeId)> AppendLeaders { get; } = new();
 
+        /// <summary>Gets the node, predecessor index, and entry count of every non-empty batch sent.</summary>
+        internal ConcurrentQueue<(string Node, ulong PrevLogIndex, int Count)> Appends { get; } = new();
+
+        /// <summary>Gets or sets a hook that runs, before it answers, on every batch with entries a follower receives.</summary>
+        internal Action? OnAppend { get; set; }
+
         public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
             var last = batch.Records.Count == 0 ? batch.PrevLogIndex : batch.Records[^1].LogIndex;
             var mode = _modes.TryGetValue(nodeId, out var scripted) ? scripted : FollowerMode.Match;
             if (batch.Records.Count > 0)
-            {
-                Appends.Enqueue((nodeId, batch.PrevLogIndex, batch.Records.Count));
-                AppendHeaders.Enqueue((nodeId, header));
-                AppendLeaders.Enqueue((nodeId, batch.LeaderNodeId));
-                _ = SentTo(nodeId).TrySetResult();
-                OnAppend?.Invoke();
-            }
+                RecordAppend(nodeId, in header, in batch);
 
-            return mode switch
-            {
-                FollowerMode.Match => Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last)),
-                FollowerMode.Mismatch => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, batch.LeaderTerm, 0)),
-                FollowerMode.Down => Task.FromException<FollowerLogAppendResult>(new IOException("follower is down")),
-                FollowerMode.Longer => Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last + 5)),
-                FollowerMode.Refused => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.StaleTerm, batch.LeaderTerm + 1, last)),
-                FollowerMode.Behind => Task.FromResult(AppendBehind(nodeId, in batch, last)),
-                FollowerMode.Silent when batch.Records.Count > 0 => new TaskCompletionSource<FollowerLogAppendResult>(TaskCreationOptions.RunContinuationsAsynchronously).Task.WaitAsync(cancellationToken),
-                FollowerMode.Silent => Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last)),
-                FollowerMode.BehindLonger => Task.FromResult(
-                    batch.Records.Count == 0 ? new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, batch.LeaderTerm, 0)
-                        : new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last + 5)),
-                FollowerMode.Incomplete => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.Incomplete, 0, 0)),
-                FollowerMode.Unseeded => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.Unseeded, 0, 0)),
-                FollowerMode.Stalled when batch.Records.Count > 0 => Task.FromException<FollowerLogAppendResult>(new IOException("follower stores no entry")),
-                FollowerMode.Stalled => Task.FromResult(AppendBehind(nodeId, in batch, last)),
-                _ => throw new ArgumentOutOfRangeException(nameof(nodeId)),
-            };
+            return AnswerForAsync(mode, nodeId, in batch, last, cancellationToken);
         }
 
         /// <summary>Returns a task that completes once a batch with entries was sent to a follower, after it is recorded in <see cref="AppendHeaders" />.</summary>
@@ -407,8 +383,27 @@ internal static class ReplicaOwnerTestKit
             _held[nodeId] = held;
         }
 
-        private TaskCompletionSource SentTo(string nodeId) =>
-            _sent.GetOrAdd(nodeId, static _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+        private static FollowerLogAppendResult AppendBehindLonger(in FollowerBatch batch, ulong last) =>
+            batch.Records.Count == 0 ? new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, batch.LeaderTerm, 0)
+                : new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last + 5);
+
+        private Task<FollowerLogAppendResult> AnswerForAsync(FollowerMode mode, string nodeId, in FollowerBatch batch, ulong last, CancellationToken cancellationToken) => mode switch
+        {
+            FollowerMode.Match => Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last)),
+            FollowerMode.Mismatch => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, batch.LeaderTerm, 0)),
+            FollowerMode.Down => Task.FromException<FollowerLogAppendResult>(new IOException("follower is down")),
+            FollowerMode.Longer => Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last + 5)),
+            FollowerMode.Refused => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.StaleTerm, batch.LeaderTerm + 1, last)),
+            FollowerMode.Behind => Task.FromResult(AppendBehind(nodeId, in batch, last)),
+            FollowerMode.Silent when batch.Records.Count > 0 => new TaskCompletionSource<FollowerLogAppendResult>(TaskCreationOptions.RunContinuationsAsynchronously).Task.WaitAsync(cancellationToken),
+            FollowerMode.Silent => Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last)),
+            FollowerMode.BehindLonger => Task.FromResult(AppendBehindLonger(in batch, last)),
+            FollowerMode.Incomplete => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.Incomplete, 0, 0)),
+            FollowerMode.Unseeded => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.Unseeded, 0, 0)),
+            FollowerMode.Stalled when batch.Records.Count > 0 => Task.FromException<FollowerLogAppendResult>(new IOException("follower stores no entry")),
+            FollowerMode.Stalled => Task.FromResult(AppendBehind(nodeId, in batch, last)),
+            _ => throw new ArgumentOutOfRangeException(nameof(nodeId)),
+        };
 
         private FollowerLogAppendResult AppendBehind(string nodeId, in FollowerBatch batch, ulong last)
         {
@@ -420,6 +415,17 @@ internal static class ReplicaOwnerTestKit
             _held[nodeId] = held;
             return new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, held);
         }
+
+        private void RecordAppend(string nodeId, in ReplicaRpcHeader header, in FollowerBatch batch)
+        {
+            Appends.Enqueue((nodeId, batch.PrevLogIndex, batch.Records.Count));
+            AppendHeaders.Enqueue((nodeId, header));
+            AppendLeaders.Enqueue((nodeId, batch.LeaderNodeId));
+            _ = SentTo(nodeId).TrySetResult();
+            OnAppend?.Invoke();
+        }
+
+        private TaskCompletionSource SentTo(string nodeId) => _sent.GetOrAdd(nodeId, static _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
     }
 
     /// <summary>In-memory local cache double that records the key of every applied write, in order.</summary>

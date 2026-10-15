@@ -62,37 +62,6 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <inheritdoc />
     Task<GroupSnapshot?> IFollowerLogSnapshotStore.ReadPublishedAsync(CancellationToken cancellationToken) => ReadPublishedAsync(cancellationToken);
 
-    /// <summary>Computes the canonical transfer length and checksum for a snapshot payload.</summary>
-    /// <param name="snapshot">Snapshot to encode canonically.</param>
-    /// <param name="maxSnapshotBytes">Maximum accepted payload length; bounds the pooled rent against untrusted snapshots.</param>
-    /// <returns>The encoded payload integrity fields.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when the encoded payload length exceeds <paramref name="maxSnapshotBytes" />.</exception>
-    internal static GroupSnapshotPayloadIntegrity ComputePayloadIntegrity(in GroupSnapshot snapshot, int maxSnapshotBytes = DefaultMaxSnapshotBytes)
-    {
-        var payloadLength = GroupSnapshotCodec.ComputeSnapshotEncodedLength(in snapshot);
-        if (payloadLength > maxSnapshotBytes)
-            throw new InvalidOperationException($"Replica group snapshot payload length {payloadLength} exceeds the maximum {maxSnapshotBytes} bytes.");
-
-        var bytes = ArrayPool<byte>.Shared.Rent(payloadLength);
-        try
-        {
-            GroupSnapshotEncoder.EncodeSnapshot(bytes.AsSpan(0, payloadLength), in snapshot);
-            return new GroupSnapshotPayloadIntegrity(payloadLength, Crc32C.Compute(bytes.AsSpan(0, payloadLength)));
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.ReturnCleared(bytes);
-        }
-    }
-
-    /// <summary>Decodes complete snapshot file bytes without touching the published file.</summary>
-    /// <param name="fileBytes">The entire snapshot file bytes.</param>
-    /// <param name="maxSnapshotBytes">The maximum accepted snapshot file size in bytes.</param>
-    /// <param name="snapshot">The decoded snapshot when the file is valid.</param>
-    /// <returns><see langword="true" /> when the file is structurally valid, sized, and CRC-valid.</returns>
-    internal static bool TryDecodePublished(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot) =>
-        GroupSnapshotCodec.TryValidateAndDecode(fileBytes, maxSnapshotBytes, out snapshot, out _);
-
     /// <summary>Computes the byte length of the published file image of a snapshot.</summary>
     /// <param name="snapshot">The snapshot whose committed outcomes are already materialized.</param>
     /// <param name="maxSnapshotBytes">The maximum accepted snapshot file size in bytes.</param>
@@ -121,6 +90,14 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         var crc = Crc32C.Compute(destination.Slice(headerLen, payloadLength));
         BinaryPrimitives.WriteUInt32LittleEndian(destination[(headerLen + payloadLength)..], crc);
     }
+
+    /// <summary>Decodes complete snapshot file bytes without touching the published file.</summary>
+    /// <param name="fileBytes">The entire snapshot file bytes.</param>
+    /// <param name="maxSnapshotBytes">The maximum accepted snapshot file size in bytes.</param>
+    /// <param name="snapshot">The decoded snapshot when the file is valid.</param>
+    /// <returns><see langword="true" /> when the file is structurally valid, sized, and CRC-valid.</returns>
+    internal static bool TryDecodePublished(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot) =>
+        GroupSnapshotCodec.TryValidateAndDecode(fileBytes, maxSnapshotBytes, out snapshot, out _);
 
     /// <summary>Tells, without writing, whether the published file image of a snapshot stays within the configured maximum size.</summary>
     /// <param name="snapshot">The snapshot whose committed outcomes are already materialized.</param>

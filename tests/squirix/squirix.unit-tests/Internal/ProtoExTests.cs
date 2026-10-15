@@ -176,7 +176,7 @@ public sealed class ProtoExTests
 
         // Golden wire scalar: negative zero must survive as a negative double,
         // not collapse to plain zero inside the envelope.
-        var enumerator = wire.Value.Fields.GetEnumerator();
+        using var enumerator = wire.Value.Fields.GetEnumerator();
         _ = await Assert.That(enumerator.MoveNext()).IsTrue();
         var scalar = enumerator.Current;
         _ = await Assert.That(enumerator.MoveNext()).IsFalse();

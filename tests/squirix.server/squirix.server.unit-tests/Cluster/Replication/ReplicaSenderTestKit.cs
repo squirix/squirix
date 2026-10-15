@@ -55,7 +55,7 @@ internal static class ReplicaSenderTestKit
             0,
             0,
             4);
-        return sender.EnqueueAsync(mutation, in record, prevIndex ?? (index - 1), prevTerm ?? term, index - 1);
+        return sender.EnqueueAsync(mutation, in record, prevIndex ?? index - 1, prevTerm ?? term, index - 1);
     }
 
     /// <summary>Waits for a task with the hang guard, so a missing step fails the test instead of hanging it.</summary>

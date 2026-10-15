@@ -234,7 +234,6 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         private readonly VolatileField<Exception> _failure = new();
         private readonly Ledger _ledger;
         private readonly PersistenceOptions _options;
-        private readonly PendingAppendRegistry _pendingAppends = new();
         private readonly BoundedJournalRing _ring;
         private readonly IJournalSegmentWriter _segmentWriter;
         private readonly JournalStallProbe _stallProbe;
@@ -273,7 +272,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
 
         PersistenceOptions IJournalCoordinatorState.Options => _options;
 
-        PendingAppendRegistry IJournalCoordinatorState.PendingAppends => _pendingAppends;
+        PendingAppendRegistry IJournalCoordinatorState.PendingAppends { get; } = new();
 
         MutableInt32 IJournalCoordinatorState.QueuedAppendsCounter { get; } = new();
 

@@ -44,10 +44,6 @@ namespace Squirix.Server.Storage.Replication;
     "Maintainability",
     "SQR0002",
     Justification = "Each member is one gated entry point of the IFollowerLog contract; moving some to another type would take the gate with them.")]
-[SuppressMessage(
-    "Maintainability",
-    "MA0051",
-    Justification = "Recovery intentionally keeps the file-header, snapshot-baseline, and torn-tail reconciliation in one gated transaction.")]
 internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 {
     private static readonly IFollowerLogFaultHooks DefaultFaults = new NoOpFaultHooks();
@@ -116,8 +112,19 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
     }
 
-    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, ILogger<FollowerLog> log, IFollowerLogFaultHooks faultHooks, TimeProvider timeProvider)
-        : this(persistenceRoot, groupId, composition, log, new FollowerLogOptions { FaultHooks = faultHooks, TimeProvider = timeProvider, ShutdownTimeProvider = TimeProvider.System })
+    internal FollowerLog(
+        string persistenceRoot,
+        string groupId,
+        GroupComposition composition,
+        ILogger<FollowerLog> log,
+        IFollowerLogFaultHooks faultHooks,
+        TimeProvider timeProvider)
+        : this(
+            persistenceRoot,
+            groupId,
+            composition,
+            log,
+            new FollowerLogOptions { FaultHooks = faultHooks, TimeProvider = timeProvider, ShutdownTimeProvider = TimeProvider.System })
     {
     }
 
@@ -142,7 +149,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     GroupIdempotencyState IFollowerLogState.Idempotency => _idempotency;
 
     /// <inheritdoc />
-    [SuppressMessage("Major Code Smell", "S2292:Trivial properties should be auto-implemented", Justification = "An explicit interface implementation cannot be auto-implemented; the state stays private to the log and its gate.")]
+    [SuppressMessage(
+        "Major Code Smell",
+        "S2292:Trivial properties should be auto-implemented",
+        Justification = "An explicit interface implementation cannot be auto-implemented; the state stays private to the log and its gate.")]
     ulong IFollowerLogState.LastLogIndex
     {
         get => _lastLogIndex;
@@ -150,7 +160,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    [SuppressMessage("Major Code Smell", "S2292:Trivial properties should be auto-implemented", Justification = "An explicit interface implementation cannot be auto-implemented; the state stays private to the log and its gate.")]
+    [SuppressMessage(
+        "Major Code Smell",
+        "S2292:Trivial properties should be auto-implemented",
+        Justification = "An explicit interface implementation cannot be auto-implemented; the state stays private to the log and its gate.")]
     long IFollowerLogDurability.LogLength
     {
         get => _logLength;
@@ -158,7 +171,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    [SuppressMessage("Major Code Smell", "S2292:Trivial properties should be auto-implemented", Justification = "An explicit interface implementation cannot be auto-implemented; the state stays private to the log and its gate.")]
+    [SuppressMessage(
+        "Major Code Smell",
+        "S2292:Trivial properties should be auto-implemented",
+        Justification = "An explicit interface implementation cannot be auto-implemented; the state stays private to the log and its gate.")]
     GroupLogMetadata IFollowerLogState.Meta
     {
         get => _meta;
@@ -194,7 +210,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <see cref="FollowerLogRefusal.Unseeded" /> for any other open log whose copy is not complete, otherwise <see cref="FollowerLogRefusal.NotReady" />.
     /// </summary>
     /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
-    private string RefusalCode => IsOpen && _meta.MemberState != GroupMemberState.Complete ? FollowerLogBootstrap.NotCompleteRefusal(_meta.MemberState) : FollowerLogRefusal.NotReady;
+    private string RefusalCode =>
+        IsOpen && _meta.MemberState != GroupMemberState.Complete ? FollowerLogBootstrap.NotCompleteRefusal(_meta.MemberState) : FollowerLogRefusal.NotReady;
 
     /// <summary>Gets a value indicating whether a call that mutates the log or the applied and commit watermarks is refused.</summary>
     /// <remarks>Callers hold <c language="csharp">_gate</c>. Only a complete copy of an open log takes such a call.</remarks>
@@ -259,8 +276,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        return Refuses ? GroupCompactionOutcome.NotReady
-            : await FollowerLogSnapshot.CompactThroughAsync(_journal, this, index, cancellationToken).ConfigureAwait(false);
+        return Refuses ? GroupCompactionOutcome.NotReady : await FollowerLogSnapshot.CompactThroughAsync(_journal, this, index, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -360,8 +376,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         ArgumentOutOfRangeException.ThrowIfZero(fromIndex);
         ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return IsDisposed || Readiness != FollowerLogReadiness.Ready
-            ? throw new InvalidOperationException($"Replica group '{GroupId}' log is not ready to read its entries.")
+        return IsDisposed || Readiness != FollowerLogReadiness.Ready ? throw new InvalidOperationException($"Replica group '{GroupId}' log is not ready to read its entries.")
             : await FollowerLogRead.ReadRangeAsync(_journal, this, fromIndex, maxCount, cancellationToken).ConfigureAwait(false);
     }
 
@@ -372,8 +387,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         // One gate acquisition: a commit advancing between the status and the tail would pair the status with a shorter tail.
         var status = CaptureStatus();
-        return status.LastLogIndex == status.CommitIndex ? new FollowerLogTail(status, 0UL, [])
-            : new FollowerLogTail(status, TermAt(status.CommitIndex), _journal.CollectUncommittedTail(status.CommitIndex));
+        return status.LastLogIndex == status.CommitIndex ? new FollowerLogTail(status, 0UL, []) : new FollowerLogTail(
+            status,
+            TermAt(status.CommitIndex),
+            _journal.CollectUncommittedTail(status.CommitIndex));
     }
 
     /// <inheritdoc />
@@ -415,13 +432,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         return await FollowerLogStateInstall.BeginAsync(
-                                                _journal,
-                                                this,
-                                                IsOpen,
-                                                CaptureStatus().IsTopologyMismatch(fingerprint, generation),
-                                                (leader, index, snapshot),
-                                                cancellationToken)
-                                            .ConfigureAwait(false);
+            _journal,
+            this,
+            IsOpen,
+            CaptureStatus().IsTopologyMismatch(fingerprint, generation),
+            (leader, index, snapshot),
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -480,16 +496,24 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     public async Task<string?> AcceptBootstrapOfferAsync(ReadOnlyMemory<byte> topologyFingerprint, ulong configurationGeneration, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return await FollowerLogBootstrap.AcceptOfferAsync(_journal, this, IsOpen, CaptureStatus().IsTopologyMismatch(topologyFingerprint, configurationGeneration), cancellationToken)
-                                         .ConfigureAwait(false);
+        return await FollowerLogBootstrap.AcceptOfferAsync(
+            _journal,
+            this,
+            IsOpen,
+            CaptureStatus().IsTopologyMismatch(topologyFingerprint, configurationGeneration),
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public async Task<string?> CompleteIfOfferedAsync(ReadOnlyMemory<byte> topologyFingerprint, ulong configurationGeneration, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return await FollowerLogBootstrap.CompleteIfOfferedAsync(_journal, this, IsOpen, CaptureStatus().IsTopologyMismatch(topologyFingerprint, configurationGeneration), cancellationToken)
-                                         .ConfigureAwait(false);
+        return await FollowerLogBootstrap.CompleteIfOfferedAsync(
+            _journal,
+            this,
+            IsOpen,
+            CaptureStatus().IsTopologyMismatch(topologyFingerprint, configurationGeneration),
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -637,14 +661,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <returns>The term of the retained entry or snapshot baseline at <paramref name="logIndex" />; zero at the log origin.</returns>
     /// <exception cref="InvalidDataException">The log retains no term for a non-zero <paramref name="logIndex" />.</exception>
     /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
-    private ulong TermAt(ulong logIndex) =>
-        logIndex switch
-        {
-            0UL => 0UL,
-            _ when _journal.TryGetEntryOffset(logIndex, out var location) => location.Term,
-            _ when _journal.SnapshotBaseline.LastIncludedIndex == logIndex => _journal.SnapshotBaseline.LastIncludedTerm,
-            _ => throw new InvalidDataException($"Replica group '{GroupId}' retains no term for log index '{logIndex}'."),
-        };
+    private ulong TermAt(ulong logIndex) => logIndex switch
+    {
+        0UL => 0UL,
+        _ when _journal.TryGetEntryOffset(logIndex, out var location) => location.Term,
+        _ when _journal.SnapshotBaseline.LastIncludedIndex == logIndex => _journal.SnapshotBaseline.LastIncludedTerm,
+        _ => throw new InvalidDataException($"Replica group '{GroupId}' retains no term for log index '{logIndex}'."),
+    };
 
     /// <summary>Maps <see cref="FollowerLogReadiness" /> to and from the raw value a follower log publishes through a volatile barrier.</summary>
     private static class FollowerLogReadinessValue
@@ -784,7 +807,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         internal static bool IsLogUpToDate(ulong candidateLastTerm, ulong candidateLastIndex, ulong localLastTerm, ulong localLastIndex) =>
             candidateLastTerm != localLastTerm ? candidateLastTerm > localLastTerm : candidateLastIndex >= localLastIndex;
 
-        internal static async Task PersistMetaOrFailReadinessAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupLogMetadata candidate, CancellationToken cancellationToken)
+        internal static async Task PersistMetaOrFailReadinessAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            GroupLogMetadata candidate,
+            CancellationToken cancellationToken)
         {
             try
             {
@@ -803,7 +830,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// <param name="candidate">The metadata that records the grant.</param>
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>A task that completes once both copies are durable.</returns>
-        internal static async Task PersistMirroredMetaOrFailReadinessAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupLogMetadata candidate, CancellationToken cancellationToken)
+        internal static async Task PersistMirroredMetaOrFailReadinessAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            GroupLogMetadata candidate,
+            CancellationToken cancellationToken)
         {
             try
             {
@@ -1505,7 +1536,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// </remarks>
     private static class FollowerLogBootstrap
     {
-        internal static async Task<string?> AcceptOfferAsync(FollowerLogJournal journal, IFollowerLogContext owner, bool open, bool topologyMismatch, CancellationToken cancellationToken)
+        internal static async Task<string?> AcceptOfferAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            bool open,
+            bool topologyMismatch,
+            CancellationToken cancellationToken)
         {
             var meta = owner.Meta;
             if (!open || meta.MemberState != GroupMemberState.Unseeded)
@@ -1528,7 +1564,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             await StoreAsync(journal, owner, meta with { MemberState = GroupMemberState.Complete }, cancellationToken).ConfigureAwait(false);
         }
 
-        internal static async Task<string?> CompleteIfOfferedAsync(FollowerLogJournal journal, IFollowerLogContext owner, bool open, bool topologyMismatch, CancellationToken cancellationToken)
+        internal static async Task<string?> CompleteIfOfferedAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            bool open,
+            bool topologyMismatch,
+            CancellationToken cancellationToken)
         {
             var meta = owner.Meta;
             if (!open)
@@ -1550,8 +1591,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// <summary>Gets the refusal marker of a copy that is not complete.</summary>
         /// <param name="state">The member state of the copy.</param>
         /// <returns><see cref="FollowerLogRefusal.Incomplete" /> for an incomplete copy, otherwise <see cref="FollowerLogRefusal.Unseeded" />.</returns>
-        internal static string NotCompleteRefusal(GroupMemberState state) =>
-            state == GroupMemberState.Incomplete ? FollowerLogRefusal.Incomplete : FollowerLogRefusal.Unseeded;
+        internal static string NotCompleteRefusal(GroupMemberState state) => state == GroupMemberState.Incomplete ? FollowerLogRefusal.Incomplete : FollowerLogRefusal.Unseeded;
 
         private static async Task StoreAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupLogMetadata candidate, CancellationToken cancellationToken)
         {
@@ -1660,15 +1700,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             var entries = new List<FollowerLogEntry>(count);
             _ = await GroupLogFrameReader.ReadAsync(
-                        journal.Paths.LogPath,
-                        frames,
-                        entry =>
-                        {
-                            entries.Add(entry);
-                            return true;
-                        },
-                        cancellationToken)
-                    .ConfigureAwait(false);
+                journal.Paths.LogPath,
+                frames,
+                entry =>
+                {
+                    entries.Add(entry);
+                    return true;
+                },
+                cancellationToken).ConfigureAwait(false);
 
             return new FollowerLogEntriesRead(true, prev, prevTerm, lastLogIndex, commitIndex, entries);
         }
@@ -1787,77 +1826,111 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 FileShare.ReadWrite | FileShare.Delete,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
             using (handle)
+                await RecoverOpenedFileAsync(handle, journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
+        }
+
+        private static async Task RecoverOpenedFileAsync(
+            SafeFileHandle handle,
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            ulong snapshotBase,
+            CancellationToken cancellationToken)
+        {
+            if (await TryResetShortFileAsync(handle, journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false))
+                return;
+
+            await ReadAndValidateLogFileHeaderAsync(handle, owner, cancellationToken).ConfigureAwait(false);
+
+            journal.ClearEntries();
+
+            // A populated log starts at index one (full history), right after the compacted snapshot
+            // base, or — when a newer snapshot was published after the last compaction — inside the
+            // snapshot-covered prefix. In the third shape the discarded head is backed by the published
+            // snapshot, so the walk resumes from the last journaled index below the first frame. Trusting
+            // the snapshot base against a full log would misread its first frame as a committed gap, so
+            // the starting index is derived from the first frame.
+            var firstIndex = await PeekFirstFrameIndexAsync(handle, cancellationToken).ConfigureAwait(false);
+            if (await TryResetTornFirstFrameAsync(journal, owner, firstIndex, snapshotBase, cancellationToken).ConfigureAwait(false))
+                return;
+
+            var walkBase = DeriveWalkBaseIndex(firstIndex, snapshotBase);
+            owner.LastLogIndex = walkBase;
+
+            var result = await WalkFramesAsync(journal, owner, handle, cancellationToken).ConfigureAwait(false);
+            await FinishRecoveredWalkAsync(handle, journal, owner, snapshotBase, walkBase, result, cancellationToken).ConfigureAwait(false);
+        }
+
+        private static async Task<bool> TryResetShortFileAsync(
+            SafeFileHandle handle,
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            ulong snapshotBase,
+            CancellationToken cancellationToken)
+        {
+            // An empty file is treated the same as no file at all.
+            // A header-only file carries no frames, so only the snapshot baseline (if any) is durable.
+            var length = RandomAccess.GetLength(handle);
+            if (length == 0 || length == GroupLogCodec.LogFileHeader.Length)
             {
-                // An empty file is treated the same as no file at all.
-                if (RandomAccess.GetLength(handle) == 0)
-                {
-                    await SnapshotBoundaryWatermarks.ResetAndEnsureAsync(journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
-                    return;
-                }
-
-                // Anything preceding the expected header marks the file as unusable.
-                if (RandomAccess.GetLength(handle) < GroupLogCodec.LogFileHeader.Length)
-                {
-                    owner.Readiness = FollowerLogReadiness.Failed;
-                    throw new InvalidDataException($"Replica group '{owner.GroupId}' log header is corrupt.");
-                }
-
-                // A header-only file carries no frames, so only the snapshot baseline (if any) is durable.
-                if (RandomAccess.GetLength(handle) == GroupLogCodec.LogFileHeader.Length)
-                {
-                    await SnapshotBoundaryWatermarks.ResetAndEnsureAsync(journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
-                    return;
-                }
-
-                await ReadAndValidateLogFileHeaderAsync(handle, owner, cancellationToken).ConfigureAwait(false);
-
-                journal.ClearEntries();
-
-                // A populated log starts at index one (full history), right after the compacted snapshot
-                // base, or — when a newer snapshot was published after the last compaction — inside the
-                // snapshot-covered prefix. In the third shape the discarded head is backed by the published
-                // snapshot, so the walk resumes from the last journaled index below the first frame. Trusting
-                // the snapshot base against a full log would misread its first frame as a committed gap, so
-                // the starting index is derived from the first frame.
-                var firstIndex = await PeekFirstFrameIndexAsync(handle, cancellationToken).ConfigureAwait(false);
-                if (firstIndex == 0 && snapshotBase > 0)
-                {
-                    // The first suffix frame after the validated snapshot base is torn; the entire suffix is
-                    // unrecoverable. Truncate the file to the header and restart from the snapshot baseline,
-                    // but only while the snapshot covers the whole committed prefix: destroying the file below
-                    // a higher durable commit watermark would turn a repairable shortfall into a permanent one.
-                    if (snapshotBase < owner.Meta.CommitIndex)
-                    {
-                        owner.Readiness = FollowerLogReadiness.Failed;
-                        throw new InvalidDataException(
-                            $"Replica group '{owner.GroupId}' first journal frame above snapshot base '{snapshotBase}' is unreadable while the commit watermark '{owner.Meta.CommitIndex}' exceeds it.");
-                    }
-
-                    await TruncateAndResetAsync(journal, owner, GroupLogCodec.LogFileHeader.Length, snapshotBase, cancellationToken).ConfigureAwait(false);
-                    return;
-                }
-
-                var walkBase = DeriveWalkBaseIndex(firstIndex, snapshotBase);
-                owner.LastLogIndex = walkBase;
-
-                var result = await WalkFramesAsync(journal, owner, handle, cancellationToken).ConfigureAwait(false);
-
-                // A crash between snapshot publication and journal truncation leaves the old journal in place; a
-                // surviving frame at the restored snapshot's included index carrying a different term means the
-                // suffix above it belongs to a divergent history and is discarded, restarting from the snapshot.
-                if (result.BoundaryDivergent)
-                {
-                    await TruncateAndResetAsync(journal, owner, GroupLogCodec.LogFileHeader.Length, snapshotBase, cancellationToken).ConfigureAwait(false);
-                    return;
-                }
-
-                // A torn trailing frame is truncated back to the last valid boundary on disk,
-                // since a CRC mismatch alone cannot tell an appended tail from corruption.
-                if (result.Truncated && result.LastValidEnd < RandomAccess.GetLength(handle))
-                    await ScheduleTruncateAsync(journal, result.LastValidEnd, cancellationToken).ConfigureAwait(false);
-
-                await SnapshotBoundaryWatermarks.CompleteWalkAsync(journal, owner, snapshotBase, (walkBase, result.LastValidEnd), cancellationToken).ConfigureAwait(false);
+                await SnapshotBoundaryWatermarks.ResetAndEnsureAsync(journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
+                return true;
             }
+
+            // Anything preceding the expected header marks the file as unusable.
+            if (length >= GroupLogCodec.LogFileHeader.Length)
+                return false;
+            owner.Readiness = FollowerLogReadiness.Failed;
+            throw new InvalidDataException($"Replica group '{owner.GroupId}' log header is corrupt.");
+        }
+
+        private static async Task<bool> TryResetTornFirstFrameAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            ulong firstIndex,
+            ulong snapshotBase,
+            CancellationToken cancellationToken)
+        {
+            if (firstIndex != 0 || snapshotBase == 0)
+                return false;
+
+            // The first suffix frame after the validated snapshot base is torn; the entire suffix is
+            // unrecoverable. Truncate the file to the header and restart from the snapshot baseline,
+            // but only while the snapshot covers the whole committed prefix: destroying the file below
+            // a higher durable commit watermark would turn a repairable shortfall into a permanent one.
+            if (snapshotBase < owner.Meta.CommitIndex)
+            {
+                owner.Readiness = FollowerLogReadiness.Failed;
+                throw new InvalidDataException($"Replica group '{owner.GroupId}' first journal frame above snapshot base '{snapshotBase}' is unreadable while the commit watermark '{owner.Meta.CommitIndex}' exceeds it.");
+            }
+
+            await TruncateAndResetAsync(journal, owner, GroupLogCodec.LogFileHeader.Length, snapshotBase, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        private static async Task FinishRecoveredWalkAsync(
+            SafeFileHandle handle,
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            ulong snapshotBase,
+            ulong walkBase,
+            WalkResult result,
+            CancellationToken cancellationToken)
+        {
+            // A crash between snapshot publication and journal truncation leaves the old journal in place; a
+            // surviving frame at the restored snapshot's included index carrying a different term means the
+            // suffix above it belongs to a divergent history and is discarded, restarting from the snapshot.
+            if (result.BoundaryDivergent)
+            {
+                await TruncateAndResetAsync(journal, owner, GroupLogCodec.LogFileHeader.Length, snapshotBase, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            // A torn trailing frame is truncated back to the last valid boundary on disk,
+            // since a CRC mismatch alone cannot tell an appended tail from corruption.
+            if (result.Truncated && result.LastValidEnd < RandomAccess.GetLength(handle))
+                await ScheduleTruncateAsync(journal, result.LastValidEnd, cancellationToken).ConfigureAwait(false);
+
+            await SnapshotBoundaryWatermarks.CompleteWalkAsync(journal, owner, snapshotBase, (walkBase, result.LastValidEnd), cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>Fails recovery for a gap within the committed region.</summary>
@@ -2342,7 +2415,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             EnsureCommittedPrefixCovered(owner, snapshotBase);
 
             // Only a frame the walk found above its base counts as held by the log.
-            await RaiseAppliedToBoundaryAsync(journal, owner, snapshotBase, owner.LastLogIndex > walk.BaseIndex ? owner.LastLogIndex : 0UL, cancellationToken).ConfigureAwait(false);
+            await RaiseAppliedToBoundaryAsync(journal, owner, snapshotBase, owner.LastLogIndex > walk.BaseIndex ? owner.LastLogIndex : 0UL, cancellationToken)
+               .ConfigureAwait(false);
 
             // Releases the applied entry payloads from memory, retaining their durable frame offsets.
             journal.ReleaseAppliedEntries(owner.Meta.LastAppliedIndex);
@@ -2426,10 +2500,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// index, committed or not, stays in the log as the retained tail, which must hold every index through the last one. The snapshot
         /// is published before the compaction core rewrites the log, so a crash between the two recovers from the snapshot plus the old log.
         /// </remarks>
-        internal static async Task<GroupCompactionOutcome> CompactThroughAsync(FollowerLogJournal journal, IFollowerLogContext owner, ulong index, CancellationToken cancellationToken)
+        internal static async Task<GroupCompactionOutcome> CompactThroughAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            ulong index,
+            CancellationToken cancellationToken)
         {
             var eligible = index != 0UL && index == owner.Meta.LastAppliedIndex && index <= owner.Meta.CommitIndex && index <= owner.LastLogIndex &&
-                index >= journal.SnapshotBaseline.LastIncludedIndex;
+                           index >= journal.SnapshotBaseline.LastIncludedIndex;
             if (!eligible)
                 return GroupCompactionOutcome.NotReady;
 
@@ -2543,31 +2621,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (snapshot == null)
                 return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
 
-            var included = snapshot.Value.LastIncludedIndex;
+            var snapshotValue = snapshot.Value;
+            if (RefuseCompactionSnapshot(owner, journal, in snapshotValue) is { } refusal)
+                return new GroupCompactionResult(false, null, refusal);
 
-            // The durable prefix is dropped only through a committed index the published snapshot covers; committed entries above it stay
-            // in the retained tail.
-            if (included == 0UL || included > owner.Meta.CommitIndex || included > owner.LastLogIndex || included > owner.Meta.LastAppliedIndex)
-                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
-
-            // Frames in (included, LastAppliedIndex] were released from `Entries` by PruneAppliedEntries, so the
-            // retained tail cannot reproduce them. Compacting here would drop committed frames the snapshot does
-            // not cover and leave a committed gap for recovery.
-            if (included < owner.Meta.LastAppliedIndex)
-                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
-
-            // Validate the published snapshot's identity and topology against the durable local state before any
-            // destructive rewrite. A snapshot that diverges from the replica must not be used to truncate the durable
-            // prefix; the suffix must instead survive as a replicable tail.
-            if (!string.Equals(snapshot.Value.GroupId, owner.GroupId, StringComparison.Ordinal))
-                return new GroupCompactionResult(false, null, FollowerLogRefusal.NotMember);
-
-            if (SnapshotTopologyMismatch(owner, snapshot.Value) is { } topologyRefusal)
-                return new GroupCompactionResult(false, null, topologyRefusal);
-
-            if (journal.EntryOffsets.TryGetValue(included, out var boundary) && boundary.Term != snapshot.Value.LastIncludedTerm)
-                return new GroupCompactionResult(false, null, FollowerLogRefusal.LogMismatch);
-
+            var included = snapshotValue.LastIncludedIndex;
             var tail = CollectRetainedTail(journal, included);
 
             // Every frame above the boundary must be rewritten: a missing index would leave a gap, committed entries included, that
@@ -2576,34 +2634,81 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
 
             var retainedLogIndexes = CollectRetainedLogIndexes(tail);
-
-            (int Length, List<long> Offsets) result;
-            try
-            {
-                result = await FollowerLogDurable.ReplaceLogAsync(journal, owner, tail, cancellationToken).ConfigureAwait(false);
-            }
-            catch
-            {
-                owner.Readiness = FollowerLogReadiness.Failed;
-                throw;
-            }
-
-            var (length, offsets) = result;
+            var (length, offsets) = await ReplaceRewrittenTailAsync(journal, owner, tail, cancellationToken).ConfigureAwait(false);
             ReindexTail(journal, tail, offsets);
 
             owner.LastLogIndex = tail.Count == 0 ? included : tail[^1].LogIndex;
             owner.LogLength = length;
 
             // ReindexTail already left only entries above the boundary, so the paired advance prunes nothing.
-            journal.AdvanceBaseline(new SnapshotBaseline(snapshot.Value.LastIncludedIndex, snapshot.Value.LastIncludedTerm));
+            journal.AdvanceBaseline(new SnapshotBaseline(snapshotValue.LastIncludedIndex, snapshotValue.LastIncludedTerm));
 
+            RestoreCompactionIdempotency(owner, in snapshotValue, retainedLogIndexes);
+            return new GroupCompactionResult(true, journal.Snapshot.SnapshotPath, string.Empty);
+        }
+
+        private static string? RefuseCompactionSnapshot(IFollowerLogContext owner, FollowerLogJournal journal, in GroupSnapshot snapshot)
+        {
+            return RefuseWatermarkMismatch(owner, snapshot.LastIncludedIndex)
+                ?? RefuseIdentityMismatch(owner, in snapshot)
+                ?? RefuseTermMismatch(journal, snapshot.LastIncludedIndex, in snapshot);
+        }
+
+        private static string? RefuseWatermarkMismatch(IFollowerLogContext owner, ulong included)
+        {
+            // The durable prefix is dropped only through a committed index the published snapshot covers; committed entries above it stay
+            // in the retained tail.
+            // Frames in (included, LastAppliedIndex] were released from `Entries` by PruneAppliedEntries, so the
+            // retained tail cannot reproduce them. Compacting here would drop committed frames the snapshot does
+            // not cover and leave a committed gap for recovery.
+            return included == 0UL || included > owner.Meta.CommitIndex || included > owner.LastLogIndex || included > owner.Meta.LastAppliedIndex || included < owner.Meta.LastAppliedIndex
+                ? FollowerLogRefusal.NotReady
+                : null;
+        }
+
+        private static string? RefuseIdentityMismatch(IFollowerLogContext owner, in GroupSnapshot snapshot)
+        {
+            // Validate the published snapshot's identity and topology against the durable local state before any
+            // destructive rewrite. A snapshot that diverges from the replica must not be used to truncate the durable
+            // prefix; the suffix must instead survive as a replicable tail.
+            return !string.Equals(snapshot.GroupId, owner.GroupId, StringComparison.Ordinal)
+                ? FollowerLogRefusal.NotMember
+                : SnapshotTopologyMismatch(owner, in snapshot);
+        }
+
+        private static string? RefuseTermMismatch(FollowerLogJournal journal, ulong included, in GroupSnapshot snapshot)
+        {
+            return journal.EntryOffsets.TryGetValue(included, out var boundary) && boundary.Term != snapshot.LastIncludedTerm
+                ? FollowerLogRefusal.LogMismatch
+                : null;
+        }
+
+        private static async Task<(int Length, List<long> Offsets)> ReplaceRewrittenTailAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            List<FollowerLogEntry> tail,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                return await FollowerLogDurable.ReplaceLogAsync(journal, owner, tail, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                owner.Readiness = FollowerLogReadiness.Failed;
+                throw;
+            }
+        }
+
+        private static void RestoreCompactionIdempotency(IFollowerLogContext owner, in GroupSnapshot snapshot, List<ulong> retainedLogIndexes)
+        {
             // The discarded prefix is now owned by the snapshot, which exports only resolved outcomes; any remaining
-            // record at or below `included` has lost its durable journal frame and must be released, while records
+            // record at or below the included index has lost its durable journal frame and must be released, while records
             // carried by the retained tail stay authoritative. The restore is never refused for the idempotency capacity,
             // so outcomes recorded while the snapshot was published cannot fail the log here.
             try
             {
-                owner.Idempotency.RestoreFromSnapshot(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc, retainedLogIndexes);
+                owner.Idempotency.RestoreFromSnapshot(snapshot.CommittedOutcomes, snapshot.CapturedUtc, retainedLogIndexes);
             }
             catch
             {
@@ -2612,8 +2717,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 owner.Readiness = FollowerLogReadiness.Failed;
                 throw;
             }
-
-            return new GroupCompactionResult(true, journal.Snapshot.SnapshotPath, string.Empty);
         }
 
         private static List<GroupIdempotencyRecord> ExportCoveredOutcomes(IFollowerLogContext owner, ulong lastIncludedIndex, out DateTime capturedUtc)
@@ -2689,8 +2792,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 _ when owner.Idempotency.HasUnresolvedThrough(index) => GroupSnapshotCaptureOutcome.UnresolvedOutcome,
                 _ => GroupSnapshotCaptureOutcome.Captured,
             };
-            return outcome == GroupSnapshotCaptureOutcome.Captured
-                ? new GroupSnapshotCapture(outcome, FollowerLogSnapshot.BuildSnapshot(journal, owner, index))
+            return outcome == GroupSnapshotCaptureOutcome.Captured ? new GroupSnapshotCapture(outcome, FollowerLogSnapshot.BuildSnapshot(journal, owner, index))
                 : GroupSnapshotCapture.Refused(outcome);
         }
 

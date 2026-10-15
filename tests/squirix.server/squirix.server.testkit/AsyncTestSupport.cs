@@ -18,16 +18,6 @@ public static class AsyncTestSupport
     public static Task WaitUntilAsync<T>(this T state, Func<T, bool> condition, CancellationToken cancellationToken) =>
         state.WaitUntilAsync(condition, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
 
-    /// <summary>Polls <paramref name="condition"/> against <paramref name="state"/> until it holds or <paramref name="timeout"/> expires.</summary>
-    /// <typeparam name="T">Observed state type.</typeparam>
-    /// <param name="state">Observed state.</param>
-    /// <param name="condition">Poll predicate.</param>
-    /// <param name="timeout">Maximum time to keep polling.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the condition holds.</returns>
-    public static Task WaitUntilAsync<T>(this T state, Func<T, bool> condition, TimeSpan timeout, CancellationToken cancellationToken) =>
-        state.WaitUntilAsync(condition, timeout, TimeProvider.System, cancellationToken);
-
     /// <summary>Polls <paramref name="condition"/> until it holds or <paramref name="timeout"/> expires, using <paramref name="timeProvider"/>.</summary>
     /// <typeparam name="T">Observed state type.</typeparam>
     /// <param name="state">Observed state.</param>
@@ -53,16 +43,6 @@ public static class AsyncTestSupport
     /// <returns>A task that completes when the condition holds.</returns>
     public static Task WaitUntilValueAsync<T>(this T state, Func<T, CancellationToken, ValueTask<bool>> condition, CancellationToken cancellationToken) =>
         state.WaitUntilValueAsync(condition, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-
-    /// <summary>Polls the asynchronous <paramref name="condition"/> until it holds or <paramref name="timeout"/> expires.</summary>
-    /// <typeparam name="T">Observed state type.</typeparam>
-    /// <param name="state">Observed state.</param>
-    /// <param name="condition">Asynchronous poll predicate.</param>
-    /// <param name="timeout">Maximum time to keep polling.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the condition holds.</returns>
-    public static Task WaitUntilValueAsync<T>(this T state, Func<T, CancellationToken, ValueTask<bool>> condition, TimeSpan timeout, CancellationToken cancellationToken) =>
-        state.WaitUntilValueAsync(condition, timeout, TimeProvider.System, cancellationToken);
 
     /// <summary>Polls the asynchronous <paramref name="condition"/> until it holds or <paramref name="timeout"/> expires, using <paramref name="timeProvider"/>.</summary>
     /// <typeparam name="T">Observed state type.</typeparam>

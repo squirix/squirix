@@ -325,11 +325,11 @@ internal static class ExploreRunner
             if (profile.AllowCrash)
                 CollectCrashes(state, output);
 
-            if (profile.AllowDiskLoss)
-            {
-                CollectDiskLosses(state, output);
-                ModelRepairs.Collect(state, profile, broken, output);
-            }
+            if (!profile.AllowDiskLoss)
+                return;
+
+            CollectDiskLosses(state, output);
+            ModelRepairs.Collect(state, profile, broken, output);
         }
 
         /// <summary>Wipes the disk of one node, at most once per run: it loses its term, vote, log and commit index and holds an unseeded copy.</summary>
