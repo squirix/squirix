@@ -237,6 +237,12 @@ internal sealed class ClusterState
 
         private static int CompareMessages(in InFlightMessage a, in InFlightMessage b)
         {
+            var c = CompareMessageHeaders(in a, in b);
+            return c != 0 ? c : CompareMessageBodies(in a, in b);
+        }
+
+        private static int CompareMessageHeaders(in InFlightMessage a, in InFlightMessage b)
+        {
             var c = a.Kind.CompareTo(b.Kind);
             if (c != 0)
                 return c;
@@ -246,14 +252,12 @@ internal sealed class ClusterState
                 return c;
 
             c = a.To.CompareTo(b.To);
-            if (c != 0)
-                return c;
+            return c != 0 ? c : a.Term.CompareTo(b.Term);
+        }
 
-            c = a.Term.CompareTo(b.Term);
-            if (c != 0)
-                return c;
-
-            c = a.LastLogIndex.CompareTo(b.LastLogIndex);
+        private static int CompareMessageBodies(in InFlightMessage a, in InFlightMessage b)
+        {
+            var c = a.LastLogIndex.CompareTo(b.LastLogIndex);
             if (c != 0)
                 return c;
 

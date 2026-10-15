@@ -369,13 +369,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         _footprint.Resize(node, bytes);
         node.Value = normalized.Value;
-        var deadlineMoved = node.ExpiresUtc != normalized.ExpiresUtc;
-        node.ExpiresUtc = normalized.ExpiresUtc;
+        _deadlines.MoveLocked(key, node, normalized.ExpiresUtc);
         node.Version = normalized.Version;
         node.Tags = normalized.Tags;
-        if (deadlineMoved)
-            _deadlines.RecordLocked(key, node);
-
         TouchOrderLocked(key, node);
         return false;
     }
@@ -480,32 +476,21 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             if (_heap == null)
                 return [];
 
-            var budget = max <= int.MaxValue / 4 ? max * 4 : int.MaxValue;
-            var listed = new List<CacheKey>();
-            List<(Deadline Item, long Priority)>? due = null;
             lock (_owner._lock)
-            {
-                for (var popped = 0; popped < budget && listed.Count < max && _heap.TryPeek(out var item, out var priority) && priority <= nowUtc.Ticks; popped++)
-                {
-                    _ = _heap.Dequeue();
-                    if (!IsCurrent(in item))
-                        continue;
+                return ListDueLocked(_heap, nowUtc.Ticks, max, include);
+        }
 
-                    var included = include(item.Key);
-                    if (included)
-                        listed.Add(item.Key);
+        /// <summary>Sets the deadline of a stored entry, recording it only when it moved, so an entry is never current twice in the heap.</summary>
+        /// <param name="key">The key of the entry.</param>
+        /// <param name="node">The entry.</param>
+        /// <param name="expiresUtc">The new deadline, or <see langword="null" /> for none.</param>
+        internal void MoveLocked(CacheKey key, Node node, DateTime? expiresUtc)
+        {
+            if (node.ExpiresUtc == expiresUtc)
+                return;
 
-                    (due ??= []).Add((item, included ? priority : nowUtc.Ticks));
-                }
-
-                if (due != null)
-                {
-                    foreach (var (item, priority) in due)
-                        _heap.Enqueue(item, priority);
-                }
-            }
-
-            return listed;
+            node.ExpiresUtc = expiresUtc;
+            RecordLocked(key, node);
         }
 
         /// <summary>Records the deadline just set on an entry, rebuilding the heap once stale items outnumber the entries.</summary>
@@ -532,11 +517,59 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             }
         }
 
+        /// <summary>Pops the top item when it is due.</summary>
+        /// <param name="heap">The heap.</param>
+        /// <param name="nowTicks">The current time, in UTC ticks.</param>
+        /// <param name="item">The item popped.</param>
+        /// <param name="priority">The priority it had.</param>
+        /// <returns><see langword="false" /> when the heap is empty or its top is not due.</returns>
+        private static bool TryPopDue(PriorityQueue<Deadline, long> heap, long nowTicks, out Deadline item, out long priority)
+        {
+            if (!heap.TryPeek(out item, out priority) || priority > nowTicks)
+                return false;
+
+            _ = heap.Dequeue();
+            return true;
+        }
+
         /// <summary>Tells whether an item still names a stored entry with that deadline.</summary>
         /// <param name="item">The item.</param>
         /// <returns><see langword="false" /> when the entry left the store, was replaced, or got another deadline since the item was recorded.</returns>
         private bool IsCurrent(in Deadline item) =>
             _owner._store.TryGetValue(item.Key, out var node) && ReferenceEquals(node, item.Node) && node.ExpiresUtc is { } expires && expires.Ticks == item.Ticks;
+
+        /// <summary>Lists the due keys the caller includes and pushes every current due item back, as <see cref="ListExpired" /> tells.</summary>
+        /// <param name="heap">The heap.</param>
+        /// <param name="nowTicks">The current time, in UTC ticks.</param>
+        /// <param name="max">The most keys to list.</param>
+        /// <param name="include">Tells whether the caller can expire a key.</param>
+        /// <returns>The keys listed.</returns>
+        private List<CacheKey> ListDueLocked(PriorityQueue<Deadline, long> heap, long nowTicks, int max, Func<CacheKey, bool> include)
+        {
+            var budget = Math.Min(max, int.MaxValue / 4) * 4;
+            var listed = new List<CacheKey>();
+            List<(Deadline Item, long Priority)>? due = null;
+            for (var popped = 0; popped < budget && listed.Count < max && TryPopDue(heap, nowTicks, out var item, out var priority); popped++)
+            {
+                if (!IsCurrent(in item))
+                    continue;
+
+                var included = include(item.Key);
+                if (included)
+                    listed.Add(item.Key);
+
+                // A skipped item goes behind every item due before this listing.
+                (due ??= []).Add((item, included ? priority : nowTicks));
+            }
+
+            if (due == null)
+                return listed;
+
+            foreach (var (item, priority) in due)
+                heap.Enqueue(item, priority);
+
+            return listed;
+        }
 
         /// <summary>An item of the heap: the entry a deadline was recorded for, and the deadline then.</summary>
         /// <param name="Key">The key of the entry.</param>

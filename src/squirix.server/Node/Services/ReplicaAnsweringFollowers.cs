@@ -58,6 +58,20 @@ internal sealed class ReplicaAnsweringFollowers
         if (state is ReplicaParticipantState.Ready or ReplicaParticipantState.Quarantined)
             return;
 
+        QueueForRepair(replicaIndex);
+    }
+
+    private static bool AnsweredFromLog(in FollowerLogAppendResult reply) =>
+        reply.Success || string.Equals(reply.RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal) || IsNotComplete(in reply);
+
+    private static bool IsNotComplete(in FollowerLogAppendResult reply) =>
+        string.Equals(reply.RefusalCode, FollowerLogRefusal.Incomplete, StringComparison.Ordinal) ||
+        string.Equals(reply.RefusalCode, FollowerLogRefusal.Unseeded, StringComparison.Ordinal);
+
+    /// <summary>Queues a follower for repair unless it was queued within the interval.</summary>
+    /// <param name="replicaIndex">Zero-based follower slot.</param>
+    private void QueueForRepair(int replicaIndex)
+    {
         var now = _clock.GetTimestamp();
         var last = Volatile.Read(ref _queuedAt[replicaIndex]);
         if (last != 0 && _clock.GetElapsedTime(last, now) < _interval)
@@ -67,11 +81,4 @@ internal sealed class ReplicaAnsweringFollowers
         if (Interlocked.CompareExchange(ref _queuedAt[replicaIndex], now == 0 ? 1 : now, last) == last)
             _repairs.Enqueue(replicaIndex);
     }
-
-    private static bool AnsweredFromLog(in FollowerLogAppendResult reply) =>
-        reply.Success || string.Equals(reply.RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal) || IsNotComplete(in reply);
-
-    private static bool IsNotComplete(in FollowerLogAppendResult reply) =>
-        string.Equals(reply.RefusalCode, FollowerLogRefusal.Incomplete, StringComparison.Ordinal) ||
-        string.Equals(reply.RefusalCode, FollowerLogRefusal.Unseeded, StringComparison.Ordinal);
 }
