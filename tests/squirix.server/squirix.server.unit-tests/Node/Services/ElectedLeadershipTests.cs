@@ -40,6 +40,9 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
 
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
+    /// <summary>A readiness schedule whose passes follow each other at once, pending or not.</summary>
+    private static readonly ReplicaReadinessOptions BackToBackPasses = new() { InitialDelay = TimeSpan.FromMilliseconds(1), MaxDelay = TimeSpan.FromMilliseconds(1) };
+
     /// <summary>
     /// Followers that lack the leader-term entry start unverified; the entry is still committed, without the write majority check, once the
     /// catch-up hands it to them, and only then is the promotion authorized.
@@ -140,7 +143,11 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         var gateway = new SlowFollowerGateway(followers, "n3");
         await using var committers = ElectedSet(registry, gateway);
         var log = new EventRecordingLogger();
-        using var service = new ReplicaGroupReadinessService(committers, log, TimeProvider.System);
+
+        // The passes follow each other without a backoff, so the only real time the test waits is the one probe timeout of the full pass
+        // that times n3 out. The event follows within three passes: quick, full, and the one that catches n3 up. With the default schedule
+        // a pass delayed by load doubled the next wait up to 5 seconds, and a few such waits outlasted the guard (#1130).
+        using var service = new ReplicaGroupReadinessService(committers, log, TimeProvider.System) { Options = BackToBackPasses };
 
         await service.StartAsync(cancellationToken);
         try
