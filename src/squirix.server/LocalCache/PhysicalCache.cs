@@ -20,12 +20,14 @@ namespace Squirix.Server.LocalCache;
 /// inserts, removals, expirations, and evictions across those two structures could leave them
 /// out of sync - a key present in one but not the other. Merging both into one <see cref="Node" /> per key, mutated only
 /// inside <see cref="_lock" />, makes that class of bug structurally impossible: there is no
-/// second structure left to diverge from.
+/// second structure left to diverge from. Under <see cref="CacheExpiryAuthority.CommittedRecords" /> a deadline index lists the entries
+/// whose deadline passed without walking the store (#1031).
 /// </remarks>
 [Immutable]
 internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotReader<T>
 {
     private readonly EvictionOptions _eviction;
+    private readonly DeadlineIndex _deadlines;
     private readonly CacheExpiryAuthority _expiry;
     private readonly Footprint _footprint;
     private readonly Lock _lock = new();
@@ -52,6 +54,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         _footprint = new Footprint(estimator);
         _eviction = eviction ?? new EvictionOptions { Policy = EvictionPolicyType.Lru };
         _expiry = expiry;
+        _deadlines = new DeadlineIndex(this);
         RawReader = new PhysicalCacheRawReader(this);
     }
 
@@ -65,6 +68,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     }
 
     long ILocalCacheStats.EstimatedBytes => _footprint.Read();
+
+    /// <summary>Gets the keys past their deadline that no committed record removed yet, read from the deadline index.</summary>
+    internal ILocalCacheExpiredKeys ExpiredKeys => _deadlines;
 
     internal ILocalCacheRawReader<T> RawReader { get; }
 
@@ -180,6 +186,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(node.Value, node.Version, expiresUtc, tags: node.Tags)));
 
             node.ExpiresUtc = expiresUtc;
+            _deadlines.RecordLocked(key, node);
             TouchOrderLocked(key, node);
             return ValueTask.FromResult(true);
         }
@@ -345,6 +352,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             node = new Node(normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.Tags);
             _store[key] = node;
             _footprint.Resize(node, bytes);
+            _deadlines.RecordLocked(key, node);
 
             if (_eviction.Capacity != null)
             {
@@ -361,9 +369,13 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         _footprint.Resize(node, bytes);
         node.Value = normalized.Value;
+        var deadlineMoved = node.ExpiresUtc != normalized.ExpiresUtc;
         node.ExpiresUtc = normalized.ExpiresUtc;
         node.Version = normalized.Version;
         node.Tags = normalized.Tags;
+        if (deadlineMoved)
+            _deadlines.RecordLocked(key, node);
+
         TouchOrderLocked(key, node);
         return false;
     }
@@ -433,6 +445,99 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         internal T? Value { get; set; }
 
         internal long Version { get; set; }
+    }
+
+    /// <summary>The deadline index: a heap of the deadlines recorded for the stored entries, earliest first.</summary>
+    /// <remarks>
+    /// Kept only under <see cref="CacheExpiryAuthority.CommittedRecords" />, where an entry past its deadline stays until a committed record
+    /// removes it. An item whose entry left the store, was replaced, or got another deadline is stale: it is dropped when it reaches the top,
+    /// and the heap is rebuilt from the store once the stale items outnumber the entries. Every member but <see cref="ListExpired" /> runs under
+    /// the cache lock.
+    /// </remarks>
+    [ThreadSafe]
+    private sealed class DeadlineIndex : ILocalCacheExpiredKeys
+    {
+        private readonly PriorityQueue<Deadline, long>? _heap;
+        private readonly PhysicalCache<T> _owner;
+
+        internal DeadlineIndex(PhysicalCache<T> owner)
+        {
+            _owner = owner;
+            _heap = owner._expiry == CacheExpiryAuthority.CommittedRecords ? new PriorityQueue<Deadline, long>() : null;
+        }
+
+        /// <inheritdoc />
+        /// <remarks>
+        /// Pops the heap while its top is due, so the work and the allocations follow the expired entries, not the stored ones. A stale item is
+        /// dropped; every current one is pushed back, listed or not, since only a committed record removes its entry.
+        /// </remarks>
+        public IReadOnlyList<CacheKey> ListExpired(DateTime nowUtc, int max, Func<CacheKey, bool> include)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(max);
+            ArgumentNullException.ThrowIfNull(include);
+            if (_heap == null)
+                return [];
+
+            var listed = new List<CacheKey>();
+            List<(Deadline Item, long Ticks)>? due = null;
+            lock (_owner._lock)
+            {
+                while (listed.Count < max && _heap.TryPeek(out var item, out var ticks) && ticks <= nowUtc.Ticks)
+                {
+                    _ = _heap.Dequeue();
+                    if (!IsCurrent(in item))
+                        continue;
+
+                    (due ??= []).Add((item, ticks));
+                    if (include(item.Key))
+                        listed.Add(item.Key);
+                }
+
+                if (due != null)
+                {
+                    foreach (var (item, ticks) in due)
+                        _heap.Enqueue(item, ticks);
+                }
+            }
+
+            return listed;
+        }
+
+        /// <summary>Records the deadline just set on an entry, rebuilding the heap once stale items outnumber the entries.</summary>
+        /// <param name="key">The key of the entry.</param>
+        /// <param name="node">The entry; one without a deadline is not recorded.</param>
+        internal void RecordLocked(CacheKey key, Node node)
+        {
+            if (_heap == null || node.ExpiresUtc is not { } deadline)
+                return;
+
+            var store = _owner._store;
+            if (_heap.Count < (2 * store.Count) + 1024)
+            {
+                _heap.Enqueue(new Deadline(key, node, deadline.Ticks), deadline.Ticks);
+                return;
+            }
+
+            // The rebuild reads the current deadline of every entry, this one included.
+            _heap.Clear();
+            foreach (var (storedKey, stored) in store)
+            {
+                if (stored.ExpiresUtc is { } expires)
+                    _heap.Enqueue(new Deadline(storedKey, stored, expires.Ticks), expires.Ticks);
+            }
+        }
+
+        /// <summary>Tells whether an item still names a stored entry with that deadline.</summary>
+        /// <param name="item">The item.</param>
+        /// <returns><see langword="false" /> when the entry left the store, was replaced, or got another deadline since the item was recorded.</returns>
+        private bool IsCurrent(in Deadline item) =>
+            _owner._store.TryGetValue(item.Key, out var node) && ReferenceEquals(node, item.Node) && node.ExpiresUtc is { } expires && expires.Ticks == item.Ticks;
+
+        /// <summary>An item of the heap: the entry a deadline was recorded for, and the deadline then.</summary>
+        /// <param name="Key">The key of the entry.</param>
+        /// <param name="Node">The entry; a later entry under the same key makes the item stale.</param>
+        /// <param name="Ticks">The deadline recorded, in UTC ticks; another deadline on the entry makes the item stale.</param>
+        private readonly record struct Deadline(CacheKey Key, Node Node, long Ticks);
     }
 
     [Immutable]

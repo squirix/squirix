@@ -246,7 +246,7 @@ internal static class ServerHostingComposition
     /// <param name="services">DI service collection.</param>
     private static void AddReplicaExpirationSweep(IServiceCollection services) => _ = services.AddHostedService(static sp => new ReplicaExpirationSweepService(
         sp.GetRequiredService<ReplicaGroupCommitters>(),
-        sp.GetRequiredService<ILocalCacheSnapshotReader<object?>>(),
+        sp.GetRequiredService<ILocalCacheExpiredKeys>(),
         sp.GetRequiredService<INodeLocator>(),
         sp.GetRequiredService<ILogger<ReplicaExpirationSweepService>>()));
 
