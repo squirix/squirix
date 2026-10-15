@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server.Utils;
 
-/// <summary>Snapshot trigger background-service diagnostics.</summary>
+/// <content>Snapshot trigger background-service diagnostics.</content>
 internal static partial class ServerLog
 {
     [LoggerMessage(EventId = 3004, Level = LogLevel.Error, Message = "SnapshotTriggerService crashed.")]
