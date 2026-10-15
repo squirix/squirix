@@ -5,6 +5,7 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Net.Http;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -142,7 +143,9 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     [Test]
     public async Task TimeoutAfterConnectIsAmbiguous(CancellationToken cancellationToken)
     {
-        await using var stream = new SilentStream();
+        // The peer acknowledges the keepalive pings, so only the attempt timeout can end the call: with a silent peer the keepalive closes
+        // the connection after three to five seconds, and a runner that delayed the one-second timeout past that saw Internal (#1132).
+        await using var stream = new SilentStream { AnswersPings = true };
         await using var pool = CreatePool(
             () => new SocketsHttpHandler { ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(stream) },
             new Uri("http://localhost:6500"),
@@ -336,20 +339,31 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         Owner,
         new CallPolicyTimeouts(perAttempt, TimeSpan.Zero, TimeSpan.Zero));
 
-    /// <summary>A connection that takes every byte written to it and never answers, until it is disposed.</summary>
+    /// <summary>
+    /// A connection that takes every byte written to it and never answers a request, until it is disposed. Unless it answers pings, it sends
+    /// nothing at all, as a peer whose host went silent.
+    /// </summary>
     private sealed class SilentStream : Stream
     {
         private const int PrefaceLength = 24;
         private const int FrameHeaderLength = 9;
         private const byte HeadersFrameType = 0x1;
+        private const byte SettingsFrameType = 0x4;
+        private const byte PingFrameType = 0x6;
+        private const byte AckFlag = 0x1;
+        private const int PingPayloadLength = 8;
 
         private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly Lock _frameGate = new();
         private readonly byte[] _frameHeader = new byte[FrameHeaderLength];
+        private readonly byte[] _pingPayload = new byte[PingPayloadLength];
+        private readonly Channel<byte[]> _replies = Channel.CreateUnbounded<byte[]>();
         private long _written;
         private int _prefaceRemaining = PrefaceLength;
         private int _frameHeaderFilled;
         private int _payloadRemaining;
+        private int _pingFilled = -1;
+        private ReadOnlyMemory<byte> _unread;
 
         public override bool CanRead => true;
 
@@ -363,6 +377,21 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         {
             get => throw new NotSupportedException();
             set => throw new NotSupportedException();
+        }
+
+        /// <summary>
+        /// Gets or initializes a value indicating whether the peer opens the connection with its settings and acknowledges the client's settings and
+        /// pings, so the client's keepalive never closes it; the requests stay unanswered either way.
+        /// </summary>
+        internal bool AnswersPings
+        {
+            get;
+            init
+            {
+                field = value;
+                if (value)
+                    _ = _replies.Writer.TryWrite(Frame(SettingsFrameType, 0, []));
+            }
         }
 
         /// <summary>Gets the number of bytes written to the connection.</summary>
@@ -381,8 +410,19 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
 
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            await _closed.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return 0;
+            if (_unread.IsEmpty)
+            {
+                var reply = _replies.Reader.ReadAsync(cancellationToken).AsTask();
+                if (await Task.WhenAny(reply, _closed.Task.WaitAsync(cancellationToken)).ConfigureAwait(false) != reply)
+                    return 0;
+
+                _unread = await reply.ConfigureAwait(false);
+            }
+
+            var count = Math.Min(buffer.Length, _unread.Length);
+            _unread[..count].CopyTo(buffer);
+            _unread = _unread[count..];
+            return count;
         }
 
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
@@ -403,6 +443,21 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
             base.Dispose(disposing);
         }
 
+        /// <summary>Builds a frame of the connection itself (stream zero) with a payload of at most eight bytes.</summary>
+        /// <param name="type">Frame type.</param>
+        /// <param name="flags">Frame flags.</param>
+        /// <param name="payload">Frame payload.</param>
+        /// <returns>The frame.</returns>
+        private static byte[] Frame(byte type, byte flags, ReadOnlySpan<byte> payload)
+        {
+            var frame = new byte[FrameHeaderLength + payload.Length];
+            frame[2] = Convert.ToByte(payload.Length);
+            frame[3] = type;
+            frame[4] = flags;
+            payload.CopyTo(frame.AsSpan(FrameHeaderLength));
+            return frame;
+        }
+
         /// <summary>Counts the bytes and walks the HTTP/2 frames in them; writes may split or merge frames.</summary>
         /// <param name="data">The bytes written.</param>
         private void Record(ReadOnlySpan<byte> data)
@@ -420,9 +475,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
                     }
                     else if (_payloadRemaining > 0)
                     {
-                        var skip = Math.Min(_payloadRemaining, data.Length);
-                        _payloadRemaining -= skip;
-                        data = data[skip..];
+                        data = TakePayloadLocked(data);
                     }
                     else
                     {
@@ -430,17 +483,51 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
                         data[..take].CopyTo(_frameHeader.AsSpan(_frameHeaderFilled));
                         _frameHeaderFilled += take;
                         data = data[take..];
-                        if (_frameHeaderFilled < FrameHeaderLength)
-                            continue;
-
-                        _frameHeaderFilled = 0;
-                        _payloadRemaining = (_frameHeader[0] << 16) | (_frameHeader[1] << 8) | _frameHeader[2];
-                        var streamId = ((_frameHeader[5] & 0x7F) << 24) | (_frameHeader[6] << 16) | (_frameHeader[7] << 8) | _frameHeader[8];
-                        if (_frameHeader[3] == HeadersFrameType && streamId != 0)
-                            RequestHeadersWritten = true;
+                        if (_frameHeaderFilled == FrameHeaderLength)
+                            OnFrameHeaderLocked();
                     }
                 }
             }
+        }
+
+        /// <summary>Reads a whole frame header: notes a request, and queues the acknowledgement of the client's settings.</summary>
+        private void OnFrameHeaderLocked()
+        {
+            _frameHeaderFilled = 0;
+            _payloadRemaining = (_frameHeader[0] << 16) | (_frameHeader[1] << 8) | _frameHeader[2];
+            var streamId = ((_frameHeader[5] & 0x7F) << 24) | (_frameHeader[6] << 16) | (_frameHeader[7] << 8) | _frameHeader[8];
+            if (_frameHeader[3] == HeadersFrameType && streamId != 0)
+                RequestHeadersWritten = true;
+
+            if (!AnswersPings || (_frameHeader[4] & AckFlag) != 0)
+                return;
+
+            if (_frameHeader[3] == SettingsFrameType)
+                _ = _replies.Writer.TryWrite(Frame(SettingsFrameType, AckFlag, []));
+            else if (_frameHeader[3] == PingFrameType && _payloadRemaining == PingPayloadLength)
+                _pingFilled = 0;
+        }
+
+        /// <summary>Skips frame payload bytes, keeping those of a ping, which is acknowledged with them once whole.</summary>
+        /// <param name="data">The bytes written, starting in a payload.</param>
+        /// <returns>The bytes after the payload part taken.</returns>
+        private ReadOnlySpan<byte> TakePayloadLocked(ReadOnlySpan<byte> data)
+        {
+            var skip = Math.Min(_payloadRemaining, data.Length);
+            if (_pingFilled >= 0)
+            {
+                data[..skip].CopyTo(_pingPayload.AsSpan(_pingFilled));
+                _pingFilled += skip;
+            }
+
+            _payloadRemaining -= skip;
+            if (_payloadRemaining == 0 && _pingFilled >= 0)
+            {
+                _ = _replies.Writer.TryWrite(Frame(PingFrameType, AckFlag, _pingPayload));
+                _pingFilled = -1;
+            }
+
+            return data[skip..];
         }
     }
 }
