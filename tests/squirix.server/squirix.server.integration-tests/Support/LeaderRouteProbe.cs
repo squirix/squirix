@@ -195,7 +195,7 @@ internal sealed class LeaderRouteProbe
         internal void Record(string target, string operationId) => _probe.RecordForward(_node, target, operationId);
     }
 
-    /// <summary>A peer client that records the forwarded writes.</summary>
+    /// <summary>A peer client that records the forwarded writes and passes reads through unrecorded.</summary>
     [Immutable]
     private sealed class RecordingClient : SquirixCacheService.SquirixCacheServiceClient
     {
@@ -209,6 +209,8 @@ internal sealed class LeaderRouteProbe
             _target = target;
             _pool = pool;
         }
+
+        public override AsyncUnaryCall<GetValueAsyncResponse> GetValueAsync(GetValueAsyncRequest request, CallOptions options) => _inner.GetValueAsync(request, options);
 
         public override AsyncUnaryCall<SetAsyncResponse> SetEntryAsync(SetEntryAsyncRequest request, CallOptions options)
         {
