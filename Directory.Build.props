@@ -179,6 +179,30 @@
         </ItemGroup>
     </Target>
 
+    <!-- The ILLink analyzer is not part of the SDK: it ships as a NuGet pack whose version the SDK resolves from the target
+         framework (KnownILLinkPack in the SDK's BundledVersions.props maps net10.0 to 10.0.x). A newer SDK only helps when
+         its own mapping moves to a pack that carries the fix, and the 10.0.x and 11.0.x packs still format a namespace name
+         for every type symbol they inspect; only the 12.0 line dropped that. A net10.0 build therefore keeps the slow
+         analyzer however new the SDK is, which is why the fixed analyzer is committed here. Swap it for the analyzer of the
+         resolved pack; the rest of the pack stays as resolved. The replacement keeps the pack's package id, so a shard that
+         drops Microsoft.NET.ILLink.Tasks drops it too, and a project that resolves no ILLink pack gets nothing. Remove this
+         block, and build/analyzers with it, once the pack the SDK resolves for the targeted framework ships the fix: a
+         backport that the SDK's net10.0 entry picks up, or a retarget to a framework whose pack carries it. -->
+    <PropertyGroup Label="IllinkAnalyzer">
+        <SquirixIllinkAnalyzer>$(MSBuildThisFileDirectory)build/analyzers/illink-12.0.0-alpha.1.26515.111/ILLink.RoslynAnalyzer.dll</SquirixIllinkAnalyzer>
+    </PropertyGroup>
+
+    <Target Name="SquirixReplaceIllinkAnalyzer" BeforeTargets="CoreCompile" Condition="Exists('$(SquirixIllinkAnalyzer)')">
+        <ItemGroup>
+            <_SquirixPackIllinkAnalyzer Remove="@(_SquirixPackIllinkAnalyzer)"/>
+            <_SquirixPackIllinkAnalyzer Include="@(Analyzer)" Condition="'%(Analyzer.NuGetPackageId)' == 'Microsoft.NET.ILLink.Tasks' And '%(Analyzer.Filename)%(Analyzer.Extension)' == 'ILLink.RoslynAnalyzer.dll'"/>
+        </ItemGroup>
+        <ItemGroup Condition="'@(_SquirixPackIllinkAnalyzer)' != ''">
+            <Analyzer Remove="@(_SquirixPackIllinkAnalyzer)"/>
+            <Analyzer Include="$(SquirixIllinkAnalyzer)" NuGetPackageId="Microsoft.NET.ILLink.Tasks"/>
+        </ItemGroup>
+    </Target>
+
     <!-- A shard name that no project belongs to would make that build analyze nothing, so it fails instead. -->
     <Target Name="SquirixValidateAnalysisShard" BeforeTargets="CoreCompile" Condition="'$(SquirixAnalysisShard)' != '' And !$([System.String]::Copy(';$(SquirixAnalysisShards);').Contains(';$(SquirixAnalysisShard);'))">
         <Error Text="Unknown analysis shard '$(SquirixAnalysisShard)'. Known shards: $(SquirixAnalysisShards)."/>
