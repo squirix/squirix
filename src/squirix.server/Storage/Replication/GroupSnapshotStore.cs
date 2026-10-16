@@ -309,15 +309,16 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         _faults.OnSnapshotPublishing();
         var created = !File.Exists(path);
         var options = OperatingSystem.IsWindows() ? FileOptions.WriteThrough : FileOptions.None;
-        using (var handle = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read, options))
-        {
-            RandomAccess.SetLength(handle, bytes.Length);
-            await RandomAccess.WriteAsync(handle, bytes, 0, cancellationToken).ConfigureAwait(false);
-            RandomAccess.FlushToDisk(handle);
-        }
+        using var handle = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read, options);
 
+        // The entry is flushed before any byte is written: a write that fails after creating the file would otherwise
+        // leave an entry that no later publish flushes, since the file then already exists.
         if (created)
             FileEx.FlushDirectoryEntry(path);
+
+        RandomAccess.SetLength(handle, bytes.Length);
+        await RandomAccess.WriteAsync(handle, bytes, 0, cancellationToken).ConfigureAwait(false);
+        RandomAccess.FlushToDisk(handle);
     }
 
     /// <summary>Validates the snapshot boundary invariants and materializes a stable outcome list for encoding.</summary>
