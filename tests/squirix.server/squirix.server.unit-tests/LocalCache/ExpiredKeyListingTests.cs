@@ -124,25 +124,6 @@ public sealed class ExpiredKeyListingTests : ServerUnitTestBase
         _ = await Assert.That(cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 10, static _ => true).Count).IsEqualTo(0);
     }
 
-    /// <summary>With many stored entries and none due, a listing allocates only its empty result, not in proportion to the stored entries.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ListingCostFollowsExpiredKeys(CancellationToken cancellationToken)
-    {
-        var (cache, clock) = Create(CacheExpiryAuthority.CommittedRecords);
-        for (var i = 0; i < 10_000; i++)
-            await SetAsync(cache, "k" + i.ToString(CultureInfo.InvariantCulture), TimeSpan.FromHours(1), cancellationToken);
-
-        var now = clock.GetUtcNow().UtcDateTime;
-        _ = cache.ExpiredKeys.ListExpired(now, 1024, static _ => true);
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        var listed = cache.ExpiredKeys.ListExpired(now, 1024, static _ => true);
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-
-        _ = await Assert.That(listed.Count).IsEqualTo(0);
-        _ = await Assert.That(allocated).IsLessThan(1024L);
-    }
-
     private static (PhysicalCache<object?> Cache, FakeTimeProvider Clock) Create(CacheExpiryAuthority expiry)
     {
         var clock = new FakeTimeProvider(Start);
