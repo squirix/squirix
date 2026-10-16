@@ -35,6 +35,7 @@ public sealed class NoQuorumFailoverTests : EndToEndTestBase
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
+    [ParallelGroup(FailoverLimit.Group)]
     public Task SurvivingLeaderFailsWrites(CancellationToken cancellationToken) => WriteFailsAsync(nameof(SurvivingLeaderFailsWrites), true, cancellationToken);
 
     /// <summary>The surviving node followed the group, so no leader exists to commit the write.</summary>
@@ -43,6 +44,7 @@ public sealed class NoQuorumFailoverTests : EndToEndTestBase
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
+    [ParallelGroup(FailoverLimit.Group)]
     public Task SurvivingFollowerFailsWrites(CancellationToken cancellationToken) => WriteFailsAsync(nameof(SurvivingFollowerFailsWrites), false, cancellationToken);
 
     private static string Describe(Exception exception) => exception is RpcException rpc ? $"{nameof(RpcException)} {rpc.StatusCode} '{rpc.Status.Detail}'" : exception.GetType().Name;

@@ -42,6 +42,7 @@ public sealed class ConditionalFailoverTests : EndToEndTestBase
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
+    [ParallelGroup(FailoverLimit.Group)]
     public async Task ConditionalOpsApplyOnceAcrossFailover(CancellationToken cancellationToken)
     {
         const string testName = nameof(ConditionalOpsApplyOnceAcrossFailover);

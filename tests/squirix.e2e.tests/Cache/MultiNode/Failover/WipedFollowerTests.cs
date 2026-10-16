@@ -31,6 +31,7 @@ public sealed class WipedFollowerTests : EndToEndTestBase
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
+    [ParallelGroup(FailoverLimit.Group)]
     public async Task WipedFollowerIsRepaired(CancellationToken cancellationToken)
     {
         const string testName = nameof(WipedFollowerIsRepaired);

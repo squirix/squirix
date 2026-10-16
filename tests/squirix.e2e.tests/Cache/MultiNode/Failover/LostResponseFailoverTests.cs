@@ -43,6 +43,7 @@ public sealed class LostResponseFailoverTests : EndToEndTestBase
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
+    [ParallelGroup(FailoverLimit.Group)]
     public Task GetOrAddReplaysAfterLeaderChange(CancellationToken cancellationToken) =>
         ReplaysAsync(nameof(GetOrAddReplaysAfterLeaderChange), static key => WireMutation.GetOrAdd(CacheName, key, First), new WireOutcome(true, First), cancellationToken);
 
@@ -52,6 +53,7 @@ public sealed class LostResponseFailoverTests : EndToEndTestBase
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
+    [ParallelGroup(FailoverLimit.Group)]
     public Task SetReplaysAfterLeaderChange(CancellationToken cancellationToken) =>
         ReplaysAsync(nameof(SetReplaysAfterLeaderChange), static key => WireMutation.Set(CacheName, key, First), new WireOutcome(true, null), cancellationToken);
 

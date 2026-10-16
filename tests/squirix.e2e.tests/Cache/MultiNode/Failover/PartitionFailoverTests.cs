@@ -43,6 +43,7 @@ public sealed class PartitionFailoverTests : EndToEndTestBase
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
+    [ParallelGroup(FailoverLimit.Group)]
     public async Task IsolatedLeaderFailsClosed(CancellationToken cancellationToken)
     {
         const string testName = nameof(IsolatedLeaderFailsClosed);
