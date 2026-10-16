@@ -191,7 +191,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     /// were already released elsewhere (for example the failing start's own port-release-on-failure path).
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>This cluster, with every topology entry started.</returns>
+    /// <returns>This cluster, with every topology entry started; it has tried to open the forward connections between the nodes.</returns>
     /// <exception cref="InvalidOperationException">Thrown when some topology entries are already running.</exception>
     public async ValueTask<TestCluster<TOptions>> StartAllAsync(
         Func<string, TOptions?>? factory = null,
@@ -208,6 +208,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             for (var i = 0; i < _topology.Length; i++)
                 _ = await StartNodeAsync(_topology[i].NodeId, factory?.Invoke(_topology[i].NodeId), cancellationToken).ConfigureAwait(false);
 
+            await ForwardChannelWarmUp.WarmAsync(_nodes, cancellationToken).ConfigureAwait(false);
             return this;
         }
         catch
