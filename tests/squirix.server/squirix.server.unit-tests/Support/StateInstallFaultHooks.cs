@@ -14,7 +14,8 @@ namespace Squirix.Server.UnitTests.Support;
 internal sealed class StateInstallFaultHooks : IFollowerLogFaultHooks
 {
     private CancellationTokenSource? _cancelOnFlush;
-    private int _failFlush;
+    private int _failFlush = -1;
+    private int _flushes;
     private int _failPublish = -1;
     private int _failSnapshotPublish = -1;
     private int _publishes;
@@ -34,7 +35,7 @@ internal sealed class StateInstallFaultHooks : IFollowerLogFaultHooks
     public void OnFlushed()
     {
         Interlocked.Exchange(ref _cancelOnFlush, null)?.Cancel();
-        if (Interlocked.Exchange(ref _failFlush, 0) == 1)
+        if (Interlocked.Increment(ref _flushes) == Volatile.Read(ref _failFlush))
             throw new IOException("simulated failure at a log flush.");
     }
 
@@ -69,6 +70,10 @@ internal sealed class StateInstallFaultHooks : IFollowerLogFaultHooks
     /// <param name="ordinal">One for the next slot write, two for the one after it.</param>
     internal void FailSnapshotSlotWrite(int ordinal) => Volatile.Write(ref _failSnapshotPublish, Volatile.Read(ref _snapshotPublishes) + ordinal);
 
+    /// <summary>Arms the fault for a flush of the log file counted from now.</summary>
+    /// <param name="ordinal">One for the next flush, two for the one after it.</param>
+    internal void FailFlush(int ordinal) => Volatile.Write(ref _failFlush, Volatile.Read(ref _flushes) + ordinal);
+
     /// <summary>Arms the fault for the next flush of the log file.</summary>
-    internal void FailNextFlush() => Volatile.Write(ref _failFlush, 1);
+    internal void FailNextFlush() => FailFlush(1);
 }

@@ -34,7 +34,22 @@ internal static class GroupLogFile
     internal static async Task<byte[]?> ReadSlotBytesAsync(string persistenceRoot, string groupId, int slot, CancellationToken cancellationToken)
     {
         var path = GroupStoragePaths.GetLogSlotPath(persistenceRoot, groupId, slot);
-        return File.Exists(path) ? await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false) : null;
+        if (!File.Exists(path))
+            return null;
+
+        using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.Asynchronous);
+        var bytes = GC.AllocateArray<byte>(int.CreateChecked(RandomAccess.GetLength(handle)));
+        var read = 0;
+        while (read < bytes.Length)
+        {
+            var count = await RandomAccess.ReadAsync(handle, bytes.AsMemory(read), read, cancellationToken).ConfigureAwait(false);
+            if (count == 0)
+                break;
+
+            read += count;
+        }
+
+        return bytes;
     }
 
     /// <summary>Writes the sealed header of a generation at the start of a file, leaving the rest of the file as it is.</summary>
