@@ -47,6 +47,7 @@ public sealed class FollowerLogCompactionTests : NodeIntegrationTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="TimeoutException">The follower did not compact the required number of times within the bound.</exception>
     [Test]
+    [Timeout(180_000)]
     public async Task FollowerLogCompactsUnderSteadyWrites(CancellationToken cancellationToken)
     {
         const int writes = 200;
@@ -70,7 +71,8 @@ public sealed class FollowerLogCompactionTests : NodeIntegrationTestBase
                 snapshotIndex = retention.SnapshotIndex;
             }
 
-            if (Stopwatch.GetElapsedTime(started) >= Bound * 2)
+            // The bound catches a follower that does not compact; on a loaded host the writes alone may outlast it once it has compacted.
+            if (compactions < requiredCompactions && Stopwatch.GetElapsedTime(started) >= Bound * 2)
                 throw new TimeoutException($"The follower compacted {compactions} times while writes went on; last retention {retention}.");
         }
 
