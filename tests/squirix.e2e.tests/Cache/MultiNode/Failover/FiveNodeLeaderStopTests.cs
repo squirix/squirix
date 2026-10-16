@@ -33,7 +33,6 @@ public sealed class FiveNodeLeaderStopTests : EndToEndTestBase
     [Test]
     [Timeout(180_000)]
     [ParallelLimiter<FailoverLimit>]
-    [ParallelGroup(FailoverLimit.Group)]
     public async Task RfFiveSurvivesTwoLeaderStops(CancellationToken cancellationToken)
     {
         const string testName = nameof(RfFiveSurvivesTwoLeaderStops);

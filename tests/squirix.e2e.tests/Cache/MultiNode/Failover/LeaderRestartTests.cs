@@ -25,7 +25,6 @@ public sealed class LeaderRestartTests : EndToEndTestBase
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
-    [ParallelGroup(FailoverLimit.Group)]
     public async Task FormerLeaderCatchesUpBeforeEligible(CancellationToken cancellationToken)
     {
         const string testName = nameof(FormerLeaderCatchesUpBeforeEligible);

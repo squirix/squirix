@@ -39,7 +39,6 @@ public sealed class UnknownCommitFailoverTests : EndToEndTestBase
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
-    [ParallelGroup(FailoverLimit.Group)]
     public async Task RetryAfterLeaderDeathTakesEffectOnce(CancellationToken cancellationToken)
     {
         const string testName = nameof(RetryAfterLeaderDeathTakesEffectOnce);

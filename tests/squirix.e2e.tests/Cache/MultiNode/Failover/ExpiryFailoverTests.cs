@@ -34,7 +34,6 @@ public sealed class ExpiryFailoverTests : EndToEndTestBase
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
-    [ParallelGroup(FailoverLimit.Group)]
     public async Task ExpiredEntryDoesNotReappearAfterFailover(CancellationToken cancellationToken)
     {
         const string testName = nameof(ExpiredEntryDoesNotReappearAfterFailover);

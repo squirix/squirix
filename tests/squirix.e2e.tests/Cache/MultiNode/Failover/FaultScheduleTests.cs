@@ -54,7 +54,6 @@ public sealed class FaultScheduleTests : EndToEndTestBase
     [Test]
     [Timeout(900_000)]
     [ParallelLimiter<FailoverLimit>]
-    [ParallelGroup(FailoverLimit.Group)]
     [Arguments(3)]
     [Arguments(5)]
     public async Task SeededFaultScheduleKeepsInvariants(int replicas, CancellationToken cancellationToken)

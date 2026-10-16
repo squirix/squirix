@@ -39,7 +39,6 @@ public sealed class UnaffectedGroupFailoverTests : EndToEndTestBase
     [Test]
     [Timeout(180_000)]
     [ParallelLimiter<FailoverLimit>]
-    [ParallelGroup(FailoverLimit.Group)]
     public async Task UnaffectedGroupsKeepServing(CancellationToken cancellationToken)
     {
         const string testName = nameof(UnaffectedGroupsKeepServing);
