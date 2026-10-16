@@ -113,9 +113,9 @@ snapshot; two valid slots with one sequence must be byte-identical.
 
 Publication never renames, replaces, or deletes a file. It writes the new snapshot in place into the slot that is not
 current and flushes it, then writes it again into the slot that was current and flushes that, so both slots end up
-holding the snapshot. A crash before the first flush leaves the previous snapshot, and a crash after it leaves the new
-one. When no snapshot exists yet, a publish that stopped after the first slot write leaves slot 0 torn or valid and
-slot 1 absent. Recovery validates the slots as above before restoring the committed baseline. Journal compaction keeps
+holding the snapshot. Before the first flush returns, a crash leaves either the previous snapshot or the new one; after
+it, the new one. When no snapshot exists yet, a publish that stopped after the first slot write leaves slot 0 torn or
+valid and slot 1 absent or torn. Recovery validates the slots as above before restoring the committed baseline. Journal compaction keeps
 the snapshot published and retains the log header plus entries after `lastIncludedIndex`, so a crash during or after
 compaction remains restartable. A replica that fell behind the compacted log is repaired by a state transfer: the
 leader sends the published image, the receiving replica checks it before it changes anything, and it publishes the same
