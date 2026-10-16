@@ -345,7 +345,9 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         // With the dead connection gone, a write dials anew: it fails at the dial bound (one second) and takes the new leader, and at worst one
         // more attempt follows the leader the entry node learns. The bound is the per-attempt timeout (three seconds) of such a failed attempt
         // plus the dial bound, twice, plus slack for a loaded host.
-        // Every attempt resends the same write, as a client retry does, so a refused attempt that reached a node is not applied twice.
+        // Every attempt resends the same write, as a client retry does, so a refused attempt that reached a node is not applied twice. A forward
+        // that reached the new leader can still outlast its timeout while the leader commits on a loaded host, so a timeout is sent again too; a
+        // write that waited out the dead connection instead would time out on every send.
         var write = Calls.Write(key, "silent");
         var outcomes = new List<string>();
         var started = Stopwatch.GetTimestamp();
@@ -356,7 +358,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             refusal = await Calls.SetAsync(client, write, cancellationToken);
             outcomes.Add($"{(refusal == null ? "OK" : refusal.Status.Detail)} in {Stopwatch.GetElapsedTime(attempt).TotalMilliseconds:F0} ms");
         }
-        while (refusal is { StatusCode: StatusCode.Unavailable } && outcomes.Count < MaxWrites);
+        while (refusal is { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded } && outcomes.Count < MaxWrites);
 
         var elapsed = Stopwatch.GetElapsedTime(started);
         var writes = string.Join("; ", outcomes);
