@@ -20,8 +20,9 @@ internal static class GroupStoragePaths
     private const string MetadataTempName = "group.meta.tmp";
     private const string LogFileName = "group.log";
     private const string LogTempName = "group.log.compact.tmp";
-    private const string SnapshotFileName = "group.snapshot";
-    private const string SnapshotTempName = "group.snapshot.tmp";
+    private const string SnapshotLegacyFileName = "group.snapshot";
+    private const string SnapshotSlot0FileName = "group.snapshot.0";
+    private const string SnapshotSlot1FileName = "group.snapshot.1";
 
     /// <summary>Resolves the replication storage root directory under the persistence root.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
@@ -76,15 +77,22 @@ internal static class GroupStoragePaths
     /// <returns>The temporary log path.</returns>
     internal static string GetLogTempPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), LogTempName);
 
-    /// <summary>Resolves the durable snapshot file path for a group.</summary>
+    /// <summary>Resolves the path of one of the two durable snapshot slot files for a group.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
     /// <param name="groupId">The replica group identifier.</param>
-    /// <returns>The snapshot file path.</returns>
-    internal static string GetSnapshotPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), SnapshotFileName);
+    /// <param name="slot">The slot index, 0 or 1.</param>
+    /// <returns>The snapshot slot file path.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="slot" /> is not 0 or 1.</exception>
+    internal static string GetSnapshotSlotPath(string persistenceRoot, string groupId, int slot)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(slot);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slot, GroupSnapshotSlots.SlotCount);
+        return Path.Join(GetGroupDirectory(persistenceRoot, groupId), slot == 0 ? SnapshotSlot0FileName : SnapshotSlot1FileName);
+    }
 
-    /// <summary>Resolves the temporary snapshot file path used for atomic replacement.</summary>
+    /// <summary>Resolves the path of the single snapshot file written by earlier builds, which this build refuses to read.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
     /// <param name="groupId">The replica group identifier.</param>
-    /// <returns>The temporary snapshot file path.</returns>
-    internal static string GetSnapshotTempPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), SnapshotTempName);
+    /// <returns>The earlier snapshot file path.</returns>
+    internal static string GetLegacySnapshotPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), SnapshotLegacyFileName);
 }

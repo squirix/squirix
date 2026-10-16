@@ -269,8 +269,9 @@ machinery scales across the allowed RF set; operational budgets are validated by
 
 ### Replica-group snapshots
 
-The storage layer publishes an atomic, CRC32C-validated `group.snapshot` containing the committed baseline and resolved
-idempotency outcomes, and carries no cache entries. Compaction removes only the journal prefix covered by the
+The storage layer publishes a CRC32C-validated snapshot, held in two in-place slot files (`group.snapshot.0` and
+`group.snapshot.1`; see [snapshot format](../snapshot-format.md#replica-group-snapshots)), containing the committed
+baseline and resolved idempotency outcomes, and carries no cache entries. Compaction removes only the journal prefix covered by the
 published snapshot and preserves the log header. A snapshot reaches a follower only inside a
 [state transfer](#state-transfer), which also carries the cache entries of the group; there is no request that installs
 a snapshot alone, because it would move the applied index of a follower past data that follower does not hold.
@@ -291,7 +292,7 @@ follows.
   holds `ReplicaLogCompactionEntries` entries (default 100 000); see
   [configuration](../configuration.md#persistence-host-defaults).
 - **Follower compaction.** A follower compacts its copy of a group through the applied index it persisted, while the
-  commit index may be higher. It publishes `group.snapshot` through that index and rewrites `group.log` to its header
+  commit index may be higher. It publishes the group snapshot through that index and rewrites `group.log` to its header
   plus every entry above it, committed or not, so the apply loop and the leader's next append find them. The step waits
   until the apply loop has rebuilt the outcomes of the applied entries, and while nothing was applied past the last
   snapshot. A crash after the snapshot is published, or after `group.log` is rewritten, recovers the same state: the
@@ -299,7 +300,7 @@ follows.
 - **Gated owner step.** The owner's compaction runs as one step under the commit gate, so writes wait for it and
   continue after it.
   It requires no uncommitted tail, every committed entry applied, every idempotency outcome resolved, and every
-  follower slot verified ready with a durable match index at the commit index. It then publishes `group.snapshot`
+  follower slot verified ready with a durable match index at the commit index. It then publishes the group snapshot
   through the commit index and rewrites `group.log` to its header.
 - **Every follower must have caught up, up to a limit.** The leader keeps every entry a follower may still need: a
   follower that is down, or that missed an entry, blocks compaction of the owner's group log until it is back. A

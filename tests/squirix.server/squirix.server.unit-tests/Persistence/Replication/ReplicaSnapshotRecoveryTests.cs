@@ -41,8 +41,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 5UL, 7UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch),
             cancellationToken);
 
-        var snapshotPath = GroupStoragePaths.GetSnapshotPath(dir, GroupId);
-        var bytes = await File.ReadAllBytesAsync(snapshotPath, cancellationToken);
+        var bytes = await GroupSnapshotFile.ReadImageAsync(dir, GroupId, cancellationToken);
         var payloadLength = SnapshotTestLayout.ReadPayloadLength(bytes);
 
         // Guard the assumed field position: only the commit index holds 7, so a layout change is detected.
@@ -53,7 +52,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         BinaryPrimitives.WriteUInt32LittleEndian(
             bytes.AsSpan(SnapshotTestLayout.CrcFileOffset(payloadLength), 4),
             Crc32C.Compute(bytes.AsSpan(SnapshotTestLayout.HeaderByteCount, payloadLength)));
-        await File.WriteAllBytesAsync(snapshotPath, bytes, cancellationToken);
+        await GroupSnapshotFile.WriteImageAsync(dir, GroupId, bytes, true, cancellationToken);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException>(log.OpenAsync(cancellationToken));
@@ -318,8 +317,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         }
 
-        var snapshotPath = GroupStoragePaths.GetSnapshotPath(dir, GroupId);
-        await File.WriteAllBytesAsync(snapshotPath, new byte[128], cancellationToken);
+        await File.WriteAllBytesAsync(GroupStoragePaths.GetSnapshotSlotPath(dir, GroupId, 0), new byte[128], cancellationToken);
 
         var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, MaxSnapshotBytes = 64 };
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, options);
@@ -377,7 +375,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
 
         await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, "node-1", 0UL, 0UL, GroupMemberState.Complete, false), cancellationToken);
 
-        File.Copy(GroupStoragePaths.GetSnapshotPath(dir, GroupId), GroupStoragePaths.GetSnapshotPath(dir2, GroupId));
+        GroupSnapshotFile.Copy(dir, GroupId, dir2, GroupId);
 
         await using var reopened = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
@@ -430,7 +428,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await target.AppendAsync(Append(3UL, "target-tail"), cancellationToken);
         }
 
-        File.Copy(GroupStoragePaths.GetSnapshotPath(dir, GroupId), GroupStoragePaths.GetSnapshotPath(dir2, GroupId));
+        GroupSnapshotFile.Copy(dir, GroupId, dir2, GroupId);
 
         await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 2UL, string.Empty, 2UL, 2UL, GroupMemberState.Complete, false), cancellationToken);
 
@@ -492,7 +490,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await target.AppendAsync(Append(3UL, "target-tail"), cancellationToken);
         }
 
-        File.Copy(GroupStoragePaths.GetSnapshotPath(dir, GroupId), GroupStoragePaths.GetSnapshotPath(dir2, GroupId));
+        GroupSnapshotFile.Copy(dir, GroupId, dir2, GroupId);
         await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, string.Empty, 1UL, 0UL, GroupMemberState.Complete, false), cancellationToken);
 
         await using (var recovered = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
@@ -549,7 +547,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await target.AppendAsync(Append(3UL, "z"), cancellationToken);
         }
 
-        File.Copy(GroupStoragePaths.GetSnapshotPath(dir, GroupId), GroupStoragePaths.GetSnapshotPath(dir2, GroupId));
+        GroupSnapshotFile.Copy(dir, GroupId, dir2, GroupId);
 
         await using var reopened = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
@@ -589,8 +587,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
 
         // The corrupt state can no longer be produced through PublishAsync, so patch the published file directly,
         // exactly as an externally corrupted file would appear, and restore the CRC.
-        var snapshotPath = GroupStoragePaths.GetSnapshotPath(dir, GroupId);
-        var bytes = await File.ReadAllBytesAsync(snapshotPath, cancellationToken);
+        var bytes = await GroupSnapshotFile.ReadImageAsync(dir, GroupId, cancellationToken);
         var payloadLength = SnapshotTestLayout.ReadPayloadLength(bytes);
 
         // Guard the assumed field position: the seed snapshot carries included term 1, so a layout change is
@@ -601,7 +598,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(SnapshotTestLayout.HeaderByteCount + SnapshotTestLayout.LastIncludedTermPayloadOffset, 8), 0UL);
         var compute = Crc32C.Compute(bytes.AsSpan(SnapshotTestLayout.HeaderByteCount, payloadLength));
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(SnapshotTestLayout.CrcFileOffset(payloadLength), 4), compute);
-        await File.WriteAllBytesAsync(snapshotPath, bytes, cancellationToken);
+        await GroupSnapshotFile.WriteImageAsync(dir, GroupId, bytes, true, cancellationToken);
 
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         var exception = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
@@ -710,8 +707,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 1UL, cancellationToken);
         }
 
-        Directory.CreateDirectory(Path.GetDirectoryName(GroupStoragePaths.GetSnapshotPath(dir2, GroupId))!);
-        File.Copy(GroupStoragePaths.GetSnapshotPath(dir, sourceGroupId), GroupStoragePaths.GetSnapshotPath(dir2, GroupId));
+        GroupSnapshotFile.Copy(dir, sourceGroupId, dir2, GroupId);
 
         await using var reopened = new FollowerLog(dir2, GroupId, targetComposition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
@@ -733,10 +729,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         var storeA = new GroupSnapshotStore(dir, "grp-a");
         await storeA.PublishAsync(new GroupSnapshot("grp-a", ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch), cancellationToken);
 
-        var sourcePath = GroupStoragePaths.GetSnapshotPath(dir, "grp-a");
-        var targetPath = GroupStoragePaths.GetSnapshotPath(dir, "grp-b");
-        Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
-        File.Copy(sourcePath, targetPath);
+        GroupSnapshotFile.Copy(dir, "grp-a", dir, "grp-b");
 
         var storeB = new GroupSnapshotStore(dir, "grp-b");
         var exception = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(storeB.ReadPublishedAsync(cancellationToken));
@@ -777,7 +770,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
 
         await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, new byte[] { 5, 6, 7, 8 }, 2UL, 0UL, string.Empty, 0UL, 0UL, GroupMemberState.Complete, false), cancellationToken);
 
-        File.Copy(GroupStoragePaths.GetSnapshotPath(dir, GroupId), GroupStoragePaths.GetSnapshotPath(dir2, GroupId));
+        GroupSnapshotFile.Copy(dir, GroupId, dir2, GroupId);
 
         await using var reopened = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
@@ -937,7 +930,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await target.AdvanceCommitAsync(1UL, cancellationToken);
         }
 
-        File.Copy(GroupStoragePaths.GetSnapshotPath(dir, "grp-a"), GroupStoragePaths.GetSnapshotPath(dir2, "grp-b"));
+        GroupSnapshotFile.Copy(dir, "grp-a", dir2, "grp-b");
 
         await using var reopened = new FollowerLog(dir2, "grp-b", GroupComposition.Create("grp-b"), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));

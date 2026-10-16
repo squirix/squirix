@@ -92,8 +92,7 @@ public sealed class UnseededLogTests : ServerUnitTestBase
     public async Task SnapshotWithoutMetadataFailsReadiness(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-unseeded-snapshot");
-        var snapshotPath = GroupStoragePaths.GetSnapshotPath(dir, GroupId);
-        _ = Directory.CreateDirectory(Path.GetDirectoryName(snapshotPath)!);
+        _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, GroupId));
         var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, [], DateTime.UnixEpoch);
         await new GroupSnapshotStore(dir, GroupId).PublishAsync(snapshot, cancellationToken);
 

@@ -123,6 +123,7 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
         _ = expectations.Setups.OnFrameWritten();
         _ = expectations.Setups.OnFlushed();
         _ = expectations.Setups.OnMetaPublishing();
+        _ = expectations.Setups.OnSnapshotPublishing();
         _ = expectations.Setups.OnCommitAdvanced().Callback(() =>
         {
             if (fired)

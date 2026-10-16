@@ -40,4 +40,9 @@ public sealed class CountingFollowerLogFaultHooks : IFollowerLogFaultHooks
 
     /// <inheritdoc />
     public void OnMetaPublishing() => _ = Interlocked.Increment(ref _metaWrites);
+
+    /// <inheritdoc />
+    public void OnSnapshotPublishing()
+    {
+    }
 }

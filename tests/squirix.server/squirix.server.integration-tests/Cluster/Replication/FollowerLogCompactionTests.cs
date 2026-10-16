@@ -1,6 +1,5 @@
 using System;
 using System.Diagnostics;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,6 +13,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Replication;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -80,7 +80,7 @@ public sealed class FollowerLogCompactionTests : NodeIntegrationTestBase
         var status = await follower.GetStatusAsync(cancellationToken);
         var retained = await follower.GetRetentionAsync(cancellationToken);
 
-        _ = await Assert.That(File.Exists(GroupStoragePaths.GetSnapshotPath(cluster[FollowerId].DataDir, OwnerId))).IsTrue();
+        _ = await Assert.That(GroupSnapshotFile.Exists(cluster[FollowerId].DataDir, OwnerId)).IsTrue();
         _ = await Assert.That(retained.SnapshotIndex > 0 && retained.SnapshotIndex <= status.LastAppliedIndex).IsTrue()
                         .Because($"The follower compacts only through its applied index; retention {retained}, status {status}.");
         _ = await Assert.That(retained.RetainedEntries <= Threshold * 2).IsTrue().Because($"The follower group log must stay bounded; retention {retained}.");

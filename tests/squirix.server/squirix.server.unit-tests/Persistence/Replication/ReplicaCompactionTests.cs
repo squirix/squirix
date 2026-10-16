@@ -144,6 +144,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         _ = hooks.Setups.OnBeforeMemoryApply();
         _ = hooks.Setups.OnFlushed().Callback(() => FailIfArmed(armed));
         _ = hooks.Setups.OnMetaPublishing();
+        _ = hooks.Setups.OnSnapshotPublishing();
         await using (var log = await SeedCommittedTailAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Instance() }, cancellationToken))
         {
             armed = true;
@@ -153,7 +154,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
 
         // The snapshot is published and the log that starts right above it was not swapped in.
         var first = await FirstFrameIndexAsync(dir, cancellationToken);
-        _ = await Assert.That(File.Exists(GroupStoragePaths.GetSnapshotPath(dir, GroupId))).IsTrue();
+        _ = await Assert.That(GroupSnapshotFile.Exists(dir, GroupId)).IsTrue();
         _ = await Assert.That(first).IsEqualTo(1UL);
 
         await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
@@ -181,6 +182,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         _ = hooks.Setups.OnCommitAdvanced();
         _ = hooks.Setups.OnBeforeMemoryApply();
         _ = hooks.Setups.OnMetaPublishing();
+        _ = hooks.Setups.OnSnapshotPublishing();
 
         // The first flush once armed publishes the snapshot: the outcome recorded there lands between the snapshot and the log rewrite.
         _ = hooks.Setups.OnFlushed().Callback(() =>

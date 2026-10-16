@@ -340,6 +340,10 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
 
         public void OnMetaPublishing() => Interlocked.Exchange(ref _armed, null)?.Cancel();
 
+        public void OnSnapshotPublishing()
+        {
+        }
+
         internal void Arm(CancellationTokenSource source) => Volatile.Write(ref _armed, source);
     }
 }

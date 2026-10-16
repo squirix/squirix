@@ -87,6 +87,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         _ = hooks.Setups.OnBeforeMemoryApply();
         _ = hooks.Setups.OnFlushed().Callback(() => FailIfArmed(armed));
         _ = hooks.Setups.OnMetaPublishing();
+        _ = hooks.Setups.OnSnapshotPublishing();
         await using (var log = await SeedAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Instance() }, cancellationToken))
         {
             armed = true;
@@ -96,7 +97,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
 
         // The failure hit the intended boundary: the snapshot is published and the log was not swapped.
         var logBytes = new FileInfo(GroupStoragePaths.GetLogPath(dir, GroupId)).Length;
-        _ = await Assert.That(File.Exists(GroupStoragePaths.GetSnapshotPath(dir, GroupId))).IsTrue();
+        _ = await Assert.That(GroupSnapshotFile.Exists(dir, GroupId)).IsTrue();
         _ = await Assert.That(logBytes == HeaderLength()).IsFalse();
 
         await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);

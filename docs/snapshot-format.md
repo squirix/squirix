@@ -79,11 +79,17 @@ Writes go to `sn-NNNNNN.tmp` and are published atomically to `sn-NNNNNN.bsqx` vi
 
 ## Replica-group snapshots
 
-Replica-group recovery snapshots are separate from cache snapshots and are stored as `group.snapshot` inside the
-group persistence directory. The format is:
+Replica-group recovery snapshots are separate from cache snapshots and are stored as two slot files,
+`group.snapshot.0` and `group.snapshot.1`, inside the group persistence directory. The snapshot image is:
 
 ```text
 SQRS | version:u8 | payloadLength:u32 | payload | CRC32C(payload):u32
+```
+
+This image is also what a state transfer carries. A slot file wraps one image:
+
+```text
+SQGS | slotVersion:u8 | sequence:u64 | imageLength:i32 | image | CRC32C(all preceding bytes):u32
 ```
 
 All integer fields are little-endian. The payload begins with five fixed 64-bit fields (configuration generation,
@@ -98,8 +104,18 @@ its own monotonic clock, so the retention window never depends on how far apart 
 spends at rest or in transit does not count: a restored outcome may stay replayable longer than its window, never
 shorter, and only while no newer outcome needs its place. A snapshot carrying an outcome resolved after `capturedUtc` is refused as corrupt.
 
-Publication writes `group.snapshot.tmp`, flushes it, and atomically replaces `group.snapshot`. Recovery validates the
-magic, version, declared length, size bound, and CRC before restoring the committed baseline. Journal compaction keeps
+A slot file is valid when its magic, version, length, and CRC check, its sequence is not zero, and its image decodes.
+The slot CRC covers the slot header and the image, so a header persisted over an older image is not mistaken for a
+newer snapshot. A slot that fails a frame check is torn and ignored. A slot with an intact frame whose image does not
+decode, uses another image version, or is larger than the size bound plus the slot frame is refused as an error, as is
+a leftover `group.snapshot` file written by an earlier build. The valid slot with the higher sequence is the
+snapshot; two valid slots with one sequence must be byte-identical.
+
+Publication never renames, replaces, or deletes a file. It writes the new snapshot in place into the slot that is not
+current and flushes it, then writes it again into the slot that was current and flushes that, so both slots end up
+holding the snapshot. Before the first flush returns, a crash leaves either the previous snapshot or the new one; after
+it, the new one. When no snapshot exists yet, a publish that stopped after the first slot write leaves slot 0 torn or
+valid and slot 1 absent or torn. Recovery validates the slots as above before restoring the committed baseline. Journal compaction keeps
 the snapshot published and retains the log header plus entries after `lastIncludedIndex`, so a crash during or after
 compaction remains restartable. A replica that fell behind the compacted log is repaired by a state transfer: the
 leader sends the published image, the receiving replica checks it before it changes anything, and it publishes the same
