@@ -16,6 +16,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Server.TestKit.Replication;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -63,7 +64,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         var (retention, fileBytes, reported) = await ReadStableStateAsync(owner, log, cancellationToken);
 
         var logs = await DescribeLogsAsync(cluster, cancellationToken);
-        _ = await Assert.That(File.Exists(GroupStoragePaths.GetSnapshotPath(owner.DataDir, OwnerId))).IsTrue().Because($"Compaction must publish group.snapshot; {logs}.");
+        _ = await Assert.That(GroupSnapshotFile.Exists(owner.DataDir, OwnerId)).IsTrue().Because($"Compaction must publish the group snapshot; {logs}.");
         _ = await Assert.That(retention.RetainedEntries <= Threshold * 2).IsTrue().Because("The group log must keep at most twice the threshold.");
         _ = await Assert.That(fileBytes).IsEqualTo(retention.LogBytes);
         _ = await Assert.That(status.LastLogIndex >= 200).IsTrue().Because("Every overwrite must stay counted in the log index.");

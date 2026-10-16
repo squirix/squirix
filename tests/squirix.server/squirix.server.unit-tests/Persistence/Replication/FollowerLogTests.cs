@@ -924,7 +924,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
             _ = await Assert.That((await seed.AdvanceCommitAsync(2UL, cancellationToken)).Success).IsTrue();
         }
 
-        File.Copy(GroupStoragePaths.GetSnapshotPath(sourceDir, GroupId), GroupStoragePaths.GetSnapshotPath(dir, GroupId));
+        GroupSnapshotFile.Copy(sourceDir, GroupId, dir, GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenSeededAsync(cancellationToken);
@@ -1102,6 +1102,10 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         }
 
         public void OnMetaPublishing()
+        {
+        }
+
+        public void OnSnapshotPublishing()
         {
         }
 

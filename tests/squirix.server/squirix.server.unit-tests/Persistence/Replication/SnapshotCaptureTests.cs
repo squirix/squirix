@@ -49,11 +49,11 @@ public sealed class SnapshotCaptureTests : ServerUnitTestBase
         var logAfter = await StateInstallScenario.ReadLogBytesAsync(dir, cancellationToken);
         await SequenceAssert.EqualAsync(metaBefore, metaAfter);
         await SequenceAssert.EqualAsync(logBefore, logAfter);
-        _ = await Assert.That(new GroupSnapshotStore(dir, GroupId).SnapshotExists).IsFalse();
+        _ = await Assert.That(new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).SnapshotExists).IsFalse();
         _ = await Assert.That(groupSnapshotCaptureOutcome).IsEqualTo(GroupSnapshotCaptureOutcome.Captured);
 
         _ = await Assert.That(await log.CompactThroughAsync(3UL, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
-        var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId).ReadPublishedAsync(cancellationToken)).IsNotNull();
+        var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).ReadPublishedAsync(cancellationToken)).IsNotNull();
         _ = await Assert.That((captured.GroupId, captured.ConfigurationGeneration, captured.LastIncludedTerm, captured.LastIncludedIndex, captured.CommitIndex, captured.CapturedUtc))
                         .IsEqualTo((published.GroupId, published.ConfigurationGeneration, published.LastIncludedTerm, published.LastIncludedIndex, published.CommitIndex, published.CapturedUtc));
         await SequenceAssert.EqualAsync(published.TopologyFingerprint.ToArray(), captured.TopologyFingerprint.ToArray());

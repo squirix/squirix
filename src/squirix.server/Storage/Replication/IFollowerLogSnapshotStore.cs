@@ -15,7 +15,7 @@ internal interface IFollowerLogSnapshotStore
     /// </remarks>
     bool SnapshotExists { get; }
 
-    /// <summary>Gets the published snapshot file path.</summary>
+    /// <summary>Gets the path of the first published snapshot slot file.</summary>
     string SnapshotPath { get; }
 
     /// <summary>Tells, without writing, whether the published file image of a snapshot stays within the configured maximum size.</summary>
@@ -23,7 +23,7 @@ internal interface IFollowerLogSnapshotStore
     /// <returns><see langword="true" /> when <see cref="PublishAsync" /> would not refuse the snapshot for its size.</returns>
     bool Fits(GroupSnapshot snapshot);
 
-    /// <summary>Writes a snapshot to a temp file, flushes it, and atomically publishes it.</summary>
+    /// <summary>Durably publishes a snapshot into the two in-place slot files.</summary>
     /// <param name="snapshot">The snapshot to persist.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the snapshot is durably published.</returns>
@@ -31,8 +31,8 @@ internal interface IFollowerLogSnapshotStore
     /// <exception cref="InvalidOperationException">Thrown when the snapshot violates its boundary invariants.</exception>
     /// <exception cref="GroupSnapshotTooLargeException">Thrown before anything is written when the snapshot exceeds the configured maximum size.</exception>
     /// <remarks>
-    /// Callers must serialize publication per instance. Implementations may write to a fixed per-group temp path with
-    /// exclusive access, so concurrent calls can fail with an <see cref="IOException" /> or overwrite each other.
+    /// Callers must serialize publication per instance. Implementations write the slot files in place, so concurrent calls
+    /// can fail with an <see cref="IOException" /> or overwrite each other.
     /// </remarks>
     Task PublishAsync(GroupSnapshot snapshot, CancellationToken cancellationToken);
 

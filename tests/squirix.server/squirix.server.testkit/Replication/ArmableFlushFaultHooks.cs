@@ -57,4 +57,9 @@ public sealed class ArmableFlushFaultHooks : IFollowerLogFaultHooks
     public void OnMetaPublishing()
     {
     }
+
+    /// <inheritdoc />
+    public void OnSnapshotPublishing()
+    {
+    }
 }

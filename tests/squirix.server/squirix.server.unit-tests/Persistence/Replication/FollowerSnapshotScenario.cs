@@ -28,7 +28,7 @@ internal static class FollowerSnapshotScenario
     {
         await AdvanceAppliedAsync(log, index, cancellationToken);
         var outcome = await log.CompactThroughAsync(index, cancellationToken);
-        var published = outcome == GroupCompactionOutcome.Compacted ? await new GroupSnapshotStore(persistenceRoot, log.GroupId).ReadPublishedAsync(cancellationToken) : null;
+        var published = outcome == GroupCompactionOutcome.Compacted ? await new GroupSnapshotStore(persistenceRoot, log.GroupId, NoOpFollowerLogFaultHooks.Instance).ReadPublishedAsync(cancellationToken) : null;
         return published ?? ThrowHelper.Throw<GroupSnapshot>(new InvalidOperationException($"Compaction through index {index} ended with '{outcome}' and no published snapshot."));
     }
 

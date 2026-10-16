@@ -46,8 +46,6 @@ namespace Squirix.Server.Storage.Replication;
     Justification = "Each member is one gated entry point of the IFollowerLog contract; moving some to another type would take the gate with them.")]
 internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 {
-    private static readonly IFollowerLogFaultHooks DefaultFaults = new NoOpFaultHooks();
-
     private readonly FollowerLogAckRegistry _acks = new();
     private readonly GroupComposition _composition;
     private readonly GroupLogDurability _durability = new();
@@ -91,13 +89,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         ArgumentNullException.ThrowIfNull(log);
         ArgumentNullException.ThrowIfNull(options);
         _composition = composition;
-        _faults = options.FaultHooks ?? DefaultFaults;
+        _faults = options.FaultHooks ?? NoOpFollowerLogFaultHooks.Instance;
         _log = log;
         _shutdownBudget = options.ShutdownBudget;
         _shutdownClock = options.ShutdownTimeProvider;
         GroupId = groupId;
         var paths = FollowerLogPaths.Create(persistenceRoot, groupId);
-        var snapshot = new GroupSnapshotStore(persistenceRoot, groupId, options.MaxSnapshotBytes);
+        var snapshot = new GroupSnapshotStore(persistenceRoot, groupId, _faults, options.MaxSnapshotBytes);
         _journal = new FollowerLogJournal(paths, snapshot, new GroupMetadataStore(paths.MetadataPath, paths.MetadataTempPath, groupId, _faults, log));
         _idempotency = new GroupIdempotencyState(
             options.IdempotencyCapacity,
@@ -2808,8 +2806,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (refusal != null)
                 return GroupSnapshotInstallResult.Refused(refusal);
 
-            // The snapshot is published first. If that fails, the old metadata and log remain authoritative; once it is durable, a failure
-            // of any later step leaves the copy incomplete, or unseeded, and recovery restores the baseline from the snapshot on the next open.
+            // The snapshot is published first. If that fails before its first slot is flushed, the old snapshot, metadata and log remain authoritative;
+            // a failure after that point may leave the new snapshot published, and a failure of any later step leaves the copy incomplete, or unseeded,
+            // so recovery restores the baseline from the snapshot on the next open.
             await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
             await ReplaceStateAsync(journal, owner, snapshot, leader).ConfigureAwait(false);
             return GroupSnapshotInstallResult.Installed;
@@ -2949,31 +2948,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
             owner.Meta = candidate;
-        }
-    }
-
-    /// <summary>No-op fault hooks used when none are supplied.</summary>
-    [Immutable]
-    private sealed class NoOpFaultHooks : IFollowerLogFaultHooks
-    {
-        public void OnBeforeMemoryApply()
-        {
-        }
-
-        public void OnCommitAdvanced()
-        {
-        }
-
-        public void OnFlushed()
-        {
-        }
-
-        public void OnFrameWritten()
-        {
-        }
-
-        public void OnMetaPublishing()
-        {
         }
     }
 }

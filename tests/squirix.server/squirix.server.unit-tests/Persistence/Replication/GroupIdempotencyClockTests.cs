@@ -111,7 +111,7 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
         var outcome = new GroupIdempotencyRecord("cache", "op", new byte[] { 201 }, new byte[] { 209 }, GroupRecordKind.UserMutation, resolvedUtc, resolvedUtc, 1UL, 1UL);
         var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, [outcome], resolvedUtc - TimeSpan.FromMilliseconds(1));
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(new GroupSnapshotStore(dir, GroupId).PublishAsync(snapshot, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).PublishAsync(snapshot, cancellationToken));
     }
 
     /// <summary>A forward step of the wall clock neither expires an outcome nor makes the snapshot report it older than it is.</summary>

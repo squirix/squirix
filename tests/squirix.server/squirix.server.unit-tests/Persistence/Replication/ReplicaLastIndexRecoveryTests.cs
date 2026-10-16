@@ -189,7 +189,7 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
     }
 
     internal static Task PublishSnapshotAsync(TempDirectory dir, string groupId, ulong included, CancellationToken cancellationToken) =>
-        new GroupSnapshotStore(dir, groupId).PublishAsync(
+        new GroupSnapshotStore(dir, groupId, NoOpFollowerLogFaultHooks.Instance).PublishAsync(
             new GroupSnapshot(groupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, included, included, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch),
             cancellationToken);
 
