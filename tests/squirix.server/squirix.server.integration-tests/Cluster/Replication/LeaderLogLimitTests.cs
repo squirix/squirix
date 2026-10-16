@@ -29,7 +29,7 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
     /// <summary>The number of writes of a large value; together they put more than the one-megabyte limit in the owner log.</summary>
     private const int Writes = 24;
 
-    /// <summary>Bounds the wait for the owner to admit the returned follower; it only absorbs a loaded machine.</summary>
+    /// <summary>Bounds the waits for the owner to take the stopped follower out of the write quorum and to admit it back; they only absorb a loaded machine.</summary>
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(60);
 
     /// <summary>The maintenance interval of the nodes; no timer pass fires within the test, which compacts by hand.</summary>
@@ -63,6 +63,16 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         for (var i = 1; i <= Writes; i++)
             await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = $"{i}:{large}", Version = i }, cancellationToken);
 
+        // A commit returns once node-b acknowledges, while the send to the stopped node-c may still be in flight; until it fails, node-c
+        // still counts as ready, and the owner keeps the log for it. Compacting before then would be refused as a follower behind.
+        var eligibility = owner.GetRequiredService<ReplicaGroupRegistry>().EligibilityFor(OwnerId);
+        var slot = SlotOf(owner, "node-c");
+        await (Eligibility: eligibility, Slot: slot).WaitUntilValueAsync(
+            static (state, _) => ValueTask.FromResult(!state.Eligibility.CanCountInWriteQuorum(state.Slot)),
+            Bound,
+            TimeProvider.System,
+            cancellationToken);
+
         var outcome = await ReplicaNodeCommitters.OwnCommitter(owner).CompactOwnedLogAsync(
             ReplicaLogCompactionPolicy.From(Persistence),
             owner.GetRequiredService<IJournalCoordinator>(),
@@ -70,8 +80,6 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         var restarted = await cluster.StartNodeAsync("node-c", Options(scope, false), cancellationToken);
 
         // The owner counts the transfer before it admits the follower, so the counter is read once the follower counts again.
-        var eligibility = owner.GetRequiredService<ReplicaGroupRegistry>().EligibilityFor(OwnerId);
-        var slot = SlotOf(owner, "node-c");
         try
         {
             await (Eligibility: eligibility, Slot: slot).WaitUntilValueAsync(
