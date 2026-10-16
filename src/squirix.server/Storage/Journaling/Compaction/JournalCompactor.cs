@@ -26,16 +26,29 @@ namespace Squirix.Server.Storage.Journaling.Compaction;
 /// </summary>
 internal static class JournalCompactor
 {
+    private static readonly CompactedSegmentDurability DefaultSegmentDurability = new();
+
+    internal static Task CompactAsync(
+        PersistenceOptions options,
+        Ledger manifestStore,
+        ISnapshotReader snapshotReader,
+        DateTime utcNow,
+        DateTime? expiredAsOf,
+        CancellationToken cancellationToken) =>
+        CompactAsync(options, manifestStore, snapshotReader, utcNow, expiredAsOf, DefaultSegmentDurability, cancellationToken);
+
     internal static async Task CompactAsync(
         PersistenceOptions options,
         Ledger manifestStore,
         ISnapshotReader snapshotReader,
         DateTime utcNow,
         DateTime? expiredAsOf,
+        ICompactedSegmentDurability segmentDurability,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(snapshotReader);
+        ArgumentNullException.ThrowIfNull(segmentDurability);
 
         _ = await DirectoryEx.CreateDirectoryAsync(options.DataDir, cancellationToken: cancellationToken).ConfigureAwait(false);
         var oldManifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
@@ -48,7 +61,7 @@ internal static class JournalCompactor
         var newFirstIdx = journalSegments.Length == 0 ? 1 : journalSegments[^1].Index + 1;
         var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.tmp");
         _ = FileEx.TryDeleteFile(tmpPath);
-        var writtenLastSeq = await WriteCompactedJournalAsync(tmpPath, state, idempotencyState, lastSeq, utcNow, expiredAsOf, cancellationToken).ConfigureAwait(false);
+        var writtenLastSeq = await WriteCompactedJournalAsync(tmpPath, (state, idempotencyState), lastSeq, utcNow, expiredAsOf, segmentDurability, cancellationToken).ConfigureAwait(false);
         await FinalizeCompactionAsync(options, manifestStore, oldManifest, newFirstIdx, writtenLastSeq, journalSegments, cancellationToken).ConfigureAwait(false);
     }
 
@@ -308,13 +321,14 @@ internal static class JournalCompactor
 
     private static async Task<ulong> WriteCompactedJournalAsync(
         string tmpPath,
-        Dictionary<CacheKey, NodeCacheEntry<object?>> state,
-        Dictionary<string, CompactedIdempotencyRecord> idempotencyState,
+        (Dictionary<CacheKey, NodeCacheEntry<object?>> State, Dictionary<string, CompactedIdempotencyRecord> IdempotencyState) compactionState,
         ulong lastSeq,
         DateTime utcNow,
         DateTime? expiredAsOf,
+        ICompactedSegmentDurability segmentDurability,
         CancellationToken cancellationToken)
     {
+        var (state, idempotencyState) = compactionState;
         var handle = File.OpenHandle(tmpPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read, FileOptions.Asynchronous | FileOptions.SequentialScan);
         try
         {
@@ -350,6 +364,7 @@ internal static class JournalCompactor
                 wroteAny = true;
             }
 
+            segmentDurability.Flush(handle);
             return wroteAny ? seq - 1UL : lastSeq;
         }
         finally
