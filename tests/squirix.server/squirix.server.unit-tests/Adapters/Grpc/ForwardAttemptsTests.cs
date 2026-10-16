@@ -84,19 +84,20 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     [Test]
     public async Task HandshakeFailureMapsToUnavailable(CancellationToken cancellationToken)
     {
-        var handshake = CreateForwarder(
-            new CapturingCallInvoker(
-                failure: static () => new RpcException(
-                    new Status(
-                        StatusCode.Internal,
-                        "Error starting gRPC call.",
-                        new HttpRequestException(HttpRequestError.SecureConnectionError, "The SSL connection could not be established.", new ObjectDisposedException("credential"))))));
+        var handshakeInvoker = new CapturingCallInvoker(
+            failure: static () => new RpcException(
+                new Status(
+                    StatusCode.Internal,
+                    "Error starting gRPC call.",
+                    new HttpRequestException(HttpRequestError.SecureConnectionError, "The SSL connection could not be established.", new ObjectDisposedException("credential")))));
+        var handshake = CreateForwarder(handshakeInvoker);
         var owner = CreateForwarder(new CapturingCallInvoker(failure: static () => new RpcException(new Status(StatusCode.Internal, "owner failed"))));
         var request = new GetValueAsyncRequest { CacheName = "c", Key = "k" };
 
         var handshakeFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(handshake.GetValueAsync(Owner, request, cancellationToken));
         var ownerFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(owner.GetValueAsync(Owner, request, cancellationToken));
 
+        _ = await Assert.That(handshakeInvoker.Requests.Count).IsEqualTo(3);
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(handshakeFailure)).IsTrue();
         _ = await Assert.That((ownerFailure.StatusCode, ownerFailure.Status.Detail)).IsEqualTo((StatusCode.Internal, "owner failed"));
     }
