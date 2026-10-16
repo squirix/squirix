@@ -70,7 +70,8 @@ public sealed class FollowerLogCompactionTests : NodeIntegrationTestBase
                 snapshotIndex = retention.SnapshotIndex;
             }
 
-            if (Stopwatch.GetElapsedTime(started) >= Bound * 2)
+            // The bound catches a follower that does not compact; on a loaded host the writes alone may outlast it once it has compacted.
+            if (compactions < requiredCompactions && Stopwatch.GetElapsedTime(started) >= Bound * 2)
                 throw new TimeoutException($"The follower compacted {compactions} times while writes went on; last retention {retention}.");
         }
 
