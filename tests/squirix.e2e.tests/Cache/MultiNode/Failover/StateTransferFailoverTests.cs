@@ -37,7 +37,6 @@ public sealed class StateTransferFailoverTests : EndToEndTestBase
     [Test]
     [Timeout(180_000)]
     [ParallelLimiter<FailoverLimit>]
-    [ParallelGroup(FailoverLimit.Group)]
     public async Task RepairedFollowerLeadsAndServesEveryKey(CancellationToken cancellationToken)
     {
         const string testName = nameof(RepairedFollowerLeadsAndServesEveryKey);
