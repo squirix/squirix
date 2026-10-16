@@ -35,10 +35,13 @@ public sealed class WipedOwnerTests : NodeIntegrationTestBase
 
         var copy = await WipedCluster.AwaitRepairedCopyAsync(owner, WipedCluster.OwnerId, leader, cancellationToken);
 
+        // Once the leader repaired the copy, the first start of the owner may end, finding the copy complete; it never offered the group again:
+        // the copy holds the elected term, the owner never led, and the other members keep their complete copies.
         _ = await Assert.That(term).IsGreaterThan(0UL);
         _ = await Assert.That(copy.CurrentTerm).IsEqualTo(term);
-        _ = await Assert.That(FirstStartAsync(owner).IsCompleted).IsFalse();
         _ = await Assert.That(ledger.Observe([WipedCluster.OwnerId]).Term).IsEqualTo(0UL);
+        foreach (var node in Others)
+            await WipedCluster.AssertCompleteCopyAsync(cluster[node], WipedCluster.OwnerId, cancellationToken);
     }
 
     /// <summary>Without automatic failover the owner refuses the keys of its group as unavailable, and the groups of the other nodes are not affected.</summary>
