@@ -125,6 +125,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         using var channel = CreateGrpcChannel(cluster[entry].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         await WarmUpAsync(client, KeyOwnedByOwner(cluster[entry], 1), cancellationToken);
+        await WarmUpStaleRouteAsync(probe, (entry, new LeaderRoute(follower, term)), client, KeyOwnedByOwner(cluster[entry], 2), cancellationToken);
         probe.Arm(entry, OwnerId, new LeaderRoute(follower, term));
 
         var request = new SetEntryAsyncRequest
@@ -487,6 +488,46 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         while (refusal is { StatusCode: StatusCode.DeadlineExceeded } && outcomes.Count < MaxWrites);
 
         _ = await Assert.That(refusal).IsNull().Because($"the warm-up write must commit; writes: {string.Join("; ", outcomes)}");
+    }
+
+    /// <summary>Sends one write through the stale route before the write under test, so the entry node already holds a connection to the follower.</summary>
+    /// <remarks>
+    /// The write under test is the first forward from the entry node to the follower, which opens that connection; on a loaded host its TLS
+    /// handshake can outlast the per-attempt timeout of the forward, which ends the write as an ambiguous timeout instead of the refusal it
+    /// expects. This write takes the same path and is sent again with the same operation id while it times out.
+    /// </remarks>
+    /// <param name="probe">The probe that pins the stale route; it is armed again for the write under test.</param>
+    /// <param name="stale">The entry node and the stale route it is to report.</param>
+    /// <param name="client">The client of the entry node.</param>
+    /// <param name="key">A key of the owner group the write under test does not use.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    private static async Task WarmUpStaleRouteAsync(
+        LeaderRouteProbe probe,
+        (string Entry, LeaderRoute Route) stale,
+        SquirixCacheService.SquirixCacheServiceClient client,
+        string key,
+        CancellationToken cancellationToken)
+    {
+        probe.Arm(stale.Entry, OwnerId, stale.Route);
+        var request = new SetEntryAsyncRequest
+        {
+            OperationId = RpcOperationIdentity.New(),
+            CacheName = CacheName,
+            Key = key,
+            Entry = new NodeCacheEntry<object?> { Value = "warm-stale", Version = 1 }.MapToProto(),
+        };
+
+        var outcomes = new List<string>();
+        RpcException? refusal;
+        do
+        {
+            refusal = await Calls.SetAsync(client, request, cancellationToken);
+            outcomes.Add(refusal == null ? "OK" : refusal.Status.Detail);
+        }
+        while (refusal is { StatusCode: StatusCode.DeadlineExceeded } && outcomes.Count < MaxWrites);
+
+        _ = await Assert.That(refusal).IsNull().Because($"the warm-up write through the stale route must commit; writes: {string.Join("; ", outcomes)}");
     }
 
     /// <summary>Finds a key of the owner group as the ring of a node places it.</summary>
