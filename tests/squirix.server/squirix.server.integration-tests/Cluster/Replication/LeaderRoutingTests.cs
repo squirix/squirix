@@ -633,8 +633,8 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     };
 
     /// <summary>
-    /// Waits for a parked write and sends it again with the same operation id while it is refused as unavailable, each time after a survivor
-    /// has authority over the owner group.
+    /// Waits for a parked write and sends it again with the same operation id while it is refused as unavailable or times out, each time after a
+    /// survivor has authority over the owner group.
     /// </summary>
     /// <param name="cluster">The cluster.</param>
     /// <param name="client">The client of the entry node.</param>
@@ -643,6 +643,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     /// <param name="survivors">The running nodes that may lead.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The last refusal, or <see langword="null" /> when the write succeeded, and the outcome of every send.</returns>
+    /// <remarks>A forward that reached the new leader can outlast its timeout while the leader commits on a loaded host, so a timeout is sent again too.</remarks>
     private static async Task<(RpcException? Refusal, List<string> Outcomes)> ResendAsync(
         TestCluster<IntegrationStartOptions> cluster,
         SquirixCacheService.SquirixCacheServiceClient client,
@@ -654,7 +655,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var outcomes = new List<string>();
         var refusal = first;
         outcomes.Add(refusal == null ? "OK" : refusal.Status.Detail);
-        while (refusal is { StatusCode: StatusCode.Unavailable } && outcomes.Count < MaxWrites)
+        while (refusal is { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded } && outcomes.Count < MaxWrites)
         {
             _ = await LeaderAsync(cluster, survivors, cancellationToken);
             refusal = await Calls.SetAsync(client, write, cancellationToken);
