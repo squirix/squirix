@@ -58,13 +58,13 @@ public sealed class FollowerProtocolOrderingTests : NodeIntegrationTestBase
 
         var batch = Batch([Entry(1UL, 1UL, "a"), Entry(2UL, 1UL, "b")], 0UL, 0UL, 1UL);
         var first = await log.AppendAsync(batch, cancellationToken);
-        var logLength = FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId));
+        var logLength = FollowerLogTestKit.GetLogLength(GroupLogFile.ActivePath(dir, GroupId));
         var second = await log.AppendAsync(batch, cancellationToken);
 
         _ = await Assert.That(first.Success).IsTrue();
         _ = await Assert.That(second.Success).IsTrue();
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
-        _ = await Assert.That(FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId))).IsEqualTo(logLength);
+        _ = await Assert.That(FollowerLogTestKit.GetLogLength(GroupLogFile.ActivePath(dir, GroupId))).IsEqualTo(logLength);
     }
 
     /// <summary>A higher term is persisted durably before the appending is acknowledged.</summary>

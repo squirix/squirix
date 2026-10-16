@@ -36,6 +36,15 @@ internal sealed class FollowerLogJournal
 
     internal IFollowerLogSnapshotStore Snapshot { get; }
 
+    /// <summary>Gets the generation of the active group log file; 0 before a log exists.</summary>
+    internal ulong LogGeneration { get; private set; }
+
+    /// <summary>Gets the path of the active group log file.</summary>
+    internal string LogPath => Paths.GetLogSlotPath(LogSlot);
+
+    /// <summary>Gets the slot index of the active group log file.</summary>
+    internal int LogSlot { get; private set; }
+
     internal SnapshotBaseline SnapshotBaseline { get; private set; } = new(0UL, 0UL);
 
     internal void AddEntry(in FollowerLogEntry entry, long offset, ulong term)
@@ -135,6 +144,15 @@ internal sealed class FollowerLogJournal
 
         for (var i = 0; i < released.Count; i++)
             _ = _entries.Remove(released[i]);
+    }
+
+    /// <summary>Makes a group log file the active one. Callers hold the owning log's gate.</summary>
+    /// <param name="slot">The slot index of the file.</param>
+    /// <param name="generation">The generation of the file.</param>
+    internal void UseLog(int slot, ulong generation)
+    {
+        LogSlot = slot;
+        LogGeneration = generation;
     }
 
     internal void RemoveEntriesAbove(ulong index) => RemoveEntriesAboveCore(index);

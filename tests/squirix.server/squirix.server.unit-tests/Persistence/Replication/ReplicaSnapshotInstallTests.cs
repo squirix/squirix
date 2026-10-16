@@ -159,7 +159,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var status = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That((status.LastLogIndex, status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((2UL, 2UL, 2UL));
         _ = await Assert.That(await log.GetUncommittedTailAsync(cancellationToken)).IsEmpty();
-        _ = await Assert.That(FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId))).IsEqualTo(GroupLogCodec.LogFileHeader.Length);
+        _ = await Assert.That(FollowerLogTestKit.GetLogLength(GroupLogFile.ActivePath(dir, GroupId))).IsEqualTo(GroupLogSlots.HeaderSize);
     }
 
     /// <summary>Completing a transfer releases an unresolved reservation the snapshot did not export from the covered prefix, and keeps the resolved outcome.</summary>

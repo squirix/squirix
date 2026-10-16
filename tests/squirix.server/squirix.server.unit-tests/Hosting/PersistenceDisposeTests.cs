@@ -13,6 +13,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -89,7 +90,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         await PersistenceServiceRegistration.OpenPersistenceAsync(provider, cancellationToken);
         await registry.OpenAsync(cancellationToken);
         var ledger = provider.GetRequiredService<Ledger>();
-        var groupLog = GroupStoragePaths.GetLogPath(Dir, "group-a");
+        var groupLog = GroupLogFile.ActivePath(Dir, "group-a");
         var openAtJournalDispose = false;
         var host = provider.GetRequiredService<JournalCoordinatorHost>();
         var journal = host.Coordinator;

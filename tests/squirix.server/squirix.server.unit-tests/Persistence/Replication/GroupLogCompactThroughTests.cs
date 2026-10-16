@@ -96,7 +96,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         }
 
         // The failure hit the intended boundary: the snapshot is published and the log was not swapped.
-        var logBytes = new FileInfo(GroupStoragePaths.GetLogPath(dir, GroupId)).Length;
+        var logBytes = new FileInfo(GroupLogFile.ActivePath(dir, GroupId)).Length;
         _ = await Assert.That(GroupSnapshotFile.Exists(dir, GroupId)).IsTrue();
         _ = await Assert.That(logBytes == HeaderLength()).IsFalse();
 
@@ -206,7 +206,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
             throw new IOException("simulated crash at a compaction boundary.");
     }
 
-    private static long HeaderLength() => GroupLogCodec.LogFileHeader.Length;
+    private static long HeaderLength() => GroupLogSlots.HeaderSize;
 
     private static string OperationId(byte index) => "op-" + index;
 

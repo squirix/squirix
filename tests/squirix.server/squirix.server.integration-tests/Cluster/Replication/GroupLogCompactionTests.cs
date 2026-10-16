@@ -434,7 +434,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         {
             var before = await log.GetRetentionAsync(cancellationToken);
             var reported = await ReadyDetailsGroupAsync(owner, cancellationToken);
-            var fileBytes = new FileInfo(GroupStoragePaths.GetLogPath(owner.DataDir, OwnerId)).Length;
+            var fileBytes = new FileInfo(GroupLogFile.ActivePath(owner.DataDir, OwnerId)).Length;
             var after = await log.GetRetentionAsync(cancellationToken);
             if (before == after)
                 return (after, fileBytes, reported);

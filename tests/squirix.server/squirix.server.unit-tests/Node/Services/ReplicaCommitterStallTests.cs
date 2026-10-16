@@ -246,7 +246,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             new FollowerLogOptions { TimeProvider = TimeProvider.System, FaultHooks = hooks, ShutdownBudget = LogShutdownBudget, ShutdownTimeProvider = clock },
             loggerFactory,
             cancellationToken);
-        var idleLogPath = FollowerLogPaths.Create(Dir, IdleGroup).LogPath;
+        var idleLogPath = GroupLogFile.ActivePath(Dir, IdleGroup);
         try
         {
             if (!registry.TryGetLog(StalledGroup, out var stalled))

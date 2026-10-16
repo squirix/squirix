@@ -12,9 +12,9 @@ using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
-using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.Threading;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -79,7 +79,7 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
     {
         foreach (var group in ServedGroups)
         {
-            if (!IsReleased(GroupStoragePaths.GetLogPath(dataDir, group)))
+            if (!IsReleased(GroupLogFile.ActivePath(dataDir, group)))
                 return false;
         }
 
@@ -90,7 +90,7 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
     {
         foreach (var group in ServedGroups)
         {
-            if (IsReleased(GroupStoragePaths.GetLogPath(dataDir, group)))
+            if (IsReleased(GroupLogFile.ActivePath(dataDir, group)))
                 return true;
         }
 

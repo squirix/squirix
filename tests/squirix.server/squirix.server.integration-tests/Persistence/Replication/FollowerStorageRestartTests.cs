@@ -48,7 +48,7 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
     public async Task CommittedPrefixCorruptionFailsReadiness(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-restart-corruption");
-        var logPath = GroupStoragePaths.GetLogPath(dir, GroupId);
+        var logPath = GroupLogFile.ActivePath(dir, GroupId);
 
         await using (var log = OpenLog(dir))
         {

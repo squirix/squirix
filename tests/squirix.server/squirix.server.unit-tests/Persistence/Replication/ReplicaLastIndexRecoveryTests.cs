@@ -217,9 +217,10 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
 
     private static void WriteLogFile(TempDirectory dir, bool withHeader)
     {
-        using var handle = File.OpenHandle(GroupStoragePaths.GetLogPath(dir, GroupId), FileMode.Create, FileAccess.Write);
+        var path = GroupStoragePaths.GetLogSlotPath(dir, GroupId, 0);
+        File.OpenHandle(path, FileMode.Create, FileAccess.Write).Dispose();
         if (withHeader)
-            RandomAccess.Write(handle, GroupLogCodec.LogFileHeader, 0);
+            GroupLogFile.WriteHeader(path, 1UL);
     }
 
     private static async Task AssertBoundaryRaisedAsync(TempDirectory dir, bool createLog, bool withHeader, CancellationToken cancellationToken)
@@ -232,9 +233,9 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
         if (createLog)
             WriteLogFile(dir, withHeader);
         else
-            File.Delete(GroupStoragePaths.GetLogPath(dir, GroupId));
+            File.Delete(GroupLogFile.ActivePath(dir, GroupId));
 
-        _ = await Assert.That(File.Exists(GroupStoragePaths.GetLogPath(dir, GroupId))).IsEqualTo(createLog);
+        _ = await Assert.That(File.Exists(GroupLogFile.ActivePath(dir, GroupId))).IsEqualTo(createLog);
         await PublishSnapshotAsync(dir, GroupId, 2UL, cancellationToken);
 
         await using (var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))

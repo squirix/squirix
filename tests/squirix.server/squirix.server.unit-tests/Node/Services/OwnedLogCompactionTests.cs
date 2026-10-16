@@ -329,7 +329,7 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         return durability.Instance();
     }
 
-    private static long HeaderLength() => GroupLogCodec.LogFileHeader.Length;
+    private static long HeaderLength() => GroupLogSlots.HeaderSize;
 
     private static IFollowerLog OwnedLog(ReplicaGroupRegistry registry) =>
         registry.TryGetLog("n1", out var log) ? log : throw new InvalidOperationException("The owned group log is not open.");

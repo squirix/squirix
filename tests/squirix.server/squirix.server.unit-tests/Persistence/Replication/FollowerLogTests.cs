@@ -36,13 +36,13 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         await log.OpenSeededAsync(cancellationToken);
 
         var first = await log.AppendAsync(Append(1UL, 1UL, "dup"), cancellationToken);
-        var logLength = FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId));
+        var logLength = FollowerLogTestKit.GetLogLength(GroupLogFile.ActivePath(dir, GroupId));
         var second = await log.AppendAsync(Append(1UL, 1UL, "dup"), cancellationToken);
 
         _ = await Assert.That(first.Success).IsTrue();
         _ = await Assert.That(second.Success).IsTrue();
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(1UL);
-        _ = await Assert.That(FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId))).IsEqualTo(logLength);
+        _ = await Assert.That(FollowerLogTestKit.GetLogLength(GroupLogFile.ActivePath(dir, GroupId))).IsEqualTo(logLength);
     }
 
     /// <summary>A stale batch replaying already-durable entries within the local tail is still acknowledged idempotently.</summary>
@@ -390,7 +390,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenSeededAsync(cancellationToken);
         _ = await Assert.That(log.SnapshotPath).IsNotNull();
-        _ = await Assert.That(FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId)) > GroupLogCodec.LogFileHeader.Length).IsTrue();
+        _ = await Assert.That(FollowerLogTestKit.GetLogLength(GroupLogFile.ActivePath(dir, GroupId)) > GroupLogSlots.HeaderSize).IsTrue();
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastAppliedIndex).IsEqualTo(1UL);
 
         var retransmission = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
@@ -859,7 +859,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         }
 
-        var path = GroupStoragePaths.GetLogPath(dir, GroupId);
+        var path = GroupLogFile.ActivePath(dir, GroupId);
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
 
         // Frame header follows the 5-byte file header: magic(4) | version(1) | bodyLength(4). Overwrite bodyLength with a multi-GB value.

@@ -18,8 +18,9 @@ internal static class GroupStoragePaths
     private const string DirectoryPrefix = "grp-";
     private const string MetadataFileName = "group.meta";
     private const string MetadataTempName = "group.meta.tmp";
-    private const string LogFileName = "group.log";
-    private const string LogTempName = "group.log.compact.tmp";
+    private const string LogLegacyFileName = "group.log";
+    private const string LogSlot0FileName = "group.log.0";
+    private const string LogSlot1FileName = "group.log.1";
     private const string SnapshotLegacyFileName = "group.snapshot";
     private const string SnapshotSlot0FileName = "group.snapshot.0";
     private const string SnapshotSlot1FileName = "group.snapshot.1";
@@ -65,17 +66,24 @@ internal static class GroupStoragePaths
     /// <returns>The temporary metadata file path.</returns>
     internal static string GetMetadataTempPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), MetadataTempName);
 
-    /// <summary>Resolves the append-only log file path for a group.</summary>
+    /// <summary>Resolves the path of one of the two group log generation files for a group.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
     /// <param name="groupId">The replica group identifier.</param>
-    /// <returns>The log file path.</returns>
-    internal static string GetLogPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), LogFileName);
+    /// <param name="slot">The slot index, 0 or 1.</param>
+    /// <returns>The log slot file path.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="slot" /> is not 0 or 1.</exception>
+    internal static string GetLogSlotPath(string persistenceRoot, string groupId, int slot)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(slot);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slot, GroupLogSlots.SlotCount);
+        return Path.Join(GetGroupDirectory(persistenceRoot, groupId), slot == 0 ? LogSlot0FileName : LogSlot1FileName);
+    }
 
-    /// <summary>Resolves the temporary log path used for atomic compaction replacement.</summary>
+    /// <summary>Resolves the path of the single log file written by earlier builds, which this build refuses to read.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
     /// <param name="groupId">The replica group identifier.</param>
-    /// <returns>The temporary log path.</returns>
-    internal static string GetLogTempPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), LogTempName);
+    /// <returns>The earlier log file path.</returns>
+    internal static string GetLegacyLogPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), LogLegacyFileName);
 
     /// <summary>Resolves the path of one of the two durable snapshot slot files for a group.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
