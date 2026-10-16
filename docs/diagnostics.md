@@ -45,8 +45,8 @@ diagnostics surfaces currently exposed by the node host.
   [operational-runbook.md — Journal disk quota](operational-runbook.md#journal-disk-quota).
 - `retentionCleanup` (persistence enabled): retention cleanup readiness aggregates —
   `degraded`, `consecutiveWriteFailures`, `recentFailureCount`, `lastFailureUtc`.
-- `replicaGroups` (RF>1): one entry per member group log (a replica group this node belongs to) — `groupId`, `logBytes` (`group.log` size),
-  `retainedEntries` (entries in `group.log`), and `snapshotIndex` (last index the group snapshot covers, `0` without
+- `replicaGroups` (RF>1): one entry per member group log (a replica group this node belongs to) — `groupId`, `logBytes` (size of the active group log file),
+  `retainedEntries` (entries in the group log), and `snapshotIndex` (last index the group snapshot covers, `0` without
   one). Observability only: a growing log does not change `/health/ready`. See
   [group log compaction](architecture/replication-consensus.md#group-log-retention-and-compaction).
 
