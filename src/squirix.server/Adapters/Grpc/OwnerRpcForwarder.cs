@@ -164,8 +164,9 @@ internal sealed class OwnerRpcForwarder
             }
             catch (RpcException ex)
             {
-                // Only a failure of this client carries its cause; a status the owner sent never does. A failed connect sent nothing.
-                if (ex.StatusCode == StatusCode.Unavailable && attempts.NoneConnected && OwnerUnreachableFailure.IsConnectFailure(ex.Status.DebugException))
+                // Only a failure of this client carries its cause; a status the owner sent never does. A failed connect sent nothing, whatever
+                // status the client gave it: a failed TLS handshake surfaces as Internal, not Unavailable.
+                if (attempts.NoneConnected && OwnerUnreachableFailure.IsConnectFailure(ex.Status.DebugException))
                     throw OwnerUnreachableFailure.Create(ex.Status.DebugException!);
 
                 // The owner refused because its ring differs from this node: fence this node too, then relay the refusal with its trailers.
