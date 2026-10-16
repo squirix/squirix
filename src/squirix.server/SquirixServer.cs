@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
@@ -140,12 +139,11 @@ public sealed class SquirixServer : IAsyncDisposable
 
         private static void LogCleanupFailure(ILogger logger, Exception cleanupException)
         {
-            // A failing logger must not replace the startup failure that is being rethrown.
-            var loggingFailure = Isolated.Run(
+            // A failing logger must not replace the startup failure that is being rethrown, and a logging
+            // failure has nowhere else to go without global state, so it is discarded by design.
+            _ = Isolated.Run(
                 (Logger: logger, Cleanup: cleanupException),
                 static state => ServerLog.HostDisposeFailedAfterStartFailure(state.Logger, state.Cleanup));
-            if (loggingFailure != null)
-                Trace.TraceError("Logging the failed-startup cleanup failed: {0}", loggingFailure);
         }
 
         private async Task RunDisposeAsync()
