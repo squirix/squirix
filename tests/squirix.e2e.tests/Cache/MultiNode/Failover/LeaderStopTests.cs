@@ -29,6 +29,7 @@ public sealed class LeaderStopTests : EndToEndTestBase
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
+    [ParallelGroup(FailoverLimit.Group)]
     public Task MajorityRecoversAfterLeaderStop(CancellationToken cancellationToken) => LeaderStopRecoversAsync(nameof(MajorityRecoversAfterLeaderStop), false, cancellationToken);
 
     /// <summary>An abrupt shutdown of the leader, found at run time, without a graceful drain, under a register workload.</summary>
@@ -37,6 +38,7 @@ public sealed class LeaderStopTests : EndToEndTestBase
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
+    [ParallelGroup(FailoverLimit.Group)]
     public Task RfThreeLeaderStopRecovers(CancellationToken cancellationToken) => LeaderStopRecoversAsync(nameof(RfThreeLeaderStopRecovers), true, cancellationToken);
 
     /// <summary>
@@ -49,6 +51,7 @@ public sealed class LeaderStopTests : EndToEndTestBase
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
+    [ParallelGroup(FailoverLimit.Group)]
     public async Task ReadAndWriteContinueOnRfThreeMajority(CancellationToken cancellationToken)
     {
         const string testName = nameof(ReadAndWriteContinueOnRfThreeMajority);

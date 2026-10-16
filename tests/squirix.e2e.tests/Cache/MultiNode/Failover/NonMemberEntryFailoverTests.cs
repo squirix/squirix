@@ -38,6 +38,7 @@ public sealed class NonMemberEntryFailoverTests : EndToEndTestBase
     [Test]
     [Timeout(180_000)]
     [ParallelLimiter<FailoverLimit>]
+    [ParallelGroup(FailoverLimit.Group)]
     public async Task NonMemberEntriesReachNewLeader(CancellationToken cancellationToken)
     {
         const string testName = nameof(NonMemberEntriesReachNewLeader);

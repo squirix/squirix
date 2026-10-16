@@ -43,6 +43,7 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
     [Test]
     [Timeout(180_000)]
     [ParallelLimiter<FailoverLimit>]
+    [ParallelGroup(FailoverLimit.Group)]
     public async Task TwoNodeMinorityFailsClosed(CancellationToken cancellationToken)
     {
         const string testName = nameof(TwoNodeMinorityFailsClosed);

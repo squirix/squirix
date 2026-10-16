@@ -34,6 +34,7 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
+    [ParallelGroup(FailoverLimit.Group)]
     public async Task RfTwoDoesNotFailOverAfterOneMemberStops(CancellationToken cancellationToken)
     {
         var timing = FailoverTiming.For(nameof(RfTwoDoesNotFailOverAfterOneMemberStops));
@@ -75,6 +76,7 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
+    [ParallelGroup(FailoverLimit.Group)]
     public async Task RfOneHasNoElectionPath(CancellationToken cancellationToken)
     {
         var timing = FailoverTiming.For(nameof(RfOneHasNoElectionPath));
