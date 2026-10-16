@@ -47,6 +47,7 @@ public sealed class FollowerLogCompactionTests : NodeIntegrationTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="TimeoutException">The follower did not compact the required number of times within the bound.</exception>
     [Test]
+    [Timeout(180_000)]
     public async Task FollowerLogCompactsUnderSteadyWrites(CancellationToken cancellationToken)
     {
         const int writes = 200;
