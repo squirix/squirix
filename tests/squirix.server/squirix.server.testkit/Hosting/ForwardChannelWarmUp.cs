@@ -29,7 +29,8 @@ internal static class ForwardChannelWarmUp
     /// <param name="nodes">The started nodes, by node identifier; a node without a client pool, such as a stand-in host, sends nothing.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes once every warm-up read ended.</returns>
-    internal static Task WarmAsync(IReadOnlyCollection<KeyValuePair<string, ITestNodeHost>> nodes, CancellationToken cancellationToken)
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled, which the reads themselves do not report.</exception>
+    internal static async Task WarmAsync(IReadOnlyCollection<KeyValuePair<string, ITestNodeHost>> nodes, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(nodes);
         var started = new List<KeyValuePair<string, ITestNodeHost>>(nodes);
@@ -44,7 +45,8 @@ internal static class ForwardChannelWarmUp
             }
         }
 
-        return Task.WhenAll(reads);
+        await Task.WhenAll(reads).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     private static async Task ReadAsync(SquirixCacheService.SquirixCacheServiceClient client, CancellationToken cancellationToken)
