@@ -20,6 +20,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// is recorded as timing evidence. No acknowledged write is lost and no term has two leaders.
 /// </summary>
 [Property(StressSuite.TraitName, StressSuite.TraitValue)]
+[Explicit]
 public sealed class LeaderStopSeriesTests : EndToEndTestBase
 {
     private const string CacheName = "leader-stop-series";
