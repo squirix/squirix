@@ -16,7 +16,8 @@ namespace Squirix.Server.TestKit.Hosting;
 /// </para>
 /// <para>
 /// Each node sends one read with an empty cache name to each peer over its forward channel. The peer refuses it before routing, so it waits
-/// for no leader and changes no state, but the connection it opened stays in the pool. Every outcome is ignored.
+/// for no leader and changes no state, but the connection it opened stays in the pool. Every answer and every failure of a sent read is
+/// ignored. A client that cannot send the read at all throws, and the start fails: that is a broken test double, not a slow peer.
 /// </para>
 /// </remarks>
 internal static class ForwardChannelWarmUp
