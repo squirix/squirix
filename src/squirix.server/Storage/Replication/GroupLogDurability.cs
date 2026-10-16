@@ -68,8 +68,9 @@ internal sealed class GroupLogDurability : IDisposable
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         Reset();
-        _handle = OpenHandle(path);
-        RandomAccess.SetLength(_handle, length);
+        var handle = OpenHandle(path);
+        _ = Swap(handle);
+        RandomAccess.SetLength(handle, length);
     }
 
     /// <summary>Opens (creating if needed) the log file of a generation as its active file and seals it as that generation.</summary>
@@ -91,7 +92,7 @@ internal sealed class GroupLogDurability : IDisposable
             throw;
         }
 
-        _handle = handle;
+        _ = Swap(handle);
     }
 
     /// <summary>Makes a sealed generation file the live log and empties the file it supersedes.</summary>
@@ -99,8 +100,7 @@ internal sealed class GroupLogDurability : IDisposable
     /// <exception cref="IOException">Thrown when the superseded file cannot be emptied; the new file is already the live log by then.</exception>
     internal void Adopt(SafeFileHandle handle)
     {
-        var previous = _handle;
-        _handle = handle;
+        var previous = Swap(handle);
         if (previous == null)
             return;
 
@@ -147,9 +147,15 @@ internal sealed class GroupLogDurability : IDisposable
         return File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, options);
     }
 
-    private void Reset()
+    private void Reset() => Swap(null)?.Dispose();
+
+    /// <summary>Replaces the live handle; the only place that assigns it.</summary>
+    /// <param name="next">The new live handle, or <see langword="null" /> when the log is closed.</param>
+    /// <returns>The previous live handle, now owned by the caller.</returns>
+    private SafeFileHandle? Swap(SafeFileHandle? next)
     {
-        _handle?.Dispose();
-        _handle = null;
+        var previous = _handle;
+        _handle = next;
+        return previous;
     }
 }
