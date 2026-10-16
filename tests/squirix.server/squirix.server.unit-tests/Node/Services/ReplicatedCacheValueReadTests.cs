@@ -18,8 +18,8 @@ using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>
-/// Value reads of the replicated cache on the owner of group n1, which it leads statically: a hit on a live entry completes synchronously
-/// and allocates no more than the local read under it; an expired entry is still expired on the leader before the read reports (#1031).
+/// Value reads of the replicated cache on the owner of group n1, which it leads statically: a hit on a live entry completes synchronously;
+/// an expired entry is still expired on the leader before the read reports (#1031).
 /// </summary>
 public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
 {
@@ -29,10 +29,10 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
     private static readonly DateTimeOffset Start = new(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
     private static readonly TimeSpan Ttl = TimeSpan.FromSeconds(60);
 
-    /// <summary>A hit on a live entry completes synchronously and allocates no more than the local read of the entry under it.</summary>
+    /// <summary>A hit on a live entry completes synchronously with the value; its allocations are measured by ReplicatedCacheValueReadBenchmarks.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task LiveHitAllocatesOnlyLocalRead(CancellationToken cancellationToken)
+    public async Task LiveHitCompletesSynchronously(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-value-read-live");
         var clock = new FakeTimeProvider(Start);
@@ -43,18 +43,12 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
         var cache = new ReplicatedCache(local, LeadOwn(committer));
 
-        // The first reads check the seeding of the copy and warm both paths up.
+        // The first read checks the seeding of the copy.
         _ = await cache.GetValueAsync(CacheName, Key, cancellationToken);
-        _ = await local.GetEntryAsync(CacheName, Key, cancellationToken);
-        ValueTask<NodeCacheEntry<object?>?> localRead = default;
-        var localBytes = Measure(() => localRead = local.GetEntryAsync(CacheName, Key, cancellationToken));
-        _ = await localRead;
-        ValueTask<NodeCacheValueResult<object?>> read = default;
-        var valueBytes = Measure(() => read = cache.GetValueAsync(CacheName, Key, cancellationToken));
+        var read = cache.GetValueAsync(CacheName, Key, cancellationToken);
 
         _ = await Assert.That(read.IsCompletedSuccessfully).IsTrue();
         _ = await Assert.That(await read).IsEqualTo(new NodeCacheValueResult<object?>(true, "v"));
-        _ = await Assert.That(valueBytes).IsLessThanOrEqualTo(localBytes);
     }
 
     /// <summary>A value read of an expired entry commits its tombstone on the leader and misses, as an entry read does.</summary>
@@ -78,13 +72,6 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         _ = await Assert.That(read.Found).IsFalse();
         _ = await Assert.That(await LastKindAsync(registry, cancellationToken)).IsEqualTo(ReplicaMutationKinds.Expire);
         _ = await Assert.That(await physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
-    }
-
-    private static long Measure(Action read)
-    {
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        read();
-        return GC.GetAllocatedBytesForCurrentThread() - before;
     }
 
     private static async Task<string> LastKindAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)
