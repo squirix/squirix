@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics.Metrics;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -8,6 +9,7 @@ using Microsoft.Win32.SafeHandles;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
@@ -42,20 +44,28 @@ public sealed class JournalCompactorDurabilityTests : IsolatedStorageTestBase
         var flushes = 0;
         var publishedAtFlush = true;
         var lengthAtFlush = -1L;
+        var sources = JournalReadPath.EnumerateSegments(Dir, 1);
+        var manifestAtFlush = string.Empty;
+        var sourcesAtFlush = false;
+        using var ledger = new Ledger(kit.Persistence, NullLogger<Ledger>.Instance);
+        var manifestBefore = ReadNonJournalFiles();
         var expectations = new ICompactedSegmentDurabilityCreateExpectations();
         _ = expectations.Setups.Flush(Arg.Any<SafeFileHandle>()).Callback(handle =>
         {
             flushes++;
             publishedAtFlush = File.Exists(finalPath);
             lengthAtFlush = RandomAccess.GetLength(handle);
+            manifestAtFlush = ReadNonJournalFiles();
+            sourcesAtFlush = Array.TrueForAll(sources, static source => File.Exists(source.Path));
         });
 
-        using var ledger = new Ledger(kit.Persistence, NullLogger<Ledger>.Instance);
         await CompactAsync(kit, ledger, expectations.Instance(), cancellationToken);
 
         _ = await Assert.That(flushes).IsEqualTo(1);
         _ = await Assert.That(publishedAtFlush).IsFalse();
         _ = await Assert.That(new FileInfo(finalPath).Length).IsEqualTo(lengthAtFlush);
+        _ = await Assert.That(manifestAtFlush).IsEqualTo(manifestBefore);
+        _ = await Assert.That(sourcesAtFlush).IsTrue();
         var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(JournalReadPath.BuildSegmentPath(Dir, manifest.CurrentJournal)).IsEqualTo(finalPath);
         await AssertKeysRecoveredAsync(kit, 3, cancellationToken);
@@ -101,11 +111,13 @@ public sealed class JournalCompactorDurabilityTests : IsolatedStorageTestBase
         var finalPath = JournalReadPath.BuildSegmentPath(Dir, NextSegmentIndex());
         var flushes = 0;
         var publishedAtFlush = true;
+        var lengthAtFlush = -1L;
         var expectations = new ICompactedSegmentDurabilityCreateExpectations();
-        _ = expectations.Setups.Flush(Arg.Any<SafeFileHandle>()).Callback(_ =>
+        _ = expectations.Setups.Flush(Arg.Any<SafeFileHandle>()).Callback(handle =>
         {
             flushes++;
             publishedAtFlush = File.Exists(finalPath);
+            lengthAtFlush = RandomAccess.GetLength(handle);
         });
 
         using var ledger = new Ledger(kit.Persistence, NullLogger<Ledger>.Instance);
@@ -113,6 +125,7 @@ public sealed class JournalCompactorDurabilityTests : IsolatedStorageTestBase
 
         _ = await Assert.That(flushes).IsEqualTo(1);
         _ = await Assert.That(publishedAtFlush).IsFalse();
+        _ = await Assert.That(lengthAtFlush).IsEqualTo(JournalFraming.FileHeaderSize);
         _ = await Assert.That(File.Exists(finalPath)).IsTrue();
     }
 
@@ -143,6 +156,21 @@ public sealed class JournalCompactorDurabilityTests : IsolatedStorageTestBase
             var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, KeyName(i)), cancellationToken);
             _ = await Assert.That(entry?.Value).IsEqualTo("v");
         }
+    }
+
+    private string ReadNonJournalFiles()
+    {
+        var builder = new StringBuilder();
+        foreach (var path in Directory.GetFiles(Dir, "*", SearchOption.AllDirectories))
+        {
+            if (Path.GetFileName(path).StartsWith(FilePrefixes.Journal, StringComparison.Ordinal))
+                continue;
+
+            var info = new FileInfo(path);
+            _ = builder.Append(path).Append(':').Append(info.Length).Append(':').Append(info.LastWriteTimeUtc.Ticks).Append(';');
+        }
+
+        return builder.ToString();
     }
 
     private int NextSegmentIndex()

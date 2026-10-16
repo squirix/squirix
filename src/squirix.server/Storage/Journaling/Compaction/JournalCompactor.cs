@@ -54,14 +54,14 @@ internal static class JournalCompactor
         var oldManifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var snapshotRef = oldManifest.LastSnapshot;
         var replayFromSegment = snapshotRef?.ReplayFromJournalSegment > 0 ? snapshotRef.ReplayFromJournalSegment : 1;
-        var (state, idempotencyState, lastSeq) =
+        var compaction =
             await BuildCompactionStateAsync(options, snapshotRef, replayFromSegment, snapshotReader, expiredAsOf, cancellationToken).ConfigureAwait(false);
 
         var journalSegments = JournalReadPath.EnumerateSegments(options.DataDir, 1);
         var newFirstIdx = journalSegments.Length == 0 ? 1 : journalSegments[^1].Index + 1;
         var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.tmp");
         _ = FileEx.TryDeleteFile(tmpPath);
-        var writtenLastSeq = await WriteCompactedJournalAsync(tmpPath, (state, idempotencyState), lastSeq, utcNow, expiredAsOf, segmentDurability, cancellationToken).ConfigureAwait(false);
+        var writtenLastSeq = await WriteCompactedJournalAsync(tmpPath, compaction, utcNow, expiredAsOf, segmentDurability, cancellationToken).ConfigureAwait(false);
         await FinalizeCompactionAsync(options, manifestStore, oldManifest, newFirstIdx, writtenLastSeq, journalSegments, cancellationToken).ConfigureAwait(false);
     }
 
@@ -321,14 +321,13 @@ internal static class JournalCompactor
 
     private static async Task<ulong> WriteCompactedJournalAsync(
         string tmpPath,
-        (Dictionary<CacheKey, NodeCacheEntry<object?>> State, Dictionary<string, CompactedIdempotencyRecord> IdempotencyState) compactionState,
-        ulong lastSeq,
+        (Dictionary<CacheKey, NodeCacheEntry<object?>> State, Dictionary<string, CompactedIdempotencyRecord> IdempotencyState, ulong LastSeq) compaction,
         DateTime utcNow,
         DateTime? expiredAsOf,
         ICompactedSegmentDurability segmentDurability,
         CancellationToken cancellationToken)
     {
-        var (state, idempotencyState) = compactionState;
+        var (state, idempotencyState, lastSeq) = compaction;
         var handle = File.OpenHandle(tmpPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read, FileOptions.Asynchronous | FileOptions.SequentialScan);
         try
         {

@@ -5,7 +5,8 @@ using Squirix.Server.Attributes;
 namespace Squirix.Server.Storage.Journaling.Compaction;
 
 /// <summary>
-/// Flushes the compacted temp segment once, after its last frame. The segment is not opened write-through because
+/// Flushes the compacted temp segment once, after its last frame, on every platform: the segment is not opened write-through,
+/// unlike <see cref="Squirix.Server.Storage.Snapshot.Binary.SnapshotDurability" />, which skips the flush on Windows. The segment is not opened write-through because
 /// every frame is a separate write and per-frame write-through would turn compaction into one synchronous disk wait per entry.
 /// </summary>
 [Immutable]
