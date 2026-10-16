@@ -50,7 +50,7 @@ public sealed class FollowerLogSnapshotSlotFaultTests : ServerUnitTestBase
         await using var reopened = StateInstallScenario.NewLog(dir);
         await reopened.OpenAsync(cancellationToken);
         var status = await reopened.GetStatusAsync(cancellationToken);
-        var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).ReadPublishedAsync(cancellationToken)).IsNotNull();
+        var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId).ReadPublishedAsync(cancellationToken)).IsNotNull();
 
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         _ = await Assert.That(published.LastIncludedIndex).IsEqualTo(expectedSnapshotIndex);
@@ -82,7 +82,7 @@ public sealed class FollowerLogSnapshotSlotFaultTests : ServerUnitTestBase
         await using var reopened = StateInstallScenario.NewLog(dir);
         await reopened.OpenAsync(cancellationToken);
         var status = await reopened.GetStatusAsync(cancellationToken);
-        var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).ReadPublishedAsync(cancellationToken)).IsNotNull();
+        var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId).ReadPublishedAsync(cancellationToken)).IsNotNull();
 
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         _ = await Assert.That(status.MemberState).IsEqualTo(GroupMemberState.Incomplete);

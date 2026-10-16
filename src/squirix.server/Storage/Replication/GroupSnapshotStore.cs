@@ -35,7 +35,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <summary>The sharing a reader needs to open a slot file while the owning node writes it.</summary>
     private const FileShare ReaderShare = FileShare.ReadWrite | FileShare.Delete;
 
-    private readonly IFollowerLogFaultHooks _faults;
+    private readonly IFollowerLogFaultHooks? _faults;
     private readonly string _groupId;
     private readonly string _legacyPath;
 
@@ -43,13 +43,12 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     private readonly string _slot0Path;
     private readonly string _slot1Path;
 
-    internal GroupSnapshotStore(string persistenceRoot, string groupId, IFollowerLogFaultHooks faults, int maxSnapshotBytes = DefaultMaxSnapshotBytes)
+    internal GroupSnapshotStore(string persistenceRoot, string groupId, int maxSnapshotBytes = DefaultMaxSnapshotBytes, IFollowerLogFaultHooks? faults = null)
     {
         if (maxSnapshotBytes <= 0)
             throw new ArgumentOutOfRangeException(nameof(maxSnapshotBytes), "Maximum snapshot size must be positive.");
 
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
-        ArgumentNullException.ThrowIfNull(faults);
         _groupId = groupId;
         _faults = faults;
         _slot0Path = GroupStoragePaths.GetSnapshotSlotPath(persistenceRoot, groupId, 0);
@@ -306,7 +305,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     private async Task WriteSlotAsync(int slot, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken)
     {
         var path = slot == 0 ? _slot0Path : _slot1Path;
-        _faults.OnSnapshotPublishing();
+        _faults?.OnSnapshotPublishing();
         var options = OperatingSystem.IsWindows() ? FileOptions.WriteThrough : FileOptions.None;
         using var handle = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read, options);
 

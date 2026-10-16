@@ -80,7 +80,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         var retention = await RetentionAsync(log, cancellationToken);
         _ = await Assert.That((retention.SnapshotIndex, retention.RetainedEntries, retention.RetainedPayloads)).IsEqualTo((Applied, 3, 3));
         await AssertCommittedTailAsync(log, cancellationToken);
-        var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).ReadPublishedAsync(cancellationToken)).IsNotNull();
+        var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId).ReadPublishedAsync(cancellationToken)).IsNotNull();
         _ = await Assert.That(published.LastIncludedIndex).IsEqualTo(Applied);
     }
 
@@ -240,7 +240,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         _ = await Assert.That(tail[0].LogIndex).IsEqualTo(3UL);
         _ = await Assert.That(Encoding.UTF8.GetString(tail[0].Payload.Span)).IsEqualTo("c");
 
-        var snapshotStore = new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance);
+        var snapshotStore = new GroupSnapshotStore(dir, GroupId);
         var published = await Assert.That(await snapshotStore.ReadPublishedAsync(cancellationToken)).IsNotNull();
         _ = await Assert.That(published.LastIncludedIndex).IsEqualTo(2UL);
     }
@@ -309,7 +309,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         // The compaction path publishes a snapshot only for an applied prefix, so no committed entry is left to hand out again.
         _ = await Assert.That(await reopened.GetCommittedEntriesAsync(cancellationToken)).IsEmpty();
 
-        var snapshotStore = new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance);
+        var snapshotStore = new GroupSnapshotStore(dir, GroupId);
         var published = await Assert.That(await snapshotStore.ReadPublishedAsync(cancellationToken)).IsNotNull();
         _ = await Assert.That(published.LastIncludedIndex).IsEqualTo(3UL);
 
@@ -364,7 +364,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         _ = await Assert.That((status.LastLogIndex, status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((3UL, 3UL, 3UL));
         _ = await Assert.That(status.MemberState).IsEqualTo(GroupMemberState.Incomplete);
         _ = await Assert.That(await reopened.GetCommittedEntriesAsync(cancellationToken)).IsEmpty();
-        var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).ReadPublishedAsync(cancellationToken)).IsNotNull();
+        var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId).ReadPublishedAsync(cancellationToken)).IsNotNull();
         _ = await Assert.That(published.LastIncludedIndex).IsEqualTo(3UL);
     }
 
@@ -398,7 +398,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         _ = await Assert.That(status.LastLogIndex).IsEqualTo(3UL);
         _ = await Assert.That(Encoding.UTF8.GetString((await reopened.GetUncommittedTailAsync(cancellationToken))[0].Payload.ToArray())).IsEqualTo("c");
 
-        var snapshotStore = new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance);
+        var snapshotStore = new GroupSnapshotStore(dir, GroupId);
         var published = await Assert.That(await snapshotStore.ReadPublishedAsync(cancellationToken)).IsNotNull();
         _ = await Assert.That(published.LastIncludedIndex).IsEqualTo(2UL);
     }

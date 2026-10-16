@@ -115,7 +115,7 @@ public class ReplicaSnapshotBenchmarks
     public async Task ValidateReplicaSnapshotAsync()
     {
         var dir = ThrowHelper.Required(_dir, "Benchmark source directory was not initialized.");
-        var store = new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance);
+        var store = new GroupSnapshotStore(dir, GroupId);
         if (await store.ReadPublishedAsync(CancellationToken.None).ConfigureAwait(false) == null)
             throw new InvalidOperationException("Published snapshot was not found.");
     }
@@ -204,7 +204,7 @@ public class ReplicaSnapshotBenchmarks
             throw new InvalidOperationException($"Benchmark compaction failed: {outcome}.");
 
         var dir = ThrowHelper.Required(_dir, "Benchmark source directory was not initialized.");
-        var published = await new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).ReadPublishedAsync(CancellationToken.None).ConfigureAwait(false);
+        var published = await new GroupSnapshotStore(dir, GroupId).ReadPublishedAsync(CancellationToken.None).ConfigureAwait(false);
         if (published is not { } snapshot)
             throw new InvalidOperationException("Benchmark compaction published no snapshot.");
 

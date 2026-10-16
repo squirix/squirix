@@ -27,7 +27,7 @@ public sealed class GroupSnapshotPublishedImageTests : ServerUnitTestBase
         _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, GroupId));
         var record = new GroupIdempotencyRecord("scope", "op-1", new byte[] { 1, 2 }, new byte[] { 3 }, GroupRecordKind.UserMutation, DateTime.UnixEpoch, DateTime.UnixEpoch, 3UL, 2UL);
         var snapshot = new GroupSnapshot(GroupId, new byte[] { 9, 8, 7 }, 4UL, 2UL, 3UL, 5UL, [record], DateTime.UnixEpoch.AddSeconds(1));
-        var store = new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance);
+        var store = new GroupSnapshotStore(dir, GroupId);
 
         await store.PublishAsync(snapshot, cancellationToken);
         var file = await GroupSnapshotFile.ReadImageAsync(dir, GroupId, cancellationToken);

@@ -94,7 +94,7 @@ public sealed class UnseededLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-unseeded-snapshot");
         _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, GroupId));
         var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, [], DateTime.UnixEpoch);
-        await new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).PublishAsync(snapshot, cancellationToken);
+        await new GroupSnapshotStore(dir, GroupId).PublishAsync(snapshot, cancellationToken);
 
         await using var log = OpenLog(dir);
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(log.OpenAsync(cancellationToken));

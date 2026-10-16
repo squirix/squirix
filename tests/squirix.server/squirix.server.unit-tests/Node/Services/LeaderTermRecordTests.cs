@@ -94,7 +94,7 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-term-snapshot");
         await (await OpenRegistryAsync(dir, Groups, null, cancellationToken)).DisposeAsync();
-        var store = new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance);
+        var store = new GroupSnapshotStore(dir, GroupId);
         var record = new GroupIdempotencyRecord(
             ReplicaLeaderOperationId.OperationScope,
             "term-2",

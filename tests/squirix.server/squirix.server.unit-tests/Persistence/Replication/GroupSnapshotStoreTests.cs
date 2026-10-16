@@ -175,7 +175,7 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
         _ = await Assert.That(source.IsCancellationRequested).IsTrue();
         var (slotA, slotB) = await ReadSlotsAsync(dir, cancellationToken);
         await SequenceAssert.EqualAsync(Image(slotA), Image(slotB));
-        _ = await Assert.That(await ReadCommitAsync(NewStore(dir, NoOpFollowerLogFaultHooks.Instance), cancellationToken)).IsEqualTo(4UL);
+        _ = await Assert.That(await ReadCommitAsync(NewStore(dir, null), cancellationToken)).IsEqualTo(4UL);
     }
 
     /// <summary>A zero-length slot file is torn and ignored in favor of the other slot.</summary>
@@ -217,7 +217,7 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
     public async Task PublishRefusesOversizeSlot(CancellationToken cancellationToken)
     {
         using var dir = NewDirectory("squirix-snapshot-store-oversize");
-        var store = new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance, 200);
+        var store = new GroupSnapshotStore(dir, GroupId, 200);
         await store.PublishAsync(Snapshot(4UL), cancellationToken);
         var oversize = new byte[300 + (await ReadSlotsAsync(dir, cancellationToken)).First.Length];
         await GroupSnapshotFile.WriteImageAsync(dir, GroupId, oversize, false, cancellationToken);
@@ -259,7 +259,7 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
     public async Task TooLargeWritesNothing(CancellationToken cancellationToken)
     {
         using var dir = NewDirectory("squirix-snapshot-store-too-large");
-        var store = new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance, 16);
+        var store = new GroupSnapshotStore(dir, GroupId, 16);
 
         _ = await NodeAsyncAssert.ThrowsAsync<GroupSnapshotTooLargeException>(store.PublishAsync(Snapshot(4UL), cancellationToken));
 
@@ -281,7 +281,7 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
         return dir;
     }
 
-    private static GroupSnapshotStore NewStore(string dir, IFollowerLogFaultHooks faults) => new(dir, GroupId, faults);
+    private static GroupSnapshotStore NewStore(string dir, IFollowerLogFaultHooks? faults) => new(dir, GroupId, faults: faults);
 
     private static async Task<(byte[] First, byte[] Second)> ReadSlotsAsync(string dir, CancellationToken cancellationToken)
     {

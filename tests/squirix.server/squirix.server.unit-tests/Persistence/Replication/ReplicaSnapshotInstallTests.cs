@@ -62,7 +62,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
         _ = await Assert.That(result.Success).IsTrue().Because($"refused with '{result.RefusalCode}'");
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
-        _ = await Assert.That(new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).SnapshotExists).IsTrue();
+        _ = await Assert.That(new GroupSnapshotStore(dir, GroupId).SnapshotExists).IsTrue();
         for (var i = 0; i < outcomes.Count; i++)
             _ = await Assert.That(log.Idempotency.Lookup("client", outcomes[i].OperationId, outcomes[i].OperationFingerprint.Span, out _)).IsEqualTo(GroupIdempotencyLookup.Found);
     }
@@ -126,7 +126,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var status = await target.GetStatusAsync(cancellationToken);
         _ = await Assert.That((status.LastLogIndex, status.LastLogTerm, status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((3UL, 1UL, 3UL, 3UL));
         _ = await Assert.That(await target.GetTermAtAsync(3UL, cancellationToken)).IsEqualTo(1UL);
-        _ = await Assert.That(new GroupSnapshotStore(dir2, GroupId, NoOpFollowerLogFaultHooks.Instance).SnapshotExists).IsTrue();
+        _ = await Assert.That(new GroupSnapshotStore(dir2, GroupId).SnapshotExists).IsTrue();
     }
 
     /// <summary>A transfer replaces the log by the snapshot baseline: the local entries, applied ones and a divergent tail alike, leave the log.</summary>
@@ -348,7 +348,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         var status = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That((status.CurrentTerm, status.MemberState)).IsEqualTo((2UL, GroupMemberState.Incomplete));
-        _ = await Assert.That(new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).SnapshotExists).IsFalse();
+        _ = await Assert.That(new GroupSnapshotStore(dir, GroupId).SnapshotExists).IsFalse();
     }
 
     /// <summary>
@@ -419,7 +419,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Incomplete);
-        _ = await Assert.That(new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).SnapshotExists).IsFalse();
+        _ = await Assert.That(new GroupSnapshotStore(dir, GroupId).SnapshotExists).IsFalse();
     }
 
     /// <summary>A snapshot the log cannot publish is refused when the copy would be marked: the copy stays complete and its metadata keeps its bytes.</summary>
@@ -526,7 +526,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         _ = await Assert.That(log.IsComplete).IsFalse();
-        _ = await Assert.That(new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).SnapshotExists).IsFalse();
+        _ = await Assert.That(new GroupSnapshotStore(dir, GroupId).SnapshotExists).IsFalse();
         var after = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That((after.LastLogIndex, after.CommitIndex)).IsEqualTo((1UL, 1UL));
     }
@@ -573,7 +573,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Incomplete);
-        _ = await Assert.That(new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).SnapshotExists).IsFalse();
+        _ = await Assert.That(new GroupSnapshotStore(dir, GroupId).SnapshotExists).IsFalse();
     }
 
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => FollowerFoundationScenario.Append("leader", index, term, payload);

@@ -37,7 +37,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         // invariants, so the corrupt state can only be produced directly on disk.
         await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
             await seed.OpenSeededAsync(cancellationToken);
-        await new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).PublishAsync(
+        await new GroupSnapshotStore(dir, GroupId).PublishAsync(
             new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 5UL, 7UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch),
             cancellationToken);
 
@@ -336,7 +336,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             await seed.OpenSeededAsync(cancellationToken);
 
         var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 5UL, 2UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch);
-        var store = new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance);
+        var store = new GroupSnapshotStore(dir, GroupId);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(store.PublishAsync(malformed, cancellationToken));
 
@@ -573,7 +573,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
 
         // Publication mirrors the recovery refusal: a non-empty snapshot with an unverifiable zero included term
         // must never replace a previously published, readable snapshot.
-        var store = new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance);
+        var store = new GroupSnapshotStore(dir, GroupId);
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
             store.PublishAsync(new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch), cancellationToken));
 
@@ -616,7 +616,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-install-crash-recovery");
         var composition = GroupComposition.Create(GroupId);
-        var store = new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance);
+        var store = new GroupSnapshotStore(dir, GroupId);
 
         // Simulate the crash window: the snapshot at index three and the advanced install-candidate metadata
         // are durable, while the log rewrite never ran and the file still ends at index one.
@@ -655,7 +655,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             await seed.OpenSeededAsync(cancellationToken);
 
         var nullOutcomes = default(GroupSnapshot) with { GroupId = GroupId };
-        var store = new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance);
+        var store = new GroupSnapshotStore(dir, GroupId);
         _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(store.PublishAsync(nullOutcomes, cancellationToken));
     }
 
@@ -670,7 +670,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await using (var seed = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
             await seed.OpenSeededAsync(cancellationToken);
 
-        var store = new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance);
+        var store = new GroupSnapshotStore(dir, GroupId);
         var unresolvedRecord = new GroupIdempotencyRecord(
             "client",
             "unresolved-op",
@@ -726,12 +726,12 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await using (var seed = new FollowerLog(dir, "grp-a", GroupComposition.Create("grp-a"), NullLogger<FollowerLog>.Instance, TimeProvider.System))
             await seed.OpenSeededAsync(cancellationToken);
 
-        var storeA = new GroupSnapshotStore(dir, "grp-a", NoOpFollowerLogFaultHooks.Instance);
+        var storeA = new GroupSnapshotStore(dir, "grp-a");
         await storeA.PublishAsync(new GroupSnapshot("grp-a", ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>(), DateTime.UnixEpoch), cancellationToken);
 
         GroupSnapshotFile.Copy(dir, "grp-a", dir, "grp-b");
 
-        var storeB = new GroupSnapshotStore(dir, "grp-b", NoOpFollowerLogFaultHooks.Instance);
+        var storeB = new GroupSnapshotStore(dir, "grp-b");
         var exception = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(storeB.ReadPublishedAsync(cancellationToken));
 
         _ = await Assert.That(exception.Message).Contains("different group", StringComparison.Ordinal);
@@ -896,9 +896,9 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await using (var seed = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System))
             await seed.OpenSeededAsync(cancellationToken);
 
-        await new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).PublishAsync(new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, outcomes, timestamp), cancellationToken);
+        await new GroupSnapshotStore(dir, GroupId).PublishAsync(new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, outcomes, timestamp), cancellationToken);
 
-        var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).ReadPublishedAsync(cancellationToken)).IsNotNull();
+        var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId).ReadPublishedAsync(cancellationToken)).IsNotNull();
         var restored = await Assert.That(published.CommittedOutcomes).HasSingleItem();
         var expected = new DateTime(2024, 5, 1, 12, 0, 0, DateTimeKind.Utc);
         _ = await Assert.That(restored.CreatedUtc).IsEqualTo(expected);

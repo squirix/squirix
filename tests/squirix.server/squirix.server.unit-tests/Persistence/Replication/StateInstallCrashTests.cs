@@ -63,7 +63,7 @@ public sealed class StateInstallCrashTests : ServerUnitTestBase
         var status = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That((status.LastLogIndex, status.LastLogTerm, status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((3UL, 1UL, 3UL, 3UL));
         _ = await Assert.That(await log.GetTermAtAsync(3UL, cancellationToken)).IsEqualTo(1UL);
-        var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).ReadPublishedAsync(cancellationToken)).IsNotNull();
+        var published = await Assert.That(await new GroupSnapshotStore(dir, GroupId).ReadPublishedAsync(cancellationToken)).IsNotNull();
         _ = await Assert.That((published.LastIncludedIndex, published.LastIncludedTerm)).IsEqualTo((3UL, 1UL));
         _ = await Assert.That(log.Idempotency.Lookup("client", "operation-1", [1, 2, 3], out var outcome)).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(outcome.OutcomePayload.Span is [9]).IsTrue();
@@ -100,7 +100,7 @@ public sealed class StateInstallCrashTests : ServerUnitTestBase
         {
             await reopened.OpenAsync(cancellationToken);
             var status = await reopened.GetStatusAsync(cancellationToken);
-            var snapshotPublished = new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).SnapshotExists;
+            var snapshotPublished = new GroupSnapshotStore(dir, GroupId).SnapshotExists;
 
             _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
             _ = await Assert.That((status.MemberState == GroupMemberState.Complete, reopened.IsComplete)).IsEqualTo((reopenedComplete, reopenedComplete));
@@ -142,7 +142,7 @@ public sealed class StateInstallCrashTests : ServerUnitTestBase
             _ = await Assert.That(await FollowerSnapshotScenario.BeginAsync(log, StateInstallScenario.SnapshotIndex, 1UL, cancellationToken)).IsNull();
         }
 
-        await new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).PublishAsync(snapshot, cancellationToken);
+        await new GroupSnapshotStore(dir, GroupId).PublishAsync(snapshot, cancellationToken);
 
         for (var round = 0; round < 2; round++)
         {
@@ -179,7 +179,7 @@ public sealed class StateInstallCrashTests : ServerUnitTestBase
             _ = await Assert.That(await FollowerSnapshotScenario.BeginAsync(log, StateInstallScenario.SnapshotIndex, term, cancellationToken)).IsNull();
         }
 
-        await new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance).PublishAsync(snapshot, cancellationToken);
+        await new GroupSnapshotStore(dir, GroupId).PublishAsync(snapshot, cancellationToken);
 
         await using var reopened = StateInstallScenario.NewLog(dir);
         await reopened.OpenAsync(cancellationToken);
