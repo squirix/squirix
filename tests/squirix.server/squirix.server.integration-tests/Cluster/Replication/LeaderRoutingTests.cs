@@ -247,8 +247,10 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
 
     /// <summary>
     /// With four nodes and three replicas, the owner of a group leads it and its host goes down without refusing connections: every dial
-    /// towards it hangs. Once another member leads, a write sent to the node outside the group reaches the new leader, and no write ends in an
-    /// ambiguous timeout: the dial bound ends each dial to the owner as a connect failure, so the entry node falls back to another member.
+    /// towards it hangs. Once another member leads, a write sent to the node outside the group reaches the new leader: the dial bound ends each
+    /// dial to the owner as a connect failure, so the entry node falls back to another member. A forward that reached the new leader can still
+    /// outlast its timeout while the leader commits on a loaded host; that is ambiguous, so the write is sent again with the same operation id,
+    /// as the client library does. A dial that hung instead would time out every write and never let the entry node learn the new leader.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -288,7 +290,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             refusal = await Calls.SetAsync(client, request, cancellationToken);
             outcomes.Add($"{(refusal == null ? "OK" : refusal.Status.Detail)} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms");
         }
-        while (refusal is { StatusCode: StatusCode.Unavailable } && outcomes.Count < MaxWrites);
+        while (refusal is { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded } && outcomes.Count < MaxWrites);
 
         var writes = string.Join("; ", outcomes);
         _ = await Assert.That(refusal).IsNull().Because($"the write through {EntryOutsideGroup} must reach the new leader {leader}; writes: {writes}");
