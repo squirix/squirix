@@ -17,7 +17,8 @@ namespace Squirix.Server.UnitTests.Persistence.Replication;
 public sealed class GroupSnapshotSlotsTests : ServerUnitTestBase
 {
     private const string GroupId = "snapshot-slots";
-    private const string Location = "slot-location";
+    private const string FirstPath = "dir/group.snapshot.0";
+    private const string SecondPath = "dir/group.snapshot.1";
     private const int SequenceOffset = 5;
 
     /// <summary>Without any slot file there is no snapshot.</summary>
@@ -93,6 +94,19 @@ public sealed class GroupSnapshotSlotsTests : ServerUnitTestBase
 
         _ = await Assert.That(absentFirst.Message).Contains("is corrupt", StringComparison.Ordinal);
         _ = await Assert.That(tornFirst.Message).Contains("is corrupt", StringComparison.Ordinal);
+    }
+
+    /// <summary>A refused slot is an error even when the other slot is valid and holds the higher sequence.</summary>
+    [Test]
+    public async Task SelectRefusesLowerSequenceRefusedSlot()
+    {
+        var garbage = new byte[Image(4UL).Length];
+        garbage.AsSpan().Fill(0xAB);
+        var slots = (First: Slot(1UL, garbage), Second: Slot(2UL, Image(5UL)));
+
+        var exception = NodeExceptionAssert.For<InvalidDataException>().Throws(slots, static state => _ = Select(state.First, state.Second));
+
+        _ = await Assert.That(exception.Message).Contains(FirstPath, StringComparison.Ordinal);
     }
 
     /// <summary>Two valid slots with one sequence but different images cannot both be the latest write.</summary>
@@ -180,7 +194,7 @@ public sealed class GroupSnapshotSlotsTests : ServerUnitTestBase
     }
 
     private static GroupSnapshotSelection Select(byte[]? first, byte[]? second, int maxSnapshotBytes = GroupSnapshotStore.DefaultMaxSnapshotBytes) =>
-        GroupSnapshotSlots.Select(first ?? [], first != null, second ?? [], second != null, GroupId, maxSnapshotBytes, Location);
+        GroupSnapshotSlots.Select(first ?? [], first != null, second ?? [], second != null, new GroupSnapshotSlotContext(GroupId, maxSnapshotBytes, FirstPath, SecondPath));
 
     private static byte[] Slot(ulong sequence, byte[] image)
     {

@@ -154,6 +154,83 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
         _ = await Assert.That(await ReadCommitAsync(store, cancellationToken)).IsEqualTo(5UL);
     }
 
+    /// <summary>Once the first slot is flushed, a cancellation does not stop the mirror write, and a reopen selects the new snapshot.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancelAfterFirstSlotKeepsMirror(CancellationToken cancellationToken)
+    {
+        using var dir = NewDirectory("squirix-snapshot-store-cancel");
+        using var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var writes = 0;
+        var faults = new IFollowerLogFaultHooksCreateExpectations();
+        _ = faults.Setups.OnSnapshotPublishing().Callback(() =>
+        {
+            if (++writes == 2)
+                _ = source.CancelAsync();
+        });
+        var store = NewStore(dir, faults.Instance());
+
+        await store.PublishAsync(Snapshot(4UL), source.Token);
+
+        _ = await Assert.That(source.IsCancellationRequested).IsTrue();
+        var (slotA, slotB) = await ReadSlotsAsync(dir, cancellationToken);
+        await SequenceAssert.EqualAsync(Image(slotA), Image(slotB));
+        _ = await Assert.That(await ReadCommitAsync(NewStore(dir, NoOpFollowerLogFaultHooks.Instance), cancellationToken)).IsEqualTo(4UL);
+    }
+
+    /// <summary>A zero-length slot file is torn and ignored in favor of the other slot.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ZeroLengthSlotFileReadsAsTorn(CancellationToken cancellationToken)
+    {
+        using var dir = NewDirectory("squirix-snapshot-store-empty");
+        var store = NewStore(dir, new StateInstallFaultHooks());
+        await store.PublishAsync(Snapshot(4UL), cancellationToken);
+        await File.WriteAllBytesAsync(GroupStoragePaths.GetSnapshotSlotPath(dir, GroupId, 1), [], cancellationToken);
+
+        _ = await Assert.That(await ReadCommitAsync(store, cancellationToken)).IsEqualTo(4UL);
+    }
+
+    /// <summary>A publish refuses to overwrite a slot that is sealed but undecodable, even in the lower-sequence position, and changes no byte.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PublishRefusesUndecodableSlot(CancellationToken cancellationToken)
+    {
+        using var dir = NewDirectory("squirix-snapshot-store-undecodable");
+        var store = NewStore(dir, new StateInstallFaultHooks());
+        await store.PublishAsync(Snapshot(4UL), cancellationToken);
+        var garbage = new byte[Image((await ReadSlotsAsync(dir, cancellationToken)).First).Length];
+        garbage.AsSpan().Fill(0xAB);
+        await GroupSnapshotFile.WriteImageAsync(dir, GroupId, garbage, false, cancellationToken);
+        var (beforeA, beforeB) = await ReadSlotsAsync(dir, cancellationToken);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.PublishAsync(Snapshot(5UL), cancellationToken));
+
+        var (afterA, afterB) = await ReadSlotsAsync(dir, cancellationToken);
+        await SequenceAssert.EqualAsync(beforeA, afterA);
+        await SequenceAssert.EqualAsync(beforeB, afterB);
+    }
+
+    /// <summary>A publish refuses to overwrite an oversize slot and changes no byte.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PublishRefusesOversizeSlot(CancellationToken cancellationToken)
+    {
+        using var dir = NewDirectory("squirix-snapshot-store-oversize");
+        var store = new GroupSnapshotStore(dir, GroupId, NoOpFollowerLogFaultHooks.Instance, 200);
+        await store.PublishAsync(Snapshot(4UL), cancellationToken);
+        var oversize = new byte[300 + (await ReadSlotsAsync(dir, cancellationToken)).First.Length];
+        await GroupSnapshotFile.WriteImageAsync(dir, GroupId, oversize, false, cancellationToken);
+        var (beforeA, beforeB) = await ReadSlotsAsync(dir, cancellationToken);
+
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.PublishAsync(Snapshot(5UL), cancellationToken));
+
+        _ = await Assert.That(exception.Message).Contains("exceeds the maximum configured size", StringComparison.Ordinal);
+        var (afterA, afterB) = await ReadSlotsAsync(dir, cancellationToken);
+        await SequenceAssert.EqualAsync(beforeA, afterA);
+        await SequenceAssert.EqualAsync(beforeB, afterB);
+    }
+
     /// <summary>The single snapshot file of an earlier build is refused on read and on publish, and is left unchanged.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

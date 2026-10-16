@@ -2485,6 +2485,29 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <summary>Snapshot creation, installation, and compaction for a follower log.</summary>
     private static class FollowerLogSnapshot
     {
+        /// <summary>Publishes a snapshot, failing the readiness of the log when the store cannot tell whether the new snapshot became durable.</summary>
+        /// <param name="journal">The paired in-memory journal state.</param>
+        /// <param name="owner">The owning log, whose readiness fails.</param>
+        /// <param name="snapshot">The snapshot to publish.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>A task that completes when the snapshot is durably published.</returns>
+        /// <remarks>
+        /// A snapshot too large, or a cancellation, leaves the previous snapshot in force and is rethrown as is. Any other failure may have left the new
+        /// snapshot durable while the in-memory baseline trails it, so the log is never surfaced as ready afterwards.
+        /// </remarks>
+        internal static async Task PublishOrFailReadinessAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupSnapshot snapshot, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not (GroupSnapshotTooLargeException or OperationCanceledException))
+            {
+                owner.Readiness = FollowerLogReadiness.Failed;
+                throw;
+            }
+        }
+
         /// <summary>Publishes a snapshot through <paramref name="index" /> and compacts the log prefix it covers.</summary>
         /// <param name="journal">The paired in-memory journal state.</param>
         /// <param name="owner">The log being compacted.</param>
@@ -2521,7 +2544,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             try
             {
-                await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
+                await PublishOrFailReadinessAsync(journal, owner, snapshot, cancellationToken).ConfigureAwait(false);
             }
             catch (GroupSnapshotTooLargeException)
             {
@@ -2809,7 +2832,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // The snapshot is published first. If that fails before its first slot is flushed, the old snapshot, metadata and log remain authoritative;
             // a failure after that point may leave the new snapshot published, and a failure of any later step leaves the copy incomplete, or unseeded,
             // so recovery restores the baseline from the snapshot on the next open.
-            await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
+            await FollowerLogSnapshot.PublishOrFailReadinessAsync(journal, owner, snapshot, cancellationToken).ConfigureAwait(false);
             await ReplaceStateAsync(journal, owner, snapshot, leader).ConfigureAwait(false);
             return GroupSnapshotInstallResult.Installed;
         }

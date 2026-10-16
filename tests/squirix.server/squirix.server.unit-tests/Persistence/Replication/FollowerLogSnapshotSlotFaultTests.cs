@@ -44,6 +44,7 @@ public sealed class FollowerLogSnapshotSlotFaultTests : ServerUnitTestBase
             faults.FailSnapshotSlotWrite(ordinal);
 
             _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(4UL, cancellationToken));
+            _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
         }
 
         await using var reopened = StateInstallScenario.NewLog(dir);
@@ -75,6 +76,7 @@ public sealed class FollowerLogSnapshotSlotFaultTests : ServerUnitTestBase
             faults.FailSnapshotSlotWrite(2);
 
             _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteStateInstallAsync(snapshot, Leader(1UL), cancellationToken));
+            _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
         }
 
         await using var reopened = StateInstallScenario.NewLog(dir);

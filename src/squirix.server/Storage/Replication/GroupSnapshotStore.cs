@@ -15,8 +15,9 @@ namespace Squirix.Server.Storage.Replication;
 /// <remarks>
 ///     <para>
 ///     The snapshot lives in two in-place slot files (see <see cref="GroupSnapshotSlots" />). A publish writes the new snapshot into the slot that is
-///     not current, flushes it, and then writes it again into the slot that was current, so a torn or lost write always leaves a valid slot and no
-///     file is ever renamed, replaced or deleted. Every slot is validated (frame, checksum, image, bounded size) before it is trusted.
+///     not current, flushes it, and then writes it again into the slot that was current. Until the first flush returns, a crash leaves either the
+///     previous snapshot or the new one; after it, the new one. No file is ever renamed, replaced or deleted. Every slot is validated (frame,
+///     checksum, image, bounded size) before it is trusted.
 ///     </para>
 ///     <para>
 ///     This type is a storage-only component: it writes and validates snapshot files but does not interpret the cache
@@ -147,9 +148,9 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     ///     its single-writer gate (<c language="csharp">CompactThroughAsync</c> and <c language="csharp">CompleteStateInstallAsync</c>).
     ///     </para>
     ///     <para>
-    ///     A failure or crash while the first slot is written leaves the previous snapshot in force, or none when there was none. A failure after the
-    ///     first slot is flushed leaves the new snapshot in force although the caller sees the exception, so the new snapshot of a failed publish
-    ///     may be durable.
+    ///     A failure or crash before the first slot is flushed leaves either the previous snapshot (or none when there was none) or the new one, and the
+    ///     caller cannot tell which. After the first slot is flushed the new snapshot is in force, the second write ignores cancellation, and a failure of
+    ///     it is still reported to the caller.
     ///     </para>
     /// </remarks>
     internal async Task PublishAsync(GroupSnapshot snapshot, CancellationToken cancellationToken)
@@ -164,7 +165,9 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         var currentSlot = current.Snapshot == null ? 1 : current.Slot;
         var firstSlot = 1 - currentSlot;
 
-        var slotLength = imageLength + GroupSnapshotSlots.Overhead;
+        long slotBytes = imageLength;
+        slotBytes += GroupSnapshotSlots.Overhead;
+        var slotLength = int.CreateChecked(slotBytes);
         var bytes = ArrayPool<byte>.Shared.Rent(slotLength);
         try
         {
@@ -175,7 +178,9 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             await WriteSlotAsync(firstSlot, slot, cancellationToken).ConfigureAwait(false);
 
             GroupSnapshotSlots.Seal(slot.Span, sequence + 2UL);
-            await WriteSlotAsync(currentSlot, slot, cancellationToken).ConfigureAwait(false);
+
+            // The first slot is flushed, so the new snapshot is durable and there is no way back: a cancellation must not stop the mirror.
+            await WriteSlotAsync(currentSlot, slot, CancellationToken.None).ConfigureAwait(false);
         }
         finally
         {
@@ -279,9 +284,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
                     first.Exists,
                     second.Bytes.AsSpan(0, second.Length),
                     second.Exists,
-                    _groupId,
-                    _maxSnapshotBytes,
-                    _slot0Path);
+                    new GroupSnapshotSlotContext(_groupId, _maxSnapshotBytes, _slot0Path, _slot1Path));
             }
             finally
             {
@@ -356,7 +359,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             throw new InvalidOperationException("Replica group snapshot carries an outcome resolved after its capture time.");
 
         // ReadPublishedAsync refuses a snapshot whose group id differs from this store's group. Reject the
-        // mismatch before the atomic replacement destroys the previously published, readable snapshot.
+        // mismatch before a publish overwrites the previously published, readable snapshot.
         if (!string.Equals(snapshot.GroupId, _groupId, StringComparison.Ordinal))
             throw new InvalidOperationException($"Replica group snapshot belongs to group '{snapshot.GroupId}' but this store owns group '{_groupId}'.");
     }

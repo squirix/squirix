@@ -31,9 +31,11 @@ internal static class GroupSnapshotFile
             first != null,
             second ?? [],
             second != null,
-            groupId,
-            GroupSnapshotStore.DefaultMaxSnapshotBytes,
-            persistenceRoot);
+            new GroupSnapshotSlotContext(
+                groupId,
+                GroupSnapshotStore.DefaultMaxSnapshotBytes,
+                GroupStoragePaths.GetSnapshotSlotPath(persistenceRoot, groupId, 0),
+                GroupStoragePaths.GetSnapshotSlotPath(persistenceRoot, groupId, 1)));
         if (selection.Snapshot == null)
             throw new InvalidDataException($"The snapshot slots of group '{groupId}' hold no valid snapshot.");
 

@@ -76,9 +76,7 @@ internal static class GroupSnapshotSlots
     /// <param name="firstExists">Whether the file of slot 0 exists.</param>
     /// <param name="second">The bytes of slot 1; ignored when <paramref name="secondExists" /> is <see langword="false" />.</param>
     /// <param name="secondExists">Whether the file of slot 1 exists.</param>
-    /// <param name="groupId">The group the snapshot must belong to.</param>
-    /// <param name="maxSnapshotBytes">The maximum accepted image size in bytes.</param>
-    /// <param name="location">The path named in failure messages.</param>
+    /// <param name="context">The group, size bound and slot paths the rule applies to.</param>
     /// <returns>The selected snapshot, or a selection without a snapshot when none was ever completely published.</returns>
     /// <exception cref="InvalidDataException">A slot is refused, or the slots leave no snapshot to trust although a file exists.</exception>
     internal static GroupSnapshotSelection Select(
@@ -86,12 +84,11 @@ internal static class GroupSnapshotSlots
         bool firstExists,
         ReadOnlySpan<byte> second,
         bool secondExists,
-        string groupId,
-        int maxSnapshotBytes,
-        string location)
+        in GroupSnapshotSlotContext context)
     {
-        var firstState = Classify(first, firstExists, maxSnapshotBytes, location, out var firstSequence, out var firstSnapshot);
-        var secondState = Classify(second, secondExists, maxSnapshotBytes, location, out var secondSequence, out var secondSnapshot);
+        var location = Path.GetDirectoryName(context.FirstPath) ?? context.FirstPath;
+        var firstState = Classify(first, firstExists, context.MaxSnapshotBytes, context.FirstPath, out var firstSequence, out var firstSnapshot);
+        var secondState = Classify(second, secondExists, context.MaxSnapshotBytes, context.SecondPath, out var secondSequence, out var secondSnapshot);
 
         // A first publish that never completed leaves at most slot 0, absent or torn; any other shape lost a snapshot that was acknowledged.
         if (firstState != SlotState.Valid && secondState != SlotState.Valid)
@@ -101,9 +98,10 @@ internal static class GroupSnapshotSlots
         var slot = useSecond ? 1 : 0;
         var sequence = useSecond ? secondSequence : firstSequence;
         var snapshot = useSecond ? secondSnapshot : firstSnapshot;
-        return string.Equals(snapshot.GroupId, groupId, StringComparison.Ordinal)
+        var path = useSecond ? context.SecondPath : context.FirstPath;
+        return string.Equals(snapshot.GroupId, context.GroupId, StringComparison.Ordinal)
             ? new GroupSnapshotSelection(snapshot, slot, sequence)
-            : throw new InvalidDataException($"Replica group snapshot at '{location}' belongs to a different group.");
+            : throw new InvalidDataException($"Replica group snapshot at '{path}' belongs to a different group.");
     }
 
     private static bool PrefersSecond(
