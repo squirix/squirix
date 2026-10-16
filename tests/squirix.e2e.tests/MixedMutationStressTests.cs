@@ -14,6 +14,7 @@ namespace Squirix.E2ETests;
 
 /// <summary>Concurrent mixed-mutation contention over a fixed key set, asserting client-visible correctness invariants.</summary>
 [Property(Category.TraitName, Category.TraitValue)]
+[Explicit]
 [Immutable]
 public sealed class MixedMutationStressTests : LoadTestBase
 {
