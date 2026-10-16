@@ -28,6 +28,9 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
     private const string RingMismatchCode = "ring-mismatch";
     private const string RingFencedCode = "ring-fenced";
 
+    /// <summary>The most times a forwarded call is sent while its forward times out.</summary>
+    private const int MaxSends = 5;
+
     /// <summary>A call forwarded by a node whose ring differs from the owner is refused before it executes, and both nodes stop serving.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -39,7 +42,10 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
 
         using var channel = CreateGrpcChannel(cluster["n1"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.SetEntryAsync(CreateSetRequest(operationId, key), cancellationToken: cancellationToken).ResponseAsync);
+        var refused = await RefusalAsync(
+            (Client: client, Request: CreateSetRequest(operationId, key)),
+            static (state, ct) => state.Client.SetEntryAsync(state.Request, cancellationToken: ct).ResponseAsync,
+            cancellationToken);
 
         _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(refused.Trailers.GetValue("squirix-error-code")).IsEqualTo(RingMismatchCode);
@@ -66,7 +72,10 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
 
         using var channel = CreateGrpcChannel(cluster["n2"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.SetEntryAsync(CreateSetRequest(operationId, key), cancellationToken: cancellationToken).ResponseAsync);
+        var refused = await RefusalAsync(
+            (Client: client, Request: CreateSetRequest(operationId, key)),
+            static (state, ct) => state.Client.SetEntryAsync(state.Request, cancellationToken: ct).ResponseAsync,
+            cancellationToken);
 
         _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(refused.Trailers.GetValue("squirix-error-code")).IsEqualTo(RingMismatchCode);
@@ -93,7 +102,10 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
             Key = key,
             Entry = new NodeCacheEntry<object?> { Value = "must-not-run", Version = 1 }.MapToProto(),
         };
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetOrAddAsync(request, cancellationToken: cancellationToken).ResponseAsync);
+        var refused = await RefusalAsync(
+            (Client: client, Request: request),
+            static (state, ct) => state.Client.GetOrAddAsync(state.Request, cancellationToken: ct).ResponseAsync,
+            cancellationToken);
 
         _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(refused.Trailers.GetValue("squirix-error-code")).IsEqualTo(RingMismatchCode);
@@ -154,6 +166,35 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         }
 
         throw new InvalidOperationException($"No key owned by '{owner}' in both rings was found.");
+    }
+
+    /// <summary>Sends a forwarded call again while it times out, and returns the refusal it ends with.</summary>
+    /// <typeparam name="TState">The state the call reads.</typeparam>
+    /// <typeparam name="TResponse">The response type of the call.</typeparam>
+    /// <param name="state">The client and the request; the request keeps its operation id across sends.</param>
+    /// <param name="call">Sends the request once.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The first refusal that is not a timeout, or the last timeout after <see cref="MaxSends" /> sends.</returns>
+    /// <remarks>
+    /// On a loaded host the TLS handshake of the forward can outlast its per-attempt timeout before the owner sees the call, which ends as an
+    /// ambiguous timeout instead of the owner's refusal. The call is sent again with the same operation id, as the client library does; the
+    /// owner refuses it before it executes, so a resend never runs it.
+    /// </remarks>
+    private static async Task<RpcException> RefusalAsync<TState, TResponse>(
+        TState state,
+        Func<TState, CancellationToken, Task<TResponse>> call,
+        CancellationToken cancellationToken)
+    {
+        RpcException refused;
+        var sends = 0;
+        do
+        {
+            refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(call(state, cancellationToken));
+            sends++;
+        }
+        while (refused.StatusCode == StatusCode.DeadlineExceeded && sends < MaxSends);
+
+        return refused;
     }
 
     private static async Task AssertNothingExecutedAsync(ITestNodeHost owner, string key, CancellationToken cancellationToken)
