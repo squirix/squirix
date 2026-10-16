@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -54,10 +53,9 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
         if (TryStop(_stopBudget) || _onStopTimeout == null)
             return;
 
-        // Disposal never throws; the callback is the reporting channel, so its own failure can only be traced.
-        var failure = Isolated.Run(_onStopTimeout, static callback => callback());
-        if (failure != null)
-            Trace.TraceError($"SingleConsumerWorker: the stop-timeout callback threw while reporting a leaked {typeof(T).Name} worker. {failure}");
+        // Disposal never throws; the callback is the reporting channel, and a failure of the channel
+        // itself has nowhere to go without global state, so it is discarded by design.
+        _ = Isolated.Run(_onStopTimeout, static callback => callback());
     }
 
     /// <summary>
@@ -146,18 +144,11 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
         }
     }
 
-    private void InvokeOnFault(T item, Exception ex)
-    {
-        var failure = Isolated.Run((OnFault: _onFault, Item: item, Fault: ex), static state => state.OnFault(state.Item, state.Fault));
-        if (failure == null)
-            return;
-
+    private void InvokeOnFault(T item, Exception ex) =>
         // The onFault callback is the last reporting channel for a fire-and-forget fault. If it throws,
-        // the fault has nowhere else to go, so surface both the original handler exception and the onFault
-        // failure via an error trace to keep the loss observable in production. A debug assertion is
-        // deliberately avoided here: this degraded path must be logged and the worker continue, not crash.
-        Trace.TraceError($"SingleConsumerWorker: onFault threw while reporting {typeof(T).Name} fault (original: {ex.GetType().Name}). {failure}");
-    }
+        // the fault has nowhere else to go without global state, so both failures are discarded by design
+        // and the worker continues instead of crashing.
+        _ = Isolated.Run((OnFault: _onFault, Item: item, Fault: ex), static state => state.OnFault(state.Item, state.Fault));
 
     private void Run()
     {

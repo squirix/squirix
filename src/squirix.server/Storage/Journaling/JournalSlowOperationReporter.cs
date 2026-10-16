@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Threading;
@@ -45,7 +44,8 @@ internal sealed class JournalSlowOperationReporter
             return;
 
         // Diagnostics only: a faulty log sink must not fail the journal thread after a successful fsync.
-        TraceLogFailure(Isolated.Run((Logger: _logger, ElapsedMs: elapsedMs), static state => ServerLog.JournalFsyncSlow(state.Logger, state.ElapsedMs)));
+        // A sink failure has nowhere to go without global state, so it is discarded by design.
+        _ = Isolated.Run((Logger: _logger, ElapsedMs: elapsedMs), static state => ServerLog.JournalFsyncSlow(state.Logger, state.ElapsedMs));
     }
 
     /// <summary>Warns when a mutation gate held since <paramref name="acquiredTimestamp" /> exceeded the threshold; never throws.</summary>
@@ -58,8 +58,8 @@ internal sealed class JournalSlowOperationReporter
             return;
 
         // Diagnostics only: a faulty log sink must not mask the gate holder's own outcome.
-        TraceLogFailure(
-            Isolated.Run((Logger: _logger, HeldMs: heldMs, Holder: holder), static state => ServerLog.JournalMutationGateHeldLong(state.Logger, state.HeldMs, state.Holder)));
+        // A sink failure has nowhere to go without global state, so it is discarded by design.
+        _ = Isolated.Run((Logger: _logger, HeldMs: heldMs, Holder: holder), static state => ServerLog.JournalMutationGateHeldLong(state.Logger, state.HeldMs, state.Holder));
     }
 
     /// <summary>
@@ -77,16 +77,10 @@ internal sealed class JournalSlowOperationReporter
             return;
 
         // Diagnostics only: a faulty log sink must not mask the cancellation of the wait.
-        TraceLogFailure(
-            Isolated.Run(
+        // A sink failure has nowhere to go without global state, so it is discarded by design.
+        _ = Isolated.Run(
                 (Logger: _logger, WaitingFor: waitingFor, IoOperation: ioOperation ?? "none", IoMs: ioMs, GateHolder: gateHolder ?? "none", GateHeldMs: gateHeldMs),
-                static state => ServerLog.JournalWaitCanceledWhileStalled(state.Logger, state.WaitingFor, state.IoOperation, state.IoMs, state.GateHolder, state.GateHeldMs)));
-    }
-
-    private static void TraceLogFailure(Exception? failure)
-    {
-        if (failure != null)
-            Trace.TraceError($"Journal slow-operation warning could not be logged: {failure}");
+                static state => ServerLog.JournalWaitCanceledWhileStalled(state.Logger, state.WaitingFor, state.IoOperation, state.IoMs, state.GateHolder, state.GateHeldMs));
     }
 
     private long ElapsedMs(long startedTimestamp) => Convert.ToInt64(_timeProvider.GetElapsedTime(startedTimestamp).TotalMilliseconds);
