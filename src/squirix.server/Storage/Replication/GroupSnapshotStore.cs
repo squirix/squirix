@@ -307,14 +307,12 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     {
         var path = slot == 0 ? _slot0Path : _slot1Path;
         _faults.OnSnapshotPublishing();
-        var created = !File.Exists(path);
         var options = OperatingSystem.IsWindows() ? FileOptions.WriteThrough : FileOptions.None;
         using var handle = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read, options);
 
-        // The entry is flushed before any byte is written: a write that fails after creating the file would otherwise
-        // leave an entry that no later publish flushes, since the file then already exists.
-        if (created)
-            FileEx.FlushDirectoryEntry(path);
+        // The entry is flushed on every publish, before any byte is written: a file created by an earlier publish that
+        // failed or crashed may exist with an entry that was never made durable.
+        FileEx.FlushDirectoryEntry(path);
 
         RandomAccess.SetLength(handle, bytes.Length);
         await RandomAccess.WriteAsync(handle, bytes, 0, cancellationToken).ConfigureAwait(false);

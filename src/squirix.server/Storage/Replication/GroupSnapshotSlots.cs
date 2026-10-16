@@ -90,6 +90,10 @@ internal static class GroupSnapshotSlots
         var firstState = Classify(first, firstExists, context.MaxSnapshotBytes, context.FirstPath, out var firstSequence, out var firstSnapshot);
         var secondState = Classify(second, secondExists, context.MaxSnapshotBytes, context.SecondPath, out var secondSequence, out var secondSnapshot);
 
+        // Each valid slot is checked, not only the selected one: a foreign slot in the older position would otherwise be overwritten by the next publish.
+        EnsureOwnGroup(firstState, in firstSnapshot, context.GroupId, context.FirstPath);
+        EnsureOwnGroup(secondState, in secondSnapshot, context.GroupId, context.SecondPath);
+
         // A first publish that never completed leaves at most slot 0, absent or torn; any other shape lost a snapshot that was acknowledged.
         if (firstState != SlotState.Valid && secondState != SlotState.Valid)
             return secondState == SlotState.Absent ? default : throw new InvalidDataException($"Replica group snapshot at '{location}' is corrupt.");
@@ -98,10 +102,13 @@ internal static class GroupSnapshotSlots
         var slot = useSecond ? 1 : 0;
         var sequence = useSecond ? secondSequence : firstSequence;
         var snapshot = useSecond ? secondSnapshot : firstSnapshot;
-        var path = useSecond ? context.SecondPath : context.FirstPath;
-        return string.Equals(snapshot.GroupId, context.GroupId, StringComparison.Ordinal)
-            ? new GroupSnapshotSelection(snapshot, slot, sequence)
-            : throw new InvalidDataException($"Replica group snapshot at '{path}' belongs to a different group.");
+        return new GroupSnapshotSelection(snapshot, slot, sequence);
+    }
+
+    private static void EnsureOwnGroup(SlotState state, in GroupSnapshot snapshot, string groupId, string location)
+    {
+        if (state == SlotState.Valid && !string.Equals(snapshot.GroupId, groupId, StringComparison.Ordinal))
+            throw new InvalidDataException($"Replica group snapshot at '{location}' belongs to a different group.");
     }
 
     private static bool PrefersSecond(

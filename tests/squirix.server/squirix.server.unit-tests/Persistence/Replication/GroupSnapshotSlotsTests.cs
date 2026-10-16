@@ -169,6 +169,17 @@ public sealed class GroupSnapshotSlotsTests : ServerUnitTestBase
         _ = await Assert.That(exception.Message).Contains("exceeds the maximum configured size", StringComparison.Ordinal);
     }
 
+    /// <summary>A valid slot of another group is refused even when it holds the older sequence, so no publish overwrites it.</summary>
+    [Test]
+    public async Task SelectRefusesOlderForeignSlot()
+    {
+        var slots = (First: Slot(1UL, Image(4UL, "other-group")), Second: Slot(2UL, Image(5UL)));
+
+        var exception = NodeExceptionAssert.For<InvalidDataException>().Throws(slots, static state => _ = Select(state.First, state.Second));
+
+        _ = await Assert.That(exception.Message).Contains($"'{FirstPath}' belongs to a different group", StringComparison.Ordinal);
+    }
+
     private static ulong Commit(in GroupSnapshotSelection selection) => selection.Snapshot?.CommitIndex ?? 0UL;
 
     private static byte[][] TornVariants(byte[] slot)
@@ -185,9 +196,9 @@ public sealed class GroupSnapshotSlotsTests : ServerUnitTestBase
         return copy;
     }
 
-    private static byte[] Image(ulong commitIndex)
+    private static byte[] Image(ulong commitIndex, string groupId = GroupId)
     {
-        var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, commitIndex, [], DateTime.UnixEpoch);
+        var snapshot = new GroupSnapshot(groupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, commitIndex, [], DateTime.UnixEpoch);
         var image = new byte[GroupSnapshotStore.ComputePublishedLength(in snapshot, GroupSnapshotStore.DefaultMaxSnapshotBytes)];
         GroupSnapshotStore.EncodePublished(image, in snapshot);
         return image;
