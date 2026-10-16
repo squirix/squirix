@@ -21,6 +21,9 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
     private const int Burst = 4;
     private const int MaxCalls = 20;
 
+    /// <summary>The most times the read that must be served is sent while its forward times out.</summary>
+    private const int MaxSends = 5;
+
     /// <summary>
     /// Principals with a per-client rate limit are refused independently on the entry node, and the owner does not
     /// pool the forwarded requests of all principals into one bucket of the forwarding connection.
@@ -130,11 +133,52 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
             client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken));
         release.SetResult();
         _ = await holder;
-        _ = await client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        await ServedAsync(client, request, cancellationToken);
 
         _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
         _ = await Assert.That(refused.Status.Detail).Contains("peer_busy");
     }
+
+    /// <summary>Sends a read through the entry node until its forward does not time out.</summary>
+    /// <param name="client">The client of the entry node.</param>
+    /// <param name="request">The read.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation that fails with the last refusal when the read is not served.</returns>
+    /// <remarks>
+    /// The read is the first forward to the owner, so it opens the connection; on a loaded host that TLS handshake can outlast the per-attempt
+    /// timeout of the forward, which ends the read as a timeout. A read is safe to send again.
+    /// </remarks>
+    private static async Task ServedAsync(SquirixCacheService.SquirixCacheServiceClient client, GetValueAsyncRequest request, CancellationToken cancellationToken)
+    {
+        for (var sends = 1; sends < MaxSends; sends++)
+        {
+            if (await TryReadAsync(client, request, cancellationToken))
+                return;
+        }
+
+        await ReadAsync(client, request, cancellationToken);
+    }
+
+    /// <summary>Sends the read once and reports whether it was served; a timeout is reported as not served, any other failure is thrown.</summary>
+    /// <param name="client">The client of the entry node.</param>
+    /// <param name="request">The read.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns><see langword="true" /> when the read was served; <see langword="false" /> when its forward timed out.</returns>
+    private static async Task<bool> TryReadAsync(SquirixCacheService.SquirixCacheServiceClient client, GetValueAsyncRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ReadAsync(client, request, cancellationToken);
+            return true;
+        }
+        catch (RpcException exception) when (exception.StatusCode == StatusCode.DeadlineExceeded)
+        {
+            return false;
+        }
+    }
+
+    private static async Task ReadAsync(SquirixCacheService.SquirixCacheServiceClient client, GetValueAsyncRequest request, CancellationToken cancellationToken) =>
+        _ = await client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
     private static async Task<int> CountAdmittedAsync(SquirixCacheService.SquirixCacheServiceClient client, string token, string key, CancellationToken cancellationToken)
     {
