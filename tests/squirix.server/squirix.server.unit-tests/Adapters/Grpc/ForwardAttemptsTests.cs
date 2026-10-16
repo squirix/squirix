@@ -76,6 +76,31 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsTrue();
     }
 
+    /// <summary>
+    /// A hop whose TLS handshake failed sent nothing, so it surfaces as the unreachable failure raised on this node although the client gave it
+    /// Internal, not Unavailable; an Internal status the owner sent is relayed unchanged.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HandshakeFailureMapsToUnavailable(CancellationToken cancellationToken)
+    {
+        var handshake = CreateForwarder(
+            new CapturingCallInvoker(
+                failure: static () => new RpcException(
+                    new Status(
+                        StatusCode.Internal,
+                        "Error starting gRPC call.",
+                        new HttpRequestException(HttpRequestError.SecureConnectionError, "The SSL connection could not be established.", new ObjectDisposedException("credential"))))));
+        var owner = CreateForwarder(new CapturingCallInvoker(failure: static () => new RpcException(new Status(StatusCode.Internal, "owner failed"))));
+        var request = new GetValueAsyncRequest { CacheName = "c", Key = "k" };
+
+        var handshakeFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(handshake.GetValueAsync(Owner, request, cancellationToken));
+        var ownerFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(owner.GetValueAsync(Owner, request, cancellationToken));
+
+        _ = await Assert.That(OwnerUnreachableFailure.IsLocal(handshakeFailure)).IsTrue();
+        _ = await Assert.That((ownerFailure.StatusCode, ownerFailure.Status.Detail)).IsEqualTo((StatusCode.Internal, "owner failed"));
+    }
+
     /// <summary>A forward whose attempt was canceled, as by its per-attempt timeout, reaches the caller as a timeout and never as unreachable.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
