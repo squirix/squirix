@@ -1707,7 +1707,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             var metaExists = File.Exists(journal.Paths.MetadataPath);
             SelectLog(journal, owner);
-            var logExists = journal.LogGeneration != 0UL || File.Exists(journal.Paths.LogSlot0Path) || File.Exists(journal.Paths.LogSlot1Path);
+            var logExists = File.Exists(journal.Paths.LogSlot0Path) || File.Exists(journal.Paths.LogSlot1Path);
 
             switch (metaExists)
             {
@@ -1753,6 +1753,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
             else
             {
+                // A retried open can still hold the superseded file from a rewrite that failed after its commit point; release it first.
+                owner.Durability.Dispose();
                 await FollowerLogRecovery.EmptySupersededLogAsync(journal, cancellationToken).ConfigureAwait(false);
                 owner.Durability.Open(journal.LogPath, owner.LogLength);
             }

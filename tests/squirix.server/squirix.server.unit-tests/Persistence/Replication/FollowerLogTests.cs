@@ -862,8 +862,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var path = GroupLogFile.ActivePath(dir, GroupId);
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
 
-        // Frame header follows the 5-byte file header: magic(4) | version(1) | bodyLength(4). Overwrite bodyLength with a multi-GB value.
-        const int bodyLengthOffset = 5 + 4 + 1;
+        // Frame header follows the file header: magic(4) | version(1) | bodyLength(4). Overwrite bodyLength with a multi-GB value.
+        const int bodyLengthOffset = GroupLogSlots.HeaderSize + GroupLogCodec.FramePreambleByteCount;
         bytes[bodyLengthOffset] = 0xFF;
         bytes[bodyLengthOffset + 1] = 0xFF;
         bytes[bodyLengthOffset + 2] = 0xFF;
@@ -871,7 +871,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(path, bytes, cancellationToken);
 
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
+        _ = await Assert.That(ex.Message).Contains("committed log frame", StringComparison.Ordinal);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
     }
 
