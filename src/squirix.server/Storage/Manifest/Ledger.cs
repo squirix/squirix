@@ -83,6 +83,18 @@ internal sealed class Ledger : IDisposable
         _retentionWorker.ScheduleRetentionCleanup(manifest);
     }
 
+    /// <summary>Publishes a snapshot reference over the manifest the publisher holds when the write runs.</summary>
+    /// <param name="snapshot">The snapshot reference with the journal segment and next sequence floors it was captured at.</param>
+    /// <param name="cancellationToken">Cancels waiting for the write.</param>
+    /// <returns>A task that completes when the manifest is published.</returns>
+    internal async Task WriteSnapshotAsync(State snapshot, CancellationToken cancellationToken = default)
+    {
+        using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        _allocator.EnsureNextManifestIndexInitialized(cancellationToken);
+        await _publisher.PublishAsync(snapshot, cancellationToken, true).ConfigureAwait(false);
+        _retentionWorker.ScheduleRetentionCleanup(snapshot);
+    }
+
     private async Task<State> LoadCurrentFromDiskAsync(CancellationToken cancellationToken)
     {
         await _publisher.EnsureDataDirectoryExistsAsync(cancellationToken).ConfigureAwait(false);
@@ -212,11 +224,11 @@ internal sealed class Ledger : IDisposable
             _dirCreated = true;
         }
 
-        internal async Task PublishAsync(State manifest, CancellationToken cancellationToken)
+        internal async Task PublishAsync(State manifest, CancellationToken cancellationToken, bool mergeWithCurrent = false)
         {
             await EnsureDataDirectoryExistsAsync(cancellationToken).ConfigureAwait(false);
             var encodedLength = FileCodec.ComputeEncodedLength(manifest);
-            await _worker.EnqueueAsync(new WriteItem(manifest, encodedLength)).ConfigureAwait(false);
+            await _worker.EnqueueAsync(new WriteItem(manifest, encodedLength, mergeWithCurrent)).ConfigureAwait(false);
         }
 
         private void EnsureEncodeBufferCapacity(int encodedLength)
@@ -268,12 +280,27 @@ internal sealed class Ledger : IDisposable
             var nextIndex = _allocator.AllocateNextManifestIndex();
             var targetPath = _allocator.BuildManifestFilePath(nextIndex);
             EnsureEncodeBufferCapacity(work.EncodedLength);
-            FileCodec.WriteEncoded(work.Manifest, _encodeBuffer.AsSpan(0, work.EncodedLength));
+            var manifest = work.Manifest;
+            if (work.MergeWithCurrent)
+            {
+                // A roll queued ahead of this write has already moved the cache, so the floors never move the journal pointer or the
+                // next sequence backward. The fixed-width fields keep the precomputed encoded length valid.
+                var current = _rbl().Previous;
+                manifest = new State
+                {
+                    Format = manifest.Format,
+                    CurrentJournal = Math.Max(current.CurrentJournal, manifest.CurrentJournal),
+                    NextSequence = Math.Max(current.NextSequence, manifest.NextSequence),
+                    LastSnapshot = manifest.LastSnapshot,
+                };
+            }
+
+            FileCodec.WriteEncoded(manifest, _encodeBuffer.AsSpan(0, work.EncodedLength));
             FileDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, work.EncodedLength));
             _currentPointerWriter.Publish(nextIndex);
 
             // The pointer already names this manifest, so memory follows it before the mirror write that may still fail.
-            _setCache(work.Manifest, nextIndex);
+            _setCache(manifest, nextIndex);
             _currentPointerWriter.Mirror();
         }
 
@@ -310,15 +337,18 @@ internal sealed class Ledger : IDisposable
         [Immutable]
         private sealed class WriteItem : WorkItemBase
         {
-            internal WriteItem(State manifest, int encodedLength)
+            internal WriteItem(State manifest, int encodedLength, bool mergeWithCurrent)
             {
                 Manifest = manifest;
                 EncodedLength = encodedLength;
+                MergeWithCurrent = mergeWithCurrent;
             }
 
             internal int EncodedLength { get; }
 
             internal State Manifest { get; }
+
+            internal bool MergeWithCurrent { get; }
 
             internal override void Execute(Publisher publisher) => publisher.Process(this);
         }
