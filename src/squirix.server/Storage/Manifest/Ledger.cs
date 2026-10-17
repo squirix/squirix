@@ -43,6 +43,9 @@ internal sealed class Ledger : IDisposable
     /// <summary>Gets a value indicating whether manifest retention cleanup is stopped; test seam for the disposal order.</summary>
     internal bool IsRetentionStopped => _retentionWorker.IsStopped;
 
+    /// <summary>Gets the first publish failure that left the slot outcome unknown, or <see langword="null" /> while publishing is usable.</summary>
+    internal Exception? PublishFailure => _publisher.Failure;
+
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -73,9 +76,10 @@ internal sealed class Ledger : IDisposable
     /// <param name="cancellationToken">Cancels waiting for the write.</param>
     /// <returns>A task that completes when the manifest is published.</returns>
     /// <remarks>
-    /// A throw means the outcome is unknown: the target slot may hold the manifest and the cache may follow it. After such a failure the ledger refuses
-    /// every later publish, including <see cref="WriteSnapshotAsync" /> and <see cref="EnqueueRoll" />, with an <see cref="InvalidOperationException" />
-    /// that carries the first failure; reads keep working.
+    /// A throw usually means the outcome is unknown: the target slot may hold the manifest and the cache may follow it. After a failure from a write that
+    /// may have landed the ledger refuses every later publish, including <see cref="WriteSnapshotAsync" /> and <see cref="EnqueueRoll" />, with an
+    /// <see cref="InvalidOperationException" /> that carries the first failure (see <see cref="PublishFailure" />); reads keep working. Nothing was written
+    /// when the wait was canceled, the encoder rejected the manifest, or the existing file could not be opened or read.
     /// </remarks>
     internal async Task WriteAsync(State manifest, CancellationToken cancellationToken = default)
     {
@@ -88,7 +92,7 @@ internal sealed class Ledger : IDisposable
     /// <param name="snapshot">The snapshot reference with the journal segment and next sequence floors it was captured at.</param>
     /// <param name="cancellationToken">Cancels waiting for the write.</param>
     /// <returns>A task that completes when the manifest is published.</returns>
-    /// <remarks>Fails like <see cref="WriteAsync" />: a throw leaves the outcome unknown and latches the ledger.</remarks>
+    /// <remarks>Fails like <see cref="WriteAsync" />: a throw from a write that may have landed leaves the outcome unknown and latches the ledger.</remarks>
     internal async Task WriteSnapshotAsync(State snapshot, CancellationToken cancellationToken = default)
     {
         using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
@@ -193,6 +197,8 @@ internal sealed class Ledger : IDisposable
                 () => ServerLog.ManifestPublisherLeakedOnShutdownTimeout(logger, stopBudget));
         }
 
+        internal Exception? Failure => Volatile.Read(ref _failure);
+
         public void Dispose()
         {
             _worker.Dispose();
@@ -261,7 +267,7 @@ internal sealed class Ledger : IDisposable
 
         private void WriteManifest(State manifest)
         {
-            var failure = Volatile.Read(ref _failure);
+            var failure = Failure;
             if (failure != null)
                 throw new InvalidOperationException("The manifest publisher refuses every publish after an earlier publish failed.", failure);
 
@@ -273,11 +279,11 @@ internal sealed class Ledger : IDisposable
                 _setCache(manifest, sequence);
                 _slotWriter.Mirror();
             }
-            catch (Exception ex) when (ex is not (ArgumentException or InvalidDataException or ObjectDisposedException))
+            catch (Exception ex) when (_slotWriter.OutcomeUnknown)
             {
-                // After a failed write or flush the slots may hold the manifest, so no later publish may report success. A manifest the encoder
-                // rejected, an unreadable existing file and a disposed writer fail before any write and leave the publisher usable.
-                _ = LazyInitializer.EnsureInitialized(ref _failure, () => ex);
+                // After a write that may have landed the slots may hold the manifest, so no later publish may report success. A failure before
+                // any write (open, read, encode) leaves the publisher usable. A dispose racing the write may latch too, which is harmless: a disposed writer refuses every later publish. Only this worker thread sets the latch.
+                Volatile.Write(ref _failure, Failure ?? ex);
                 throw;
             }
         }

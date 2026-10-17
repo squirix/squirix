@@ -159,6 +159,26 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
         _ = await Assert.That(published.LastSnapshot?.Index).IsEqualTo(1);
     }
 
+    /// <summary>A snapshot manifest publish that fails after a write began fails the journal pipeline, so no later tick captures another snapshot.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedSnapshotPublishFailsPipeline(CancellationToken cancellationToken)
+    {
+        // A byte-range lock held through another handle fails the slot write; only Windows enforces it.
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
+        await using var journal = new SnapshotCutJournal(1, 1);
+
+        using (new ExclusiveRangeLock(Path.Join(Dir, "man-current"), SlotFormat.FileSize))
+            _ = await NodeAsyncAssert.ThrowsAsync<IOException>(SnapshotOnceAsync(store, journal, cancellationToken));
+
+        _ = await Assert.That(store.PublishFailure).IsNotNull();
+        _ = await Assert.That(journal.FailedWith).IsSameReferenceAs(store.PublishFailure);
+    }
+
     private static async Task SnapshotOnceAsync(Ledger store, IJournalCoordinator journal, CancellationToken cancellationToken)
     {
         var writerExpectations = new ISnapshotWriterCreateExpectations();

@@ -30,6 +30,7 @@ internal sealed class SlotWriter : IDisposable
     private int _currentSlot;
     private int _disposed;
     private SafeFileHandle? _handle;
+    private bool _outcomeUnknown;
     private ulong _sequence;
 
     internal SlotWriter(string path)
@@ -38,6 +39,9 @@ internal sealed class SlotWriter : IDisposable
 
         _path = path;
     }
+
+    /// <summary>Gets a value indicating whether a write began that did not complete, so a slot may hold its manifest although the call threw.</summary>
+    internal bool OutcomeUnknown => Volatile.Read(ref _outcomeUnknown);
 
     /// <inheritdoc />
     public void Dispose()
@@ -113,8 +117,12 @@ internal sealed class SlotWriter : IDisposable
         var next = ++_sequence;
         SlotFormat.Encode(_record, manifest, next);
         long offset = target == 0 ? 0 : SlotFormat.SlotSize;
+
+        // Set before the first byte is written and cleared only after the flush: a throw in between may have landed.
+        Volatile.Write(ref _outcomeUnknown, true);
         RandomAccess.Write(handle, _record, offset);
         RandomAccess.FlushToDisk(handle);
+        Volatile.Write(ref _outcomeUnknown, false);
         _currentSlot = target;
         _currentManifest = manifest;
         return next;

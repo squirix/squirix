@@ -2,6 +2,7 @@
     <PropertyGroup>
         <RootNamespace>Squirix.Server.UnitTests</RootNamespace>
         <AssemblyName>Squirix.Server.UnitTests</AssemblyName>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
 
     <ItemGroup>
