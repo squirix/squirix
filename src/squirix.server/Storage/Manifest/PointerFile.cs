@@ -4,45 +4,61 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Squirix.Server.Storage.Manifest;
 
-/// <summary>Shared-friendly reads for the fixed-size <c language="csharp">man-current</c> pointer.</summary>
+/// <summary>Shared-friendly reads for the two-slot <c language="csharp">man-current</c> pointer.</summary>
 /// <remarks>
-/// The journal-roll writer opens <c language="csharp">man-current</c> with
-/// <see cref="FileShare.ReadWrite" /> | <see cref="FileShare.Delete" />. Readers must use a compatible
-/// share mode: <c language="csharp">File.ReadAllBytesAsync</c> defaults to
-/// <see cref="FileShare.Read" />, which can fail on Windows with <see cref="IOException" /> when a
-/// writer handle is still draining after abrupt host disposal.
+/// The pointer writer holds <c language="csharp">man-current</c> open for the life of the ledger with <see cref="FileShare.Read" />. Readers must
+/// open it for reading only, with a compatible share mode: <c language="csharp">File.ReadAllBytesAsync</c> defaults to
+/// <see cref="FileShare.Read" />, which fails on Windows with <see cref="IOException" /> while that writer handle is open.
 /// </remarks>
 internal static class PointerFile
 {
     internal const FileShare CompatibleShare = FileShare.ReadWrite | FileShare.Delete;
 
-    /// <summary>Reads and validates the SQMC pointer at <paramref name="path" />, returning the manifest index.</summary>
+    /// <summary>Reads the pointer at <paramref name="path" /> and selects the newest valid slot.</summary>
     /// <param name="path">Absolute path to <c language="csharp">man-current</c>.</param>
-    /// <returns>Manifest index encoded in the pointer.</returns>
-    /// <exception cref="InvalidDataException">Thrown when the pointer is truncated or fails validation.</exception>
-    internal static int ReadIndex(string path)
+    /// <returns>The selected record; a missing file is a never published pointer.</returns>
+    /// <exception cref="InvalidDataException">The pointer was written by an earlier build or holds no valid slot.</exception>
+    internal static PointerSelection Read(string path)
     {
-        using var handle = Open(path);
-        return ReadIndex(handle, path);
+        try
+        {
+            using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, CompatibleShare);
+            return Read(handle, path);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return new PointerSelection(0, 1, 0UL);
+        }
     }
 
-    private static SafeFileHandle Open(string path) => File.OpenHandle(path, FileMode.Open, FileAccess.Read, CompatibleShare, FileOptions.SequentialScan);
-
-    private static int ReadIndex(SafeFileHandle handle, string path)
+    /// <summary>Reads the pointer through an open handle.</summary>
+    /// <param name="handle">A handle with read access.</param>
+    /// <param name="path">The file path, for messages.</param>
+    /// <returns>The selected record.</returns>
+    /// <exception cref="InvalidDataException">The pointer was written by an earlier build or holds no valid slot.</exception>
+    internal static PointerSelection Read(SafeFileHandle handle, string path)
     {
         var length = RandomAccess.GetLength(handle);
-        if (length != Pointer.Size)
-            throw new InvalidDataException($"Manifest current pointer has invalid length {length}: {path}");
+        Span<byte> first = stackalloc byte[PointerSlots.RecordSize];
+        Span<byte> second = stackalloc byte[PointerSlots.RecordSize];
+        var firstCount = ReadRecord(handle, 0, length, first);
+        var secondCount = ReadRecord(handle, PointerSlots.SlotSize, length, second);
+        return PointerSlots.Select(first[..firstCount], second[..secondCount], length, path);
+    }
 
-        Span<byte> local = stackalloc byte[Pointer.Size];
-        var read = RandomAccess.Read(handle, local, 0);
-        var isTruncated = read != Pointer.Size;
-        var isInvalid = !Pointer.IsValidPointer(local);
-        return (isTruncated, isInvalid) switch
+    private static int ReadRecord(SafeFileHandle handle, long offset, long length, Span<byte> destination)
+    {
+        var wanted = int.CreateTruncating(Math.Clamp(length - offset, 0L, destination.Length));
+        var read = 0;
+        while (read < wanted)
         {
-            (true, _) => throw new InvalidDataException($"Manifest current pointer is truncated ({read} bytes): {path}"),
-            (false, true) => throw new InvalidDataException($"Manifest current pointer is invalid: {path}"),
-            (false, false) => Pointer.Read(local),
-        };
+            var count = RandomAccess.Read(handle, destination.Slice(read, wanted - read), offset + read);
+            if (count == 0)
+                break;
+
+            read += count;
+        }
+
+        return read;
     }
 }

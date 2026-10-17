@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.IO;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -98,7 +99,7 @@ public class ManifestPublishBreakdownBenchmarks
         }
     }
 
-    /// <summary>Overwrites <c language="csharp">man-current</c> and fsyncs the pointer (no numbered manifest file).</summary>
+    /// <summary>Writes both <c language="csharp">man-current</c> slots and fsyncs the pointer (no numbered manifest file).</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark]
     public void RollPointerOnly()
@@ -122,7 +123,7 @@ public class ManifestPublishBreakdownBenchmarks
         private readonly TempDirectory _dir;
         private readonly byte[] _encodeBuffer;
 
-        private Session(TempDirectory dir, Ledger store, IManifestPointerWriter pointerWriter, SessionWarmup warmup)
+        private Session(TempDirectory dir, Ledger store, PersistentPointerWriter pointerWriter, SessionWarmup warmup)
         {
             _dir = dir;
             _encodeBuffer = warmup.EncodeBuffer;
@@ -140,7 +141,7 @@ public class ManifestPublishBreakdownBenchmarks
 
         private string ManifestFileNamePrefix { get; }
 
-        private IManifestPointerWriter PointerWriter { get; }
+        private PersistentPointerWriter PointerWriter { get; }
 
         private SnapshotRef? Snapshot { get; }
 
@@ -148,6 +149,7 @@ public class ManifestPublishBreakdownBenchmarks
 
         public void Dispose()
         {
+            PointerWriter.Dispose();
             Ledger.Dispose();
             _dir.Dispose();
         }
@@ -171,7 +173,11 @@ public class ManifestPublishBreakdownBenchmarks
 
             var encodeBuffer = new byte[EncodeBufferSize];
             var manifestFileNamePrefix = PathEx.Combine(dir, FilePrefixes.Manifest);
-            var currentPath = PathEx.Combine(dir, $"{FilePrefixes.Manifest}current");
+
+            // The ledger keeps its own writer on dir/man-current open, so the pointer-only benchmark writes a separate file.
+            var pointerDir = PathEx.Combine(dir, "pointer-only");
+            _ = Directory.CreateDirectory(pointerDir);
+            var currentPath = PathEx.Combine(pointerDir, $"{FilePrefixes.Manifest}current");
 
             return new Session(
                 dir,
@@ -215,13 +221,12 @@ public class ManifestPublishBreakdownBenchmarks
         /// <param name="encodedLength">Number of valid bytes in the session encode buffer.</param>
         internal void WriteDataFile(string targetPath, int encodedLength) => FileDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength));
 
-        /// <summary>Writes the SQMC current pointer and flushes it to disk.</summary>
+        /// <summary>Writes the current pointer into both slots and flushes it to disk.</summary>
         /// <param name="manifestIndex">Manifest index for the pointer payload.</param>
         internal void WritePointer(int manifestIndex)
         {
-            Span<byte> pointerBuffer = stackalloc byte[Pointer.Size];
-            Pointer.Write(pointerBuffer, manifestIndex);
-            FileDurability.WriteCurrentPointerBlocking(PointerWriter, pointerBuffer);
+            PointerWriter.Publish(manifestIndex);
+            PointerWriter.Mirror();
         }
 
         /// <summary>Non-owned warmup values for <see cref="Session" /> construction (avoids an 8+ parameter ctor).</summary>
