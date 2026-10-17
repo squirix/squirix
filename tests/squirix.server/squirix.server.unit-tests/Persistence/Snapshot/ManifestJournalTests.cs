@@ -114,7 +114,15 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
         {
             void PostRoll()
             {
-                store.EnqueueRoll(3, 9, () => rollCommitted.TrySetResult(), ex => rollFailure = ex);
+                store.EnqueueRoll(
+                    3,
+                    9,
+                    () => rollCommitted.TrySetResult(),
+                    ex =>
+                    {
+                        rollFailure = ex;
+                        _ = rollCommitted.TrySetException(ex);
+                    });
             }
 
             await store.WriteAsync(new State { Format = 1, CurrentJournal = 2, NextSequence = 5 }, cancellationToken);

@@ -90,8 +90,13 @@ internal sealed class Ledger : IDisposable
     internal async Task WriteSnapshotAsync(State snapshot, CancellationToken cancellationToken = default)
     {
         using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        // The publisher merges over the cache, so an unloaded cache must not leave the floors standing over the on-disk manifest.
+        if (!TryGetCachedCurrent(out _))
+            _ = await LoadCurrentFromDiskAsync(cancellationToken).ConfigureAwait(false);
+
         _allocator.EnsureNextManifestIndexInitialized(cancellationToken);
-        await _publisher.PublishAsync(snapshot, cancellationToken, true).ConfigureAwait(false);
+        await _publisher.PublishSnapshotAsync(snapshot, cancellationToken).ConfigureAwait(false);
         _retentionWorker.ScheduleRetentionCleanup(snapshot);
     }
 
@@ -224,11 +229,18 @@ internal sealed class Ledger : IDisposable
             _dirCreated = true;
         }
 
-        internal async Task PublishAsync(State manifest, CancellationToken cancellationToken, bool mergeWithCurrent = false)
+        internal async Task PublishAsync(State manifest, CancellationToken cancellationToken)
         {
             await EnsureDataDirectoryExistsAsync(cancellationToken).ConfigureAwait(false);
             var encodedLength = FileCodec.ComputeEncodedLength(manifest);
-            await _worker.EnqueueAsync(new WriteItem(manifest, encodedLength, mergeWithCurrent)).ConfigureAwait(false);
+            await _worker.EnqueueAsync(new WriteItem(manifest, encodedLength)).ConfigureAwait(false);
+        }
+
+        internal async Task PublishSnapshotAsync(State snapshot, CancellationToken cancellationToken)
+        {
+            await EnsureDataDirectoryExistsAsync(cancellationToken).ConfigureAwait(false);
+            var encodedLength = FileCodec.ComputeEncodedLength(snapshot);
+            await _worker.EnqueueAsync(new SnapshotWriteItem(snapshot, encodedLength)).ConfigureAwait(false);
         }
 
         private void EnsureEncodeBufferCapacity(int encodedLength)
@@ -275,28 +287,32 @@ internal sealed class Ledger : IDisposable
             rollItem.OnCommitted?.Invoke(manifest);
         }
 
-        private void Process(WriteItem work)
+        private void Process(WriteItem work) => WriteManifest(work.Manifest, work.EncodedLength);
+
+        private void Process(SnapshotWriteItem work)
+        {
+            // A roll queued ahead of this write has already moved the cache, so the floors never move the journal pointer or the
+            // next sequence backward. The fixed-width fields keep the precomputed encoded length valid.
+            var current = _rbl().Previous;
+            var snapshot = work.Snapshot;
+            WriteManifest(
+                new State
+                {
+                    Format = current.Format != 0 ? current.Format : snapshot.Format,
+                    CurrentJournal = Math.Max(current.CurrentJournal, snapshot.CurrentJournal),
+                    NextSequence = Math.Max(current.NextSequence, snapshot.NextSequence),
+                    LastSnapshot = snapshot.LastSnapshot,
+                },
+                work.EncodedLength);
+        }
+
+        private void WriteManifest(State manifest, int encodedLength)
         {
             var nextIndex = _allocator.AllocateNextManifestIndex();
             var targetPath = _allocator.BuildManifestFilePath(nextIndex);
-            EnsureEncodeBufferCapacity(work.EncodedLength);
-            var manifest = work.Manifest;
-            if (work.MergeWithCurrent)
-            {
-                // A roll queued ahead of this write has already moved the cache, so the floors never move the journal pointer or the
-                // next sequence backward. The fixed-width fields keep the precomputed encoded length valid.
-                var current = _rbl().Previous;
-                manifest = new State
-                {
-                    Format = manifest.Format,
-                    CurrentJournal = Math.Max(current.CurrentJournal, manifest.CurrentJournal),
-                    NextSequence = Math.Max(current.NextSequence, manifest.NextSequence),
-                    LastSnapshot = manifest.LastSnapshot,
-                };
-            }
-
-            FileCodec.WriteEncoded(manifest, _encodeBuffer.AsSpan(0, work.EncodedLength));
-            FileDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, work.EncodedLength));
+            EnsureEncodeBufferCapacity(encodedLength);
+            FileCodec.WriteEncoded(manifest, _encodeBuffer.AsSpan(0, encodedLength));
+            FileDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength));
             _currentPointerWriter.Publish(nextIndex);
 
             // The pointer already names this manifest, so memory follows it before the mirror write that may still fail.
@@ -337,18 +353,31 @@ internal sealed class Ledger : IDisposable
         [Immutable]
         private sealed class WriteItem : WorkItemBase
         {
-            internal WriteItem(State manifest, int encodedLength, bool mergeWithCurrent)
+            internal WriteItem(State manifest, int encodedLength)
             {
                 Manifest = manifest;
                 EncodedLength = encodedLength;
-                MergeWithCurrent = mergeWithCurrent;
             }
 
             internal int EncodedLength { get; }
 
             internal State Manifest { get; }
 
-            internal bool MergeWithCurrent { get; }
+            internal override void Execute(Publisher publisher) => publisher.Process(this);
+        }
+
+        [Immutable]
+        private sealed class SnapshotWriteItem : WorkItemBase
+        {
+            internal SnapshotWriteItem(State snapshot, int encodedLength)
+            {
+                Snapshot = snapshot;
+                EncodedLength = encodedLength;
+            }
+
+            internal int EncodedLength { get; }
+
+            internal State Snapshot { get; }
 
             internal override void Execute(Publisher publisher) => publisher.Process(this);
         }
