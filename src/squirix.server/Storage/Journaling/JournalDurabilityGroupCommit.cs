@@ -207,7 +207,7 @@ internal sealed class JournalDurabilityGroupCommit
             // Flush failures fail the whole batch so no ack observes partial durability. The pipeline is
             // latched first, so a caller whose ack faults already sees the failed pipeline. The callback runs
             // outside _sync for lock ordering: it takes the pending-append and durability-ack registry locks,
-            // which must not be taken under _sync. The batch is faulted and released even if it throws. A later
+            // which must not be taken under _sync. The batch is faulted and released even if it throws (the callback's exception then replaces the flush failure). A later
             // fsync can succeed after the kernel dropped the dirty pages of the failed one, so the flush must
             // never be retried and reported as durable; the rethrow reaches the event loop, where the repeated
             // fail call is harmless.

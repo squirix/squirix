@@ -57,14 +57,39 @@ public sealed class JournalGroupCommitFlushFailureTests : IsolatedStorageTestBas
         _ = await Assert.That(writer.FlushCount).IsEqualTo(1);
     }
 
+    /// <summary>An append too large for the write batch takes the unbatched path; its write ack completes and a failed group flush still latches the pipeline before the commit wait faults.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OversizedAppendFlushFailureLatches(CancellationToken cancellationToken)
+    {
+        var options = CreateOptions(16);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var writer = new FailOnceFsyncSegmentWriter();
+        await using var journal = new JournalCoordinator(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            writer,
+            NullLoggerFactory.Instance,
+            TimeProvider.System);
+
+        await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), Payload, cancellationToken);
+        var thrown = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask().WaitAsync(Bound, TimeProvider.System, cancellationToken));
+
+        _ = await Assert.That(thrown).IsSameReferenceAs(writer.Failure);
+        _ = await Assert.That(journal.GetJournalThreadFailure()).IsSameReferenceAs(writer.Failure);
+    }
+
     private static async Task CommitAgainAsync(JournalCoordinator journal, CacheKey key, CancellationToken cancellationToken)
     {
         await journal.AppendPutUnderGateAsync(key, Payload, cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
     }
 
-    private PersistenceOptions CreateOptions() => new()
+    private PersistenceOptions CreateOptions(int? writeBatchBytes = null) => new()
     {
+        JournalWriteBatch = writeBatchBytes ?? new PersistenceOptions().JournalWriteBatch,
         DataDir = Dir,
         JournalMaxSegmentMb = 4,
         ManifestRetentionCount = 1,

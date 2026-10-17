@@ -79,9 +79,9 @@ internal sealed class JournalDurabilityCoordinator
         // it. Completing acks registered later (their checkpoints are still queued behind this item)
         // would report frames durable before they are written, so foreign acks must stay pending.
         // Marking the ack in flight keeps it reachable for the failure and shutdown drains while the
-        // fsync runs, but a caller cancel can no longer win it: Remove only takes pending acks. Run
-        // latches the pipeline and faults the ack when the fsync fails; the rethrow still fails the pipeline, and the fsync is
-        // never retried. One failure per episode still holds per caller: a caller may observe the
+        // fsync runs, but a caller cancel can no longer win it: Remove only takes pending acks. When the
+        // fsync fails the pipeline is latched first, then the ack is faulted, then the failure is rethrown; the repeated fail in
+        // the loop is harmless, and the fsync is never retried. One failure per episode still holds per caller: a caller may observe the
         // shutdown fault while the latch later records the I/O error of the same stuck fsync, but no
         // caller observes both.
         if (_owner.DurabilityAcks.TryMarkInFlight(ack))
@@ -94,9 +94,7 @@ internal sealed class JournalDurabilityCoordinator
             catch (Exception ex)
             {
                 // Latched before the ack faults, so a caller that observes the fault already sees the failed pipeline.
-                if (JournalPipelineFault.Is(ex))
-                    FailJournalPipeline(ex);
-
+                FailJournalPipeline(ex);
                 _ = ack.TrySetException(ex);
                 throw;
             }
