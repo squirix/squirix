@@ -202,7 +202,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
             for (var running = true; running;)
                 running = DrainScheduler.RunJournalThreadIteration(ref rollDeferredAppend);
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or TimeoutException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or TimeoutException or UnauthorizedAccessException)
         {
             Host.FailPipeline(ex);
         }
