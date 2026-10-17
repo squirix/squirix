@@ -127,7 +127,8 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
     [Test]
     public async Task SnapshotDeletedAfterBothSlotsMirrored(CancellationToken cancellationToken)
     {
-        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance);
+        var operations = new SlotObservingFileOperations(Dir, SnapshotPath(1));
+        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, fileOperations: operations);
 
         CreateSnapshot(1);
         CreateSnapshot(2);
@@ -135,8 +136,9 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
         await store.WriteAsync(CreateSnapshotState(2), cancellationToken);
         await WaitUntilDeletedAsync(SnapshotPath(1), cancellationToken);
 
-        _ = await Assert.That(StoreTestSupport.ReadSlotManifest(Dir, 0).LastSnapshot?.Index).IsEqualTo(2);
-        _ = await Assert.That(StoreTestSupport.ReadSlotManifest(Dir, 1).LastSnapshot?.Index).IsEqualTo(2);
+        _ = await Assert.That(operations.SlotSnapshotsAtDelete.Length).IsEqualTo(2);
+        _ = await Assert.That(operations.SlotSnapshotsAtDelete[0]).IsEqualTo(2);
+        _ = await Assert.That(operations.SlotSnapshotsAtDelete[1]).IsEqualTo(2);
     }
 
     /// <summary>Verifies a manifest that names no snapshot, as after journal compaction, makes retention delete no snapshot.</summary>
@@ -207,6 +209,32 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
     private string JournalPath(int index) => NodePathKit.Combine(false, Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
 
     private string SnapshotPath(int index) => NodePathKit.Combine(false, Dir, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
+
+    /// <summary>File operations that record the snapshot index each manifest slot names at the moment the watched file is deleted.</summary>
+    private sealed class SlotObservingFileOperations : IStorageFileOperations
+    {
+        private readonly string _dir;
+        private readonly FileOperations _inner = new();
+        private readonly string _path;
+
+        internal SlotObservingFileOperations(string dir, string path)
+        {
+            _dir = dir;
+            _path = path;
+        }
+
+        internal int?[] SlotSnapshotsAtDelete { get; private set; } = [];
+
+        bool IStorageFileOperations.PublishSnapshot(string tempPath, string finalPath) => _inner.PublishSnapshot(tempPath, finalPath);
+
+        bool IStorageFileOperations.TryDelete(string path)
+        {
+            if (string.Equals(path, _path, StringComparison.OrdinalIgnoreCase))
+                SlotSnapshotsAtDelete = [StoreTestSupport.ReadSlotManifest(_dir, 0).LastSnapshot?.Index, StoreTestSupport.ReadSlotManifest(_dir, 1).LastSnapshot?.Index];
+
+            return _inner.TryDelete(path);
+        }
+    }
 
     /// <summary>File operations whose first delete of one path fails and whose later deletes succeed.</summary>
     private sealed class FailFirstDeleteFileOperations : IStorageFileOperations

@@ -153,8 +153,14 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
             LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow, LastAppliedSequence = 10UL, ReplayFromJournalSegment = 1 },
         };
         var image = GC.AllocateArray<byte>(SlotFormat.FileSize);
+        var newer = new State
+        {
+            CurrentJournal = 2,
+            NextSequence = 12,
+            LastSnapshot = new SnapshotRef { Index = 2, CreatedUtc = DateTime.UtcNow, LastAppliedSequence = 11UL, ReplayFromJournalSegment = 2 },
+        };
         SlotFormat.Encode(image.AsSpan(SlotFormat.SlotSize), manifest, 1UL);
-        SlotFormat.Encode(image, manifest, 2UL);
+        SlotFormat.Encode(image, newer, 2UL);
         image[SlotFormat.RecordSize - 1] ^= 0xFF;
         await File.WriteAllBytesAsync(Path.Join(scenario.DataDir, "man-current"), image, cancellationToken);
 
