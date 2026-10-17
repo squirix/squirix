@@ -115,7 +115,7 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 4019, Level = LogLevel.Warning, Message = "Replica follower sender failed to close; the shutdown continues")]
     internal static partial void ReplicaFollowerSenderCloseFailed(ILogger logger, Exception exception);
 
-    [LoggerMessage(EventId = 4020, Level = LogLevel.Warning, Message = "Replica group durable publish of {Path} needed {Attempts} attempts; holders: {Holders}")]
+    [LoggerMessage(EventId = 4020, Level = LogLevel.Warning, Message = "Replica group durable publish from temp file {Path} needed {Attempts} attempts; holders: {Holders}")]
     internal static partial void DurablePublishRetried(ILogger logger, string path, int attempts, string holders);
 
     [LoggerMessage(

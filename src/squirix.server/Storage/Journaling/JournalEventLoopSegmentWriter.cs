@@ -437,9 +437,10 @@ internal sealed class JournalEventLoopSegmentWriter
             };
         }
 
-        /// <summary>Ensures the roll target segment exists durably, creating or replacing it atomically when needed.</summary>
+        /// <summary>Ensures the roll target segment exists durably, publishing it under a name that must not exist when needed.</summary>
         /// <param name="targetSegmentIndex">One-based index of the roll target segment.</param>
         /// <param name="targetPath">Absolute path of the roll target segment file.</param>
+        /// <remarks>A valid header or a longer file is reused. A torn or invalid leftover proven to hold no frame (stat succeeded, at most a header, not a usable header) is deleted first. Only a target whose stat failed makes the publish fail.</remarks>
         internal void PrepareRollTargetSegment(int targetSegmentIndex, string targetPath)
         {
             // A valid pre-created target (crash after a previous pre-creation, before its manifest publication)
@@ -449,10 +450,10 @@ internal sealed class JournalEventLoopSegmentWriter
                 return;
 
             // Same probe as GetRollTargetExistingLength (targetPath is BuildRollTargetPath()):
-            // a missing or unstatable file counts as new, a leftover counts by its delta.
+            // a missing file counts as new, a deleted leftover counts by its delta.
             var preExistingLength = GetRollTargetExistingLength();
 
-            PublishRollTargetHeader(targetSegmentIndex, targetPath);
+            PublishRollTargetHeader(targetSegmentIndex, targetPath, preExistingLength);
 
             if (preExistingLength == null)
             {
@@ -529,15 +530,22 @@ internal sealed class JournalEventLoopSegmentWriter
             }
         }
 
-        private void PublishRollTargetHeader(int targetSegmentIndex, string targetPath)
+        private void PublishRollTargetHeader(int targetSegmentIndex, string targetPath, long? preExistingLength)
         {
-            // Stage the header under a temp name and publish it atomically: a crash must never leave a
+            // Stage the header under a temp name and publish it with a no-overwrite move: a crash must never leave a
             // partially written header under the final segment name, because a 1..FileHeaderSize-1 byte
             // trailing segment fails recovery replay. The temp suffix keeps it invisible to enumeration.
             // The active writer is deliberately untouched here; it stays on the old segment until the
             // manifest publication succeeds, so a failed roll leaves the writer, path, and offsets consistent.
             var tmpPath = JournalReadPath.BuildRollTempPath(_owner.Options.DataDir, targetSegmentIndex);
             WriteRollTargetHeaderFile(tmpPath);
+
+            // Frames start at FileHeaderSize, so a leftover of at most a header holds no record, and the journal
+            // thread is the only segment writer, so it cannot grow before the delete. An unstatable leftover is
+            // not deleted: the move refuses it and the roll fails.
+            if (preExistingLength is <= JournalFraming.FileHeaderSize)
+                File.Delete(targetPath);
+
             _ = FileEx.PublishFile(tmpPath, targetPath, TimeProvider.System);
         }
     }

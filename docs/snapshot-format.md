@@ -1,6 +1,6 @@
 # Binary snapshot format (`.bsqx`)
 
-On-disk snapshot files use extension `.bsqx` and filename pattern `sn-NNNNNN.bsqx`.
+On-disk snapshot files use extension `.bsqx` and filename pattern `snp-NNNNNN.bsqx`.
 
 ## File layout
 
@@ -74,8 +74,10 @@ on write and materialized as owned `JsonElement` on read.
 
 ## Publish semantics
 
-Writes go to `sn-NNNNNN.tmp` and are published atomically to `sn-NNNNNN.bsqx` via
-`IStorageFileOperations.PublishSnapshot`.
+Writes go to `snp-NNNNNN.tmp` and are published to `snp-NNNNNN.bsqx` via
+`IStorageFileOperations.PublishSnapshot` with a no-overwrite move: an existing target fails the publish and is never
+replaced. The index is above both the snapshot the manifest names and every `snp-*.bsqx` file on disk, so an unreferenced
+snapshot left by a crash before the manifest update is skipped, not overwritten.
 
 ## Replica-group snapshots
 

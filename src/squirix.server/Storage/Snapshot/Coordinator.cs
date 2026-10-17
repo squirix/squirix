@@ -145,7 +145,7 @@ internal sealed class Coordinator
         if (ManifestMovedSince(baseline, prev))
             return null;
 
-        var nextIndex = (prev.LastSnapshot?.Index ?? 0) + 1;
+        var nextIndex = _snapWriter.AllocateIndex(prev.LastSnapshot?.Index ?? 0);
         currentActivity?.SetTag("snapshot.index", InvariantDigitStrings.Format(nextIndex));
 
         var path = await _snapWriter.WriteAsync(nextIndex, captured.Items, captured.IdempotencyRecordsAtFlush, cancellationToken).ConfigureAwait(false);

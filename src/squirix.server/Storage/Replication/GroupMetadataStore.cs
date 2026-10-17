@@ -181,7 +181,7 @@ internal sealed class GroupMetadataStore : IDisposable
 
         var result = FileEx.PublishFile(_tempPath, _path, TimeProvider.System);
         if (result.Attempts > 1)
-            ServerLog.DurablePublishRetried(_log, _path, result.Attempts, result.Holders ?? FileEx.UnknownHolders);
+            ServerLog.DurablePublishRetried(_log, _tempPath, result.Attempts, result.Holders ?? FileEx.UnknownHolders);
 
         OpenHandle();
         _currentSlot = 0;

@@ -1,3 +1,4 @@
+using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
@@ -25,6 +26,15 @@ internal sealed class SnapshotWriter : ISnapshotWriter
     {
         _dataDir = dataDir;
         _fileOperations = fileOperations;
+    }
+
+    public int AllocateIndex(int publishedIndex)
+    {
+        var highest = publishedIndex;
+        foreach (var path in Directory.GetFiles(_dataDir, $"{FilePrefixes.Snapshot}*{FileExtensions.Snapshot}"))
+            highest = Math.Max(highest, SnapshotFileName.ParseIndex(Path.GetFileName(path)));
+
+        return highest + 1;
     }
 
     public async ValueTask<string> WriteAsync(

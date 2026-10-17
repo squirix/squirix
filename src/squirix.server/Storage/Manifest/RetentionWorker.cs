@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -152,21 +151,6 @@ internal sealed class RetentionWorker : IWorkPoolItem
             return result;
         }
 
-        private static int ParseSnapshotIndex(ReadOnlySpan<char> name, ReadOnlySpan<char> extension)
-        {
-            if (name.IsEmpty)
-                return 0;
-            if (!name.StartsWith(FilePrefixes.Snapshot.AsSpan(), StringComparison.OrdinalIgnoreCase))
-                return 0;
-            if (!name.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
-                return 0;
-
-            var numberPart = name.Slice(FilePrefixes.Snapshot.Length, name.Length - FilePrefixes.Snapshot.Length - extension.Length);
-            return int.TryParse(numberPart, CultureInfo.InvariantCulture, out var n) ? n : 0;
-        }
-
-        private static int ParseSnapshotIndex(string name) => ParseSnapshotIndex(name.AsSpan(), FileExtensions.Snapshot.AsSpan());
-
         private static void ReportRetentionCleanupException(RetentionContext context, string artifactKind, Exception exception)
         {
             context.FailureMetrics.RecordDeleteFailure(artifactKind, ManifestRetentionFailureOutcome.CleanupException);
@@ -268,7 +252,7 @@ internal sealed class RetentionWorker : IWorkPoolItem
                 if (files.Length <= context.SnapshotRetention)
                     return false;
 
-                var ordered = GetIndexedFiles(files, ParseSnapshotIndex);
+                var ordered = GetIndexedFiles(files, SnapshotFileName.ParseIndex);
                 return ordered.Length > context.SnapshotRetention && DeleteStaleSnapshots(context, ordered, BuildSnapshotKeepSet(context, ordered, currentSnapshot));
             }
             catch (ArgumentException ex)

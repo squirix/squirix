@@ -18,7 +18,6 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
-using TUnit.Core.Exceptions;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
@@ -419,50 +418,6 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         }
     }
 
-    /// <summary>A roll target whose stats cannot be read is treated as missing instead of failing the roll.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <exception cref="SkipTestException">Thrown when the environment cannot satisfy the test precondition.</exception>
-    [Test]
-    public async Task RollSurvivesUnreadableTargetStat(CancellationToken cancellationToken)
-    {
-        var options = CreateOptions(Dir);
-        using var ledger = new Ledger(options, NullLogger<Ledger>.Instance);
-        await using var journal = JournalCoordinatorFactory.Create(
-            options,
-            await ledger.ReadCurrentOrDefaultAsync(cancellationToken),
-            ledger,
-            new AsyncManualResetEvent(true),
-            NullLoggerFactory.Instance,
-            TimeProvider.System,
-            out _);
-        var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
-
-        var overflowPayload = new byte[LargePayloadSize];
-        Array.Fill(overflowPayload, Convert.ToByte('y'));
-        var overflowKey = CacheKey.Default("overflow-key");
-        var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
-        await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, cancellationToken);
-
-        var targetPath = SegmentPath(Dir, 2);
-        WriteHeaderOnlySegment(targetPath);
-        if (!TryMakeUnreadable(targetPath))
-            throw new SkipTestException("This environment cannot deny file reads (needs POSIX permissions).");
-
-        await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
-        await journal.AwaitDurabilityCommitAsync(cancellationToken);
-        await ledger.WaitUntilValueAsync(ConditionAsync, cancellationToken);
-
-        _ = await Assert.That((await ledger.ReadCurrentOrDefaultAsync(cancellationToken)).CurrentJournal).IsEqualTo(2);
-        _ = await Assert.That(ContainsPutKey(Dir, 2, "overflow-key")).IsTrue();
-        _ = await Assert.That(journal.GetJournalThreadFailure()).IsNull();
-        return;
-
-        static async ValueTask<bool> ConditionAsync(Ledger s, CancellationToken ct)
-        {
-            return (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 2;
-        }
-    }
-
     /// <summary>Startup creates a missing data directory instead of failing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -612,26 +567,6 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     }
 
     private static string SegmentPath(string dir, int i) => NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(i)}{FileExtensions.Journal}");
-
-    private static bool TryMakeUnreadable(string path)
-    {
-        // POSIX denies the stat itself while the directory stays writable for the replacement.
-        // The probe below also guards elevated environments (root) where permissions
-        // are not enforced: without a failing stat the test would prove nothing.
-        if (OperatingSystem.IsWindows())
-            return false;
-
-        File.SetUnixFileMode(path, UnixFileMode.None);
-        try
-        {
-            _ = new FileInfo(path).Length;
-            return false;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return true;
-        }
-    }
 
     private static void WriteHeaderOnlySegment(string path)
     {
