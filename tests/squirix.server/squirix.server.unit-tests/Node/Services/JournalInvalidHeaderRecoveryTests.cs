@@ -43,7 +43,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : DisposableServerUnitTest
         using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var journalSegmentPath = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         await File.WriteAllBytesAsync(journalSegmentPath, InvalidJournalHeaderBad, cancellationToken);
-        await manifestStore.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null }, cancellationToken);
+        await manifestStore.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = null }, cancellationToken);
 
         await using (var journal = JournalCoordinatorFactory.Create(
                          persistence,
@@ -75,7 +75,6 @@ public sealed class JournalInvalidHeaderRecoveryTests : DisposableServerUnitTest
         await scenario.Ledger.WriteAsync(
             new State
             {
-                Format = 1,
                 CurrentJournal = 1,
                 NextSequence = 1,
                 LastSnapshot = null,

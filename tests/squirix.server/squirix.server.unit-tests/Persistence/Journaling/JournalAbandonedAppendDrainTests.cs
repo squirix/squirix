@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -13,7 +12,6 @@ using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -57,12 +55,8 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         var overflowKey = CacheKey.Default("overflow-key");
         await FillSegmentOneForOverflowAsync(pipelined, FrameLength(overflowPayload, overflowKey), cancellationToken);
 
-        // Calibration roll like in BlockedManifestStillAppendsFrames: it advances the manifest
-        // numbering so the file blocked below is the one the journal-triggered roll writes.
-        // Without it the roll targets a different manifest file and succeeds instead of failing.
-        await EnqueueCalibrationRollAsync(ledger);
-
-        await BlockManifestFileAsync(Dir, 2, cancellationToken);
+        // A disposed ledger refuses every queued roll, so the journal-triggered roll fails.
+        ledger.Dispose();
 
         // The overflow append does not wait for durability, so the test continues while it parks
         // on the roll-deferred frame. The durable followers queue behind it in ring order and never
@@ -112,22 +106,17 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         var overflowKey = CacheKey.Default("overflow-key");
         await FillSegmentOneForOverflowAsync(pipelined, FrameLength(overflowPayload, overflowKey), cancellationToken);
 
-        // Calibration roll like in FailedRollFailsPendingDurableAppends: it advances the manifest
-        // numbering so the file blocked below is the one the journal-triggered roll writes.
-        // Without it the roll targets a different manifest file and succeeds instead of failing.
-        await EnqueueCalibrationRollAsync(ledger);
-
         // Production appends cannot run inside a maintenance hold, so the test drives the durability pipeline directly to reach the drain
         // branch: it enqueues the failing maintenance (EnqueueMaintenanceAsync) inside a snapshot barrier hold and appends with that hold's
         // gate ownership, so the frames queue behind the parked one while the maintenance is still running.
         var gate = new BlockingMaintenanceAction();
         var (pending, thrown) = await journal.ExecuteUnderSnapshotBarrierAsync(
-            (Journal: journal, Pipelined: pipelined, Gate: gate, Dir, Payload: payload, OverflowKey: overflowKey, OverflowPayload: overflowPayload),
+            (Journal: journal, Pipelined: pipelined, Gate: gate, Ledger: ledger, Payload: payload, OverflowKey: overflowKey, OverflowPayload: overflowPayload),
             static async (s, ownership, ct) =>
             {
                 var maintenance = s.Pipelined.DurabilityPipeline.EnqueueMaintenanceAsync(s.Gate.RunAsync, ct);
                 await s.Gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, ct);
-                await BlockManifestFileAsync(s.Dir, 2, ct);
+                s.Ledger.Dispose();
 
                 // Overflow without a durability wait (see above): it parks on the roll-deferred frame
                 // while the durable followers stay queued behind it for the drain.
@@ -160,7 +149,7 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
 
     /// <summary>
     /// Starts a durable append with only its admission under the gate, so every frame queues on the ring behind the parked one while its
-    /// durability wait runs outside the gate. The roll may fail fast on the blocked file while this thread is still queueing: the pipeline
+    /// durability wait runs outside the gate. The roll may fail fast on the refused manifest while this thread is still queueing: the pipeline
     /// may already be dead, and the refusal faults the returned task like the async drain path does; the asserts only require every append
     /// to fault.
     /// </summary>
@@ -194,7 +183,7 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         }
         catch (InvalidOperationException ex) when (!string.Equals(ex.Message, JournalAppendGateTests.GateRefusalMessage, StringComparison.Ordinal))
         {
-            // The roll fails fast on the blocked file while this thread is still queueing: the pipeline
+            // The roll fails fast on the refused manifest while this thread is still queueing: the pipeline
             // may already be dead and the fail-fast guard throws synchronously. Pack it into a faulted
             // task like the async drain path does; the asserts below only require every append to be faulted.
             // A gate refusal is not packed: it would fault the append without exercising the drain, so it fails the test.
@@ -220,33 +209,11 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         return pending.AsTask();
     }
 
-    private static Task BlockManifestFileAsync(string dir, int index, CancellationToken cancellationToken) => File.WriteAllBytesAsync(
-        NodePathKit.Combine(dir, StoreTestSupport.ManifestDataFileName(index)),
-        [],
-        cancellationToken);
-
     private static PersistenceOptions CreateOptions(string dataDir) => new()
     {
         DataDir = dataDir,
         JournalMaxSegmentMb = 1,
     };
-
-    private static async Task EnqueueCalibrationRollAsync(Ledger ledger)
-    {
-        var rolled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Exception? rollError = null;
-        ledger.EnqueueRoll(
-            1,
-            1,
-            () => rolled.TrySetResult(),
-            ex =>
-            {
-                rollError = ex;
-                _ = rolled.TrySetResult();
-            });
-        await rolled.Task;
-        rollError.ThrowIfFaulted();
-    }
 
     private static async Task FillSegmentOneForOverflowAsync(JournalCoordinator journal, int overflowFrameLen, CancellationToken cancellationToken)
     {

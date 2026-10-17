@@ -140,7 +140,6 @@ public class SnapshotWriteBreakdownBenchmarks
             var previous = await _manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
             var updated = new State
             {
-                Format = previous.Format == 0 ? 1 : previous.Format,
                 CurrentJournal = previous.CurrentJournal,
                 NextSequence = previous.NextSequence + 1,
                 LastSnapshot = new SnapshotRef

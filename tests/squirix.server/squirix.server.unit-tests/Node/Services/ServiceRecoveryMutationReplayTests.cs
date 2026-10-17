@@ -39,7 +39,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-expired-put");
         var expired = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "gone", new NodeCacheEntry<object?> { Value = "x", ExpiresUtc = DateTime.UtcNow.AddMinutes(-5) });
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, expired);
-        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
+        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
@@ -55,7 +55,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         var bytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
         var id = BinaryJournalTestSegmentWriter.BuildIdempotencyRecord("op-zero", "fp-zero", bytes, 0L, 1UL);
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, id);
-        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
+        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
 
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         await RunRecoveryAsync(scenario, store, cancellationToken);
@@ -77,7 +77,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         var past = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "a", new NodeCacheEntry<object?> { Value = "old", ExpiresUtc = DateTime.UtcNow.AddMinutes(-5) });
         var future = BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "a", new NodeCacheEntry<object?> { Value = "new", ExpiresUtc = deadline });
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, [past, future]);
-        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 3 }, cancellationToken);
+        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 3 }, cancellationToken);
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
@@ -96,7 +96,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         var future = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "a", new NodeCacheEntry<object?> { Value = "old", ExpiresUtc = DateTime.UtcNow.AddHours(1) });
         var past = BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "a", new NodeCacheEntry<object?> { Value = "new", ExpiresUtc = DateTime.UtcNow.AddMinutes(-5) });
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, [future, past]);
-        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 3 }, cancellationToken);
+        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 3 }, cancellationToken);
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
@@ -115,7 +115,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         var remove = BinaryJournalTestSegmentWriter.BuildRemoveRecord(4UL, "a");
         var putB = BinaryJournalTestSegmentWriter.BuildPutRecord(5UL, "b", "vb");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, [put, extended, persistent, remove, putB]);
-        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 6 }, cancellationToken);
+        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 6 }, cancellationToken);
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
@@ -137,7 +137,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-unassigned-opcode");
         BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, Convert.ToByte(opcodeWire), "a");
-        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
+        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
     }
@@ -150,7 +150,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-unassigned-then-valid");
         var valid = BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "b", "vb");
         BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 8, "a", [valid]);
-        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 3 }, cancellationToken);
+        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 3 }, cancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
     }
@@ -163,7 +163,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-unassigned-earlier-segment");
         BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 7, "a");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 2, BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "b", "vb"));
-        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 2, NextSequence = 3 }, cancellationToken);
+        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 2, NextSequence = 3 }, cancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
     }
@@ -175,7 +175,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-compaction-unassigned-opcode");
         BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 255, "a");
-        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
+        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(), DateTime.UtcNow, DateTime.UtcNow, cancellationToken));
@@ -194,7 +194,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         var path = BinaryJournalTestSegmentWriter.SegmentPath(scenario.DataDir, 1);
         BinaryJournalTestSegmentWriter.SetHeaderVersion(path, Convert.ToByte(version));
         var lengthBefore = new FileInfo(path).Length;
-        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
+        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
 
         var failure = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
 
@@ -212,7 +212,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         var path = BinaryJournalTestSegmentWriter.SegmentPath(scenario.DataDir, 1);
         BinaryJournalTestSegmentWriter.SetHeaderVersion(path, 1);
         var lengthBefore = new FileInfo(path).Length;
-        var manifest = new State { Format = 1, CurrentJournal = 1, NextSequence = 2 };
+        var manifest = new State { CurrentJournal = 1, NextSequence = 2 };
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
@@ -231,7 +231,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         using var scenario = RecoveryScenarioBuilder.Create("squirix-compaction-old-version");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "a", "v"));
         BinaryJournalTestSegmentWriter.SetHeaderVersion(BinaryJournalTestSegmentWriter.SegmentPath(scenario.DataDir, 1), 1);
-        await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
+        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(), DateTime.UtcNow, DateTime.UtcNow, cancellationToken));

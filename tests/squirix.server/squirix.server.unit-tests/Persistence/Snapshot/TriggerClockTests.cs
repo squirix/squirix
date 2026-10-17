@@ -72,7 +72,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
 
     private static async Task<(Coordinator Coordinator, PublishCounter Published)> CreateCoordinatorAsync(Ledger store, IJournalMetrics metrics, TimeProvider clock, CancellationToken cancellationToken)
     {
-        await store.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
+        await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:01:00","snapshotEveryNOps":10}""")!;
         var capture = new ISnapshotEntryCaptureCreateExpectations();
         _ = capture.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())

@@ -63,7 +63,7 @@ internal static class JournalCompactor
         var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.tmp");
         _ = FileEx.TryDeleteFile(tmpPath);
         var writtenLastSeq = await WriteCompactedJournalAsync(tmpPath, compaction, utcNow, expiredAsOf, segmentDurability, cancellationToken).ConfigureAwait(false);
-        await FinalizeCompactionAsync(options, manifestStore, oldManifest, newFirstIdx, writtenLastSeq, journalSegments, cancellationToken).ConfigureAwait(false);
+        await FinalizeCompactionAsync(options, manifestStore, newFirstIdx, writtenLastSeq, journalSegments, cancellationToken).ConfigureAwait(false);
     }
 
     private static void Apply(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state, Dictionary<string, CompactedIdempotencyRecord> idempotencyState)
@@ -206,7 +206,6 @@ internal static class JournalCompactor
     private static async Task FinalizeCompactionAsync(
         PersistenceOptions options,
         Ledger manifestStore,
-        State oldManifest,
         int newFirstIdx,
         ulong lastSeq,
         JournalSegment[] journalSegments,
@@ -220,7 +219,6 @@ internal static class JournalCompactor
 
         var newManifest = new State
         {
-            Format = oldManifest.Format == 0 ? 1 : oldManifest.Format,
             CurrentJournal = newFirstIdx,
             NextSequence = lastSeq == 0UL ? 1UL : lastSeq + 1UL,
             LastSnapshot = null,

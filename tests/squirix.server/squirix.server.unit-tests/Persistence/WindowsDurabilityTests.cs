@@ -14,13 +14,13 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
-/// <summary>Durability behavior tests for manifest persistence and CURRENT pointer updates.</summary>
+/// <summary>Durability behavior tests for manifest persistence in the two-slot current file.</summary>
 public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
 {
-    /// <summary>Verifies that <see cref="Ledger" /> creates an initial manifest and updates the CURRENT pointer.</summary>
+    /// <summary>Verifies that <see cref="Ledger" /> creates the current file holding the first manifest.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FirstWriteCreatesCurrentPointer(CancellationToken cancellationToken)
+    public async Task FirstWriteCreatesCurrentFile(CancellationToken cancellationToken)
     {
         var options = StoreTestSupport.CreateOptions(Dir);
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
@@ -28,13 +28,13 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         var currentPath = NodePathKit.Combine(Dir, "man-current");
         _ = await Assert.That(File.Exists(currentPath)).IsTrue();
-        _ = await Assert.That(await StoreTestSupport.ReadCurrentManifestIndexAsync(Dir, cancellationToken)).IsEqualTo(1);
+        _ = await Assert.That(StoreTestSupport.ReadCurrentSelection(Dir).State.CurrentJournal).IsEqualTo(1);
     }
 
-    /// <summary>Verifies that first boot without a current pointer returns a default manifest.</summary>
+    /// <summary>Verifies that first boot without a current file returns a default manifest.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task MissingPointerReadsAsDefault(CancellationToken cancellationToken)
+    public async Task MissingFileReadsAsDefault(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
@@ -45,23 +45,25 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
         _ = await Assert.That(manifest.NextSequence).IsEqualTo(1UL);
     }
 
-    /// <summary>Verifies that subsequent manifest writes update the CURRENT pointer to the new manifest file.</summary>
+    /// <summary>Verifies that subsequent manifest writes replace the manifest in the current file.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RewriteUpdatesCurrentPointer(CancellationToken cancellationToken)
+    public async Task RewriteReplacesManifest(CancellationToken cancellationToken)
     {
         var options = StoreTestSupport.CreateOptions(Dir);
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 10 }, cancellationToken);
-        _ = await Assert.That(await StoreTestSupport.ReadCurrentManifestIndexAsync(Dir, cancellationToken)).IsEqualTo(2);
+        var selection = StoreTestSupport.ReadCurrentSelection(Dir);
+        _ = await Assert.That(selection.State.CurrentJournal).IsEqualTo(2);
+        _ = await Assert.That(selection.State.NextSequence).IsEqualTo(10UL);
     }
 
-    /// <summary>Verifies that an empty current pointer, as left by a crash during the first publish, reads as never published.</summary>
+    /// <summary>Verifies that an empty current file, as left by a crash during the first publish, reads as never published.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task EmptyPointerReadsAsDefault(CancellationToken cancellationToken)
+    public async Task EmptyFileReadsAsDefault(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
@@ -72,10 +74,10 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
         _ = await Assert.That(manifest.CurrentJournal).IsEqualTo(1);
     }
 
-    /// <summary>Verifies that a pointer of an earlier build is refused and left unchanged.</summary>
+    /// <summary>Verifies that a current file of an earlier build is refused and left unchanged.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task EarlierPointerIsRefusedUnchanged(CancellationToken cancellationToken)
+    public async Task EarlierFileIsRefusedUnchanged(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
@@ -88,19 +90,19 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
         await SequenceAssert.EqualMemoryAsync<byte>(earlier, await File.ReadAllBytesAsync(path, cancellationToken));
     }
 
-    /// <summary>Verifies that a pointer without a valid slot fails loudly and is left unchanged.</summary>
+    /// <summary>Verifies that a manifest without a valid slot fails loudly and is left unchanged.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task PointerWithoutValidSlotFailsLoudly(CancellationToken cancellationToken)
+    public async Task ManifestWithoutValidSlotFailsLoudly(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
         var path = NodePathKit.Combine(Dir, "man-current");
-        var image = GC.AllocateArray<byte>(PointerSlots.FileSize);
-        PointerSlots.Encode(image, 1UL, 5);
-        PointerSlots.Encode(image.AsSpan(PointerSlots.SlotSize), 2UL, 6);
-        image[PointerSlots.RecordSize - 1] ^= 0xFF;
-        image[PointerSlots.SlotSize + PointerSlots.RecordSize - 1] ^= 0xFF;
+        var image = GC.AllocateArray<byte>(SlotFormat.FileSize);
+        SlotFormat.Encode(image, new State { CurrentJournal = 5 }, 1UL);
+        SlotFormat.Encode(image.AsSpan(SlotFormat.SlotSize), new State { CurrentJournal = 6 }, 2UL);
+        image[SlotFormat.RecordSize - 1] ^= 0xFF;
+        image[SlotFormat.SlotSize + SlotFormat.RecordSize - 1] ^= 0xFF;
         await File.WriteAllBytesAsync(path, image, cancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadCurrentOrDefaultAsync(cancellationToken));
@@ -108,22 +110,24 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
         await SequenceAssert.EqualMemoryAsync<byte>(image, await File.ReadAllBytesAsync(path, cancellationToken));
     }
 
-    /// <summary>Verifies that a missing current pointer target is treated as storage corruption.</summary>
+    /// <summary>Verifies that a torn newest slot falls back to the older slot, which holds the whole previous manifest with its snapshot.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ThrowsWhenPointerTargetVanishes(CancellationToken cancellationToken)
+    public async Task TornNewestSlotReadsPreviousManifest(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
-        await WriteCurrentPointerAsync(Dir, 123, cancellationToken);
+        var snapshot = new SnapshotRef { Index = 2, LastAppliedSequence = 30UL, ReplayFromJournalSegment = 2, CreatedUtc = DateTime.UtcNow };
+        var image = GC.AllocateArray<byte>(SlotFormat.FileSize);
+        SlotFormat.Encode(image, new State { CurrentJournal = 3, NextSequence = 40UL, LastSnapshot = snapshot }, 1UL);
+        SlotFormat.Encode(image.AsSpan(SlotFormat.SlotSize), new State { CurrentJournal = 4, NextSequence = 50UL, LastSnapshot = snapshot }, 2UL);
+        image[SlotFormat.SlotSize + SlotFormat.RecordSize - 1] ^= 0xFF;
+        await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, "man-current"), image, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<FileNotFoundException>(store.ReadCurrentOrDefaultAsync(cancellationToken));
-    }
+        var manifest = await store.ReadCurrentOrDefaultAsync(cancellationToken);
 
-    private static Task WriteCurrentPointerAsync(TempDirectory dir, int manifestIndex, CancellationToken cancellationToken)
-    {
-        var image = GC.AllocateArray<byte>(PointerSlots.FileSize);
-        PointerSlots.Encode(image, 1UL, manifestIndex);
-        return File.WriteAllBytesAsync(NodePathKit.Combine(dir, "man-current"), image, cancellationToken);
+        _ = await Assert.That(manifest.CurrentJournal).IsEqualTo(3);
+        _ = await Assert.That(manifest.NextSequence).IsEqualTo(40UL);
+        _ = await Assert.That(manifest.LastSnapshot).IsEqualTo(snapshot);
     }
 }

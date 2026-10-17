@@ -38,7 +38,6 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
 
         var manifest = new State
         {
-            Format = 1,
             CurrentJournal = 1,
             NextSequence = 2,
             LastSnapshot = new SnapshotRef
@@ -77,7 +76,6 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
 
         var manifest = new State
         {
-            Format = 1,
             CurrentJournal = 1,
             NextSequence = 12,
             LastSnapshot = new SnapshotRef
@@ -115,7 +113,6 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
         await source.Ledger.WriteAsync(
             new State
             {
-                Format = 1,
                 CurrentJournal = 1,
                 NextSequence = 11,
                 LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow, LastAppliedSequence = 10UL, ReplayFromJournalSegment = 1 },
@@ -132,6 +129,41 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
         var recovered = await copy.Cache.GetValueAsync(CacheKey.Default("base"), cancellationToken);
         _ = await Assert.That(recovered.Found).IsTrue();
         _ = await Assert.That(recovered.Value).IsEqualTo("from-snapshot");
+    }
+
+    /// <summary>A torn newest manifest slot leaves the fallback slot, which names the snapshot and journal segments recovery needs.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TornSlotRecoversFromFallbackSnapshot(CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-torn-slot");
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
+        var entry = new NodeCacheEntry<object?> { Value = "from-snapshot", Version = 1 };
+        IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items = [(CacheKey.Default("base"), entry)];
+        _ = await StoreFactory.CreateWriter(persistence).WriteAsync(1, items, [], cancellationToken);
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(
+            scenario.DataDir,
+            1,
+            [BinaryJournalTestSegmentWriter.BuildPutRecord(10UL, "base", "ignored-by-snapshot"), BinaryJournalTestSegmentWriter.BuildPutRecord(11UL, "tail", "from-journal")]);
+
+        var manifest = new State
+        {
+            CurrentJournal = 1,
+            NextSequence = 12,
+            LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow, LastAppliedSequence = 10UL, ReplayFromJournalSegment = 1 },
+        };
+        var image = GC.AllocateArray<byte>(SlotFormat.FileSize);
+        SlotFormat.Encode(image.AsSpan(SlotFormat.SlotSize), manifest, 1UL);
+        SlotFormat.Encode(image, manifest, 2UL);
+        image[SlotFormat.RecordSize - 1] ^= 0xFF;
+        await File.WriteAllBytesAsync(Path.Join(scenario.DataDir, "man-current"), image, cancellationToken);
+
+        await RunRecoveryAsync(scenario, cancellationToken);
+
+        var baseEntry = await scenario.Cache.GetValueAsync(CacheKey.Default("base"), cancellationToken);
+        _ = await Assert.That(baseEntry.Value).IsEqualTo("from-snapshot");
+        var tailEntry = await scenario.Cache.GetValueAsync(CacheKey.Default("tail"), cancellationToken);
+        _ = await Assert.That(tailEntry.Value).IsEqualTo("from-journal");
     }
 
     /// <inheritdoc />

@@ -158,8 +158,6 @@ internal sealed class Coordinator
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var updated = new State
         {
-            Format = prev.Format,
-
             // The publishing runs outside the mutation-gate barrier, so a roll can be queued or committed
             // at any point around this write. These are floors: the manifest publisher raises them to the
             // manifest it holds when the write runs, so the manifest never moves CurrentJournal or

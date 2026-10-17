@@ -259,7 +259,6 @@ internal sealed class JournalReplayKit
                 _ = await state.Writer.WriteSingleAsync(nextIndex, new CacheKey(CacheName, Key), entry, ct).ConfigureAwait(false);
                 var updated = new State
                 {
-                    Format = previous.Format,
                     CurrentJournal = previous.CurrentJournal,
                     NextSequence = boundary.NextSequence,
                     LastSnapshot = new SnapshotRef

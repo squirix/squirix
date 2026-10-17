@@ -159,7 +159,6 @@ public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBas
                 await state.manifestStore.WriteAsync(
                     new State
                     {
-                        Format = prev.Format,
                         CurrentJournal = prev.CurrentJournal,
                         NextSequence = state.journal.NextSequence,
                         LastSnapshot = new SnapshotRef

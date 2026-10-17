@@ -38,7 +38,6 @@ public sealed class ServiceJournalOnlyReplayTests : DisposableServerUnitTestBase
         await scenario.Ledger.WriteAsync(
             new State
             {
-                Format = 1,
                 CurrentJournal = 2,
                 NextSequence = 4,
                 LastSnapshot = null,

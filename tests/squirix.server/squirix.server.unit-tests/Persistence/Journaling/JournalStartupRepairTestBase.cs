@@ -84,7 +84,7 @@ public abstract class JournalStartupRepairTestBase : IsolatedStorageTestBase
         return path;
     }
 
-    private static State NewManifest() => new() { Format = 1, CurrentJournal = 1, NextSequence = 1 };
+    private static State NewManifest() => new() { CurrentJournal = 1, NextSequence = 1 };
 
     private static PersistenceOptions NewPersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16 };
 }

@@ -7,12 +7,12 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Manifest;
 
-/// <summary>Durable writer for the two-slot <c language="csharp">man-current</c> pointer; the layout lives in <see cref="PointerSlots" />.</summary>
+/// <summary>Durable writer for the two-slot <c language="csharp">man-current</c> manifest file; the layout lives in <see cref="SlotFormat" />.</summary>
 /// <remarks>
 ///     <para>
-///     The file is created and written in place through one persistent handle, never through a temporary file. A publish writes the new record into
-///     the slot that does not hold the current one and flushes it, so the previous record stays intact whenever a write is torn or lost; the pointer
-///     counts as moved once that flush returned. <see cref="Mirror" /> then writes the same index into the other slot, so that damage at rest to one
+///     The file is created and written in place through one persistent handle, never through a temporary file. A publish writes the new manifest into
+///     the slot that does not hold the current one and flushes it, so the previous manifest stays intact whenever a write is torn or lost; the manifest
+///     counts as moved once that flush returned. <see cref="Mirror" /> then writes the same manifest into the other slot, so that damage at rest to one
 ///     slot loses nothing. The caller acknowledges a publish only after the mirror.
 ///     </para>
 ///     <para>
@@ -21,17 +21,17 @@ namespace Squirix.Server.Storage.Manifest;
 ///     </para>
 /// </remarks>
 [Mutable]
-internal sealed class PointerSlotWriter : IDisposable
+internal sealed class SlotWriter : IDisposable
 {
     private readonly string _path;
-    private readonly byte[] _record = new byte[PointerSlots.RecordSize];
-    private int _currentIndex;
+    private readonly byte[] _record = new byte[SlotFormat.RecordSize];
+    private State? _currentManifest;
     private int _currentSlot;
     private int _disposed;
     private SafeFileHandle? _handle;
     private ulong _sequence;
 
-    internal PointerSlotWriter(string path)
+    internal SlotWriter(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
@@ -45,26 +45,25 @@ internal sealed class PointerSlotWriter : IDisposable
         _handle?.Dispose();
     }
 
-    /// <summary>Durably moves the pointer to a manifest, leaving the other slot on the previous record.</summary>
-    /// <param name="manifestIndex">The index of the manifest file, which must already be durable.</param>
+    /// <summary>Durably moves the manifest to a new state, leaving the other slot on the previous one.</summary>
+    /// <param name="manifest">The manifest to store.</param>
+    /// <returns>The sequence of the slot record that now holds the manifest.</returns>
     /// <exception cref="ObjectDisposedException">The writer was disposed.</exception>
+    /// <exception cref="ArgumentException">The manifest is one a reader would reject; nothing was written.</exception>
     /// <exception cref="InvalidDataException">The existing file was written by an earlier build or holds no valid slot; it is left unchanged.</exception>
-    internal void Publish(int manifestIndex)
+    internal ulong Publish(State manifest)
     {
         EnsureOpen();
-        WriteInactiveSlot(manifestIndex);
+        return WriteInactiveSlot(manifest);
     }
 
-    /// <summary>Durably writes the current index into the other slot too.</summary>
+    /// <summary>Durably writes the current manifest into the other slot too.</summary>
     /// <exception cref="ObjectDisposedException">The writer was disposed.</exception>
-    /// <exception cref="InvalidOperationException">The pointer has never been published.</exception>
+    /// <exception cref="InvalidOperationException">The manifest has never been published.</exception>
     internal void Mirror()
     {
         EnsureOpen();
-        if (_currentIndex == 0)
-            throw new InvalidOperationException("The pointer has not been published, so there is nothing to mirror.");
-
-        WriteInactiveSlot(_currentIndex);
+        _ = WriteInactiveSlot(ThrowHelper.Required(_currentManifest, "The manifest has not been published, so there is nothing to mirror."));
     }
 
     private void EnsureOpen()
@@ -78,13 +77,13 @@ internal sealed class PointerSlotWriter : IDisposable
         {
             // The directory entry of a file created now, or by an earlier crashed first publish, is flushed before any record relies on it.
             FileEx.FlushDirectoryEntry(_path);
-            var selection = PointerFile.Read(handle, _path);
-            if (RandomAccess.GetLength(handle) < PointerSlots.FileSize)
-                RandomAccess.SetLength(handle, PointerSlots.FileSize);
+            var selection = SlotFile.Read(handle, _path);
+            if (RandomAccess.GetLength(handle) < SlotFormat.FileSize)
+                RandomAccess.SetLength(handle, SlotFormat.FileSize);
 
             _currentSlot = selection.Slot;
             _sequence = selection.Sequence;
-            _currentIndex = selection.ManifestIndex;
+            _currentManifest = selection.Sequence == 0UL ? null : selection.State;
         }
         catch
         {
@@ -99,22 +98,23 @@ internal sealed class PointerSlotWriter : IDisposable
         if (Volatile.Read(ref _disposed) != 0)
         {
             handle.Dispose();
-            throw new ObjectDisposedException(nameof(PointerSlotWriter));
+            throw new ObjectDisposedException(nameof(SlotWriter));
         }
     }
 
-    private void WriteInactiveSlot(int manifestIndex)
+    private ulong WriteInactiveSlot(State manifest)
     {
         // Closed by a racing dispose, the handle refuses the write with ObjectDisposedException.
-        var handle = ThrowHelper.Required(_handle, "The pointer handle is not open.");
+        var handle = ThrowHelper.Required(_handle, "The manifest handle is not open.");
         var target = 1 - _currentSlot;
         var next = _sequence + 1UL;
-        PointerSlots.Encode(_record, next, manifestIndex);
-        long offset = target == 0 ? 0 : PointerSlots.SlotSize;
+        SlotFormat.Encode(_record, manifest, next);
+        long offset = target == 0 ? 0 : SlotFormat.SlotSize;
         RandomAccess.Write(handle, _record, offset);
         RandomAccess.FlushToDisk(handle);
         _currentSlot = target;
         _sequence = next;
-        _currentIndex = manifestIndex;
+        _currentManifest = manifest;
+        return next;
     }
 }

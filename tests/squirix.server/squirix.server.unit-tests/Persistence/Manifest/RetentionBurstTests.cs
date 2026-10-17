@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,16 +19,14 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
 {
     /// <summary>
     /// A cold disk read overlapping a publishing burst must not rewind the cached current state (or the roll
-    /// baseline) with an older manifest it loaded from the disk. The seeder writes a large manifest at index 5, so the
-    /// cold <c language="csharp">ReadCurrentOrDefaultAsync</c> genuinely awaits the file read and yields to the publishing burst, which
-    /// installs index 20 before the resolved stale bytes would be installed into the cache. The assertion targets the
-    /// final cached/allocator state (not the overlapping read's captured result, which is timing-dependent): without
-    /// the fix, the load would overwrite the newer cached state with index 5 and rewind the allocator.
+    /// baseline) with an older manifest it loaded from the disk. The assertion targets the final cached state (not the
+    /// overlapping read's captured result, which is timing-dependent): without the sequence guard, a stale load would
+    /// overwrite the newer cached state.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="TimeoutException">Thrown if the background retention worker does not drain the burst within 30s.</exception>
     [Test]
-    public async Task ColdReadDoesNotRewindCacheOrAllocator(CancellationToken cancellationToken)
+    public async Task ColdReadDoesNotRewindCache(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("manifest-cache-rewind");
         var options = new PersistenceOptions
@@ -44,10 +41,9 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
             {
                 var state = new State
                 {
-                    Format = 1,
                     CurrentJournal = i,
                     NextSequence = Convert.ToUInt64(i),
-                    LastSnapshot = i == 5 ? new SnapshotRef { CreatedUtc = DateTime.UtcNow } : null,
+                    LastSnapshot = i == 5 ? new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow } : null,
                 };
                 await seeder.WriteAsync(state, cancellationToken);
             }
@@ -73,7 +69,7 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
 
         var finalState = await store.ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(finalState.CurrentJournal).IsEqualTo(20);
-        _ = await Assert.That(await StoreTestSupport.ReadCurrentManifestIndexAsync(dir, cancellationToken)).IsEqualTo(20);
+        _ = await Assert.That(StoreTestSupport.ReadCurrentSelection(dir).State.CurrentJournal).IsEqualTo(20);
         return;
 
         void OnRollFailed(Exception ex)
@@ -82,7 +78,7 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>Rapid publishes retain the latest manifest file and pointer.</summary>
+    /// <summary>Rapid publishes leave the latest manifest in the slots.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="TimeoutException">Thrown if the background retention worker does not drain the burst within 30s.</exception>
     [Test]
@@ -109,7 +105,7 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
 
         Volatile.Read(ref rollError.Value).ThrowIfFaulted();
 
-        _ = await Assert.That(File.Exists(NodePathKit.Combine(dir, StoreTestSupport.ManifestDataFileName(20)))).IsTrue();
+        _ = await Assert.That(StoreTestSupport.ReadCurrentSelection(dir).State.CurrentJournal).IsEqualTo(20);
         return;
 
         void OnRollFailed(Exception ex)

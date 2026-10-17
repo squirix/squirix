@@ -106,7 +106,6 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
                 _ = await state.writer.WriteSingleAsync(nextIndex, BaseKey, new NodeCacheEntry<object?> { Value = "base", Version = 1 }, ct).ConfigureAwait(false);
                 var updated = new State
                 {
-                    Format = prev.Format,
                     CurrentJournal = prev.CurrentJournal,
                     NextSequence = flushBoundary.NextSequence,
                     LastSnapshot = new SnapshotRef

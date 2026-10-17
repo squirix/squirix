@@ -257,7 +257,6 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
         await scenario.Ledger.WriteAsync(
             new State
             {
-                Format = prev.Format == 0 ? 1 : prev.Format,
                 CurrentJournal = prev.CurrentJournal,
                 NextSequence = nextSequence,
                 LastSnapshot = new SnapshotRef

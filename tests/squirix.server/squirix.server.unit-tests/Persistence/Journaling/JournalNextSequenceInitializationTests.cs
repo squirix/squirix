@@ -37,7 +37,6 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 1, only);
         var state = new State
         {
-            Format = 1,
             CurrentJournal = 3,
             NextSequence = 2,
             LastSnapshot = null,
@@ -69,7 +68,6 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 2, live);
         var manifest = new State
         {
-            Format = 1,
             CurrentJournal = 2,
             NextSequence = 10,
             LastSnapshot = null,
@@ -136,7 +134,6 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 5, envelope);
         var manifest = new State
         {
-            Format = 1,
             CurrentJournal = 3,
             NextSequence = 2,
             LastSnapshot = null,
@@ -171,7 +168,6 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 3, [live, live2]);
         var manifest = new State
         {
-            Format = 1,
             CurrentJournal = 3,
             NextSequence = 5,
             LastSnapshot = null,
@@ -203,7 +199,6 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 2, [s2, s2B]);
         var manifest = new State
         {
-            Format = 1,
             CurrentJournal = 2,
             NextSequence = 4,
             LastSnapshot = null,
@@ -237,12 +232,11 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 2, envelope);
         var manifest = new State
         {
-            Format = 1,
             CurrentJournal = 2,
             NextSequence = 1,
             LastSnapshot = new SnapshotRef
             {
-                Index = 0,
+                Index = 1,
                 CreatedUtc = DateTime.UtcNow,
                 LastAppliedSequence = 50,
                 ReplayFromJournalSegment = 1,
@@ -276,7 +270,6 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
 
         var manifest = new State
         {
-            Format = 1,
             CurrentJournal = 2,
             NextSequence = 5,
             LastSnapshot = null,
