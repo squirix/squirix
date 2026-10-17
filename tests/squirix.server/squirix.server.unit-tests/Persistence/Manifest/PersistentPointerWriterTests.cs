@@ -46,10 +46,41 @@ public sealed class PersistentPointerWriterTests : IsolatedStorageTestBase
         }
 
         _ = await Assert.That(new FileInfo(path).Length).IsEqualTo(PointerSlots.FileSize);
-        var first = ReadSlot(path, 0);
-        var second = ReadSlot(path, 1);
-        _ = await Assert.That(first.AsSpan(13, 4).SequenceEqual(second.AsSpan(13, 4))).IsTrue();
-        _ = await Assert.That(PointerFile.Read(path).ManifestIndex).IsEqualTo(4);
+        _ = await Assert.That(PointerSlots.Select(ReadSlot(path, 0), [], PointerSlots.FileSize, path).ManifestIndex).IsEqualTo(4);
+        _ = await Assert.That(PointerSlots.Select(ReadSlot(path, 1), [], PointerSlots.FileSize, path).ManifestIndex).IsEqualTo(4);
+    }
+
+    /// <summary>After a reopen the next publish goes to the slot that does not hold the newest record, leaving that one intact.</summary>
+    [Test]
+    public async Task ReopenPublishesIntoOtherSlotThanNewest()
+    {
+        var path = Path.Join(Dir, "man-current");
+        using (var writer = new PersistentPointerWriter(path))
+        {
+            writer.Publish(2);
+            writer.Mirror();
+            writer.Publish(3);
+            writer.Mirror();
+        }
+
+        _ = await Assert.That(PointerFile.Read(path).Slot).IsEqualTo(1);
+
+        using (var reopened = new PersistentPointerWriter(path))
+            reopened.Publish(5);
+
+        var selection = PointerFile.Read(path);
+        _ = await Assert.That(selection.ManifestIndex).IsEqualTo(5);
+        _ = await Assert.That(selection.Slot).IsEqualTo(0);
+        _ = await Assert.That(PointerSlots.Select(ReadSlot(path, 1), [], PointerSlots.FileSize, path).ManifestIndex).IsEqualTo(3);
+    }
+
+    /// <summary>A mirror before any publish is refused instead of writing an invalid record.</summary>
+    [Test]
+    public void MirrorWithoutPublishIsRefused()
+    {
+        using var writer = new PersistentPointerWriter(Path.Join(Dir, "man-current"));
+
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(writer, static state => state.Mirror());
     }
 
     /// <summary>A disposed writer refuses further writes.</summary>

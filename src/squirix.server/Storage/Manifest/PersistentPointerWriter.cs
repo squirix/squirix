@@ -23,7 +23,6 @@ namespace Squirix.Server.Storage.Manifest;
 [Mutable]
 internal sealed class PersistentPointerWriter : IDisposable
 {
-    private readonly Lock _gate = new();
     private readonly string _path;
     private readonly byte[] _record = new byte[PointerSlots.RecordSize];
     private int _currentIndex;
@@ -43,11 +42,7 @@ internal sealed class PersistentPointerWriter : IDisposable
     public void Dispose()
     {
         _ = Interlocked.Exchange(ref _disposed, 1);
-        lock (_gate)
-        {
-            _handle?.Dispose();
-            _handle = null;
-        }
+        _handle?.Dispose();
     }
 
     /// <summary>Durably moves the pointer to a manifest, leaving the other slot on the previous record.</summary>
@@ -56,53 +51,62 @@ internal sealed class PersistentPointerWriter : IDisposable
     /// <exception cref="InvalidDataException">The existing file was written by an earlier build or holds no valid slot; it is left unchanged.</exception>
     internal void Publish(int manifestIndex)
     {
-        var handle = EnsureOpen();
-        WriteInactiveSlot(handle, manifestIndex);
+        EnsureOpen();
+        WriteInactiveSlot(manifestIndex);
     }
 
     /// <summary>Durably writes the current index into the other slot too.</summary>
     /// <exception cref="ObjectDisposedException">The writer was disposed.</exception>
+    /// <exception cref="InvalidOperationException">The pointer has never been published.</exception>
     internal void Mirror()
     {
-        var handle = EnsureOpen();
-        WriteInactiveSlot(handle, _currentIndex);
+        EnsureOpen();
+        if (_currentIndex == 0)
+            throw new InvalidOperationException("The pointer has not been published, so there is nothing to mirror.");
+
+        WriteInactiveSlot(_currentIndex);
     }
 
-    private SafeFileHandle EnsureOpen()
+    private void EnsureOpen()
     {
-        lock (_gate)
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        if (Volatile.Read(ref _handle) != null)
+            return;
+
+        var handle = File.OpenHandle(_path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, FileOptions.None);
+        try
         {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            if (_handle is { } open)
-                return open;
+            // The directory entry of a file created now, or by an earlier crashed first publish, is flushed before any record relies on it.
+            FileEx.FlushDirectoryEntry(_path);
+            var selection = PointerFile.Read(handle, _path);
+            if (RandomAccess.GetLength(handle) < PointerSlots.FileSize)
+                RandomAccess.SetLength(handle, PointerSlots.FileSize);
 
-            var options = OperatingSystem.IsWindows() ? FileOptions.WriteThrough : FileOptions.None;
-            var handle = File.OpenHandle(_path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, options);
-            try
-            {
-                // The directory entry of a file created now, or by an earlier crashed first publish, is flushed before any record relies on it.
-                FileEx.FlushDirectoryEntry(_path);
-                var selection = PointerFile.Read(handle, _path);
-                if (RandomAccess.GetLength(handle) < PointerSlots.FileSize)
-                    RandomAccess.SetLength(handle, PointerSlots.FileSize);
+            _currentSlot = selection.Slot;
+            _sequence = selection.Sequence;
+            _currentIndex = selection.ManifestIndex;
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
 
-                _currentSlot = selection.Slot;
-                _sequence = selection.Sequence;
-                _currentIndex = selection.ManifestIndex;
-            }
-            catch
-            {
-                handle.Dispose();
-                throw;
-            }
+        _handle = handle;
+        Interlocked.MemoryBarrier();
 
-            _handle = handle;
-            return handle;
+        // A dispose that ran while the file was being opened found no handle to close, so the new one is closed here.
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            handle.Dispose();
+            throw new ObjectDisposedException(nameof(PersistentPointerWriter));
         }
     }
 
-    private void WriteInactiveSlot(SafeFileHandle handle, int manifestIndex)
+    private void WriteInactiveSlot(int manifestIndex)
     {
+        // Closed by a racing dispose, the handle refuses the write with ObjectDisposedException.
+        var handle = ThrowHelper.Required(_handle, "The pointer handle is not open.");
         var target = 1 - _currentSlot;
         var next = _sequence + 1UL;
         PointerSlots.Encode(_record, next, manifestIndex);

@@ -14,7 +14,7 @@ namespace Squirix.Server.Storage.Manifest;
 ///     </para>
 ///     <para>
 ///     A slot is valid when its magic, version, checksum and index check and its sequence is not zero. The newest valid slot wins; two valid slots
-///     with one sequence are accepted only when they are byte-identical. A file without a single non-zero byte was never published. Any other shape
+///     with one sequence are accepted only when they are byte-identical. A file whose two slot records hold no non-zero byte was never published. Any other shape
 ///     without a valid slot is damage and is never repaired here.
 ///     </para>
 /// </remarks>

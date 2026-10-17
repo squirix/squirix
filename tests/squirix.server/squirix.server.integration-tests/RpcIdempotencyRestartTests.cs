@@ -53,8 +53,8 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
         await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, cancellationToken);
 
         var persistence = new PersistenceOptions { DataDir = node.DataDir, JournalMaxSegmentMb = 16 };
-        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
-        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(), DateTime.UtcNow, DateTime.UtcNow, cancellationToken);
+        using (var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance))
+            await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(), DateTime.UtcNow, DateTime.UtcNow, cancellationToken);
 
         await using var restartCluster = await StartClusterAsync(
             "node-c",
