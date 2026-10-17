@@ -68,6 +68,15 @@ internal sealed class Ledger : IDisposable
         return TryGetCachedCurrent(out var cached) ? cached : await LoadCurrentFromDiskAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Publishes a manifest.</summary>
+    /// <param name="manifest">The manifest to store.</param>
+    /// <param name="cancellationToken">Cancels waiting for the write.</param>
+    /// <returns>A task that completes when the manifest is published.</returns>
+    /// <remarks>
+    /// A throw means the outcome is unknown: the target slot may hold the manifest and the cache may follow it. After such a failure the ledger refuses
+    /// every later publish, including <see cref="WriteSnapshotAsync" /> and <see cref="EnqueueRoll" />, with an <see cref="InvalidOperationException" />
+    /// that carries the first failure; reads keep working.
+    /// </remarks>
     internal async Task WriteAsync(State manifest, CancellationToken cancellationToken = default)
     {
         using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
@@ -79,6 +88,7 @@ internal sealed class Ledger : IDisposable
     /// <param name="snapshot">The snapshot reference with the journal segment and next sequence floors it was captured at.</param>
     /// <param name="cancellationToken">Cancels waiting for the write.</param>
     /// <returns>A task that completes when the manifest is published.</returns>
+    /// <remarks>Fails like <see cref="WriteAsync" />: a throw leaves the outcome unknown and latches the ledger.</remarks>
     internal async Task WriteSnapshotAsync(State snapshot, CancellationToken cancellationToken = default)
     {
         using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
@@ -159,6 +169,7 @@ internal sealed class Ledger : IDisposable
         private readonly SlotWriter _slotWriter;
         private readonly SingleConsumerWorker<WorkItemBase> _worker;
         private bool _dirCreated;
+        private Exception? _failure;
 
         internal Publisher(
             string dir,
@@ -250,11 +261,25 @@ internal sealed class Ledger : IDisposable
 
         private void WriteManifest(State manifest)
         {
-            var sequence = _slotWriter.Publish(manifest);
+            var failure = Volatile.Read(ref _failure);
+            if (failure != null)
+                throw new InvalidOperationException("The manifest publisher refuses every publish after an earlier publish failed.", failure);
 
-            // The slot already holds this manifest, so memory follows it before the mirror write that may still fail.
-            _setCache(manifest, sequence);
-            _slotWriter.Mirror();
+            try
+            {
+                var sequence = _slotWriter.Publish(manifest);
+
+                // The slot already holds this manifest, so memory follows it before the mirror write that may still fail.
+                _setCache(manifest, sequence);
+                _slotWriter.Mirror();
+            }
+            catch (Exception ex) when (ex is not (ArgumentException or InvalidDataException or ObjectDisposedException))
+            {
+                // After a failed write or flush the slots may hold the manifest, so no later publish may report success. A manifest the encoder
+                // rejected, an unreadable existing file and a disposed writer fail before any write and leave the publisher usable.
+                _ = LazyInitializer.EnsureInitialized(ref _failure, () => ex);
+                throw;
+            }
         }
 
         [Immutable]

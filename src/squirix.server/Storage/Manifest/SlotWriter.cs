@@ -13,7 +13,8 @@ namespace Squirix.Server.Storage.Manifest;
 ///     The file is created and written in place through one persistent handle, never through a temporary file. A publish writes the new manifest into
 ///     the slot that does not hold the current one and flushes it, so the previous manifest stays intact whenever a write is torn or lost; the manifest
 ///     counts as moved once that flush returned. <see cref="Mirror" /> then writes the same manifest into the other slot, so that damage at rest to one
-///     slot loses nothing. The caller acknowledges a publish only after the mirror.
+///     slot loses nothing. The caller acknowledges a publish only after the mirror. A publish or mirror that throws after
+///     the write began may have landed, so its outcome is unknown and it must not be retried as if nothing was written.
 ///     </para>
 ///     <para>
 ///     <see cref="Publish" /> and <see cref="Mirror" /> are called serially by the manifest publisher worker; <see cref="Dispose" /> may run on another

@@ -130,6 +130,62 @@ public sealed class JournalCompactorDurabilityTests : IsolatedStorageTestBase
         _ = await Assert.That(await recovered.GetEntryAsync(new CacheKey(JournalReplayKit.CacheName, "J"), cancellationToken)).IsNull();
     }
 
+    /// <summary>A compaction whose commit outcome is unknown fails the journal pipeline, so no later write is acknowledged against the old layout.</summary>
+    /// <param name="committed">Whether the manifest write landed before the failure.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task FailedCompactionCommitRefusesLaterWrites(bool committed, CancellationToken cancellationToken)
+    {
+        var kit = new JournalReplayKit(Dir, _testMeter);
+        var session = await kit.OpenAsync(JournalReplayKit.CreateWriteClock(TimeSpan.Zero), cancellationToken);
+        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, JournalReplayKit.CacheName, "K", new NodeCacheEntry<string>("v1"), cancellationToken);
+        var activePath = JournalReadPath.BuildSegmentPath(Dir, 1);
+        var activeLength = new FileInfo(activePath).Length;
+        var finalPath = JournalReadPath.BuildSegmentPath(Dir, 2);
+        var stagedPath = JournalReadPath.BuildRollTempPath(Dir, 2);
+
+        // A directory at the final path lets the manifest write commit and then fails the publish of the staged segment.
+        var expectations = new ICompactedSegmentDurabilityCreateExpectations();
+        _ = expectations.Setups.Flush(Arg.Any<SafeFileHandle>()).Callback(_ =>
+        {
+            if (!committed)
+                throw new IOException("flush failed");
+
+            new DirectoryInfo(finalPath).Create();
+        });
+        var durability = expectations.Instance();
+
+        var compaction = session.Journal.ExecuteMaintenanceExclusiveAsync(
+            ct => new ValueTask(JournalCompactor.CompactAsync(kit.Persistence, session.ManifestStore, StoreFactory.CreateReader(), DateTime.UtcNow, null, durability, ct)),
+            cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(compaction);
+
+        using (var reader = new Ledger(kit.Persistence, NullLogger<Ledger>.Instance))
+            _ = await Assert.That((await reader.ReadCurrentOrDefaultAsync(cancellationToken)).CurrentJournal).IsEqualTo(committed ? 2 : 1);
+
+        _ = await Assert.That(session.Journal.GetJournalThreadFailure()).IsNotNull();
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(
+            session.Cache.SetEntryAsync(UnitMutationOpIds.Default, JournalReplayKit.CacheName, "K", new NodeCacheEntry<string>("v2"), cancellationToken));
+        _ = await Assert.That(new FileInfo(activePath).Length).IsEqualTo(activeLength);
+        _ = await Assert.That(File.Exists(stagedPath)).IsTrue();
+
+        await session.DisposeAsync();
+        if (committed)
+            Directory.Delete(finalPath);
+
+        await using (await kit.OpenAsync(JournalReplayKit.CreateWriteClock(TimeSpan.Zero), cancellationToken))
+        {
+            // Opening the journal publishes the staged segment when the manifest names it and deletes it otherwise.
+        }
+
+        var recovered = await kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), false, cancellationToken);
+        _ = await Assert.That((await recovered.GetEntryAsync(new CacheKey(JournalReplayKit.CacheName, "K"), cancellationToken))?.Value).IsEqualTo("v1");
+        _ = await Assert.That(File.Exists(stagedPath)).IsFalse();
+        _ = await Assert.That(File.Exists(finalPath)).IsEqualTo(committed);
+    }
+
     /// <summary>A compaction that committed its manifest but did not publish its segment is rolled forward at startup.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
