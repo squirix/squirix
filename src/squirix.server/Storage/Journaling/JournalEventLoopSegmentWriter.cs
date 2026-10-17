@@ -440,7 +440,7 @@ internal sealed class JournalEventLoopSegmentWriter
         /// <summary>Ensures the roll target segment exists durably, publishing it under a name that must not exist when needed.</summary>
         /// <param name="targetSegmentIndex">One-based index of the roll target segment.</param>
         /// <param name="targetPath">Absolute path of the roll target segment file.</param>
-        /// <remarks>A leftover target that is proven to hold no frame (stat succeeded, at most a header, not a usable header) is deleted first; any other existing target makes the publish fail.</remarks>
+        /// <remarks>A valid header or a longer file is reused. A torn or invalid leftover proven to hold no frame (stat succeeded, at most a header, not a usable header) is deleted first. Only a target whose stat failed makes the publish fail.</remarks>
         internal void PrepareRollTargetSegment(int targetSegmentIndex, string targetPath)
         {
             // A valid pre-created target (crash after a previous pre-creation, before its manifest publication)
@@ -450,7 +450,7 @@ internal sealed class JournalEventLoopSegmentWriter
                 return;
 
             // Same probe as GetRollTargetExistingLength (targetPath is BuildRollTargetPath()):
-            // a missing or unstatable file counts as new, a leftover counts by its delta.
+            // a missing file counts as new, a deleted leftover counts by its delta.
             var preExistingLength = GetRollTargetExistingLength();
 
             PublishRollTargetHeader(targetSegmentIndex, targetPath, preExistingLength);
