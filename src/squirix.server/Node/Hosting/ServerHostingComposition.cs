@@ -338,6 +338,8 @@ internal static class ServerHostingComposition
     /// <remarks>
     /// The repair service stays registered on every node, including RF=1 and foundation-only hosts: the idle
     /// service parks on its queue read without burning a thread.
+    /// Every host that is not network-replication-activated, with or without persistence, also gets the local expiry sweep, since
+    /// its local clock decides expiry.
     /// </remarks>
     /// <param name="services">DI service collection.</param>
     /// <param name="cluster">Cluster topology configuration.</param>

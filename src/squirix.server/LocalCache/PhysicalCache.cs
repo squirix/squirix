@@ -438,6 +438,12 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         /// <summary>Gets or sets the access frequency, maintained only for the LFU policy.</summary>
         internal long Frequency { get; set; } = 1;
 
+        /// <summary>Gets or sets the deadline, in UTC ticks, of the one canonical item the deadline index holds for this entry; <see cref="long.MaxValue" /> when it holds none.</summary>
+        internal long IndexedTicks { get; set; } = long.MaxValue;
+
+        /// <summary>Gets or sets the generation of the canonical item: another item of this entry with the same deadline is stale unless it carries this generation.</summary>
+        internal int IndexedGeneration { get; set; }
+
         /// <summary>Gets or sets the node in the shared eviction-order list, or <see langword="null" /> when eviction is unbounded.</summary>
         internal LinkedListNode<CacheKey>? OrderNode { get; set; }
 
@@ -448,14 +454,14 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         internal long Version { get; set; }
     }
 
-    /// <summary>The deadline index: a heap of deadlines, earliest first, apart from skipped keys, with an item at or before the deadline of every entry that has one.</summary>
+    /// <summary>The deadline index: a heap of deadlines, earliest first, apart from skipped keys, with one canonical item per entry, at or before its deadline.</summary>
     /// <remarks>
     /// Under <see cref="CacheExpiryAuthority.CommittedRecords" /> an entry past its deadline stays until a committed record removes it, so the
-    /// index only lists it. Under <see cref="CacheExpiryAuthority.LocalClock" /> the local expiry sweep removes it. The heap is lazy: an item is
-    /// pushed when an entry is stored and when its deadline appears or moves earlier, never when it moves later. When an item reaches the top, its
-    /// entry decides: one that left the store, was replaced, lost its deadline or has an earlier deadline makes the item stale and it is dropped; one
-    /// with a later deadline puts the item back with that deadline; otherwise the entry is due. The heap is rebuilt from the store once its items
-    /// outnumber the entries. Every member but <see cref="ListExpired" /> and <see cref="RemoveExpired" /> runs under the cache lock.
+    /// index only lists it. Under <see cref="CacheExpiryAuthority.LocalClock" /> the local expiry sweep removes it. The heap is lazy: the item of
+    /// an entry, canonical when its generation equals <see cref="Node.IndexedGeneration" />, is pushed when the entry is stored and when its deadline appears
+    /// or moves before that, never when it moves later. When an item reaches the top, it is dropped when its entry left the store, was replaced or
+    /// has another canonical item; it is dropped when the entry lost its deadline; it is put back with the later deadline of its entry; otherwise
+    /// the entry is due. The heap is rebuilt from the store once it holds <c language="csharp">2 * store.Count + 1024</c> items. Every member but <see cref="ListExpired" /> and <see cref="RemoveExpired" /> runs under the cache lock.
     /// </remarks>
     [ThreadSafe]
     private sealed class DeadlineIndex : ILocalCacheExpiredKeys
@@ -496,14 +502,13 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             if (_owner._expiry != CacheExpiryAuthority.LocalClock)
                 return 0;
 
-            var nowTicks = _owner.UtcNow.Ticks;
             var removed = 0;
             int examined;
             do
             {
                 lock (_owner._lock)
                 {
-                    (examined, var batchRemoved) = RemoveDueLocked(nowTicks, RemoveBatchSize);
+                    (examined, var batchRemoved) = RemoveDueLocked(_owner.UtcNow.Ticks, RemoveBatchSize);
                     removed += batchRemoved;
                 }
             }
@@ -523,7 +528,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 return;
 
             node.ExpiresUtc = expiresUtc;
-            if (expiresUtc is { } moved && (previous is not { } before || moved < before))
+            if (expiresUtc is { } moved && moved.Ticks < node.IndexedTicks)
                 RecordLocked(key, node);
         }
 
@@ -538,7 +543,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             var store = _owner._store;
             if (_heap.Count < (2 * store.Count) + 1024)
             {
-                _heap.Enqueue(new Deadline(key, node, deadline.Ticks), deadline.Ticks);
+                Index(key, node, deadline.Ticks);
                 return;
             }
 
@@ -547,7 +552,14 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             foreach (var (storedKey, stored) in store)
             {
                 if (stored.ExpiresUtc is { } expires)
-                    _heap.Enqueue(new Deadline(storedKey, stored, expires.Ticks), expires.Ticks);
+                {
+                    Index(storedKey, stored, expires.Ticks);
+                }
+                else
+                {
+                    stored.IndexedTicks = long.MaxValue;
+                    stored.IndexedGeneration++;
+                }
             }
         }
 
@@ -566,6 +578,17 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return true;
         }
 
+        /// <summary>Pushes the canonical item of an entry, which makes every other item of the entry stale.</summary>
+        /// <param name="key">The key of the entry.</param>
+        /// <param name="node">The entry.</param>
+        /// <param name="ticks">The deadline of the item, in UTC ticks.</param>
+        private void Index(CacheKey key, Node node, long ticks)
+        {
+            node.IndexedTicks = ticks;
+            node.IndexedGeneration++;
+            _heap.Enqueue(new Deadline(key, node, ticks, node.IndexedGeneration), ticks);
+        }
+
         /// <summary>Tells what a popped item stands for, putting it back when its entry has a later deadline.</summary>
         /// <param name="item">The item popped.</param>
         /// <returns>
@@ -574,13 +597,21 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         /// </returns>
         private bool TryResolve(in Deadline item)
         {
-            if (!_owner._store.TryGetValue(item.Key, out var node) || !ReferenceEquals(node, item.Node) || node.ExpiresUtc is not { } expires)
+            if (!_owner._store.TryGetValue(item.Key, out var node) || !ReferenceEquals(node, item.Node) || node.IndexedGeneration != item.Generation)
                 return false;
 
-            if (expires.Ticks > item.Ticks)
-                _heap.Enqueue(item with { Ticks = expires.Ticks }, expires.Ticks);
+            if (node.ExpiresUtc is not { } expires)
+            {
+                node.IndexedTicks = long.MaxValue;
+                node.IndexedGeneration++;
+                return false;
+            }
 
-            return expires.Ticks == item.Ticks;
+            if (expires.Ticks <= item.Ticks)
+                return true;
+
+            Index(item.Key, node, expires.Ticks);
+            return false;
         }
 
         /// <summary>Removes the entries whose deadline passed, examining at most a batch of heap items.</summary>
@@ -641,8 +672,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         /// <summary>An item of the heap: the entry a deadline was recorded for, and the deadline then.</summary>
         /// <param name="Key">The key of the entry.</param>
         /// <param name="Node">The entry; a later entry under the same key makes the item stale.</param>
-        /// <param name="Ticks">The deadline recorded, in UTC ticks; an earlier deadline on the entry makes the item stale, a later one moves it.</param>
-        private readonly record struct Deadline(CacheKey Key, Node Node, long Ticks);
+        /// <param name="Ticks">The deadline recorded, in UTC ticks; a later deadline on the entry moves the item.</param>
+        /// <param name="Generation">The generation of the entry when the item was pushed; the item is stale unless it equals <see cref="Node.IndexedGeneration" />.</param>
+        private readonly record struct Deadline(CacheKey Key, Node Node, long Ticks, int Generation);
     }
 
     [Immutable]

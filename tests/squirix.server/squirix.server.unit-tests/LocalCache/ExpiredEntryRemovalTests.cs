@@ -148,6 +148,77 @@ public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
         _ = await Assert.That((early, late.Count)).IsEqualTo((0, 1));
     }
 
+    /// <summary>Under committed records an entry whose deadline toggled or moved earlier then later is listed once per pass, at its current deadline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ListsToggledDeadlineOnce(CancellationToken cancellationToken)
+    {
+        var (cache, clock) = Create(CacheExpiryAuthority.CommittedRecords);
+        await SetAsync(cache, "toggled", TimeSpan.FromSeconds(10), cancellationToken);
+        await cache.SetAsync(CacheKey.Default("toggled"), new NodeCacheEntry<object?>("v"), cancellationToken);
+        await SetAsync(cache, "toggled", TimeSpan.FromSeconds(60), cancellationToken);
+        await SetAsync(cache, "moved", TimeSpan.FromSeconds(10), cancellationToken);
+        await SetAsync(cache, "moved", TimeSpan.FromSeconds(5), cancellationToken);
+        await SetAsync(cache, "moved", TimeSpan.FromSeconds(60), cancellationToken);
+        clock.Advance(TimeSpan.FromSeconds(70));
+
+        var first = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 10, static _ => true);
+        var second = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 10, static _ => true);
+
+        _ = await Assert.That((first.Count, second.Count)).IsEqualTo((2, 2));
+    }
+
+    /// <summary>After many deadline changes force the index to be rebuilt, both authorities find exactly the entries due at their current deadlines.</summary>
+    /// <param name="localClock">Whether the local clock decides expiry, otherwise committed records do.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task FindsDueEntriesAfterIndexRebuild(bool localClock, CancellationToken cancellationToken)
+    {
+        var (cache, clock) = Create(localClock ? CacheExpiryAuthority.LocalClock : CacheExpiryAuthority.CommittedRecords);
+        await SetAsync(cache, "due", TimeSpan.FromSeconds(30), cancellationToken);
+        await SetAsync(cache, "later", TimeSpan.FromHours(1), cancellationToken);
+        for (var i = 1; i <= 3000; i++)
+            await SetAsync(cache, "churn", TimeSpan.FromSeconds(3000 - i + 1), cancellationToken);
+
+        await SetAsync(cache, "churn", TimeSpan.FromSeconds(10), cancellationToken);
+        clock.Advance(TimeSpan.FromSeconds(40));
+
+        if (localClock)
+        {
+            ILocalCacheStats stats = cache;
+            _ = await Assert.That((cache.ExpiredKeys.RemoveExpired(), stats.EntryCount)).IsEqualTo((2, 1));
+            return;
+        }
+
+        var listed = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 10, static _ => true);
+        var names = new string[listed.Count];
+        for (var i = 0; i < names.Length; i++)
+            names[i] = listed[i].Key;
+
+        Array.Sort(names, StringComparer.Ordinal);
+        _ = await Assert.That(string.Join(',', names)).IsEqualTo("churn,due");
+    }
+
+    /// <summary>A key the caller skipped whose deadline then moves later is not listed before the new deadline, and is listed once after it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SkippedKeyWithLaterDeadlineListedOnce(CancellationToken cancellationToken)
+    {
+        var (cache, clock) = Create(CacheExpiryAuthority.CommittedRecords);
+        await SetAsync(cache, "a", TimeSpan.FromSeconds(5), cancellationToken);
+        clock.Advance(TimeSpan.FromSeconds(10));
+        var skipped = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 10, static _ => false).Count;
+        await SetAsync(cache, "a", TimeSpan.FromSeconds(60), cancellationToken);
+        var before = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 10, static _ => true).Count;
+        clock.Advance(TimeSpan.FromSeconds(60));
+
+        var after = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 10, static _ => true).Count;
+
+        _ = await Assert.That((skipped, before, after)).IsEqualTo((0, 0, 1));
+    }
+
     private static (PhysicalCache<object?> Cache, FakeTimeProvider Clock) Create(CacheExpiryAuthority expiry, CacheEntrySizeEstimator<object?>? estimator = null)
     {
         var clock = new FakeTimeProvider(Start);
