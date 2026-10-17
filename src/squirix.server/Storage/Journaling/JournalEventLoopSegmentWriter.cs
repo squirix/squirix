@@ -629,9 +629,10 @@ internal sealed class JournalEventLoopSegmentWriter
             catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
             {
                 // The loop handler does not catch ArgumentException. Fault the End ack with the root
-                // cause (nobody else wakes it), fail the pipeline loudly, then exit through the loop
-                // handler by throwing a type it catches. The pointers above stay installed, but a
-                // failed pipeline requires a restart, so nothing proceeds on the torn mix.
+                // cause first, so the pipeline drain cannot replace it with an earlier latched failure,
+                // then fail the pipeline loudly and exit through the loop handler by throwing a type it
+                // catches. The pointers above stay installed, but a failed pipeline requires a
+                // restart, so nothing proceeds on the torn mix.
                 _ = item.Ack?.TrySetException(ex);
                 _owner.Host.FailPipeline(ex);
                 throw new InvalidOperationException("maintenance end resync failed.", ex);

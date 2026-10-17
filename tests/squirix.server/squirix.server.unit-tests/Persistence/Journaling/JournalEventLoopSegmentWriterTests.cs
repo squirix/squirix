@@ -268,6 +268,11 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(host.State.RollsPublished).IsEqualTo(0);
         _ = await Assert.That(eventLoop.CurrentSegmentIndex).IsEqualTo(1);
         _ = await Assert.That(File.Exists(JournalReadPath.BuildSegmentPath(Dir, 2))).IsFalse();
+        _ = await Assert.That(registry.PendingCount).IsEqualTo(1);
+        _ = await Assert.That(counter.Value).IsEqualTo(1);
+
+        _ = registry.FailAll(host.State.PipelineFailure!, NullLogger.Instance, counter);
+        _ = await Assert.That(registry.ReturnQuarantinedBuffers()).IsEqualTo(1);
     }
 
     /// <summary>A segment open failure faults the ack, releases the slot, and propagates.</summary>
