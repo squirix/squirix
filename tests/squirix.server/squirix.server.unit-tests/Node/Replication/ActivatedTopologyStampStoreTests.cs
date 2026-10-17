@@ -119,6 +119,24 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
         _ = await Assert.That(decoded.Matches(stamp)).IsTrue();
     }
 
+    /// <summary>Publishing over an existing stamp fails and keeps the first stamp.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PublishRefusesExistingStamp(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-stamp-refuse-existing");
+        var store = new ActivatedTopologyStampStore(dir);
+        var first = new ActivatedTopologyStamp { Generation = 1, Fingerprint = new byte[32], ReplicaCount = 2 };
+        await store.PublishAsync(first, cancellationToken);
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(
+            store.PublishAsync(new ActivatedTopologyStamp { Generation = 2, Fingerprint = new byte[32], ReplicaCount = 3 }, cancellationToken));
+
+        var decoded = await store.ReadAsync(cancellationToken);
+        _ = await Assert.That(decoded).IsNotNull();
+        _ = await Assert.That(decoded.Matches(first)).IsTrue();
+    }
+
     /// <summary>Publication rejects fingerprints that are not exactly 32 bytes.</summary>
     /// <param name="length">Fingerprint length in bytes.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>

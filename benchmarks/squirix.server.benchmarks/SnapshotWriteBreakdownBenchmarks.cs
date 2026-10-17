@@ -80,6 +80,7 @@ public class SnapshotWriteBreakdownBenchmarks
         private readonly Ledger _manifestStore;
         private readonly SnapshotWriter _writer;
         private int _nextFileIndex = 10_000;
+        private int _nextPublishIndex = 1;
         private int _nextSnapshotIndex = 1;
 
         private Session(TempDirectory dir, List<(CacheKey Key, NodeCacheEntry<object?> Entry)> items, byte[] encodeBuffer, SnapshotWriter writer, Ledger manifestStore)
@@ -132,7 +133,7 @@ public class SnapshotWriteBreakdownBenchmarks
         }
 
         /// <summary>Runs the production binary snapshot publish path.</summary>
-        internal async Task PublishSnapshotAsync() => _ = await _writer.WriteAsync(1, _items, [], CancellationToken.None).ConfigureAwait(false);
+        internal async Task PublishSnapshotAsync() => _ = await _writer.WriteAsync(_nextPublishIndex++, _items, [], CancellationToken.None).ConfigureAwait(false);
 
         /// <summary>Writes a snapshot manifest update matching the coordinator publish slice (no snapshot file I/O).</summary>
         internal async Task WriteManifestOnlyAsync()

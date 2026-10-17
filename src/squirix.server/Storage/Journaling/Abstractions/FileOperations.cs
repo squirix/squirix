@@ -9,7 +9,7 @@ internal sealed class FileOperations : IStorageFileOperations
 {
     public bool PublishSnapshot(string tempPath, string finalPath)
     {
-        _ = FileEx.PublishFile(tempPath, finalPath, TimeProvider.System, ignoreMetadataErrors: true);
+        _ = FileEx.PublishFile(tempPath, finalPath, TimeProvider.System);
         return true;
     }
 

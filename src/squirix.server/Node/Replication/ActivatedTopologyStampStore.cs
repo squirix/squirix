@@ -50,10 +50,11 @@ internal sealed class ActivatedTopologyStampStore
     /// </remarks>
     internal static bool HasDurableCacheJournalState(string dataDirectory) => JournalReader.EnumerateSegments(dataDirectory, 1).Length > 0;
 
-    /// <summary>Flushes a stamp and atomically replaces the published version.</summary>
+    /// <summary>Flushes a stamp and publishes it under the stamp name, which must not exist.</summary>
     /// <param name="stamp">Stamp to publish.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes after atomic publication.</returns>
+    /// <returns>A task that completes after publication.</returns>
+    /// <exception cref="IOException">Thrown when a stamp already exists.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the fingerprint is not exactly 32 bytes.</exception>
     internal async Task PublishAsync(ActivatedTopologyStamp stamp, CancellationToken cancellationToken)
     {
@@ -113,7 +114,7 @@ internal sealed class ActivatedTopologyStampStore
         // same handle is what Decode validates, closing the check-to-read race.
         try
         {
-            using var handle = File.OpenHandle(StampPath, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.SequentialScan);
+            using var handle = File.OpenHandle(StampPath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, FileOptions.SequentialScan);
             var length = RandomAccess.GetLength(handle);
             if (length > MaximumStampBytes)
                 throw new InvalidDataException("Activated topology stamp length is invalid.");

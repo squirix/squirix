@@ -52,20 +52,18 @@ public sealed class WriterCleanupTests : IsolatedStorageTestBase
         _ = await Assert.That(Directory.GetFiles(Dir, "*.tmp", SearchOption.TopDirectoryOnly)).IsEmpty();
     }
 
-    /// <summary>Verifies a snapshot writer replaces an existing final snapshot without leaving the path absent after success.</summary>
+    /// <summary>Verifies a snapshot writer refuses an existing final snapshot, keeps its content, and leaves no temporary file.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ReplaceNeedsNoExplicitPreDelete(CancellationToken cancellationToken)
+    public async Task WriteRefusesExistingIndex(CancellationToken cancellationToken)
     {
         var writer = new SnapshotWriter(Dir);
-        var path = await writer.WriteSingleAsync(1, CacheKey.Default("stale"), BuildEntry("old"), cancellationToken);
+        var path = await writer.WriteSingleAsync(1, CacheKey.Default("first"), BuildEntry("old"), cancellationToken);
 
-        var rewrittenPath = await writer.WriteSingleAsync(1, CacheKey.Default("fresh"), BuildEntry("new"), cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException, string>(writer.WriteSingleAsync(1, CacheKey.Default("second"), BuildEntry("new"), cancellationToken));
 
-        _ = await Assert.That(rewrittenPath).IsEqualTo(path);
-        _ = await Assert.That(File.Exists(path)).IsTrue();
         var singleKey = await Assert.That(await ReadSnapshotKeysAsync(path)).HasSingleItem();
-        _ = await Assert.That(singleKey).IsEqualTo("fresh");
+        _ = await Assert.That(singleKey).IsEqualTo("first");
         _ = await Assert.That(Directory.GetFiles(Dir, "*.tmp", SearchOption.TopDirectoryOnly)).IsEmpty();
     }
 

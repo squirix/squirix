@@ -18,7 +18,7 @@ namespace Squirix.Server.Storage.Journaling.Compaction;
 
 /// <summary>
 /// Compacts the current state (snapshot plus journal tail) into a single journal segment,
-/// then atomically replaces old journal files, and updates the manifest.
+/// then publishes it under a new name, updates the manifest, and deletes the old journal files.
 /// Invariants after completion:
 /// - All used file handles are closed
 /// - At least one valid journal segment exists
@@ -213,10 +213,8 @@ internal static class JournalCompactor
         // Install the compacted journal before deleting any old segments.
         // Crash safety relies on each intermediate state remaining recoverable.
         var path = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}{FileExtensions.Journal}");
-        var backupJournalPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.bak");
         var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.tmp");
-        _ = FileEx.TryDeleteFile(backupJournalPath);
-        _ = FileEx.PublishFile(tmpPath, path, TimeProvider.System, backupJournalPath);
+        _ = FileEx.PublishFile(tmpPath, path, TimeProvider.System);
 
         var newManifest = new State
         {
@@ -234,8 +232,6 @@ internal static class JournalCompactor
 
             _ = FileEx.TryDeleteFile(segment.Path);
         }
-
-        _ = FileEx.TryDeleteFile(backupJournalPath);
     }
 
     private static bool IsExpired(NodeCacheEntry<object?>? e, DateTime? expiredAsOf) => expiredAsOf is { } asOf && e is { ExpiresUtc: { } utc } && utc <= asOf;

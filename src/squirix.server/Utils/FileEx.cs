@@ -73,35 +73,26 @@ internal static class FileEx
         RandomAccess.FlushToDisk(handle);
     }
 
-    /// <summary>Publishes a temp file as the final durable file, replacing an existing destination when present.</summary>
+    /// <summary>Publishes a fully written temp file under a final name that must not exist.</summary>
     /// <param name="tempPath">Path to the fully written temp file.</param>
-    /// <param name="finalPath">Destination path that should reference <paramref name="tempPath" /> after completion.</param>
+    /// <param name="finalPath">Destination path that must not exist.</param>
     /// <param name="timeProvider">Clock used to wait between attempts.</param>
-    /// <param name="backupPath">Optional backup path used when <paramref name="finalPath" /> already exists.</param>
-    /// <param name="ignoreMetadataErrors">
-    /// When <see langword="true" />, metadata differences between source and destination are ignored during
-    /// <see cref="File.Replace(string, string, string?, bool)" />.
-    /// </param>
-    /// <returns>The attempts made and, when a sharing failure was observed, the holders of <paramref name="finalPath" />; failures throw.</returns>
+    /// <returns>The attempts made and, when a sharing failure was observed, the holders of <paramref name="tempPath" />; failures throw.</returns>
     /// <remarks>
-    /// On Windows, a destination that is transiently held open (for example by an on-close scanner or a lingering handle)
-    /// makes the replace fail with an <see cref="IOException" /> whose HResult is <c language="csharp">0x80070020</c> (sharing violation),
-    /// <c language="csharp">0x80070497</c> (unable to remove the replaced file), or <c language="csharp">0x80070498</c> (unable to move the replacement file).
-    /// Only these failures are retried, up to <see cref="PublishAttempts" /> attempts spaced by <see cref="PublishRetryDelay" />;
-    /// the last attempt's failure propagates as an <see cref="IOException" /> with the same HResult whose message names the holders of the destination.
+    /// An existing destination fails with an <see cref="IOException" /> and is left unchanged; it is never replaced.
+    /// On Windows the move is atomic and refuses an existing destination. On Unix .NET checks the destination and then renames,
+    /// so the move is not atomic against a concurrent creator of the same name; this relies on the data directory being exclusive to one node.
+    /// On Windows, a temp file that is transiently held open (for example by an on-close scanner or a lingering handle)
+    /// makes the move fail with an <see cref="IOException" /> whose HResult is <c language="csharp">0x80070020</c> (sharing violation).
+    /// Only that failure is retried, up to <see cref="PublishAttempts" /> attempts spaced by <see cref="PublishRetryDelay" />;
+    /// the last attempt's failure propagates as an <see cref="IOException" /> with the same HResult whose message names the holders of the temp file.
     /// Every other failure surfaces on the first attempt.
     /// The temp file is never deleted by this method, so the caller keeps ownership of it on failure.
     /// </remarks>
-    internal static PublishResult PublishFile(
-        string tempPath,
-        string finalPath,
-        TimeProvider timeProvider,
-        string? backupPath = null,
-        bool ignoreMetadataErrors = false)
+    internal static PublishResult PublishFile(string tempPath, string finalPath, TimeProvider timeProvider)
     {
         var validatedTemp = FilePathValidator.ResolveValidatedFilePath(tempPath);
         var validatedFinal = FilePathValidator.ResolveValidatedFilePath(finalPath);
-        var validatedBackup = backupPath == null ? null : FilePathValidator.ResolveValidatedFilePath(backupPath);
 
         var attempt = 1;
         string? holders = null;
@@ -110,11 +101,7 @@ internal static class FileEx
         {
             try
             {
-                if (File.Exists(validatedFinal))
-                    File.Replace(validatedTemp, validatedFinal, validatedBackup, ignoreMetadataErrors);
-                else
-                    File.Move(validatedTemp, validatedFinal);
-
+                File.Move(validatedTemp, validatedFinal);
                 break;
             }
             catch (IOException ex) when (IsTransientWindowsSharingFailure(ex))
@@ -122,19 +109,19 @@ internal static class FileEx
                 // The holder is most likely still present at the first failure and may be gone once the retries are exhausted.
                 if (!queried)
                 {
-                    holders = FileHolderDiagnostics.DescribeHolders(validatedFinal);
+                    holders = FileHolderDiagnostics.DescribeHolders(validatedTemp);
                     queried = true;
                 }
 
                 if (attempt >= PublishAttempts)
-                    throw BuildExhaustedException(ex, validatedFinal, FileHolderDiagnostics.DescribeHolders(validatedFinal) ?? holders);
+                    throw BuildExhaustedException(ex, validatedTemp, FileHolderDiagnostics.DescribeHolders(validatedTemp) ?? holders);
 
                 attempt++;
                 WaitBeforeRetry(timeProvider, PublishRetryDelay);
             }
         }
 
-        // Temp, final, and backup always share a directory; flushing the destination's parent directory is enough to make the rename's directory entry durable.
+        // Temp and final always share a directory; flushing the destination's parent directory is enough to make the rename's directory entry durable.
         FlushDirectoryEntry(validatedFinal);
         return new PublishResult(attempt, holders);
     }
@@ -185,18 +172,15 @@ internal static class FileEx
         };
     }
 
-    private static IOException BuildExhaustedException(IOException last, string finalPath, string? holders) =>
-        new($"{last.Message} Holders of '{finalPath}': {holders ?? UnknownHolders}.", last) { HResult = last.HResult };
+    private static IOException BuildExhaustedException(IOException last, string tempPath, string? holders) =>
+        new($"{last.Message} Holders of '{tempPath}': {holders ?? UnknownHolders}.", last) { HResult = last.HResult };
 
     private static bool IsTransientWindowsSharingFailure(IOException exception)
     {
-        // 0x80070020, 0x80070497, 0x80070498 as signed HResults.
+        // 0x80070020 as a signed HResult.
         const int sharingViolation = -2147024864;
-        const int unableToRemoveReplaced = -2147023721;
-        const int unableToMoveReplacement = -2147023720;
 
-        return OperatingSystem.IsWindows()
-               && exception.HResult is sharingViolation or unableToRemoveReplaced or unableToMoveReplacement;
+        return OperatingSystem.IsWindows() && exception.HResult == sharingViolation;
     }
 
     private static SafeFileHandle OpenDirectoryForFlush(string directory)
