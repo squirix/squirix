@@ -1091,9 +1091,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             var standbySlot = 1 - journal.LogSlot;
             var generation = journal.LogGeneration + 1;
             var work = new ReplaceDurableWork(owner.Acks, owner.Durability, journal.Paths.GetLogSlotPath(standbySlot), generation, tail, owner.Faults);
-            var durable = work.RunTrackedAsync();
-            await durable.ConfigureAwait(false);
-            journal.UseLog(standbySlot, generation);
+            try
+            {
+                await work.RunTrackedAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                // Once the header is flushed the new file is the durable log, even when a later step fails.
+                if (work.Sealed)
+                    journal.UseLog(standbySlot, generation);
+            }
+
             return (work.Length, work.Offsets);
         }
 
@@ -1285,6 +1293,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             internal List<long> Offsets { get; } = [];
 
+            internal bool Sealed { get; private set; }
+
             protected override void Run()
             {
                 long total = GroupLogSlots.HeaderSize;
@@ -1299,6 +1309,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                     WriteTail(handle, total);
                     _faults.OnFlushed();
                     GroupLogDurability.Seal(handle, _generation);
+                    Sealed = true;
                     _faults.OnFlushed();
 
                     // Adopt owns the handle from here on, whether or not emptying the superseded file succeeds.
