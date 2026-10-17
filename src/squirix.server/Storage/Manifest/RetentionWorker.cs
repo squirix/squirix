@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -14,7 +13,7 @@ internal sealed class RetentionWorker : IWorkPoolItem
 {
     private readonly RetentionContext _retentionContext;
     private readonly IRetentionCleanupReadinessStatus? _retentionReadiness;
-    private volatile PendingRetention? _pendingRetention;
+    private volatile State? _pendingRetention;
     private int _retentionWorkerScheduled;
     private int _stopped;
 
@@ -38,7 +37,7 @@ internal sealed class RetentionWorker : IWorkPoolItem
                 if (pending == null || IsStopped)
                     break;
 
-                var cleanupFailed = RetentionCleanup.Run(_retentionContext, pending.Manifest, pending.ManifestIndex);
+                var cleanupFailed = RetentionCleanup.Run(_retentionContext, pending);
                 _retentionReadiness?.RecordWriteOutcome(cleanupFailed);
             }
         }
@@ -51,15 +50,14 @@ internal sealed class RetentionWorker : IWorkPoolItem
         }
     }
 
-    /// <summary>Schedules a cleanup pass; a pass not yet started is replaced, so the manifest and its index always travel together.</summary>
-    /// <param name="manifest">The manifest that was just published.</param>
-    /// <param name="manifestIndex">The index of a manifest whose publish has mirrored both pointer slots; it is never newer than that publish.</param>
-    internal void ScheduleRetentionCleanup(State manifest, int manifestIndex)
+    /// <summary>Schedules a cleanup pass; a pass not yet started is replaced.</summary>
+    /// <param name="manifest">The manifest whose publish has mirrored both slots, so neither slot holds an older one.</param>
+    internal void ScheduleRetentionCleanup(State manifest)
     {
         if (IsStopped)
             return;
 
-        _pendingRetention = new PendingRetention(manifest, manifestIndex);
+        _pendingRetention = manifest;
         if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) != 0)
             return;
 
@@ -89,15 +87,14 @@ internal sealed class RetentionWorker : IWorkPoolItem
         return true;
     }
 
-    /// <summary>Retention cleanup for numbered manifest files, snapshots, and journal segments.</summary>
+    /// <summary>Retention cleanup for snapshots and journal segments.</summary>
     private static class RetentionCleanup
     {
-        internal static bool Run(RetentionContext context, State manifest, int manifestIndex)
+        internal static bool Run(RetentionContext context, State manifest)
         {
-            var manifestCleanupFailed = TryCleanupOldManifests(context, manifestIndex);
             var snapshotCleanupFailed = TryCleanupOldSnapshots(context, manifest.LastSnapshot);
             var journalCleanupFailed = TryCleanupObsoleteJournalSegments(context, manifest);
-            return manifestCleanupFailed || snapshotCleanupFailed || journalCleanupFailed;
+            return snapshotCleanupFailed || journalCleanupFailed;
         }
 
         private static void ReportRetentionCleanupException(RetentionContext context, string artifactKind, Exception exception)
@@ -149,53 +146,8 @@ internal sealed class RetentionWorker : IWorkPoolItem
         }
 
         /// <summary>
-        /// Deletes every manifest file below the current index; the current one and files above it are kept. Retention is scheduled only after a
-        /// publish that mirrored both pointer slots, so neither slot, nor the fallback after a torn write, can name a manifest below the current one.
-        /// A file above it is an in-flight write or an orphan and is never deleted here. A failed delete is retried on the next run.
-        /// </summary>
-        /// <param name="context">The retention inputs.</param>
-        /// <param name="currentIndex">The manifest index both pointer slots name.</param>
-        /// <returns><see langword="true" /> when a delete or the directory scan failed; otherwise <see langword="false" />.</returns>
-        private static bool TryCleanupOldManifests(RetentionContext context, int currentIndex)
-        {
-            if (currentIndex <= 0)
-                return false;
-
-            try
-            {
-                var dataDir = FilePathValidator.ResolveValidatedDirectoryPath(context.DataDir);
-                var failed = false;
-                foreach (var path in Directory.GetFiles(dataDir, context.ManifestFileGlob))
-                {
-                    var index = context.ParseManifestIndex(Path.GetFileName(path));
-                    if (index <= 0 || index >= currentIndex)
-                        continue;
-
-                    failed |= TryDeleteRetentionArtifact(context, path, ManifestRetentionArtifactKind.Manifest);
-                }
-
-                return failed;
-            }
-            catch (ArgumentException ex)
-            {
-                ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Manifest, ex);
-                return true;
-            }
-            catch (IOException ex)
-            {
-                ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Manifest, ex);
-                return true;
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Manifest, ex);
-                return true;
-            }
-        }
-
-        /// <summary>
         /// Deletes every snapshot below the manifest's current one; files at or above it are kept. Retention is scheduled only after a publish that
-        /// mirrored both pointer slots, so neither slot can name a manifest whose snapshot is below the current one. A file above the current one is an
+        /// mirrored both slots, so neither slot can hold a manifest whose snapshot is below the current one. A file above the current one is an
         /// in-flight write or an orphan, which a later snapshot's retention deletes. A failed delete is retried on the next run.
         /// </summary>
         /// <param name="context">The retention inputs.</param>
@@ -213,7 +165,7 @@ internal sealed class RetentionWorker : IWorkPoolItem
                 foreach (var path in Directory.GetFiles(dataDir, $"{FilePrefixes.Snapshot}*{FileExtensions.Snapshot}"))
                 {
                     var index = SnapshotFileName.ParseIndex(Path.GetFileName(path));
-                    if (index <= 0 || index >= currentSnapshot.Index || string.Equals(path, currentSnapshot.Path, StringComparison.OrdinalIgnoreCase))
+                    if (index <= 0 || index >= currentSnapshot.Index)
                         continue;
 
                     failed |= TryDeleteRetentionArtifact(context, path, ManifestRetentionArtifactKind.Snapshot);
@@ -247,7 +199,4 @@ internal sealed class RetentionWorker : IWorkPoolItem
             return true;
         }
     }
-
-    [Immutable]
-    private sealed record PendingRetention(State Manifest, int ManifestIndex);
 }

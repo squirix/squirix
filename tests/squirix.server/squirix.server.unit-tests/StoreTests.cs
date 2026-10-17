@@ -20,10 +20,10 @@ public sealed class StoreTests : IsolatedStorageTestBase
     /// <inheritdoc />
     protected override string TempDirectoryName => "manifest";
 
-    /// <summary>Verifies sequential roll publishes advance the current pointer while a persistent handle stays open.</summary>
+    /// <summary>Verifies sequential roll publishes advance the current manifest while a persistent handle stays open.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task EnqueueRollAdvancesPointerSequentially(CancellationToken cancellationToken)
+    public async Task EnqueueRollAdvancesManifestSequentially(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
         await RollAsync();
@@ -49,10 +49,10 @@ public sealed class StoreTests : IsolatedStorageTestBase
         }
     }
 
-    /// <summary>Verifies the first write creates a current pointer and numbered manifest file.</summary>
+    /// <summary>Verifies the first write creates the two-slot manifest file holding the written manifest.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task WriteCreatesPointerAndManifestFile(CancellationToken cancellationToken)
+    public async Task WriteCreatesManifestFile(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
@@ -60,12 +60,8 @@ public sealed class StoreTests : IsolatedStorageTestBase
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
 
         var currentPath = NodePathKit.Combine(Dir, "man-current");
-        _ = await Assert.That(new FileInfo(currentPath).Length).IsEqualTo(PointerSlots.FileSize);
-        _ = await Assert.That(PointerFile.Read(currentPath).ManifestIndex).IsEqualTo(1);
-
-        var manifestPath = NodePathKit.Combine(Dir, "man-000001.bmqx");
-        _ = await Assert.That(File.Exists(manifestPath)).IsTrue();
-        var manifest = FileCodec.Decode(await File.ReadAllBytesAsync(manifestPath, cancellationToken));
+        _ = await Assert.That(new FileInfo(currentPath).Length).IsEqualTo(SlotFormat.FileSize);
+        var manifest = SlotFile.Read(currentPath).State;
         _ = await Assert.That(manifest.CurrentJournal).IsEqualTo(1);
         _ = await Assert.That(manifest.NextSequence).IsEqualTo(1UL);
     }
@@ -73,7 +69,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
     /// <summary>Verifies CURRENT is written in place: a reader without delete sharing keeps it open across publishes.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task PublishSucceedsWhileReaderHoldsPointer(CancellationToken cancellationToken)
+    public async Task PublishSucceedsWhileReaderHoldsFile(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
@@ -84,6 +80,6 @@ public sealed class StoreTests : IsolatedStorageTestBase
         await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 2 }, cancellationToken);
         await store.WriteAsync(new State { CurrentJournal = 3, NextSequence = 3 }, cancellationToken);
 
-        _ = await Assert.That(PointerFile.Read(currentPath).ManifestIndex).IsEqualTo(3);
+        _ = await Assert.That(SlotFile.Read(currentPath).State.CurrentJournal).IsEqualTo(3);
     }
 }

@@ -252,18 +252,16 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
         IIdempotencySnapshotExporter exporter = store;
         exporter.ExportSnapshot(records, DateTime.UtcNow);
 
-        var path = await StoreFactory.CreateWriter(persistence).WriteAsync(1, [], records, cancellationToken).ConfigureAwait(false);
+        _ = await StoreFactory.CreateWriter(persistence).WriteAsync(1, [], records, cancellationToken).ConfigureAwait(false);
         var prev = await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         await scenario.Ledger.WriteAsync(
             new State
             {
-                Format = prev.Format == 0 ? 1 : prev.Format,
                 CurrentJournal = prev.CurrentJournal,
                 NextSequence = nextSequence,
                 LastSnapshot = new SnapshotRef
                 {
                     Index = 1,
-                    Path = path,
                     CreatedUtc = DateTime.UtcNow,
                     LastAppliedSequence = 0,
                     ReplayFromJournalSegment = 1,

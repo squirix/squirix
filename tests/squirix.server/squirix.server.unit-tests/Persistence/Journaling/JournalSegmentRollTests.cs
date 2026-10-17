@@ -28,7 +28,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     private const int FillPayloadSize = 8_192;
     private const int LargePayloadSize = 16_000;
 
-    /// <summary>When the next manifest file cannot be created, the roll fails before the overflow frame is appended.</summary>
+    /// <summary>When the manifest cannot be published, the roll fails before the overflow frame is appended.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task BlockedManifestStillAppendsFrames(CancellationToken cancellationToken)
@@ -54,28 +54,13 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         var segmentOnePath = SegmentPath(Dir, 1);
         var bytesBefore = new FileInfo(segmentOnePath).Length;
 
-        Exception? rollError = null;
-        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        ledger.EnqueueRoll(
-            1,
-            1,
-            () => done.TrySetResult(),
-            ex =>
-            {
-                rollError = ex;
-                _ = done.TrySetResult();
-            });
-        await done.Task;
-        rollError.ThrowIfFaulted();
-
-        await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(2)), [], cancellationToken);
-        var block = CountManifestDataFiles(Dir);
+        // A disposed ledger refuses every queued roll, so the journal-triggered roll fails.
+        ledger.Dispose();
         await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
 
         await pipelined.WaitUntilAsync(static j => j.GetJournalThreadFailure() != null, TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
         _ = await Assert.That(journal.GetJournalThreadFailure()).IsNotNull();
         _ = await Assert.That(new FileInfo(segmentOnePath).Length).IsEqualTo(bytesBefore);
-        _ = await Assert.That(CountManifestDataFiles(Dir)).IsEqualTo(block);
         _ = await Assert.That(ContainsPutKey(Dir, 1, "overflow-key")).IsFalse();
         _ = await Assert.That(ContainsPutKey(Dir, 2, "overflow-key")).IsFalse();
     }
@@ -258,28 +243,15 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
         await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, cancellationToken);
 
-        Exception? rollError = null;
-        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        ledger.EnqueueRoll(
-            1,
-            1,
-            () => done.TrySetResult(),
-            ex =>
-            {
-                rollError = ex;
-                _ = done.TrySetResult();
-            });
-        await done.Task;
-        rollError.ThrowIfFaulted();
-
-        await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(2)), [], cancellationToken);
+        // A disposed ledger refuses every queued roll, so the journal-triggered roll fails.
+        ledger.Dispose();
         await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
 
         await pipelined.WaitUntilAsync(static j => j.GetJournalThreadFailure() != null, TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
         _ = await Assert.That(journal.GetJournalThreadFailure()).IsNotNull();
 
         // The manifest still advertises segment 1, but the roll already materialized segment 2.
-        _ = await Assert.That((await ledger.ReadCurrentOrDefaultAsync(cancellationToken)).CurrentJournal).IsEqualTo(1);
+        _ = await Assert.That(StoreTestSupport.ReadCurrentSelection(Dir).State.CurrentJournal).IsEqualTo(1);
         var segmentTwoPath = SegmentPath(Dir, 2);
         _ = await Assert.That(File.Exists(segmentTwoPath)).IsTrue();
         var header = await File.ReadAllBytesAsync(segmentTwoPath, cancellationToken);
@@ -395,7 +367,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
-            new State { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null },
+            new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = null },
             manifestStore,
             new AsyncManualResetEvent(true),
             NullLoggerFactory.Instance,
@@ -419,7 +391,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         using var ledger = new Ledger(options, NullLogger<Ledger>.Instance);
         var record = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "k", "v");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 1, record);
-        await ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2, LastSnapshot = null }, cancellationToken);
+        await ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 2, LastSnapshot = null }, cancellationToken);
 
         // Torn roll target: 3 bytes, shorter than a valid header.
         await File.WriteAllBytesAsync(SegmentPath(Dir, 2), ReadOnlyMemory<byte>.Of(0x53, 0x4A, 0x52), cancellationToken);
@@ -450,7 +422,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         var options = CreateOptions(Dir);
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await File.WriteAllBytesAsync(SegmentPath(Dir, 1), [], cancellationToken);
-        await manifestStore.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 7, LastSnapshot = null }, cancellationToken);
+        await manifestStore.WriteAsync(new State { CurrentJournal = 1, NextSequence = 7, LastSnapshot = null }, cancellationToken);
 
         await using var journal = JournalCoordinatorFactory.Create(
             options,
@@ -486,8 +458,6 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
 
         return false;
     }
-
-    private static int CountManifestDataFiles(string dir) => Directory.Exists(dir) ? Directory.GetFiles(dir, $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}").Length : 0;
 
     private static PersistenceOptions CreateOptions(string dataDir) => new()
     {

@@ -1,10 +1,8 @@
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Manifest;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -12,26 +10,27 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
-/// <summary>Safety tests for <see cref="Ledger.WriteAsync" /> when <c language="csharp">CURRENT</c> or on-disk manifests are corrupt.</summary>
+/// <summary>Safety tests for <see cref="Ledger.WriteAsync" /> against the on-disk manifest slots.</summary>
 [Immutable]
 public sealed class StoreWriteSafetyTests : IsolatedStorageTestBase
 {
-    /// <summary>Verifies monotonic manifest writes advance the index when <c language="csharp">CURRENT</c> is valid.</summary>
+    /// <summary>Verifies each write moves the slot sequence forward by a publish and its mirror.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task WriteAdvancesIndexForValidCurrent(CancellationToken cancellationToken)
+    public async Task WriteAdvancesSlotSequence(CancellationToken cancellationToken)
     {
         var options = StoreTestSupport.CreateOptions(Dir);
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
         await store.WriteAsync(new State { CurrentJournal = 1 }, cancellationToken);
 
-        var first = NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(1));
-        _ = await Assert.That(File.Exists(first)).IsTrue();
+        var first = StoreTestSupport.ReadCurrentSelection(Dir);
+        _ = await Assert.That(first.State.CurrentJournal).IsEqualTo(1);
+        _ = await Assert.That(first.Sequence).IsEqualTo(2UL);
 
         await store.WriteAsync(new State { CurrentJournal = 2 }, cancellationToken);
 
-        var second = NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(2));
-        _ = await Assert.That(File.Exists(second)).IsTrue();
-        _ = await Assert.That(await StoreTestSupport.ReadCurrentManifestIndexAsync(Dir, cancellationToken)).IsEqualTo(2);
+        var second = StoreTestSupport.ReadCurrentSelection(Dir);
+        _ = await Assert.That(second.State.CurrentJournal).IsEqualTo(2);
+        _ = await Assert.That(second.Sequence).IsEqualTo(4UL);
     }
 }

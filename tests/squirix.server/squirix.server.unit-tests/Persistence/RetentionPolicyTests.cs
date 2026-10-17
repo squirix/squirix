@@ -15,7 +15,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
-/// <summary>Unit tests covering automatic retention cleanup of manifests, snapshots and journal segments.</summary>
+/// <summary>Unit tests covering automatic retention cleanup of snapshots and journal segments.</summary>
 public sealed class RetentionPolicyTests : IsolatedStorageTestBase
 {
     /// <summary>Verifies journal segments older than the current snapshot replay point are removed.</summary>
@@ -38,7 +38,6 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
                 LastSnapshot = new SnapshotRef
                 {
                     Index = 4,
-                    Path = SnapshotPath(4),
                     CreatedUtc = DateTime.UtcNow,
                     LastAppliedSequence = 40,
                     ReplayFromJournalSegment = 3,
@@ -123,6 +122,25 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
         _ = await Assert.That(FileKit.Exists(SnapshotPath(5))).IsTrue();
     }
 
+    /// <summary>Verifies retention deletes a snapshot only once both slots hold the manifest that names the newer one.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SnapshotDeletedAfterBothSlotsMirrored(CancellationToken cancellationToken)
+    {
+        var operations = new SlotObservingFileOperations(Dir, SnapshotPath(1));
+        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, fileOperations: operations);
+
+        CreateSnapshot(1);
+        CreateSnapshot(2);
+        await store.WriteAsync(CreateSnapshotState(1), cancellationToken);
+        await store.WriteAsync(CreateSnapshotState(2), cancellationToken);
+        await WaitUntilDeletedAsync(SnapshotPath(1), cancellationToken);
+
+        _ = await Assert.That(operations.SlotSnapshotsAtDelete.Length).IsEqualTo(2);
+        _ = await Assert.That(operations.SlotSnapshotsAtDelete[0]).IsEqualTo(2);
+        _ = await Assert.That(operations.SlotSnapshotsAtDelete[1]).IsEqualTo(2);
+    }
+
     /// <summary>Verifies a manifest that names no snapshot, as after journal compaction, makes retention delete no snapshot.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -169,77 +187,6 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
         _ = await Assert.That(FileKit.Exists(SnapshotPath(2))).IsTrue();
     }
 
-    /// <summary>Verifies every manifest below the one just published is deleted and the published one is kept.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task WritesPruneManifestsBelowCurrent(CancellationToken cancellationToken)
-    {
-        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance);
-
-        CreateManifestFile(1);
-        CreateManifestFile(2);
-        CreateManifestFile(3);
-
-        await store.WriteAsync(new State { CurrentJournal = 1 }, cancellationToken);
-
-        await WaitUntilDeletedAsync(ManifestPath(1), cancellationToken);
-        await WaitUntilDeletedAsync(ManifestPath(2), cancellationToken);
-        await WaitUntilDeletedAsync(ManifestPath(3), cancellationToken);
-
-        _ = await Assert.That(FileKit.Exists(ManifestPath(4))).IsTrue();
-    }
-
-    /// <summary>Verifies a manifest file above the current one is kept and deleted once a later manifest is current.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ManifestAboveCurrentKeptThenDeleted(CancellationToken cancellationToken)
-    {
-        using (var first = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance))
-        {
-            await first.WriteAsync(new State { CurrentJournal = 1 }, cancellationToken);
-            CreateManifestFile(9);
-            await first.WriteAsync(new State { CurrentJournal = 2 }, cancellationToken);
-            await WaitUntilDeletedAsync(ManifestPath(1), cancellationToken);
-
-            _ = await Assert.That(FileKit.Exists(ManifestPath(2))).IsTrue();
-            _ = await Assert.That(FileKit.Exists(ManifestPath(9))).IsTrue();
-        }
-
-        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance);
-        await store.WriteAsync(new State { CurrentJournal = 3 }, cancellationToken);
-        await WaitUntilDeletedAsync(ManifestPath(9), cancellationToken);
-        await WaitUntilDeletedAsync(ManifestPath(2), cancellationToken);
-
-        _ = await Assert.That(FileKit.Exists(ManifestPath(10))).IsTrue();
-    }
-
-    /// <summary>Verifies a manifest whose delete failed is deleted by the next retention run.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task FailedManifestDeleteRetriedOnNextRun(CancellationToken cancellationToken)
-    {
-        var failedPasses = new ConcurrentQueue<bool>();
-        var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
-        _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(failed =>
-        {
-            if (failed)
-                failedPasses.Enqueue(true);
-        });
-        var fileOperations = new FailFirstDeleteFileOperations(ManifestPath(1));
-        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, readiness.Instance(), null, fileOperations);
-
-        await store.WriteAsync(new State { CurrentJournal = 1 }, cancellationToken);
-        await store.WriteAsync(new State { CurrentJournal = 2 }, cancellationToken);
-        await failedPasses.WaitUntilAsync(static queue => !queue.IsEmpty, cancellationToken);
-
-        _ = await Assert.That(FileKit.Exists(ManifestPath(1))).IsTrue();
-
-        store.EnqueueRoll(3, 10, static () => { }, static _ => { });
-        await WaitUntilDeletedAsync(ManifestPath(1), cancellationToken);
-
-        _ = await Assert.That(FileKit.Exists(ManifestPath(3))).IsTrue();
-    }
-
     private static Task WaitUntilDeletedAsync(string path, CancellationToken cancellationToken) =>
         path.WaitUntilAsync(static value => !FileKit.Exists(value), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
@@ -249,7 +196,6 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
         LastSnapshot = new SnapshotRef
         {
             Index = index,
-            Path = SnapshotPath(index),
             CreatedUtc = DateTime.UtcNow,
             LastAppliedSequence = 10,
             ReplayFromJournalSegment = 1,
@@ -260,13 +206,35 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
 
     private void CreateSnapshot(int index) => FileKit.WriteAllText(SnapshotPath(index), $"snapshot-{NodeInvariantIndexStrings.Format(index)}");
 
-    private void CreateManifestFile(int index) => FileKit.WriteAllText(ManifestPath(index), $"manifest-{NodeInvariantIndexStrings.Format(index)}");
-
-    private string ManifestPath(int index) => NodePathKit.Combine(false, Dir, StoreTestSupport.ManifestDataFileName(index));
-
     private string JournalPath(int index) => NodePathKit.Combine(false, Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
 
     private string SnapshotPath(int index) => NodePathKit.Combine(false, Dir, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
+
+    /// <summary>File operations that record the snapshot index each manifest slot names at the moment the watched file is deleted.</summary>
+    private sealed class SlotObservingFileOperations : IStorageFileOperations
+    {
+        private readonly string _dir;
+        private readonly FileOperations _inner = new();
+        private readonly string _path;
+
+        internal SlotObservingFileOperations(string dir, string path)
+        {
+            _dir = dir;
+            _path = path;
+        }
+
+        internal int?[] SlotSnapshotsAtDelete { get; private set; } = [];
+
+        bool IStorageFileOperations.PublishSnapshot(string tempPath, string finalPath) => _inner.PublishSnapshot(tempPath, finalPath);
+
+        bool IStorageFileOperations.TryDelete(string path)
+        {
+            if (string.Equals(path, _path, StringComparison.OrdinalIgnoreCase))
+                SlotSnapshotsAtDelete = [StoreTestSupport.ReadSlotManifest(_dir, 0).LastSnapshot?.Index, StoreTestSupport.ReadSlotManifest(_dir, 1).LastSnapshot?.Index];
+
+            return _inner.TryDelete(path);
+        }
+    }
 
     /// <summary>File operations whose first delete of one path fails and whose later deletes succeed.</summary>
     private sealed class FailFirstDeleteFileOperations : IStorageFileOperations

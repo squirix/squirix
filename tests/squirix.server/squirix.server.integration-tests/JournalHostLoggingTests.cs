@@ -74,10 +74,7 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
         var node = cluster["node_ledger_cleanup_logging"];
         var ledger = node.GetRequiredService<Ledger>();
         var dataDir = node.GetRequiredService<PersistenceOptions>().DataDir;
-        var current = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
-
-        // The first write scans the data directory for the next manifest index; do it before listing is denied.
-        await ledger.WriteAsync(current, cancellationToken);
+        var current = await WithSnapshotAsync(ledger, 2, cancellationToken);
 
         // Retention cleanup lists the data directory; once listing is denied (files stay readable and writable) it fails with an exception.
         var directory = new DirectoryInfo(dataDir);
@@ -125,24 +122,29 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
         var node = cluster["node_ledger_logging"];
         var ledger = node.GetRequiredService<Ledger>();
         var dataDir = node.GetRequiredService<PersistenceOptions>().DataDir;
-        var current = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
 
-        // A manifest the host cannot delete: it is stale once newer manifests are published, so retention cleanup must report the failure.
-        await ledger.WriteAsync(current, cancellationToken);
-        var stalest = string.Empty;
-        foreach (var path in Directory.GetFiles(dataDir, $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}"))
-        {
-            if (stalest.Length == 0 || string.CompareOrdinal(path, stalest) < 0)
-                stalest = path;
-        }
-
-        using var held = File.OpenHandle(stalest, FileMode.Open, FileAccess.Read, FileShare.None);
-        await ledger.WriteAsync(current, cancellationToken);
-        await ledger.WriteAsync(current, cancellationToken);
+        // A snapshot the host cannot delete: it is stale once a newer snapshot is published, so retention cleanup must report the failure.
+        var stalePath = SnapshotFileName.BuildPath(dataDir, 1);
+        await File.WriteAllBytesAsync(stalePath, [], cancellationToken);
+        using var held = File.OpenHandle(stalePath, FileMode.Open, FileAccess.Read, FileShare.None);
+        _ = await WithSnapshotAsync(ledger, 2, cancellationToken);
 
         _ = await recorder.WhenLoggedAsync(ManifestRetentionDeleteFailedEventId, cancellationToken);
 
         _ = await Assert.That(recorder.Find(ManifestRetentionDeleteFailedEventId)?.Category).IsEqualTo(typeof(Ledger).FullName);
+    }
+
+    private static async Task<State> WithSnapshotAsync(Ledger ledger, int snapshotIndex, CancellationToken cancellationToken)
+    {
+        var current = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
+        var updated = new State
+        {
+            CurrentJournal = current.CurrentJournal,
+            NextSequence = current.NextSequence,
+            LastSnapshot = new SnapshotRef { Index = snapshotIndex, CreatedUtc = DateTime.UtcNow },
+        };
+        await ledger.WriteAsync(updated, cancellationToken);
+        return updated;
     }
 
     private static bool CanListDirectory(DirectoryInfo directory)

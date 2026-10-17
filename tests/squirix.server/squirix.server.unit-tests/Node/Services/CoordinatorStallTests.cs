@@ -95,7 +95,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         {
             CurrentJournal = 2,
             NextSequence = 2,
-            LastSnapshot = new SnapshotRef { Index = 7, Path = "snap-foreign", CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 2 },
+            LastSnapshot = new SnapshotRef { Index = 7, CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 2 },
         };
         await journal.Ledger.WriteAsync(moved, cancellationToken);
         journal.Writer.Flush.Release();
@@ -115,7 +115,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
 
         // An earlier snapshot in the manifest makes every periodic compaction attempt eligible.
         await journal.Ledger.WriteAsync(
-            new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = new SnapshotRef { Index = 1, Path = "snap-earlier", CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 } },
+            new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 } },
             cancellationToken);
         var snapshots = CreateCoordinator(journal);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

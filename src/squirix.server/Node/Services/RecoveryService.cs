@@ -298,18 +298,22 @@ internal sealed class RecoveryService<T> : IHostedService
         var lastAppliedSeq = context.LastAppliedSequence;
         var snapshotReference = context.SnapshotReference;
 
-        if (snapshotReference != null && !string.IsNullOrWhiteSpace(snapshotReference.Path) && File.Exists(snapshotReference.Path))
+        if (snapshotReference == null)
+            return new ReplayState(fromSegment, lastAppliedSeq);
+
+        var snapshotPath = SnapshotFileName.BuildPath(_opt.DataDir, snapshotReference.Index);
+        if (File.Exists(snapshotPath))
         {
             LoadResult<T>? snapshot = null;
             try
             {
                 // Under committed records nothing expired is skipped: only a committed record removes an entry.
                 DateTime? expiredAsOf = _expiry == CacheExpiryAuthority.LocalClock ? _timeProvider.GetUtcNow().UtcDateTime : null;
-                snapshot = await _snapshotReader.LoadStrictAsync<T>(snapshotReference.Path, expiredAsOf, cancellationToken).ConfigureAwait(false);
+                snapshot = await _snapshotReader.LoadStrictAsync<T>(snapshotPath, expiredAsOf, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException)
             {
-                HandleSnapshotLoadFailure(context, snapshotReference.Path, out fromSegment, out lastAppliedSeq);
+                HandleSnapshotLoadFailure(context, snapshotPath, out fromSegment, out lastAppliedSeq);
             }
 
             if (snapshot == null)
@@ -322,10 +326,7 @@ internal sealed class RecoveryService<T> : IHostedService
             return new ReplayState(fromSegment, lastAppliedSeq);
         }
 
-        if (snapshotReference == null)
-            return new ReplayState(fromSegment, lastAppliedSeq);
-
-        ServerLog.RecoveryFailedToLoadSnapshot(_log, snapshotReference.Path ?? "<null>");
+        ServerLog.RecoveryFailedToLoadSnapshot(_log, snapshotPath);
         RequireFullJournalReplayRange(context.ManifestCurrentJournal);
         fromSegment = context.FirstJournalSegmentOrDefault;
         lastAppliedSeq = 0;

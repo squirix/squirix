@@ -45,7 +45,7 @@ public sealed class JournalCompactionClockTests : IsolatedStorageTestBase
 
         // An earlier snapshot in the manifest makes every compaction attempt eligible.
         await store.WriteAsync(
-            new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = new SnapshotRef { Index = 1, Path = "snap-earlier", CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 } },
+            new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 } },
             cancellationToken);
         using var runs = new SemaphoreSlim(0);
         var maintenance = new IExclusiveMaintenanceExecutorCreateExpectations();
@@ -81,7 +81,7 @@ public sealed class JournalCompactionClockTests : IsolatedStorageTestBase
         var persistence = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await store.WriteAsync(
-            new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = new SnapshotRef { Index = 1, Path = "snap-earlier", CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 } },
+            new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 } },
             cancellationToken);
         var maintenance = new IExclusiveMaintenanceExecutorCreateExpectations();
         _ = maintenance.Setups.ExecuteMaintenanceExclusiveAsync(Arg.Any<Func<CancellationToken, ValueTask>>(), Arg.Any<CancellationToken>())

@@ -33,7 +33,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
     public async Task AheadManifestNeverMovesBackward(CancellationToken cancellationToken)
     {
         using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
-        await store.WriteAsync(new State { Format = 1, CurrentJournal = 3, NextSequence = 2 }, cancellationToken);
+        await store.WriteAsync(new State { CurrentJournal = 3, NextSequence = 2 }, cancellationToken);
         await using var journal = new SnapshotCutJournal(2, 2);
 
         await SnapshotOnceAsync(store, journal, cancellationToken);
@@ -52,7 +52,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
     public async Task StaleManifestKeepsCapturedSegment(CancellationToken cancellationToken)
     {
         using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
-        await store.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
+        await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         await using var journal = new SnapshotCutJournal(2, 2);
 
         await SnapshotOnceAsync(store, journal, cancellationToken);
@@ -75,9 +75,9 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
     {
         using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
         var snapshot = publishedIndex > 0
-            ? new SnapshotRef { Index = publishedIndex, Path = "published", CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 }
+            ? new SnapshotRef { Index = publishedIndex, CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 }
             : null;
-        var published = new State { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = snapshot };
+        var published = new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = snapshot };
         await store.WriteAsync(published, cancellationToken);
         var orphanPath = Path.Join(Dir, $"{FilePrefixes.Snapshot}000002{FileExtensions.Snapshot}");
         await File.WriteAllBytesAsync(orphanPath, [7, 7, 7], cancellationToken);
@@ -126,7 +126,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
                     });
             }
 
-            await store.WriteAsync(new State { Format = 1, CurrentJournal = 2, NextSequence = 5 }, cancellationToken);
+            await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 5 }, cancellationToken);
             await using var journal = new SnapshotCutJournal(2, 5);
             var writerExpectations = new ISnapshotWriterCreateExpectations();
             _ = writerExpectations.Setups.AllocateIndex(Arg.Any<int>()).Callback(static publishedIndex => publishedIndex + 1);

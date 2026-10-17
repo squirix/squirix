@@ -25,7 +25,6 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
 {
     private static readonly Meter RetentionFailureMeter = new("Squirix");
     private static readonly ManifestRetentionFailureMetrics RetentionFailureMetrics = new(RetentionFailureMeter);
-    private static readonly byte[] StaleManifestBytes = [0x53, 0x51, 0x4D, 0x46, 0x01];
 
     /// <summary>Ensures a failed obsolete journal segment delete emits the journal failure metric and log while the manifest commit succeeds.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -49,7 +48,6 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
                 LastSnapshot = new SnapshotRef
                 {
                     Index = 1,
-                    Path = NodePathKit.Combine(dir, StoreTestSupport.Snapshot000001),
                     CreatedUtc = DateTime.UtcNow,
                     LastAppliedSequence = 20,
                     ReplayFromJournalSegment = 3,
@@ -74,42 +72,6 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         RestoreNormalAttributes(staleJournalSegment);
     }
 
-    /// <summary>Ensures a read-only obsolete manifest is retained, emits a metric, and logs a warning while the new manifest commits.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ManifestFailureObservableOnWrite(CancellationToken cancellationToken)
-    {
-        using var sink = new NodeMeasurementSink("Squirix");
-        var logger = new CollectingLogger();
-        using var dir = new TempDirectory("manifest-retention-delete-failure");
-        var options = new PersistenceOptions { DataDir = dir };
-        var staleManifest = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
-        using var store = new Ledger(options, logger, null, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleManifest));
-        await store.WriteAsync(new State { CurrentJournal = 1 }, cancellationToken);
-        await store.WriteAsync(new State { CurrentJournal = 2 }, cancellationToken);
-
-        _ = await Assert.That(File.Exists(staleManifest)).IsTrue();
-        await store.WriteAsync(new State { CurrentJournal = 3 }, cancellationToken);
-
-        await logger.WaitUntilAsync(
-            static log => log.Entries.Exists(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("manifest", StringComparison.OrdinalIgnoreCase)),
-            cancellationToken);
-
-        var latest = NodePathKit.Combine(dir, StoreTestSupport.Manifest000003);
-        _ = await Assert.That(File.Exists(latest)).IsTrue();
-        _ = await Assert.That(File.Exists(staleManifest)).IsTrue();
-        _ = await Assert.That(logger.Entries).Contains(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("manifest", StringComparison.OrdinalIgnoreCase));
-        _ = await Assert.That(
-            sink.HasEvent(
-                "squirix_storage_retention_delete_failures_total",
-                ("artifact", ManifestRetentionArtifactKind.Manifest),
-                ("outcome", ManifestRetentionFailureOutcome.DeleteFailed))).IsTrue();
-
-        var stale = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
-        if (File.Exists(stale))
-            File.SetAttributes(stale, FileAttributes.Normal);
-    }
-
     /// <summary>Ensures repeated retention cleanup failures degrade readiness while manifest commits keep succeeding.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -124,23 +86,21 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
             RetentionCleanupDegradedWindowFailures = 10,
         };
         var readiness = new RetentionCleanupReadiness(options, TimeProvider.System);
-        var staleManifest = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
-        await File.WriteAllBytesAsync(staleManifest, StaleManifestBytes, cancellationToken);
-        using var store = new Ledger(options, logger, readiness, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleManifest));
+        var staleSnapshot = NodePathKit.Combine(dir, StoreTestSupport.Snapshot000001);
+        await File.WriteAllTextAsync(staleSnapshot, "stale snapshot", cancellationToken);
+        using var store = new Ledger(options, logger, readiness, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleSnapshot));
 
-        await store.WriteAsync(new State { CurrentJournal = 1 }, cancellationToken);
+        await store.WriteAsync(CreateSnapshotState(1), cancellationToken);
         await readiness.WaitUntilAsync(static r => r.ConsecutiveWriteFailures == 1, cancellationToken);
         _ = await Assert.That(readiness.IsDegraded).IsFalse();
         _ = await Assert.That(readiness.ConsecutiveWriteFailures).IsEqualTo(1);
 
-        await store.WriteAsync(new State { CurrentJournal = 2 }, cancellationToken);
+        await store.WriteAsync(CreateSnapshotState(2), cancellationToken);
         await readiness.WaitUntilAsync(static r => r is { IsDegraded: true, ConsecutiveWriteFailures: 2 }, cancellationToken);
         _ = await Assert.That(readiness.IsDegraded).IsTrue();
         _ = await Assert.That(readiness.ConsecutiveWriteFailures).IsEqualTo(2);
 
-        var stale = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
-        if (File.Exists(stale))
-            File.SetAttributes(stale, FileAttributes.Normal);
+        RestoreNormalAttributes(staleSnapshot);
     }
 
     /// <summary>Ensures a failed snapshot retention delete emits the snapshot failure metric and log while the manifest commit succeeds.</summary>
@@ -167,7 +127,6 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
                 LastSnapshot = new SnapshotRef
                 {
                     Index = 2,
-                    Path = currentSnapshot,
                     CreatedUtc = DateTime.UtcNow,
                     LastAppliedSequence = 20,
                     ReplayFromJournalSegment = 2,
@@ -190,6 +149,12 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
 
         RestoreNormalAttributes(staleSnapshot);
     }
+
+    private static State CreateSnapshotState(int currentJournal) => new()
+    {
+        CurrentJournal = currentJournal,
+        LastSnapshot = new SnapshotRef { Index = 2, CreatedUtc = DateTime.UtcNow },
+    };
 
     private static void RestoreNormalAttributes(string path)
     {

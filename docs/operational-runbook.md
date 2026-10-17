@@ -159,7 +159,7 @@ Behavior:
 - Hard limit (`critical`) is the observed state at the configured cap (`usedBytes >= maxBytes`). Rejected durable writes
   fail with stable `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`). The process does not crash; `/health/ready`
   stays healthy so operators can still scrape details and run cleanup.
-- This quota covers **journal segments only**, not snapshots or manifest files under the data directory.
+- This quota covers **journal segments only**, not snapshots or the `man-current` manifest under the data directory.
 
 Operator actions when approaching or at quota:
 
@@ -225,7 +225,7 @@ Back up the full persistence set for a node:
 
 - journal segments
 - snapshot files
-- manifest files
+- the `man-current` manifest
 - Node configuration
 - Serializer configuration and package versions
 
@@ -235,7 +235,7 @@ Recommended flow:
 2. Wait for in-flight writes to complete or fail.
 3. Stop the node process.
 4. Copy the full persistence directory to a separate location.
-5. Verify the backup contains journal, snapshots, and manifest files from the same point in time.
+5. Verify the backup contains journal, snapshots, and the `man-current` manifest from the same point in time.
 6. Start the node only after the backup copy is complete.
 
 Do not copy only snapshots without the corresponding journal.
@@ -268,7 +268,7 @@ If recovery fails, stop the node and preserve both the failed restore directory 
 
 ## Recovery
 
-Recovery should be deterministic. Do not manually delete journal or manifest files unless a documented repair workflow
+Recovery should be deterministic. Do not manually delete journal files or the `man-current` manifest unless a documented repair workflow
 says it is safe.
 
 Snapshot recovery is staged. A node publishes snapshot cache entries and retained idempotency records only after the

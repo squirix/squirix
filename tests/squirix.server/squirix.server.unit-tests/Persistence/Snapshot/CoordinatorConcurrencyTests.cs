@@ -28,7 +28,7 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
     public async Task ConcurrentTriggersPublishExactlyOnce(CancellationToken cancellationToken)
     {
         using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
-        await store.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
+        await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
         await using var journal = new SnapshotCutJournal(1, 2);
         var captureExpectations = new ISnapshotEntryCaptureCreateExpectations();

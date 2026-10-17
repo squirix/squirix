@@ -136,18 +136,15 @@ public class SnapshotWriteBreakdownBenchmarks
         internal async Task WriteManifestOnlyAsync()
         {
             var snapshotIndex = _nextSnapshotIndex++;
-            var snapshotPath = BuildSnapshotPath(snapshotIndex);
 
             var previous = await _manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
             var updated = new State
             {
-                Format = previous.Format == 0 ? 1 : previous.Format,
                 CurrentJournal = previous.CurrentJournal,
                 NextSequence = previous.NextSequence + 1,
                 LastSnapshot = new SnapshotRef
                 {
                     Index = snapshotIndex,
-                    Path = snapshotPath,
                     CreatedUtc = DateTime.UtcNow,
                     LastAppliedSequence = previous.NextSequence,
                     ReplayFromJournalSegment = previous.CurrentJournal,
@@ -166,9 +163,6 @@ public class SnapshotWriteBreakdownBenchmarks
             await SnapshotFileEncoder.WriteFileAsync(handle, _items, [], _encodeBuffer, totalFileSize, CancellationToken.None).ConfigureAwait(false);
             SnapshotDurability.FlushIfNeeded(handle);
         }
-
-        private string BuildSnapshotPath(int index) =>
-            PathEx.Combine(_dir, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
 
         private string BuildTempPath(int index) => PathEx.Combine(_dir, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}.tmp");
     }

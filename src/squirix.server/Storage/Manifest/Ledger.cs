@@ -10,17 +10,16 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Manifest;
 
-/// <summary>Manifest store (<c language="csharp">.bmqx</c> files and two-slot <c language="csharp">man-current</c> pointer).</summary>
+/// <summary>Manifest store: the manifest lives in the two slots of <c language="csharp">man-current</c>.</summary>
 [Mutable]
 internal sealed class Ledger : IDisposable
 {
     private static readonly TimeSpan DefaultPublisherStopBudget = TimeSpan.FromSeconds(30);
 
-    private readonly IndexAllocator _allocator;
+    private readonly Cache _cache = new();
     private readonly Lock _cacheSync = new();
     private readonly string _currentPath;
     private readonly AsyncLock _gate = new();
-    private readonly Index _index = new();
     private readonly Publisher _publisher;
     private readonly RetentionWorker _retentionWorker;
     private int _disposed;
@@ -36,12 +35,8 @@ internal sealed class Ledger : IDisposable
         ArgumentNullException.ThrowIfNull(logger);
         var dir = options.DataDir;
         _currentPath = PathEx.Combine(dir, $"{FilePrefixes.Manifest}current");
-        _allocator = new IndexAllocator(dir, _currentPath, PathEx.Combine(dir, FilePrefixes.Manifest), $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}", ReadCurrentIndex);
-        _publisher = new Publisher(dir, _currentPath, _allocator, SetCache, ReadRollBaselineLocked, logger, publisherStopBudget ?? DefaultPublisherStopBudget);
-        var retentionSettings = new RetentionSettings(
-            dir,
-            $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}");
-        var retentionContext = new RetentionContext(retentionSettings, fileOperations, logger, IndexAllocator.ParseManifestIndex, failureMetrics);
+        _publisher = new Publisher(dir, _currentPath, SetCache, ReadRollBaselineLocked, logger, publisherStopBudget ?? DefaultPublisherStopBudget);
+        var retentionContext = new RetentionContext(new RetentionSettings(dir), fileOperations, logger, failureMetrics);
         _retentionWorker = new RetentionWorker(retentionContext, retentionReadiness);
     }
 
@@ -76,9 +71,8 @@ internal sealed class Ledger : IDisposable
     internal async Task WriteAsync(State manifest, CancellationToken cancellationToken = default)
     {
         using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        _allocator.EnsureNextManifestIndexInitialized(cancellationToken);
         await _publisher.PublishAsync(manifest, cancellationToken).ConfigureAwait(false);
-        _retentionWorker.ScheduleRetentionCleanup(manifest, _publisher.MirroredIndex);
+        _retentionWorker.ScheduleRetentionCleanup(manifest);
     }
 
     /// <summary>Publishes a snapshot reference over the manifest the publisher holds when the write runs.</summary>
@@ -93,58 +87,36 @@ internal sealed class Ledger : IDisposable
         if (!TryGetCachedCurrent(out _))
             _ = await LoadCurrentFromDiskAsync(cancellationToken).ConfigureAwait(false);
 
-        _allocator.EnsureNextManifestIndexInitialized(cancellationToken);
         await _publisher.PublishSnapshotAsync(snapshot, cancellationToken).ConfigureAwait(false);
-        _retentionWorker.ScheduleRetentionCleanup(snapshot, _publisher.MirroredIndex);
+        _retentionWorker.ScheduleRetentionCleanup(snapshot);
     }
 
     private async Task<State> LoadCurrentFromDiskAsync(CancellationToken cancellationToken)
     {
         await _publisher.EnsureDataDirectoryExistsAsync(cancellationToken).ConfigureAwait(false);
 
-        var index = PointerFile.Read(_currentPath).ManifestIndex;
-        if (index == 0)
-            return new State();
+        var selection = SlotFile.Read(_currentPath);
+        if (selection.Sequence == 0UL)
+            return selection.State;
 
-        var path = _allocator.BuildManifestFilePath(index);
-        byte[] bytes;
-        try
-        {
-            bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
-        }
-        catch (FileNotFoundException) when (TryGetCachedCurrent(out _))
-        {
-            // Retention deletes only below a mirrored index and the cache is set before the mirror, so a missing file means the cache is newer.
-            _ = TryGetCachedCurrent(out var cached);
-            return cached;
-        }
-
-        var manifest = FileCodec.Decode(bytes);
-        SetCache(manifest, index);
-        _allocator.SeedNextManifestIndex(index);
-        return TryGetCachedCurrent(out var current) ? current : manifest;
+        SetCache(selection.State, selection.Sequence);
+        return TryGetCachedCurrent(out var current) ? current : selection.State;
     }
 
-    private int? ReadCurrentIndex()
+    private State ReadRollBaselineLocked()
     {
         lock (_cacheSync)
-            return _index.IsInitialized ? _index.CurrentIndex : null;
+            return !_cache.IsInitialized ? new State() : _cache.Current;
     }
 
-    private (State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8) ReadRollBaselineLocked()
-    {
-        lock (_cacheSync)
-            return !_index.IsInitialized ? (new State(), ReadOnlyMemory<byte>.Empty) : (_index.Current, _index.SnapshotPathUtf8);
-    }
-
-    private void SetCache(State manifest, int index)
+    private void SetCache(State manifest, ulong sequence)
     {
         lock (_cacheSync)
         {
-            if (_index.IsInitialized && index <= _index.CurrentIndex)
+            if (_cache.IsInitialized && sequence <= _cache.Sequence)
                 return;
 
-            _index.Set(manifest, index);
+            _cache.Set(manifest, sequence);
         }
     }
 
@@ -152,65 +124,54 @@ internal sealed class Ledger : IDisposable
     {
         lock (_cacheSync)
         {
-            if (!_index.IsInitialized)
+            if (!_cache.IsInitialized)
             {
                 manifest = new State();
                 return false;
             }
 
-            manifest = _index.Current;
+            manifest = _cache.Current;
             return true;
         }
     }
 
-    private sealed class Index
+    private sealed class Cache
     {
         internal State Current { get; private set; } = new();
 
-        internal int CurrentIndex { get; private set; }
-
         internal bool IsInitialized { get; private set; }
 
-        internal ReadOnlyMemory<byte> SnapshotPathUtf8 { get; private set; } = ReadOnlyMemory<byte>.Empty;
+        internal ulong Sequence { get; private set; }
 
-        internal void Set(State manifest, int index)
+        internal void Set(State manifest, ulong sequence)
         {
             Current = manifest;
-            CurrentIndex = index;
-            SnapshotPathUtf8 = manifest.LastSnapshot?.Path is { Length: > 0 } path ? BufferEx.Utf8ToOwned(path) : ReadOnlyMemory<byte>.Empty;
+            Sequence = sequence;
             IsInitialized = true;
         }
     }
 
     private sealed class Publisher : IDisposable
     {
-        private const int DefaultEncodeBufferCapacity = 256;
-
-        private readonly IndexAllocator _allocator;
-        private readonly PointerSlotWriter _currentPointerWriter;
-
         private readonly string _dir;
-        private readonly Func<(State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8)> _rbl;
-        private readonly Action<State, int> _setCache;
+        private readonly Func<State> _rbl;
+        private readonly Action<State, ulong> _setCache;
+        private readonly SlotWriter _slotWriter;
         private readonly SingleConsumerWorker<WorkItemBase> _worker;
         private bool _dirCreated;
-        private byte[] _encodeBuffer = new byte[DefaultEncodeBufferCapacity];
-        private int _mirroredIndex;
 
         internal Publisher(
             string dir,
             string path,
-            IndexAllocator allocator,
-            Action<State, int> setCache,
-            Func<(State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8)> rbl,
+            Action<State, ulong> setCache,
+            Func<State> rbl,
             ILogger logger,
             TimeSpan stopBudget)
         {
             _dir = dir;
-            _allocator = allocator;
             _setCache = setCache;
             _rbl = rbl;
-            _currentPointerWriter = new PointerSlotWriter(path);
+            _slotWriter = new SlotWriter(path);
 
             // A manifest write stuck on disk must not hang node shutdown: disposal waits within the budget, and on expiry the queued writes and
             // rolls are refused and the worker thread is leaked loudly.
@@ -221,16 +182,13 @@ internal sealed class Ledger : IDisposable
                 () => ServerLog.ManifestPublisherLeakedOnShutdownTimeout(logger, stopBudget));
         }
 
-        /// <summary>Gets the index of the latest manifest whose publish mirrored both pointer slots; one slot names it or a newer one and neither names an older one.</summary>
-        internal int MirroredIndex => Volatile.Read(ref _mirroredIndex);
-
         public void Dispose()
         {
             _worker.Dispose();
-            _currentPointerWriter.Dispose();
+            _slotWriter.Dispose();
         }
 
-        internal void EnqueueRoll(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception> onRollFailed, Action<State, int> onCommitted) =>
+        internal void EnqueueRoll(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception> onRollFailed, Action<State> onCommitted) =>
             _worker.Post(new RollItem(currentJournal, nextSequence, onSuccess, onCommitted) { OnFailure = onRollFailed });
 
         internal async Task EnsureDataDirectoryExistsAsync(CancellationToken cancellationToken)
@@ -245,23 +203,13 @@ internal sealed class Ledger : IDisposable
         internal async Task PublishAsync(State manifest, CancellationToken cancellationToken)
         {
             await EnsureDataDirectoryExistsAsync(cancellationToken).ConfigureAwait(false);
-            var encodedLength = FileCodec.ComputeEncodedLength(manifest);
-            await _worker.EnqueueAsync(new WriteItem(manifest, encodedLength)).ConfigureAwait(false);
+            await _worker.EnqueueAsync(new WriteItem(manifest)).ConfigureAwait(false);
         }
 
         internal async Task PublishSnapshotAsync(State snapshot, CancellationToken cancellationToken)
         {
             await EnsureDataDirectoryExistsAsync(cancellationToken).ConfigureAwait(false);
-            var encodedLength = FileCodec.ComputeEncodedLength(snapshot);
-            await _worker.EnqueueAsync(new SnapshotWriteItem(snapshot, encodedLength)).ConfigureAwait(false);
-        }
-
-        private void EnsureEncodeBufferCapacity(int encodedLength)
-        {
-            if (_encodeBuffer.Length >= encodedLength)
-                return;
-
-            _encodeBuffer = new byte[Math.Max(encodedLength, _encodeBuffer.Length * 2)];
+            await _worker.EnqueueAsync(new SnapshotWriteItem(snapshot)).ConfigureAwait(false);
         }
 
         private void Process(RollItem rollItem)
@@ -272,73 +220,47 @@ internal sealed class Ledger : IDisposable
                 _dirCreated = true;
             }
 
-            var nextIndex = _allocator.AllocateNextManifestIndex();
-            var (previous, snapshotPathUtf8) = _rbl();
-            var format = previous.Format == 0 ? 1 : previous.Format;
-            var snapshot = previous.LastSnapshot;
-
-            var encodedLength = FileCodec.ComputeRollEncodedLength(snapshot, snapshotPathUtf8.Length);
-            EnsureEncodeBufferCapacity(encodedLength);
-            _ = FileCodec.WriteRollEncoded(format, rollItem.CurrentJournal, rollItem.NextSequence, snapshot, snapshotPathUtf8.Span, _encodeBuffer.AsSpan(0, encodedLength));
-
-            var targetPath = _allocator.BuildManifestFilePath(nextIndex);
-            FileDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength));
-            _currentPointerWriter.Publish(nextIndex);
-
             var manifest = new State
             {
-                Format = format,
                 CurrentJournal = rollItem.CurrentJournal,
                 NextSequence = rollItem.NextSequence,
-                LastSnapshot = snapshot,
+                LastSnapshot = _rbl().LastSnapshot,
             };
-
-            // The pointer already names this manifest, so memory follows it before the mirror write that may still fail.
-            _setCache(manifest, nextIndex);
-            _currentPointerWriter.Mirror();
-            Volatile.Write(ref _mirroredIndex, nextIndex);
+            WriteManifest(manifest);
             rollItem.OnSuccess?.Invoke();
-            rollItem.OnCommitted?.Invoke(manifest, nextIndex);
+            rollItem.OnCommitted?.Invoke(manifest);
         }
 
-        private void Process(WriteItem work) => WriteManifest(work.Manifest, work.EncodedLength);
+        private void Process(WriteItem work) => WriteManifest(work.Manifest);
 
         private void Process(SnapshotWriteItem work)
         {
             // A roll queued ahead of this write has already moved the cache, so the floors never move the journal pointer or the
-            // next sequence backward. The fixed-width fields keep the precomputed encoded length valid.
-            var current = _rbl().Previous;
+            // next sequence backward.
+            var current = _rbl();
             var snapshot = work.Snapshot;
             WriteManifest(
                 new State
                 {
-                    Format = current.Format != 0 ? current.Format : snapshot.Format,
                     CurrentJournal = Math.Max(current.CurrentJournal, snapshot.CurrentJournal),
                     NextSequence = Math.Max(current.NextSequence, snapshot.NextSequence),
                     LastSnapshot = snapshot.LastSnapshot,
-                },
-                work.EncodedLength);
+                });
         }
 
-        private void WriteManifest(State manifest, int encodedLength)
+        private void WriteManifest(State manifest)
         {
-            var nextIndex = _allocator.AllocateNextManifestIndex();
-            var targetPath = _allocator.BuildManifestFilePath(nextIndex);
-            EnsureEncodeBufferCapacity(encodedLength);
-            FileCodec.WriteEncoded(manifest, _encodeBuffer.AsSpan(0, encodedLength));
-            FileDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength));
-            _currentPointerWriter.Publish(nextIndex);
+            var sequence = _slotWriter.Publish(manifest);
 
-            // The pointer already names this manifest, so memory follows it before the mirror write that may still fail.
-            _setCache(manifest, nextIndex);
-            _currentPointerWriter.Mirror();
-            Volatile.Write(ref _mirroredIndex, nextIndex);
+            // The slot already holds this manifest, so memory follows it before the mirror write that may still fail.
+            _setCache(manifest, sequence);
+            _slotWriter.Mirror();
         }
 
         [Immutable]
         private sealed class RollItem : WorkItemBase
         {
-            internal RollItem(int currentJournal, ulong nextSequence, Action? onSuccess, Action<State, int>? onCommitted)
+            internal RollItem(int currentJournal, ulong nextSequence, Action? onSuccess, Action<State>? onCommitted)
             {
                 CurrentJournal = currentJournal;
                 NextSequence = nextSequence;
@@ -350,7 +272,7 @@ internal sealed class Ledger : IDisposable
 
             internal ulong NextSequence { get; }
 
-            internal Action<State, int>? OnCommitted { get; }
+            internal Action<State>? OnCommitted { get; }
 
             internal Action? OnSuccess { get; }
 
@@ -368,13 +290,10 @@ internal sealed class Ledger : IDisposable
         [Immutable]
         private sealed class WriteItem : WorkItemBase
         {
-            internal WriteItem(State manifest, int encodedLength)
+            internal WriteItem(State manifest)
             {
                 Manifest = manifest;
-                EncodedLength = encodedLength;
             }
-
-            internal int EncodedLength { get; }
 
             internal State Manifest { get; }
 
@@ -384,13 +303,10 @@ internal sealed class Ledger : IDisposable
         [Immutable]
         private sealed class SnapshotWriteItem : WorkItemBase
         {
-            internal SnapshotWriteItem(State snapshot, int encodedLength)
+            internal SnapshotWriteItem(State snapshot)
             {
                 Snapshot = snapshot;
-                EncodedLength = encodedLength;
             }
-
-            internal int EncodedLength { get; }
 
             internal State Snapshot { get; }
 

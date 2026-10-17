@@ -63,7 +63,7 @@ internal static class JournalCompactor
         var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.tmp");
         _ = FileEx.TryDeleteFile(tmpPath);
         var writtenLastSeq = await WriteCompactedJournalAsync(tmpPath, compaction, utcNow, expiredAsOf, segmentDurability, cancellationToken).ConfigureAwait(false);
-        await FinalizeCompactionAsync(options, manifestStore, oldManifest, newFirstIdx, writtenLastSeq, journalSegments, cancellationToken).ConfigureAwait(false);
+        await FinalizeCompactionAsync(options, manifestStore, newFirstIdx, writtenLastSeq, journalSegments, cancellationToken).ConfigureAwait(false);
     }
 
     private static void Apply(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state, Dictionary<string, CompactedIdempotencyRecord> idempotencyState)
@@ -165,9 +165,10 @@ internal static class JournalCompactor
     {
         var state = new Dictionary<CacheKey, NodeCacheEntry<object?>>();
         var idempotencyState = new Dictionary<string, CompactedIdempotencyRecord>(StringComparer.Ordinal);
-        if (!string.IsNullOrWhiteSpace(snapshotRef?.Path) && File.Exists(snapshotRef.Path))
+        var snapshotPath = snapshotRef == null ? null : SnapshotFileName.BuildPath(options.DataDir, snapshotRef.Index);
+        if (snapshotPath != null && File.Exists(snapshotPath))
         {
-            var snapshot = await snapshotReader.LoadStrictAsync<object?>(snapshotRef.Path, expiredAsOf, cancellationToken).ConfigureAwait(false);
+            var snapshot = await snapshotReader.LoadStrictAsync<object?>(snapshotPath, expiredAsOf, cancellationToken).ConfigureAwait(false);
             for (var i = 0; i < snapshot.Entries.Count; i++)
             {
                 var (key, entry) = snapshot.Entries[i];
@@ -205,7 +206,6 @@ internal static class JournalCompactor
     private static async Task FinalizeCompactionAsync(
         PersistenceOptions options,
         Ledger manifestStore,
-        State oldManifest,
         int newFirstIdx,
         ulong lastSeq,
         JournalSegment[] journalSegments,
@@ -219,7 +219,6 @@ internal static class JournalCompactor
 
         var newManifest = new State
         {
-            Format = oldManifest.Format == 0 ? 1 : oldManifest.Format,
             CurrentJournal = newFirstIdx,
             NextSequence = lastSeq == 0UL ? 1UL : lastSeq + 1UL,
             LastSnapshot = null,

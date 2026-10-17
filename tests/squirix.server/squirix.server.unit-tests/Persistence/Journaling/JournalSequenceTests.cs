@@ -110,7 +110,7 @@ public sealed class JournalSequenceTests : IsolatedStorageTestBase
                 BinaryJournalTestSegmentWriter.BuildPutRecord(3UL, "c", "v"),
             ]);
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 2, []);
-        await ledger.WriteAsync(new State { Format = 1, CurrentJournal = 2, NextSequence = 4 }, cancellationToken);
+        await ledger.WriteAsync(new State { CurrentJournal = 2, NextSequence = 4 }, cancellationToken);
 
         await using (var journal = CreateJournal(persistence, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger))
         {
