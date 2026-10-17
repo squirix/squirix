@@ -107,7 +107,18 @@ internal sealed class Ledger : IDisposable
             return new State();
 
         var path = _allocator.BuildManifestFilePath(index);
-        var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+        byte[] bytes;
+        try
+        {
+            bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+        }
+        catch (FileNotFoundException) when (TryGetCachedCurrent(out _))
+        {
+            // Retention deletes only below a mirrored index and the cache is set before the mirror, so a missing file means the cache is newer.
+            _ = TryGetCachedCurrent(out var cached);
+            return cached;
+        }
+
         var manifest = FileCodec.Decode(bytes);
         SetCache(manifest, index);
         _allocator.SeedNextManifestIndex(index);
@@ -210,7 +221,7 @@ internal sealed class Ledger : IDisposable
                 () => ServerLog.ManifestPublisherLeakedOnShutdownTimeout(logger, stopBudget));
         }
 
-        /// <summary>Gets the index of the latest manifest whose publish mirrored both pointer slots; both slots name it or a newer one.</summary>
+        /// <summary>Gets the index of the latest manifest whose publish mirrored both pointer slots; one slot names it or a newer one and neither names an older one.</summary>
         internal int MirroredIndex => Volatile.Read(ref _mirroredIndex);
 
         public void Dispose()

@@ -7,8 +7,7 @@ The active manifest index is stored in a two-slot `man-current` pointer (magic `
 
 Filename pattern: `man-NNNNNN.bmqx`.
 
-Retention deletes the files below the index both pointer slots name and keeps that one and every file above it, which a later
-manifest deletes once it is current.
+Retention deletes the files below the index both pointer slots name and keeps that one and every file above it.
 
 ### File layout (little-endian)
 

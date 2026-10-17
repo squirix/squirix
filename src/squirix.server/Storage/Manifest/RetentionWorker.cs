@@ -151,7 +151,7 @@ internal sealed class RetentionWorker : IWorkPoolItem
         /// <summary>
         /// Deletes every manifest file below the current index; the current one and files above it are kept. Retention is scheduled only after a
         /// publish that mirrored both pointer slots, so neither slot, nor the fallback after a torn write, can name a manifest below the current one.
-        /// A file above it is an in-flight write or an orphan, which a later manifest's retention deletes. A failed delete is retried on the next run.
+        /// A file above it is an in-flight write or an orphan and is never deleted here. A failed delete is retried on the next run.
         /// </summary>
         /// <param name="context">The retention inputs.</param>
         /// <param name="currentIndex">The manifest index both pointer slots name.</param>
