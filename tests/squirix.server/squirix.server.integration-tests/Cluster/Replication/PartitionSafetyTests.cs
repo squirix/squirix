@@ -221,8 +221,12 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         await ledger.UntilAsync(() => ledger.Observe(minority).Term == 0UL, "the two-node minority holds no authority", cancellationToken);
         await ledger.HoldsAsync(() => ledger.Observe(minority).Term == 0UL, Watch, "the two-node minority never leads", cancellationToken);
 
+        // A stall under load may cost the majority leader its authority; the majority may then elect another of its nodes in a later term.
+        var (last, lastTerm) = await ledger.LeaderAsync(five, nextTerm - 1, "the group keeps a leader", cancellationToken);
+
         _ = await Assert.That(nextTerm).IsGreaterThan(formerTerm);
-        _ = await Assert.That(ledger.Observe(five)).IsEqualTo((next, nextTerm));
+        _ = await Assert.That(majority).Contains(last);
+        _ = await Assert.That(lastTerm).IsGreaterThanOrEqualTo(nextTerm);
     }
 
     /// <summary>
