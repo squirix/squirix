@@ -41,7 +41,6 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 4,
-            ManifestRetentionCount = 1,
         };
 
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
@@ -67,7 +66,6 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 4,
-            ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
 
@@ -93,7 +91,6 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 4,
-            ManifestRetentionCount = 1,
         };
 
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
@@ -114,7 +111,6 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 4,
-            ManifestRetentionCount = 1,
         };
 
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
@@ -179,7 +175,6 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         {
             DataDir = dataDir,
             JournalMaxSegmentMb = 4,
-            ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = groupCommitMaxWait,
             JournalGroupCommitMaxBatch = 8,
         };

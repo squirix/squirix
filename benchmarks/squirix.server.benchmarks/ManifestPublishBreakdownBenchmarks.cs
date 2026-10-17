@@ -159,11 +159,9 @@ public class ManifestPublishBreakdownBenchmarks
         internal static async Task<Session> CreateAsync()
         {
             var dir = new TempDirectory("manifest-breakdown");
-            var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
             var options = new PersistenceOptions
             {
                 DataDir = dir,
-                ManifestRetentionCount = retention,
             };
             var store = new Ledger(options, NullLogger<Ledger>.Instance);
             var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

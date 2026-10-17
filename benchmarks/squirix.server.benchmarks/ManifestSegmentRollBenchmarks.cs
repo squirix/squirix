@@ -41,12 +41,10 @@ public class ManifestSegmentRollBenchmarks
     public async Task GlobalSetupAsync()
     {
         _rollsPerInvoke = ManifestBenchmarkSupport.ResolveRollsPerInvoke();
-        var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
         var options = new PersistenceOptions
         {
             JournalMaxSegmentMb = 1,
             JournalMaxSegmentCount = 1024,
-            ManifestRetentionCount = retention,
         };
         _host = await JournalBenchmarkHost.CreateAsync("manifest-roll-bench", options, CancellationToken.None).ConfigureAwait(false);
         _overflowPayload = new byte[OverflowPayloadSize];

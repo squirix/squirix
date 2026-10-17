@@ -14,7 +14,7 @@ internal sealed class RetentionWorker : IWorkPoolItem
 {
     private readonly RetentionContext _retentionContext;
     private readonly IRetentionCleanupReadinessStatus? _retentionReadiness;
-    private volatile State? _pendingRetentionManifest;
+    private volatile PendingRetention? _pendingRetention;
     private int _retentionWorkerScheduled;
     private int _stopped;
 
@@ -34,11 +34,11 @@ internal sealed class RetentionWorker : IWorkPoolItem
             while (true)
             {
                 // Checked right before each pass, so a stop that lands while a pass runs prevents the next one.
-                var manifest = Interlocked.Exchange(ref _pendingRetentionManifest, null);
-                if (manifest == null || IsStopped)
+                var pending = Interlocked.Exchange(ref _pendingRetention, null);
+                if (pending == null || IsStopped)
                     break;
 
-                var cleanupFailed = RetentionCleanup.Run(_retentionContext, manifest);
+                var cleanupFailed = RetentionCleanup.Run(_retentionContext, pending.Manifest, pending.ManifestIndex);
                 _retentionReadiness?.RecordWriteOutcome(cleanupFailed);
             }
         }
@@ -51,12 +51,15 @@ internal sealed class RetentionWorker : IWorkPoolItem
         }
     }
 
-    internal void ScheduleRetentionCleanup(State manifest)
+    /// <summary>Schedules a cleanup pass; a pass not yet started is replaced, so the manifest and its index always travel together.</summary>
+    /// <param name="manifest">The manifest that was just published.</param>
+    /// <param name="manifestIndex">The index of a manifest whose publish has mirrored both pointer slots; it is never newer than that publish.</param>
+    internal void ScheduleRetentionCleanup(State manifest, int manifestIndex)
     {
         if (IsStopped)
             return;
 
-        _pendingRetentionManifest = manifest;
+        _pendingRetention = new PendingRetention(manifest, manifestIndex);
         if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) != 0)
             return;
 
@@ -76,7 +79,7 @@ internal sealed class RetentionWorker : IWorkPoolItem
     private bool TryRestartIfPendingWorkRemains()
     {
         // Another thread may publish work while the drain loop exits with the schedule flag still held.
-        if (_pendingRetentionManifest == null || IsStopped)
+        if (_pendingRetention == null || IsStopped)
             return false;
 
         if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) != 0)
@@ -89,37 +92,12 @@ internal sealed class RetentionWorker : IWorkPoolItem
     /// <summary>Retention cleanup for numbered manifest files, snapshots, and journal segments.</summary>
     private static class RetentionCleanup
     {
-        internal static bool Run(RetentionContext context, State manifest)
+        internal static bool Run(RetentionContext context, State manifest, int manifestIndex)
         {
-            var manifestCleanupFailed = TryCleanupOldManifests(context);
+            var manifestCleanupFailed = TryCleanupOldManifests(context, manifestIndex);
             var snapshotCleanupFailed = TryCleanupOldSnapshots(context, manifest.LastSnapshot);
             var journalCleanupFailed = TryCleanupObsoleteJournalSegments(context, manifest);
             return manifestCleanupFailed || snapshotCleanupFailed || journalCleanupFailed;
-        }
-
-        private static IndexedStorageFile[] GetIndexedFiles(ReadOnlySpan<string> files, Func<string, int> parseIndex)
-        {
-            if (files.IsEmpty)
-                return [];
-
-            var buffer = new IndexedStorageFile[files.Length];
-            var writeIndex = 0;
-            for (var i = 0; i < files.Length; i++)
-            {
-                var path = files[i];
-                var index = parseIndex(Path.GetFileName(path));
-                if (index <= 0)
-                    continue;
-
-                buffer[writeIndex++] = new IndexedStorageFile(path, index);
-            }
-
-            if (writeIndex == 0)
-                return [];
-
-            var result = writeIndex == buffer.Length ? buffer : Trim(buffer, writeIndex);
-            Array.Sort(result, static (left, right) => right.Index.CompareTo(left.Index));
-            return result;
         }
 
         private static void ReportRetentionCleanupException(RetentionContext context, string artifactKind, Exception exception)
@@ -134,13 +112,6 @@ internal sealed class RetentionWorker : IWorkPoolItem
             context.FailureMetrics.RecordDeleteFailure(artifactKind, ManifestRetentionFailureOutcome.DeleteFailed);
 
             ServerLog.ManifestRetentionDeleteFailed(context.Logger, artifactKind, path);
-        }
-
-        private static IndexedStorageFile[] Trim(IndexedStorageFile[] buffer, int length)
-        {
-            var result = new IndexedStorageFile[length];
-            buffer.AsSpan(0, length).CopyTo(result);
-            return result;
         }
 
         private static bool TryCleanupObsoleteJournalSegments(RetentionContext context, State manifest)
@@ -177,23 +148,31 @@ internal sealed class RetentionWorker : IWorkPoolItem
             }
         }
 
-        private static bool TryCleanupOldManifests(RetentionContext context)
+        /// <summary>
+        /// Deletes every manifest file below the current index; the current one and files above it are kept. Retention is scheduled only after a
+        /// publish that mirrored both pointer slots, so neither slot, nor the fallback after a torn write, can name a manifest below the current one.
+        /// A file above it is an in-flight write or an orphan, which a later manifest's retention deletes. A failed delete is retried on the next run.
+        /// </summary>
+        /// <param name="context">The retention inputs.</param>
+        /// <param name="currentIndex">The manifest index both pointer slots name.</param>
+        /// <returns><see langword="true" /> when a delete or the directory scan failed; otherwise <see langword="false" />.</returns>
+        private static bool TryCleanupOldManifests(RetentionContext context, int currentIndex)
         {
+            if (currentIndex <= 0)
+                return false;
+
             try
             {
                 var dataDir = FilePathValidator.ResolveValidatedDirectoryPath(context.DataDir);
-                var files = Directory.GetFiles(dataDir, context.ManifestFileGlob);
-                if (files.Length <= context.ManifestRetention)
-                    return false;
-
-                var ordered = GetIndexedFiles(files, context.ParseManifestIndex);
-
-                if (ordered.Length <= context.ManifestRetention)
-                    return false;
-
                 var failed = false;
-                for (var i = context.ManifestRetention; i < ordered.Length; i++)
-                    failed |= TryDeleteRetentionArtifact(context, ordered[i].Path, ManifestRetentionArtifactKind.Manifest);
+                foreach (var path in Directory.GetFiles(dataDir, context.ManifestFileGlob))
+                {
+                    var index = context.ParseManifestIndex(Path.GetFileName(path));
+                    if (index <= 0 || index >= currentIndex)
+                        continue;
+
+                    failed |= TryDeleteRetentionArtifact(context, path, ManifestRetentionArtifactKind.Manifest);
+                }
 
                 return failed;
             }
@@ -267,8 +246,8 @@ internal sealed class RetentionWorker : IWorkPoolItem
             ReportRetentionDeleteFailure(context, artifactKind, path);
             return true;
         }
-
-        [Immutable]
-        private sealed record IndexedStorageFile(string Path, int Index);
     }
+
+    [Immutable]
+    private sealed record PendingRetention(State Manifest, int ManifestIndex);
 }

@@ -40,7 +40,6 @@ internal sealed class Ledger : IDisposable
         _publisher = new Publisher(dir, _currentPath, _allocator, SetCache, ReadRollBaselineLocked, logger, publisherStopBudget ?? DefaultPublisherStopBudget);
         var retentionSettings = new RetentionSettings(
             dir,
-            options.ManifestRetentionCount > 0 ? options.ManifestRetentionCount : 3,
             $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}");
         var retentionContext = new RetentionContext(retentionSettings, fileOperations, logger, IndexAllocator.ParseManifestIndex, failureMetrics);
         _retentionWorker = new RetentionWorker(retentionContext, retentionReadiness);
@@ -79,7 +78,7 @@ internal sealed class Ledger : IDisposable
         using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         _allocator.EnsureNextManifestIndexInitialized(cancellationToken);
         await _publisher.PublishAsync(manifest, cancellationToken).ConfigureAwait(false);
-        _retentionWorker.ScheduleRetentionCleanup(manifest);
+        _retentionWorker.ScheduleRetentionCleanup(manifest, _publisher.MirroredIndex);
     }
 
     /// <summary>Publishes a snapshot reference over the manifest the publisher holds when the write runs.</summary>
@@ -96,7 +95,7 @@ internal sealed class Ledger : IDisposable
 
         _allocator.EnsureNextManifestIndexInitialized(cancellationToken);
         await _publisher.PublishSnapshotAsync(snapshot, cancellationToken).ConfigureAwait(false);
-        _retentionWorker.ScheduleRetentionCleanup(snapshot);
+        _retentionWorker.ScheduleRetentionCleanup(snapshot, _publisher.MirroredIndex);
     }
 
     private async Task<State> LoadCurrentFromDiskAsync(CancellationToken cancellationToken)
@@ -185,6 +184,7 @@ internal sealed class Ledger : IDisposable
         private readonly SingleConsumerWorker<WorkItemBase> _worker;
         private bool _dirCreated;
         private byte[] _encodeBuffer = new byte[DefaultEncodeBufferCapacity];
+        private int _mirroredIndex;
 
         internal Publisher(
             string dir,
@@ -210,13 +210,16 @@ internal sealed class Ledger : IDisposable
                 () => ServerLog.ManifestPublisherLeakedOnShutdownTimeout(logger, stopBudget));
         }
 
+        /// <summary>Gets the index of the latest manifest whose publish mirrored both pointer slots; both slots name it or a newer one.</summary>
+        internal int MirroredIndex => Volatile.Read(ref _mirroredIndex);
+
         public void Dispose()
         {
             _worker.Dispose();
             _currentPointerWriter.Dispose();
         }
 
-        internal void EnqueueRoll(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception> onRollFailed, Action<State> onCommitted) =>
+        internal void EnqueueRoll(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception> onRollFailed, Action<State, int> onCommitted) =>
             _worker.Post(new RollItem(currentJournal, nextSequence, onSuccess, onCommitted) { OnFailure = onRollFailed });
 
         internal async Task EnsureDataDirectoryExistsAsync(CancellationToken cancellationToken)
@@ -282,8 +285,9 @@ internal sealed class Ledger : IDisposable
             // The pointer already names this manifest, so memory follows it before the mirror write that may still fail.
             _setCache(manifest, nextIndex);
             _currentPointerWriter.Mirror();
+            Volatile.Write(ref _mirroredIndex, nextIndex);
             rollItem.OnSuccess?.Invoke();
-            rollItem.OnCommitted?.Invoke(manifest);
+            rollItem.OnCommitted?.Invoke(manifest, nextIndex);
         }
 
         private void Process(WriteItem work) => WriteManifest(work.Manifest, work.EncodedLength);
@@ -317,12 +321,13 @@ internal sealed class Ledger : IDisposable
             // The pointer already names this manifest, so memory follows it before the mirror write that may still fail.
             _setCache(manifest, nextIndex);
             _currentPointerWriter.Mirror();
+            Volatile.Write(ref _mirroredIndex, nextIndex);
         }
 
         [Immutable]
         private sealed class RollItem : WorkItemBase
         {
-            internal RollItem(int currentJournal, ulong nextSequence, Action? onSuccess, Action<State>? onCommitted)
+            internal RollItem(int currentJournal, ulong nextSequence, Action? onSuccess, Action<State, int>? onCommitted)
             {
                 CurrentJournal = currentJournal;
                 NextSequence = nextSequence;
@@ -334,7 +339,7 @@ internal sealed class Ledger : IDisposable
 
             internal ulong NextSequence { get; }
 
-            internal Action<State>? OnCommitted { get; }
+            internal Action<State, int>? OnCommitted { get; }
 
             internal Action? OnSuccess { get; }
 

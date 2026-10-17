@@ -118,7 +118,7 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
         using var recorder = new RecordingLoggerProvider();
         var options = new IntegrationStartOptions
         {
-            PersistenceOptions = new PersistenceOptions { ManifestRetentionCount = 1 },
+            PersistenceOptions = new PersistenceOptions(),
             ServicesConfigure = recorder.Register,
         };
         await using var cluster = await StartClusterAsync("node_ledger_logging", options, cancellationToken);

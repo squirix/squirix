@@ -224,7 +224,6 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
     {
         DataDir = Dir,
         JournalMaxSegmentMb = 1,
-        ManifestRetentionCount = 3,
     };
 
     private sealed class FakeCoordinatorState : IJournalCoordinatorState, IDisposable

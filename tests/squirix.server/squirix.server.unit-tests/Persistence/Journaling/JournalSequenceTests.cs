@@ -234,6 +234,5 @@ public sealed class JournalSequenceTests : IsolatedStorageTestBase
     {
         DataDir = Dir,
         JournalMaxSegmentMb = 16,
-        ManifestRetentionCount = 1,
     };
 }

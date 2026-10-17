@@ -458,7 +458,6 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
     {
         DataDir = Dir,
         JournalMaxSegmentMb = 4,
-        ManifestRetentionCount = 1,
     };
 
     private sealed class EventLoopSetup : IDisposable

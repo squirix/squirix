@@ -118,11 +118,9 @@ public class SnapshotWriteBreakdownBenchmarks
 
             var (_, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, []);
             var writer = new SnapshotWriter(dir);
-            var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
             var options = new PersistenceOptions
             {
                 DataDir = dir,
-                ManifestRetentionCount = retention,
             };
             var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
             var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

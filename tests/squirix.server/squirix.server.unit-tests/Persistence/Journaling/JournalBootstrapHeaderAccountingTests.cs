@@ -35,7 +35,6 @@ public sealed class JournalBootstrapHeaderAccountingTests : ServerUnitTestBase
             DataDir = dir,
             JournalMaxSegmentMb = 1,
             JournalMaxTotalBytesMb = 1,
-            ManifestRetentionCount = 1,
         };
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(

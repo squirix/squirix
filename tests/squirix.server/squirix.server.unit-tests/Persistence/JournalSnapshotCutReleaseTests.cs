@@ -30,7 +30,6 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            ManifestRetentionCount = 1,
         };
 
         using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
@@ -94,7 +93,6 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            ManifestRetentionCount = 1,
         };
 
         using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
@@ -132,7 +130,6 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            ManifestRetentionCount = 1,
         };
 
         using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);

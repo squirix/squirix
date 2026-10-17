@@ -190,7 +190,7 @@ internal sealed class FusedWriteHarness
     /// <returns>The recovered memory and store.</returns>
     internal async Task<(PhysicalCache<object?> Memory, RpcMutationIdempotencyStore Store)> RecoverAsync(CancellationToken cancellationToken)
     {
-        var persistence = new PersistenceOptions { DataDir = Dir, ManifestRetentionCount = 1, JournalMaxSegmentMb = 1 };
+        var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1 };
         using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var memory = new PhysicalCache<object?>(Clock, new CacheEntrySizeEstimator<object?>());
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), Self, new IdempotencyMetrics(SharedMeter), Clock);

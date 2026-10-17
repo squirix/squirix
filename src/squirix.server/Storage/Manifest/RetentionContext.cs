@@ -18,7 +18,6 @@ internal sealed record RetentionContext
     {
         ArgumentNullException.ThrowIfNull(settings);
         DataDir = settings.DataDir;
-        ManifestRetention = settings.ManifestRetention;
         FileOperations = fileOperations ?? new FileOperations();
         ArgumentNullException.ThrowIfNull(logger);
         Logger = logger;
@@ -36,8 +35,6 @@ internal sealed record RetentionContext
     internal ILogger Logger { get; }
 
     internal string ManifestFileGlob { get; }
-
-    internal int ManifestRetention { get; }
 
     internal Func<string, int> ParseManifestIndex { get; }
 

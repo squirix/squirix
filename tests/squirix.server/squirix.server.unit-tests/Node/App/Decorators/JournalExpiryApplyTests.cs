@@ -323,7 +323,6 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
             {
                 DataDir = dataDir,
                 JournalMaxSegmentMb = 1,
-                ManifestRetentionCount = 1,
             };
             var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
             var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);

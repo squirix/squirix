@@ -82,7 +82,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         using var sink = new NodeMeasurementSink("Squirix");
         var logger = new CollectingLogger();
         using var dir = new TempDirectory("manifest-retention-delete-failure");
-        var options = new PersistenceOptions { DataDir = dir, ManifestRetentionCount = 2 };
+        var options = new PersistenceOptions { DataDir = dir };
         var staleManifest = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
         using var store = new Ledger(options, logger, null, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleManifest));
         await store.WriteAsync(new State { CurrentJournal = 1 }, cancellationToken);
@@ -120,7 +120,6 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         var options = new PersistenceOptions
         {
             DataDir = dir,
-            ManifestRetentionCount = 1,
             RetentionCleanupDegradedWrites = 2,
             RetentionCleanupDegradedWindowFailures = 10,
         };

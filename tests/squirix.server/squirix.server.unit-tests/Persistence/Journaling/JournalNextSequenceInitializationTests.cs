@@ -299,6 +299,5 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
     {
         DataDir = dataDir,
         JournalMaxSegmentMb = 16,
-        ManifestRetentionCount = 1,
     };
 }

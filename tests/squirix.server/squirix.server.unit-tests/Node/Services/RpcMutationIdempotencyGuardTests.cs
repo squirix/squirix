@@ -42,7 +42,6 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            ManifestRetentionCount = 1,
         };
 
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
@@ -107,7 +106,6 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            ManifestRetentionCount = 1,
         };
 
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
@@ -169,7 +167,6 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            ManifestRetentionCount = 1,
         };
 
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
