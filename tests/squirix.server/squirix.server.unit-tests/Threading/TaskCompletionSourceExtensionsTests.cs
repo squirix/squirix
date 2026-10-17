@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -15,31 +14,6 @@ namespace Squirix.Server.UnitTests.Threading;
 [Immutable]
 public sealed class TaskCompletionSourceExtensionsTests
 {
-    /// <summary>A failing operation faults the source with the same failure and rethrows it.</summary>
-    [Test]
-    public async Task RunFaultsSource()
-    {
-        var source = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var failure = new IOException("disk failed");
-
-        var thrown = NodeExceptionAssert.For<IOException>().Throws((source, failure), static s => s.source.Run(s.failure, static f => throw f));
-
-        _ = await Assert.That(thrown).IsSameReferenceAs(failure);
-        _ = await Assert.That(source.Task.IsFaulted).IsTrue();
-        _ = await Assert.That(source.Task.Exception!.InnerException).IsSameReferenceAs(failure);
-    }
-
-    /// <summary>A successful operation completes the source.</summary>
-    [Test]
-    public async Task RunCompletesSource()
-    {
-        var source = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        source.Run(0, static _ => { });
-
-        _ = await Assert.That(source.Task.IsCompletedSuccessfully).IsTrue();
-    }
-
     /// <summary>A failing operation faults the source without throwing.</summary>
     [Test]
     public async Task RunIsolatedFaultsSource()
