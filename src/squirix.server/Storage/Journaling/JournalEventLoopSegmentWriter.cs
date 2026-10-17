@@ -371,7 +371,7 @@ internal sealed class JournalEventLoopSegmentWriter
         {
             _owner.SegmentWriter.Write(frameBytes.AsSpan(0, item.FrameLength), offset);
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or UnauthorizedAccessException)
         {
             TruncateActiveSegmentAfterFailedFrame(offset);
             throw;
@@ -388,7 +388,7 @@ internal sealed class JournalEventLoopSegmentWriter
         {
             _owner.SegmentWriter.Write(span, offset);
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or UnauthorizedAccessException)
         {
             TruncateActiveSegmentAfterFailedFrame(offset);
             throw;
