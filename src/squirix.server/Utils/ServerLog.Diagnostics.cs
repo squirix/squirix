@@ -15,6 +15,9 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 3026, Level = LogLevel.Debug, Message = "Idempotency store expiry sweep stopped because the host is shutting down")]
     internal static partial void IdempotencySweepStopped(ILogger logger);
 
+    [LoggerMessage(EventId = 3030, Level = LogLevel.Debug, Message = "Local expiration sweep stopped because the host is shutting down")]
+    internal static partial void LocalExpirationSweepStopped(ILogger logger);
+
     [LoggerMessage(EventId = 3027, Level = LogLevel.Debug, Message = "Journal segment metric probe failed for {File}")]
     internal static partial void JournalMetricFileProbeFailed(ILogger logger, Exception exception, string file);
 

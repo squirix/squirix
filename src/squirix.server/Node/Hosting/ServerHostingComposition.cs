@@ -349,6 +349,16 @@ internal static class ServerHostingComposition
             new HealthCheckRegistration("ring_agreement", static sp => new RingAgreementHealthCheck(sp.GetRequiredService<RingAgreement>()), HealthStatus.Unhealthy, ["ready"]));
         _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory, (args.BackpressureOptions ?? new AdmissionOptions()).MaxInFlight);
         _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
+
+        // Activated hosts expire entries through committed records and the replica sweep; every other host expires by its local clock.
+        if (FeatureState.Resolve(cluster, args.FoundationOnly) != FeatureState.Activated)
+        {
+            _ = services.AddHostedService(static sp => new LocalExpirationSweepService(
+                sp.GetRequiredService<ILocalCacheExpiredKeys>(),
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ILogger<LocalExpirationSweepService>>()));
+        }
+
         if (!args.FoundationOnly && cluster.ReplicaCount <= 1)
             return;
         _ = services.AddSingleton(static sp => new SquirixReplicationServiceAdapter(

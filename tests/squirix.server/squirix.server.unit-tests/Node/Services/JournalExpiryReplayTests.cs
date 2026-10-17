@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
@@ -178,6 +179,32 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
 
         _ = await Assert.That(liveEntry?.ExpiresUtc).IsEqualTo(written.WriteStart.Add(Ttl));
         _ = await Assert.That(await expired.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
+    }
+
+    /// <summary>The local sweep drops an expired entry from memory without a journal frame, and the key stays absent after a restart.</summary>
+    /// <param name="compact">Whether the journal is compacted, on the restart clock, before the restart.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when the test has run.</returns>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task SweptEntryStaysAbsentAfterRestart(bool compact, CancellationToken cancellationToken)
+    {
+        var clock = JournalReplayKit.CreateWriteClock(TimeSpan.Zero);
+        var writeStart = clock.GetUtcNow().UtcDateTime;
+        await using (var session = await Kit.OpenAsync(clock, cancellationToken))
+        {
+            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: Ttl), cancellationToken);
+            clock.Advance(PastTtl);
+
+            _ = await Assert.That(session.Physical.ExpiredKeys.RemoveExpired()).IsEqualTo(1);
+            ILocalCacheStats stats = session.Physical;
+            _ = await Assert.That(stats.EntryCount).IsEqualTo(0);
+        }
+
+        _ = await Assert.That(Kit.CountJournalRecords(cancellationToken)).IsEqualTo(1);
+        var recovered = await Kit.RecoverAsync(new FakeTimeProvider(new DateTimeOffset(writeStart.Add(PastTtl), TimeSpan.Zero)), compact, cancellationToken);
+        _ = await Assert.That(await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
     }
 
     /// <summary>A snapshot load judges a captured deadline on the server clock of the restart, not on the wall clock of the host.</summary>

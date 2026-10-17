@@ -3,7 +3,7 @@ namespace Squirix.Server.Core;
 /// <summary>Who decides that a cache entry has expired and may be dropped from the node.</summary>
 internal enum CacheExpiryAuthority
 {
-    /// <summary>The node clock: an entry past its deadline reads as absent and is dropped by reads, snapshots, recovery and compaction.</summary>
+    /// <summary>The node clock: an entry past its deadline reads as absent and is dropped by reads, snapshots, recovery, compaction and the local expiry sweep.</summary>
     LocalClock = 1,
 
     /// <summary>

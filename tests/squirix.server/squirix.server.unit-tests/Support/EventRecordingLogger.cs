@@ -16,7 +16,7 @@ namespace Squirix.Server.UnitTests.Support;
 /// <summary>Logger double recording the event id, level, exception and formatted message of every entry.</summary>
 [ThreadSafe]
 internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, ILogger<RpcMutationIdempotencyCoordinator>, ILogger<FollowerLog>, ILogger<Ledger>, ILogger<ReplicaGroupCommitter>, ILogger<ServerClientPool>, ILogger<RingAgreement>, ILogger<JournalEventLoop>,
-    ILogger<ReplicaApplyService>, ILogger<ReplicaLogCompactionService>, ILogger<ReplicaExpirationSweepService>, ILogger<ReplicaGroupReadinessService>,
+    ILogger<ReplicaApplyService>, ILogger<ReplicaLogCompactionService>, ILogger<ReplicaExpirationSweepService>, ILogger<LocalExpirationSweepService>, ILogger<ReplicaGroupReadinessService>,
     ILogger<ReplicaElectionService>, ILogger<ReplicaGroupBootstrapService>, ILogger<ReplicaGroupAppliers>
 {
     private readonly ConcurrentDictionary<(int EventId, string Fragment), TaskCompletionSource> _awaited = new();
