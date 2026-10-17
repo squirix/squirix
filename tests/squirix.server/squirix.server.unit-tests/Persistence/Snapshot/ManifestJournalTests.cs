@@ -92,6 +92,72 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
         await SequenceAssert.EqualAsync<byte>([7, 7, 7], orphanBytes);
     }
 
+    /// <summary>
+    /// A segment roll queued on the publisher around the snapshot manifest write keeps its journal pointer and next sequence in the
+    /// manifest a restart reads. With <paramref name="rollDuringFileWrite" /> the roll is committed before the snapshot re-reads the
+    /// manifest; otherwise it is queued right after that re-read, ahead of the snapshot write. The second case relies on the
+    /// snapshot coordinator reading the clock for the snapshot reference after that re-read, so it stops exercising the race if that
+    /// clock read moves earlier.
+    /// </summary>
+    /// <param name="rollDuringFileWrite">Whether the roll is committed while the snapshot file is written.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task SnapshotKeepsQueuedRollProgress(bool rollDuringFileWrite, CancellationToken cancellationToken)
+    {
+        Exception? rollFailure = null;
+        var rollCommitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var clock = new RollOnClockTimeProvider();
+        var options = new PersistenceOptions { DataDir = Dir };
+        using (var store = new Ledger(options, NullLogger<Ledger>.Instance))
+        {
+            void PostRoll()
+            {
+                store.EnqueueRoll(
+                    3,
+                    9,
+                    () => rollCommitted.TrySetResult(),
+                    ex =>
+                    {
+                        rollFailure = ex;
+                        _ = rollCommitted.TrySetException(ex);
+                    });
+            }
+
+            await store.WriteAsync(new State { Format = 1, CurrentJournal = 2, NextSequence = 5 }, cancellationToken);
+            await using var journal = new SnapshotCutJournal(2, 5);
+            var writerExpectations = new ISnapshotWriterCreateExpectations();
+            _ = writerExpectations.Setups.AllocateIndex(Arg.Any<int>()).Callback(static publishedIndex => publishedIndex + 1);
+            _ = writerExpectations.Setups.WriteAsync(
+                Arg.Any<int>(),
+                Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(),
+                Arg.Any<IReadOnlyList<PersistedIdempotencyRecord>>(),
+                Arg.Any<CancellationToken>()).Callback(
+                (_, _, _, _) =>
+                {
+                    if (!rollDuringFileWrite)
+                    {
+                        clock.Arm(PostRoll);
+                        return ValueTask.FromResult("snap-test-path");
+                    }
+
+                    PostRoll();
+                    return new ValueTask<string>(rollCommitted.Task.ContinueWith(static _ => "snap-test-path", TaskScheduler.Default));
+                });
+
+            await SnapshotWithClockAsync(store, journal, writerExpectations.Instance(), clock, cancellationToken);
+        }
+
+        using var reopened = new Ledger(options, NullLogger<Ledger>.Instance);
+        var published = await reopened.ReadCurrentOrDefaultAsync(cancellationToken);
+        _ = await Assert.That(rollFailure).IsNull();
+        _ = await Assert.That(published.CurrentJournal).IsEqualTo(3);
+        _ = await Assert.That(published.NextSequence).IsEqualTo(9UL);
+        _ = await Assert.That(published.LastSnapshot?.ReplayFromJournalSegment).IsEqualTo(2);
+        _ = await Assert.That(published.LastSnapshot?.Index).IsEqualTo(1);
+    }
+
     private static async Task SnapshotOnceAsync(Ledger store, IJournalCoordinator journal, CancellationToken cancellationToken)
     {
         var writerExpectations = new ISnapshotWriterCreateExpectations();
@@ -104,7 +170,10 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
         await SnapshotOnceAsync(store, journal, writerExpectations.Instance(), cancellationToken);
     }
 
-    private static async Task SnapshotOnceAsync(Ledger store, IJournalCoordinator journal, ISnapshotWriter writer, CancellationToken cancellationToken)
+    private static Task SnapshotOnceAsync(Ledger store, IJournalCoordinator journal, ISnapshotWriter writer, CancellationToken cancellationToken) =>
+        SnapshotWithClockAsync(store, journal, writer, TimeProvider.System, cancellationToken);
+
+    private static async Task SnapshotWithClockAsync(Ledger store, IJournalCoordinator journal, ISnapshotWriter writer, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
         var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
         var captureExpectations = new ISnapshotEntryCaptureCreateExpectations();
@@ -122,6 +191,20 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
             "test-node",
             throttleExpectations.Instance(),
             null);
-        await new Coordinator(opt, journal, deps, TimeProvider.System).SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
+        await new Coordinator(opt, journal, deps, timeProvider).SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
+    }
+
+    [Mutable]
+    private sealed class RollOnClockTimeProvider : TimeProvider
+    {
+        private Action? _onNextRead;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            Interlocked.Exchange(ref _onNextRead, null)?.Invoke();
+            return base.GetUtcNow();
+        }
+
+        internal void Arm(Action onNextRead) => Volatile.Write(ref _onNextRead, onNextRead);
     }
 }

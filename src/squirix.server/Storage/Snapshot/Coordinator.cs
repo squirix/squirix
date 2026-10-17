@@ -160,12 +160,11 @@ internal sealed class Coordinator
         {
             Format = prev.Format,
 
-            // The publishing runs outside the mutation-gate barrier, so prev.CurrentJournal can skew
-            // either way: a roll whose manifest publish is still queued leaves it behind the
-            // captured segment, while a roll published during the file write moves it ahead.
-            // Persist the monotonic maximum so the manifest never moves CurrentJournal backward
-            // and never falls behind the snapshot's own replay pointer.
-            CurrentJournal = Math.Max(prev.CurrentJournal, captured.ReplayFromJournalSegmentAtFlush),
+            // The publishing runs outside the mutation-gate barrier, so a roll can be queued or committed
+            // at any point around this write. These are floors: the manifest publisher raises them to the
+            // manifest it holds when the write runs, so the manifest never moves CurrentJournal or
+            // NextSequence backward and never falls behind the snapshot's own replay pointer.
+            CurrentJournal = captured.ReplayFromJournalSegmentAtFlush,
             NextSequence = captured.NextSequenceAtFlush,
             LastSnapshot = new SnapshotRef
             {
@@ -176,7 +175,7 @@ internal sealed class Coordinator
                 ReplayFromJournalSegment = captured.ReplayFromJournalSegmentAtFlush,
             },
         };
-        await _manifestStore.WriteAsync(updated, cancellationToken).ConfigureAwait(false);
+        await _manifestStore.WriteSnapshotAsync(updated, cancellationToken).ConfigureAwait(false);
 
         _triggerState.RecordSuccess();
         return updated.LastSnapshot;
