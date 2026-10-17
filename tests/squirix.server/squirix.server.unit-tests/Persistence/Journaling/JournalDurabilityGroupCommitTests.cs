@@ -491,8 +491,8 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 
         private void Latch(Exception reason)
         {
-            Volatile.Write(ref _pendingAtLatch, GroupCommit?.CancelPendingCore(reason) ?? -1);
             Volatile.Write(ref _latched, reason);
+            Volatile.Write(ref _pendingAtLatch, GroupCommit?.CancelPendingCore(reason) ?? -1);
         }
     }
 
