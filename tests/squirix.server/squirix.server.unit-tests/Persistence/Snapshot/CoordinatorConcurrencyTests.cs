@@ -35,7 +35,7 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
         _ = captureExpectations.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
                                .ReturnValue(default);
         var writerExpectations = new ISnapshotWriterCreateExpectations();
-        _ = writerExpectations.Setups.AllocateIndex(Arg.Any<int>()).ReturnValue(1);
+        _ = writerExpectations.Setups.AllocateIndex(Arg.Any<int>()).Callback(static publishedIndex => publishedIndex + 1);
         _ = writerExpectations.Setups.WriteAsync(
             Arg.Any<int>(),
             Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(),

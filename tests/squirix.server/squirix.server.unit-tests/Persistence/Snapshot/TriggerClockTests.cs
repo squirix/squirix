@@ -78,7 +78,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
         _ = capture.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
                    .ReturnValue(default);
         var writer = new ISnapshotWriterCreateExpectations();
-        _ = writer.Setups.AllocateIndex(Arg.Any<int>()).ReturnValue(1);
+        _ = writer.Setups.AllocateIndex(Arg.Any<int>()).Callback(static publishedIndex => publishedIndex + 1);
         _ = writer.Setups.WriteAsync(
             Arg.Any<int>(),
             Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(),

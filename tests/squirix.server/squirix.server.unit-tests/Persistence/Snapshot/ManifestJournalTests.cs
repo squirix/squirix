@@ -95,7 +95,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
     private static async Task SnapshotOnceAsync(Ledger store, IJournalCoordinator journal, CancellationToken cancellationToken)
     {
         var writerExpectations = new ISnapshotWriterCreateExpectations();
-        _ = writerExpectations.Setups.AllocateIndex(Arg.Any<int>()).ReturnValue(1);
+        _ = writerExpectations.Setups.AllocateIndex(Arg.Any<int>()).Callback(static publishedIndex => publishedIndex + 1);
         _ = writerExpectations.Setups.WriteAsync(
             Arg.Any<int>(),
             Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(),
