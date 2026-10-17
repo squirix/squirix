@@ -107,13 +107,14 @@ internal sealed class SlotWriter : IDisposable
         // Closed by a racing dispose, the handle refuses the write with ObjectDisposedException.
         var handle = ThrowHelper.Required(_handle, "The manifest handle is not open.");
         var target = 1 - _currentSlot;
-        var next = _sequence + 1UL;
+
+        // The sequence is spent before the write: bytes of a failed attempt may still land and be read, so a retry must never reuse it.
+        var next = ++_sequence;
         SlotFormat.Encode(_record, manifest, next);
         long offset = target == 0 ? 0 : SlotFormat.SlotSize;
         RandomAccess.Write(handle, _record, offset);
         RandomAccess.FlushToDisk(handle);
         _currentSlot = target;
-        _sequence = next;
         _currentManifest = manifest;
         return next;
     }

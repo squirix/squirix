@@ -16,6 +16,8 @@ namespace Squirix.Server.UnitTests.Persistence.Manifest;
 [Immutable]
 public sealed class SlotWriterTests : IsolatedStorageTestBase
 {
+    private const long FixedCreatedTicks = 638_500_000_000_000_000L;
+
     /// <summary>A publish without its mirror already moves the manifest, and a later writer keeps that slot intact.</summary>
     [Test]
     public async Task UnmirroredPublishIsInForce()
@@ -40,7 +42,7 @@ public sealed class SlotWriterTests : IsolatedStorageTestBase
     public async Task MirrorWritesBothSlots()
     {
         var path = Path.Join(Dir, "man-current");
-        var snapshot = new SnapshotRef { Index = 2, LastAppliedSequence = 8UL, ReplayFromJournalSegment = 3, CreatedUtc = DateTime.UtcNow };
+        var snapshot = new SnapshotRef { Index = 2, LastAppliedSequence = 8UL, ReplayFromJournalSegment = 3, CreatedUtc = new DateTime(FixedCreatedTicks, DateTimeKind.Utc) };
         using (var writer = new SlotWriter(path))
         {
             _ = writer.Publish(new State { CurrentJournal = 4, NextSequence = 9UL, LastSnapshot = snapshot });
@@ -64,7 +66,7 @@ public sealed class SlotWriterTests : IsolatedStorageTestBase
     public async Task CreatedUtcRoundTripsExactly()
     {
         var path = Path.Join(Dir, "man-current");
-        var snapshot = new SnapshotRef { Index = 1, LastAppliedSequence = 5UL, ReplayFromJournalSegment = 1, CreatedUtc = DateTime.UtcNow.AddTicks(1) };
+        var snapshot = new SnapshotRef { Index = 1, LastAppliedSequence = 5UL, ReplayFromJournalSegment = 1, CreatedUtc = new DateTime(FixedCreatedTicks + 1, DateTimeKind.Utc) };
         using (var writer = new SlotWriter(path))
             _ = writer.Publish(new State { CurrentJournal = 1, NextSequence = 6UL, LastSnapshot = snapshot });
 
@@ -103,7 +105,7 @@ public sealed class SlotWriterTests : IsolatedStorageTestBase
     public async Task TornTargetFallsBackToPreviousManifest()
     {
         var path = Path.Join(Dir, "man-current");
-        var snapshot = new SnapshotRef { Index = 3, LastAppliedSequence = 40UL, ReplayFromJournalSegment = 2, CreatedUtc = DateTime.UtcNow };
+        var snapshot = new SnapshotRef { Index = 3, LastAppliedSequence = 40UL, ReplayFromJournalSegment = 2, CreatedUtc = new DateTime(FixedCreatedTicks, DateTimeKind.Utc) };
         using (var writer = new SlotWriter(path))
         {
             _ = writer.Publish(new State { CurrentJournal = 4, NextSequence = 50UL, LastSnapshot = snapshot });
@@ -185,6 +187,21 @@ public sealed class SlotWriterTests : IsolatedStorageTestBase
         writer.Dispose();
 
         _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(writer, static state => state.Publish(new State()));
+    }
+
+    /// <summary>A write that fails still uses up its sequence, so a retry never reuses it for a different record.</summary>
+    [Test]
+    public async Task RetryAfterFailedWriteUsesHigherSequence()
+    {
+        var path = Path.Join(Dir, "man-current");
+        using var writer = new SlotWriter(path);
+        var first = writer.Publish(new State { CurrentJournal = 2 });
+
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(writer, static state => state.Publish(new State { CurrentJournal = 0 }));
+        var retry = writer.Publish(new State { CurrentJournal = 3 });
+
+        _ = await Assert.That(retry).IsGreaterThan(first + 1UL);
+        _ = await Assert.That(SlotFile.Read(path).Sequence).IsEqualTo(retry);
     }
 
     private static byte[] ReadSlot(string path, int slot)
