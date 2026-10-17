@@ -75,7 +75,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
     {
         using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
         var snapshot = publishedIndex > 0
-            ? new SnapshotRef { Index = publishedIndex, Path = "published", CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 }
+            ? new SnapshotRef { Index = publishedIndex, CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 }
             : null;
         var published = new State { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = snapshot };
         await store.WriteAsync(published, cancellationToken);

@@ -219,7 +219,7 @@ internal static class NodeEndpointServiceRegistration
                 journalBacklogOps = lastAllocated - lastApplied;
 
             double? snapshotAgeSeconds = null;
-            if (manifest.LastSnapshot?.Path != null)
+            if (manifest.LastSnapshot != null)
                 snapshotAgeSeconds = Math.Max(0, (_timeProvider.GetUtcNow().UtcDateTime - manifest.LastSnapshot.CreatedUtc).TotalSeconds);
 
             var compactionState = _compaction.State switch

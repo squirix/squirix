@@ -165,9 +165,10 @@ internal static class JournalCompactor
     {
         var state = new Dictionary<CacheKey, NodeCacheEntry<object?>>();
         var idempotencyState = new Dictionary<string, CompactedIdempotencyRecord>(StringComparer.Ordinal);
-        if (!string.IsNullOrWhiteSpace(snapshotRef?.Path) && File.Exists(snapshotRef.Path))
+        var snapshotPath = snapshotRef == null ? null : SnapshotFileName.BuildPath(options.DataDir, snapshotRef.Index);
+        if (snapshotPath != null && File.Exists(snapshotPath))
         {
-            var snapshot = await snapshotReader.LoadStrictAsync<object?>(snapshotRef.Path, expiredAsOf, cancellationToken).ConfigureAwait(false);
+            var snapshot = await snapshotReader.LoadStrictAsync<object?>(snapshotPath, expiredAsOf, cancellationToken).ConfigureAwait(false);
             for (var i = 0; i < snapshot.Entries.Count; i++)
             {
                 var (key, entry) = snapshot.Entries[i];

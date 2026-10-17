@@ -131,10 +131,10 @@ internal sealed class Ledger : IDisposable
             return _index.IsInitialized ? _index.CurrentIndex : null;
     }
 
-    private (State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8) ReadRollBaselineLocked()
+    private State ReadRollBaselineLocked()
     {
         lock (_cacheSync)
-            return !_index.IsInitialized ? (new State(), ReadOnlyMemory<byte>.Empty) : (_index.Current, _index.SnapshotPathUtf8);
+            return !_index.IsInitialized ? new State() : _index.Current;
     }
 
     private void SetCache(State manifest, int index)
@@ -171,13 +171,10 @@ internal sealed class Ledger : IDisposable
 
         internal bool IsInitialized { get; private set; }
 
-        internal ReadOnlyMemory<byte> SnapshotPathUtf8 { get; private set; } = ReadOnlyMemory<byte>.Empty;
-
         internal void Set(State manifest, int index)
         {
             Current = manifest;
             CurrentIndex = index;
-            SnapshotPathUtf8 = manifest.LastSnapshot?.Path is { Length: > 0 } path ? BufferEx.Utf8ToOwned(path) : ReadOnlyMemory<byte>.Empty;
             IsInitialized = true;
         }
     }
@@ -190,7 +187,7 @@ internal sealed class Ledger : IDisposable
         private readonly PointerSlotWriter _currentPointerWriter;
 
         private readonly string _dir;
-        private readonly Func<(State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8)> _rbl;
+        private readonly Func<State> _rbl;
         private readonly Action<State, int> _setCache;
         private readonly SingleConsumerWorker<WorkItemBase> _worker;
         private bool _dirCreated;
@@ -202,7 +199,7 @@ internal sealed class Ledger : IDisposable
             string path,
             IndexAllocator allocator,
             Action<State, int> setCache,
-            Func<(State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8)> rbl,
+            Func<State> rbl,
             ILogger logger,
             TimeSpan stopBudget)
         {
@@ -273,13 +270,13 @@ internal sealed class Ledger : IDisposable
             }
 
             var nextIndex = _allocator.AllocateNextManifestIndex();
-            var (previous, snapshotPathUtf8) = _rbl();
+            var previous = _rbl();
             var format = previous.Format == 0 ? 1 : previous.Format;
             var snapshot = previous.LastSnapshot;
 
-            var encodedLength = FileCodec.ComputeRollEncodedLength(snapshot, snapshotPathUtf8.Length);
+            var encodedLength = FileCodec.ComputeRollEncodedLength(snapshot);
             EnsureEncodeBufferCapacity(encodedLength);
-            _ = FileCodec.WriteRollEncoded(format, rollItem.CurrentJournal, rollItem.NextSequence, snapshot, snapshotPathUtf8.Span, _encodeBuffer.AsSpan(0, encodedLength));
+            _ = FileCodec.WriteRollEncoded(format, rollItem.CurrentJournal, rollItem.NextSequence, snapshot, _encodeBuffer.AsSpan(0, encodedLength));
 
             var targetPath = _allocator.BuildManifestFilePath(nextIndex);
             FileDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength));
@@ -307,7 +304,7 @@ internal sealed class Ledger : IDisposable
         {
             // A roll queued ahead of this write has already moved the cache, so the floors never move the journal pointer or the
             // next sequence backward. The fixed-width fields keep the precomputed encoded length valid.
-            var current = _rbl().Previous;
+            var current = _rbl();
             var snapshot = work.Snapshot;
             WriteManifest(
                 new State

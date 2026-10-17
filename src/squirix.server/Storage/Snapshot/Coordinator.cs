@@ -169,7 +169,6 @@ internal sealed class Coordinator
             LastSnapshot = new SnapshotRef
             {
                 Index = nextIndex,
-                Path = path,
                 CreatedUtc = now,
                 LastAppliedSequence = seqAtFlush,
                 ReplayFromJournalSegment = captured.ReplayFromJournalSegmentAtFlush,

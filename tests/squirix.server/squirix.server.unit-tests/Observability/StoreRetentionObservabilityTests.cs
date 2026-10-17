@@ -49,7 +49,6 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
                 LastSnapshot = new SnapshotRef
                 {
                     Index = 1,
-                    Path = NodePathKit.Combine(dir, StoreTestSupport.Snapshot000001),
                     CreatedUtc = DateTime.UtcNow,
                     LastAppliedSequence = 20,
                     ReplayFromJournalSegment = 3,
@@ -167,7 +166,6 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
                 LastSnapshot = new SnapshotRef
                 {
                     Index = 2,
-                    Path = currentSnapshot,
                     CreatedUtc = DateTime.UtcNow,
                     LastAppliedSequence = 20,
                     ReplayFromJournalSegment = 2,

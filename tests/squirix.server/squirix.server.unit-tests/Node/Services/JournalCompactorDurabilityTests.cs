@@ -186,7 +186,7 @@ public sealed class JournalCompactorDurabilityTests : IsolatedStorageTestBase
         {
             CurrentJournal = 1,
             NextSequence = 1,
-            LastSnapshot = new SnapshotRef { Index = 1, Path = "snap", CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 },
+            LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 },
         };
 
         using var ledger = new Ledger(kit.Persistence, NullLogger<Ledger>.Instance);

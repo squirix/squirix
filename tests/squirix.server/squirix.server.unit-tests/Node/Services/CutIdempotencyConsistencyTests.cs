@@ -165,7 +165,6 @@ public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBas
                         LastSnapshot = new SnapshotRef
                         {
                             Index = nextIndex,
-                            Path = path,
                             CreatedUtc = DateTime.UtcNow,
                             LastAppliedSequence = seqAtFlush,
                             ReplayFromJournalSegment = state.journal.CurrentSegmentIndex,

@@ -38,7 +38,6 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
                 LastSnapshot = new SnapshotRef
                 {
                     Index = 4,
-                    Path = SnapshotPath(4),
                     CreatedUtc = DateTime.UtcNow,
                     LastAppliedSequence = 40,
                     ReplayFromJournalSegment = 3,
@@ -249,7 +248,6 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
         LastSnapshot = new SnapshotRef
         {
             Index = index,
-            Path = SnapshotPath(index),
             CreatedUtc = DateTime.UtcNow,
             LastAppliedSequence = 10,
             ReplayFromJournalSegment = 1,

@@ -245,7 +245,6 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
                 Index = 0,
                 CreatedUtc = DateTime.UtcNow,
                 LastAppliedSequence = 50,
-                Path = null,
                 ReplayFromJournalSegment = 1,
             },
         };

@@ -213,7 +213,7 @@ internal sealed class RetentionWorker : IWorkPoolItem
                 foreach (var path in Directory.GetFiles(dataDir, $"{FilePrefixes.Snapshot}*{FileExtensions.Snapshot}"))
                 {
                     var index = SnapshotFileName.ParseIndex(Path.GetFileName(path));
-                    if (index <= 0 || index >= currentSnapshot.Index || string.Equals(path, currentSnapshot.Path, StringComparison.OrdinalIgnoreCase))
+                    if (index <= 0 || index >= currentSnapshot.Index)
                         continue;
 
                     failed |= TryDeleteRetentionArtifact(context, path, ManifestRetentionArtifactKind.Snapshot);

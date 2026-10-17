@@ -49,7 +49,7 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         try
         {
             await WriteSnapshotTempFileAsync(tmp, items, idempotencyRecords, encodeBuffer, totalFileSize, cancellationToken).ConfigureAwait(false);
-            var snap = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{InvariantDigitStrings.FormatD6(index)}{FileExtensions.Snapshot}");
+            var snap = SnapshotFileName.BuildPath(_dataDir, index);
             return _fileOperations.PublishSnapshot(tmp, snap) ? snap : throw new IOException("Failed to publish snapshot.");
         }
         finally

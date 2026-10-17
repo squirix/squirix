@@ -103,7 +103,7 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
 
                 var prev = await state.manifestStore.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false);
                 var nextIndex = (prev.LastSnapshot?.Index ?? 0) + 1;
-                var path = await state.writer.WriteSingleAsync(nextIndex, BaseKey, new NodeCacheEntry<object?> { Value = "base", Version = 1 }, ct).ConfigureAwait(false);
+                _ = await state.writer.WriteSingleAsync(nextIndex, BaseKey, new NodeCacheEntry<object?> { Value = "base", Version = 1 }, ct).ConfigureAwait(false);
                 var updated = new State
                 {
                     Format = prev.Format,
@@ -112,7 +112,6 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
                     LastSnapshot = new SnapshotRef
                     {
                         Index = nextIndex,
-                        Path = path,
                         CreatedUtc = DateTime.UtcNow,
                         LastAppliedSequence = seqAtFlush,
                         ReplayFromJournalSegment = flushBoundary.ReplayFromSegment,

@@ -47,7 +47,7 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
                     Format = 1,
                     CurrentJournal = i,
                     NextSequence = Convert.ToUInt64(i),
-                    LastSnapshot = i == 5 ? new SnapshotRef { CreatedUtc = DateTime.UtcNow, Path = new string('x', 65000) } : null,
+                    LastSnapshot = i == 5 ? new SnapshotRef { CreatedUtc = DateTime.UtcNow } : null,
                 };
                 await seeder.WriteAsync(state, cancellationToken);
             }

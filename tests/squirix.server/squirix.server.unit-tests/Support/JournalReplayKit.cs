@@ -256,7 +256,7 @@ internal sealed class JournalReplayKit
                 var previous = await state.ManifestStore.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false);
                 var nextIndex = (previous.LastSnapshot?.Index ?? 0) + 1;
                 var entry = new NodeCacheEntry<object?> { Value = state.Entry.Value, Version = state.Entry.Version, ExpiresUtc = state.Entry.ExpiresUtc };
-                var path = await state.Writer.WriteSingleAsync(nextIndex, new CacheKey(CacheName, Key), entry, ct).ConfigureAwait(false);
+                _ = await state.Writer.WriteSingleAsync(nextIndex, new CacheKey(CacheName, Key), entry, ct).ConfigureAwait(false);
                 var updated = new State
                 {
                     Format = previous.Format,
@@ -265,7 +265,6 @@ internal sealed class JournalReplayKit
                     LastSnapshot = new SnapshotRef
                     {
                         Index = nextIndex,
-                        Path = path,
                         CreatedUtc = state.WriteStart,
                         LastAppliedSequence = seqAtFlush,
                         ReplayFromJournalSegment = boundary.ReplayFromSegment,

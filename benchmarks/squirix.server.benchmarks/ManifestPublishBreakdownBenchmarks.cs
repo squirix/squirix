@@ -130,7 +130,6 @@ public class ManifestPublishBreakdownBenchmarks
             Ledger = store;
             Format = warmup.Format;
             Snapshot = warmup.Snapshot;
-            SnapshotPathUtf8 = warmup.SnapshotPathUtf8;
             ManifestFileNamePrefix = warmup.ManifestFileNamePrefix;
             PointerWriter = pointerWriter;
         }
@@ -144,8 +143,6 @@ public class ManifestPublishBreakdownBenchmarks
         private PointerSlotWriter PointerWriter { get; }
 
         private SnapshotRef? Snapshot { get; }
-
-        private byte[] SnapshotPathUtf8 { get; }
 
         public void Dispose()
         {
@@ -184,7 +181,6 @@ public class ManifestPublishBreakdownBenchmarks
                 {
                     Format = 1,
                     Snapshot = null,
-                    SnapshotPathUtf8 = [],
                     EncodeBuffer = encodeBuffer,
                     ManifestFileNamePrefix = manifestFileNamePrefix,
                 });
@@ -211,7 +207,7 @@ public class ManifestPublishBreakdownBenchmarks
         /// <param name="nextSequence">Updated next journal sequence.</param>
         /// <returns>Encoded byte length.</returns>
         internal int EncodeRoll(int currentJournal, ulong nextSequence) =>
-            FileCodec.WriteRollEncoded(Format, currentJournal, nextSequence, Snapshot, SnapshotPathUtf8, _encodeBuffer);
+            FileCodec.WriteRollEncoded(Format, currentJournal, nextSequence, Snapshot, _encodeBuffer);
 
         /// <summary>Writes a pre-encoded manifest file and flushes it to disk.</summary>
         /// <param name="targetPath">Path to a new <c language="csharp">.bmqx</c> file.</param>
@@ -237,8 +233,6 @@ public class ManifestPublishBreakdownBenchmarks
             internal required string ManifestFileNamePrefix { get; init; }
 
             internal required SnapshotRef? Snapshot { get; init; }
-
-            internal required byte[] SnapshotPathUtf8 { get; init; }
         }
     }
 }
