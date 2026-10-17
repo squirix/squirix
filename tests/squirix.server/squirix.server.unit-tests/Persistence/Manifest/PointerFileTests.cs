@@ -18,7 +18,7 @@ public sealed class PointerFileTests : IsolatedStorageTestBase
     public async Task SharedReadSucceedsWithOpenWriterHandle()
     {
         var path = Path.Join(Dir, "man-current");
-        using var writer = new PersistentPointerWriter(path);
+        using var writer = new PointerSlotWriter(path);
         writer.Publish(7);
 
         _ = await Assert.That(PointerFile.Read(path).ManifestIndex).IsEqualTo(7);

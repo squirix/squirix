@@ -21,7 +21,7 @@ namespace Squirix.Server.Storage.Manifest;
 ///     </para>
 /// </remarks>
 [Mutable]
-internal sealed class PersistentPointerWriter : IDisposable
+internal sealed class PointerSlotWriter : IDisposable
 {
     private readonly string _path;
     private readonly byte[] _record = new byte[PointerSlots.RecordSize];
@@ -31,7 +31,7 @@ internal sealed class PersistentPointerWriter : IDisposable
     private SafeFileHandle? _handle;
     private ulong _sequence;
 
-    internal PersistentPointerWriter(string path)
+    internal PointerSlotWriter(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
@@ -99,7 +99,7 @@ internal sealed class PersistentPointerWriter : IDisposable
         if (Volatile.Read(ref _disposed) != 0)
         {
             handle.Dispose();
-            throw new ObjectDisposedException(nameof(PersistentPointerWriter));
+            throw new ObjectDisposedException(nameof(PointerSlotWriter));
         }
     }
 
