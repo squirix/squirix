@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
@@ -202,7 +201,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
             for (var running = true; running;)
                 running = DrainScheduler.RunJournalThreadIteration(ref rollDeferredAppend);
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or TimeoutException or UnauthorizedAccessException)
+        catch (Exception ex) when (JournalPipelineFault.Is(ex))
         {
             Host.FailPipeline(ex);
         }
