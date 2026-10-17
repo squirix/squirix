@@ -17,8 +17,9 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Storage.Journaling.Compaction;
 
 /// <summary>
-/// Compacts the current state (snapshot plus journal tail) into a single journal segment,
-/// then publishes it under a new name, updates the manifest, and deletes the old journal files.
+/// Compacts the current state (snapshot plus journal tail) into a single journal segment staged under a temp name.
+/// The manifest write that names the new segment is the commit point; the segment is published under its final name after it,
+/// and then the old journal files are deleted. Startup finishes the publish when a crash separates the two.
 /// Invariants after completion:
 /// - All used file handles are closed
 /// - At least one valid journal segment exists
@@ -210,11 +211,11 @@ internal static class JournalCompactor
         JournalSegment[] journalSegments,
         CancellationToken cancellationToken)
     {
-        // Install the compacted journal before deleting any old segments.
-        // Crash safety relies on each intermediate state remaining recoverable.
+        // The manifest write is the commit point: until it lands, recovery sees exactly the pre-compaction layout and no segment above the
+        // manifest holds frames. After it, startup publishes the staged segment if the move below did not complete.
         var path = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}{FileExtensions.Journal}");
         var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.tmp");
-        _ = FileEx.PublishFile(tmpPath, path, TimeProvider.System);
+        FileEx.FlushDirectoryEntry(tmpPath);
 
         var newManifest = new State
         {
@@ -224,6 +225,7 @@ internal static class JournalCompactor
             LastSnapshot = null,
         };
         await manifestStore.WriteAsync(newManifest, cancellationToken).ConfigureAwait(false);
+        _ = FileEx.PublishFile(tmpPath, path, TimeProvider.System);
 
         foreach (var segment in journalSegments)
         {

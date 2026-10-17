@@ -11,4 +11,7 @@ internal enum JournalRepairKind
 
     /// <summary>A torn last frame was cut from the end of the segment.</summary>
     TornTailTruncated = 2,
+
+    /// <summary>A compacted segment that the manifest already names was published from its staged temp file.</summary>
+    CompactedSegmentPublished = 3,
 }

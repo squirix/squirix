@@ -39,6 +39,12 @@ internal static partial class ServerLog
         Message = "Journal segment {Path} had a damaged file header in front of intact frames; the header was restored without discarding data (original length {OriginalLength} bytes, {DiscardedBytes} bytes discarded)")]
     internal static partial void JournalHeaderRestored(ILogger logger, string path, long originalLength, long discardedBytes);
 
+    [LoggerMessage(
+        EventId = 1022,
+        Level = LogLevel.Warning,
+        Message = "Journal segment {Path} was staged by a compaction the manifest already committed; it was published ({Length} bytes)")]
+    internal static partial void JournalCompactedSegmentPublished(ILogger logger, string path, long length);
+
     [LoggerMessage(EventId = 1013, Level = LogLevel.Warning, Message = "Journal mutation gate held for {HeldMs} ms by {Holder}")]
     internal static partial void JournalMutationGateHeldLong(ILogger logger, long heldMs, string holder);
 

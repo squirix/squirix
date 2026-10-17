@@ -125,10 +125,10 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         _ = await Assert.That(restartedJournal.CurrentSegmentIndex).IsEqualTo(manifest.CurrentJournal);
     }
 
-    /// <summary>Scan start follows the first on-disk segment when it is already above manifest CurrentJournal.</summary>
+    /// <summary>A segment above the manifest journal that holds frames fails startup instead of feeding the sequence scan.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ScanDerivesSequenceManifestJournal(CancellationToken cancellationToken)
+    public async Task FramesAboveManifestJournalFailScan(CancellationToken cancellationToken)
     {
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
@@ -142,16 +142,19 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
             LastSnapshot = null,
         };
         await manifestStore.WriteAsync(manifest, cancellationToken);
+        var current = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
 
-        await using var journal = JournalCoordinatorFactory.Create(
-            persistence,
-            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true),
-            NullLoggerFactory.Instance,
-            TimeProvider.System,
-            out _);
-        _ = await Assert.That(journal.NextSequence).IsEqualTo(21UL);
+        var failure = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            (persistence, current, manifestStore),
+            static state => _ = JournalCoordinatorFactory.Create(
+                state.persistence,
+                state.current,
+                state.manifestStore,
+                new AsyncManualResetEvent(true),
+                NullLoggerFactory.Instance,
+                TimeProvider.System,
+                out _));
+        _ = await Assert.That(failure.Message).Contains("holds frames above", StringComparison.Ordinal);
     }
 
     /// <summary>The next sequence follows records at/after manifest CurrentJournal; obsolete lower segments are not consulted.</summary>
