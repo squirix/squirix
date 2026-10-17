@@ -29,6 +29,9 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
         remove => _ = value;
     }
 
+    /// <summary>Gets the reason the pipeline was failed with, or <see langword="null" /> when it was not failed.</summary>
+    public Exception? FailedWith { get; private set; }
+
     /// <inheritdoc />
     public long AppendedBytes => 1024;
 
@@ -101,7 +104,7 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
     public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> action, CancellationToken cancellationToken) => default;
 
     /// <inheritdoc />
-    public void FailJournalPipeline(Exception reason) => throw new NotSupportedException();
+    public void FailJournalPipeline(Exception reason) => FailedWith = reason;
 
     /// <inheritdoc />
     public Exception? GetJournalThreadFailure() => null;

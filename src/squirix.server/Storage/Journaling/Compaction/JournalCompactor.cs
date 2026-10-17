@@ -20,6 +20,8 @@ namespace Squirix.Server.Storage.Journaling.Compaction;
 /// Compacts the current state (snapshot plus journal tail) into a single journal segment staged under a temp name.
 /// The manifest write that names the new segment is the commit point; the segment is published under its final name after it,
 /// and then the old journal files are deleted. Startup finishes the publish when a crash separates the two.
+/// A throw after the manifest write began leaves the commit outcome unknown: the exclusive maintenance executor fails the journal pipeline, and startup
+/// either publishes the staged segment (the manifest names it) or deletes it.
 /// Invariants after completion:
 /// - All used file handles are closed
 /// - At least one valid journal segment exists
@@ -212,7 +214,8 @@ internal static class JournalCompactor
         CancellationToken cancellationToken)
     {
         // The manifest write is the commit point: until it lands, recovery sees exactly the pre-compaction layout and no segment above the
-        // manifest holds frames. After it, startup publishes the staged segment if the move below did not complete.
+        // manifest holds frames. After it, startup publishes the staged segment if the move below did not complete. A throw from the write
+        // leaves the outcome unknown; safety comes from the executor latch plus that startup roll-forward or delete.
         var path = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}{FileExtensions.Journal}");
         var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.tmp");
         FileEx.FlushDirectoryEntry(tmpPath);

@@ -98,7 +98,7 @@ internal sealed class Coordinator
                     state.Activity?.SetTag("snapshot.items_count", InvariantDigitStrings.Format(captured.Items.Count));
                     return captured;
                 },
-                static (state, seqAtFlush, captured, ct) => state.Coordinator.PublishSnapshotAsync(seqAtFlush, captured, state.Baseline, state.Activity, ct),
+                static (state, seqAtFlush, captured, ct) => state.Coordinator.PublishSnapshotAsync(state.Journal, seqAtFlush, captured, state.Baseline, state.Activity, ct),
                 cancellationToken).ConfigureAwait(false);
 
             result = published == null ? "aborted" : "success";
@@ -133,6 +133,7 @@ internal sealed class Coordinator
     }
 
     private async ValueTask<SnapshotRef?> PublishSnapshotAsync(
+        IJournalCoordinator journal,
         ulong seqAtFlush,
         CapturedSnapshotBundle captured,
         State baseline,
@@ -172,7 +173,16 @@ internal sealed class Coordinator
                 ReplayFromJournalSegment = captured.ReplayFromJournalSegmentAtFlush,
             },
         };
-        await _manifestStore.WriteSnapshotAsync(updated, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _manifestStore.WriteSnapshotAsync(updated, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception) when (_manifestStore.PublishFailure is { } failure)
+        {
+            // The manifest outcome is unknown and the ledger refuses every later publish; stop here instead of capturing and writing a snapshot per tick.
+            journal.FailJournalPipeline(failure);
+            throw;
+        }
 
         _triggerState.RecordSuccess();
         return updated.LastSnapshot;

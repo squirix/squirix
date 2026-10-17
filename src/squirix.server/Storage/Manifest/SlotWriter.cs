@@ -13,7 +13,8 @@ namespace Squirix.Server.Storage.Manifest;
 ///     The file is created and written in place through one persistent handle, never through a temporary file. A publish writes the new manifest into
 ///     the slot that does not hold the current one and flushes it, so the previous manifest stays intact whenever a write is torn or lost; the manifest
 ///     counts as moved once that flush returned. <see cref="Mirror" /> then writes the same manifest into the other slot, so that damage at rest to one
-///     slot loses nothing. The caller acknowledges a publish only after the mirror.
+///     slot loses nothing. The caller acknowledges a publish only after the mirror. A publish or mirror that throws after
+///     the write began may have landed, so its outcome is unknown and it must not be retried as if nothing was written.
 ///     </para>
 ///     <para>
 ///     <see cref="Publish" /> and <see cref="Mirror" /> are called serially by the manifest publisher worker; <see cref="Dispose" /> may run on another
@@ -29,6 +30,7 @@ internal sealed class SlotWriter : IDisposable
     private int _currentSlot;
     private int _disposed;
     private SafeFileHandle? _handle;
+    private bool _outcomeUnknown;
     private ulong _sequence;
 
     internal SlotWriter(string path)
@@ -37,6 +39,9 @@ internal sealed class SlotWriter : IDisposable
 
         _path = path;
     }
+
+    /// <summary>Gets a value indicating whether a write began that did not complete, so a slot may hold its manifest although the call threw.</summary>
+    internal bool OutcomeUnknown => Volatile.Read(ref _outcomeUnknown);
 
     /// <inheritdoc />
     public void Dispose()
@@ -112,8 +117,12 @@ internal sealed class SlotWriter : IDisposable
         var next = ++_sequence;
         SlotFormat.Encode(_record, manifest, next);
         long offset = target == 0 ? 0 : SlotFormat.SlotSize;
+
+        // Set before the first byte is written and cleared only after the flush: a throw in between may have landed.
+        Volatile.Write(ref _outcomeUnknown, true);
         RandomAccess.Write(handle, _record, offset);
         RandomAccess.FlushToDisk(handle);
+        Volatile.Write(ref _outcomeUnknown, false);
         _currentSlot = target;
         _currentManifest = manifest;
         return next;
