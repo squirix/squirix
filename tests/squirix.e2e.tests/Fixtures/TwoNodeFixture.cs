@@ -31,7 +31,8 @@ public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncInitializer, IAsyncD
     public ValueTask<TwoNodeNamedCaches<T>> CreateNamedCachesAsync<T>(CancellationToken cancellationToken)
     {
         var initialized = _cluster != null && _clientA != null && _clientB != null;
-        return initialized ? TwoNodeNamedCaches<T>.CreateAsync(_cluster!, _clientA!, _clientB!, cancellationToken, false)
+        return initialized
+            ? TwoNodeNamedCaches<T>.CreateAsync(_cluster!, _clientA!, _clientB!, cancellationToken, false)
             : throw new InvalidOperationException("Fixture is not initialized.");
     }
 

@@ -74,13 +74,20 @@ internal static class NodeOptionsRegistration
         // own hold for its owned outbound handlers and releases it only once their connections are closed, so the
         // certificates are freed by the last holder, whichever order the container disposes them in. The testkit peer
         // handlers take a hold too. Kestrel takes none: the host stops it before DI disposes the material.
-        _ = args.Certificate != null ? services.AddSingleton(_ => args.Certificate) : services.AddSingleton(static provider =>
+        if (args.Certificate != null)
         {
-            var registeredCluster = provider.GetRequiredService<TopologyOptions>();
-            var options = provider.GetRequiredService<MtlsOptions>();
-            var primaryListenPort = registeredCluster.Uri.IsAbsoluteUri ? registeredCluster.Uri.Port : default(int?);
-            return MtlsCertificate.Load(options, primaryListenPort, MtlsTopology.RequiresInterNodeMtls(registeredCluster));
-        });
+            _ = services.AddSingleton(_ => args.Certificate);
+        }
+        else
+        {
+            _ = services.AddSingleton(static provider =>
+            {
+                var registeredCluster = provider.GetRequiredService<TopologyOptions>();
+                var options = provider.GetRequiredService<MtlsOptions>();
+                var primaryListenPort = registeredCluster.Uri.IsAbsoluteUri ? registeredCluster.Uri.Port : default(int?);
+                return MtlsCertificate.Load(options, primaryListenPort, MtlsTopology.RequiresInterNodeMtls(registeredCluster));
+            });
+        }
     }
 
     private static void AddValidatedOptionsInstance<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions>(

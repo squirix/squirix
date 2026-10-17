@@ -92,7 +92,8 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
     {
         try
         {
-            return _journal != null ? await ExecuteDurableAsync(_journal, operationId, fingerprint, state, execute, execution, cancellationToken).ConfigureAwait(false)
+            return _journal != null
+                ? await ExecuteDurableAsync(_journal, operationId, fingerprint, state, execute, execution, cancellationToken).ConfigureAwait(false)
                 : await ExecuteInMemoryAsync(operationId, fingerprint, state, execute, execution, cancellationToken).ConfigureAwait(false);
         }
         finally

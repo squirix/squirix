@@ -18,7 +18,6 @@ trim_trailing_whitespace = true # strip trailing whitespace
 # C# language style + IDE code-style diagnostics
 # ===========================================================================
 csharp_new_line_before_open_brace = all # place open brace on its own line (Allman)
-csharp_place_expr_method_on_single_line = if_owner_is_single_line # keep expression-bodied method on one line only if owner fits
 csharp_prefer_braces = false # omit braces for single embedded statements (incl nested loops); keep for multi-statement bodies (SQR0008). when_multiline/SA1519/RCS1001 would force braces
 csharp_prefer_simple_using_statement = true:warning # prefer using declaration over using block
 csharp_prefer_static_local_function = true:error # prefer static local functions
@@ -587,8 +586,10 @@ resharper_csharp_indent_nested_while_stmt = true # indent nested while
 resharper_csharp_keep_blank_lines_in_code = 1 # collapse consecutive blank lines (default is often 2)
 resharper_csharp_keep_blank_lines_in_declarations = 1 # collapse consecutive blank lines in declarations
 resharper_csharp_keep_existing_attribute_arrangement = false # reformat attribute arrangement
+resharper_csharp_keep_existing_embedded_arrangement = false # reformat embedded-statement arrangement (moved from the solution DotSettings)
 resharper_csharp_keep_existing_expr_member_arrangement = false # reformat expression-member arrangement
 resharper_csharp_keep_existing_linebreaks = false # reformat line breaks
+resharper_csharp_nested_ternary_style = compact # nested ternaries chop in compact style (moved from the solution DotSettings)
 resharper_csharp_new_line_before_while = true # new line before while in do-while
 resharper_csharp_place_constructor_initializer_on_same_line = false # constructor initializer on own line
 resharper_csharp_place_expr_method_on_single_line = always # expression-bodied methods on one line
@@ -603,13 +604,14 @@ resharper_csharp_wrap_before_declaration_rpar = false # no wrap before declarati
 resharper_csharp_wrap_before_first_method_call = false # no wrap before first method call
 resharper_csharp_wrap_before_invocation_rpar = false # no wrap before invocation rpar
 resharper_csharp_wrap_before_linq_expression = false # no wrap before LINQ expression
+resharper_csharp_wrap_before_ternary_opsigns = true # SA1143: once chopped, '?' and ':' start their lines
 resharper_csharp_wrap_chained_method_calls = wrap_if_long # wrap chained calls if long
 resharper_csharp_wrap_extends_list_style = wrap_if_long # wrap extends list if long
 resharper_csharp_wrap_linq_expressions = wrap_if_long # wrap LINQ expressions if long
 resharper_csharp_wrap_multiple_type_parameter_constraints_style = chop_always # always chop multiple constraints
 resharper_csharp_wrap_object_and_collection_initializer_style = wrap_if_long # wrap initializer if long
 resharper_csharp_wrap_parameters_style = wrap_if_long # wrap parameters if long
-resharper_csharp_wrap_ternary_expr_style = wrap_if_long # wrap ternary if long
+resharper_csharp_wrap_ternary_expr_style = chop_if_long # SA1143: chop before '?'/':' — 'wrap_if_long' emits the 'cond ? a / : b' hybrid SA1143 rejects
 
 # ===========================================================================
 # Scoped overrides

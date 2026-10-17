@@ -167,10 +167,7 @@ internal sealed class ServerClientPool : IServerClientPool
         var valid = budget == Timeout.InfiniteTimeSpan || (budget >= TimeSpan.Zero && budget <= MaxShutdownBudget);
         return valid
             ? budget
-            : throw new ArgumentOutOfRangeException(
-                nameof(args),
-                budget,
-                "The shutdown budget must be between zero and the longest timeout a task wait accepts, or infinite.");
+            : throw new ArgumentOutOfRangeException(nameof(args), budget, "The shutdown budget must be between zero and the longest timeout a task wait accepts, or infinite.");
     }
 
     private void BeginDrain()

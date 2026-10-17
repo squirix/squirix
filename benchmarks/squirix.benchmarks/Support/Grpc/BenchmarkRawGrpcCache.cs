@@ -66,6 +66,6 @@ internal sealed class BenchmarkRawGrpcCache : IDisposable
     {
         var response = await _client.GetValueAsync(new GetValueAsyncRequest { CacheName = _cacheName, Key = key }, cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        return response.Found ? await ProtoEx.FromCacheValueAsync<string>(response.Value, Serializer).ConfigureAwait(false) : null;
+        return response.Found ? await ProtoEx.ReadAsync<string>(response.Value, Serializer).ConfigureAwait(false) : null;
     }
 }

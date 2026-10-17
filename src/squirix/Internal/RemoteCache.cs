@@ -75,7 +75,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         KeyInputValidator.Validate(key, nameof(key));
         ArgumentNullException.ThrowIfNull(valueFactory);
 
-        // Options that can never be written are refused before the factory runs; the lifetime is still measured from the send.
+        // Options that can never be written are refused before the factory runs; the lifetime is still measured from to send.
         _ = _rpc.ResolveExpiration(options);
         return _getOrAddFlights.RunAsync(key, new GetOrAddFlightState(this, key, valueFactory, options), static (state, ct) => ExecuteGetOrAddAsync(state, ct), cancellationToken);
     }
@@ -83,7 +83,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     public async Task<CacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
-        var response = await _rpc.ExecuteAsync(
+        var r = await _rpc.ExecuteAsync(
             static (client, state, ct) =>
             {
                 var responseAsync = client.GetValueAsync(new GetValueAsyncRequest { CacheName = state.CacheName, Key = state.Key }, RemoteCacheRpc.CallOptionsFor(ct))
@@ -93,8 +93,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             (CacheName: _cacheName, Key: key),
             cancellationToken).ConfigureAwait(false);
 
-        return response.Found ? new CacheValueResult<T>(true, await ProtoEx.FromCacheValueAsync<T>(response.Value, _serializer).ConfigureAwait(false))
-            : new CacheValueResult<T>(false, default);
+        return r.Found ? new CacheValueResult<T>(true, await ProtoEx.ReadAsync<T>(r.Value, _serializer).ConfigureAwait(false)) : new CacheValueResult<T>(false, default);
     }
 
     public async Task<bool> RemoveAsync(string key, CancellationToken cancellationToken = default)
@@ -223,10 +222,11 @@ internal sealed class RemoteCache<T> : ICache<T>
     private static async Task<CacheValueResult<T>> ExecuteGetOrAddAsync(GetOrAddFlightState state, CancellationToken cancellationToken)
     {
         var created = await state.ValueFactory(state.Key, cancellationToken).ConfigureAwait(false);
-        var request = state.Cache._rpc.ToGetOrAddAsyncRequest(state.Key, new CacheEntry<T> { Value = created });
-        state.Cache._rpc.ApplyExpiration(request.Entry, state.Options);
+        var cache = state.Cache;
+        var request = cache._rpc.ToGetOrAddAsyncRequest(state.Key, new CacheEntry<T> { Value = created });
+        cache._rpc.ApplyExpiration(request.Entry, state.Options);
         request.OperationId = RpcOperationIdentity.New();
-        var response = await state.Cache._rpc.ExecuteAsync(
+        var r = await cache._rpc.ExecuteAsync(
             static (client, requestState, token) =>
             {
                 var responseAsync = client.GetOrAddAsync(requestState, RemoteCacheRpc.CallOptionsFor(token)).ResponseAsync;
@@ -235,8 +235,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             request,
             cancellationToken).ConfigureAwait(false);
 
-        return response.Found ? new CacheValueResult<T>(true, await ProtoEx.FromCacheValueAsync<T>(response.Value, state.Cache._serializer).ConfigureAwait(false))
-            : new CacheValueResult<T>(false, default);
+        return r.Found ? new CacheValueResult<T>(true, await ProtoEx.ReadAsync<T>(r.Value, cache._serializer).ConfigureAwait(false)) : new CacheValueResult<T>(false, default);
     }
 
     private async Task<CacheEntry<T>?> GetEntryOrDefaultAsync(string key, CancellationToken cancellationToken)

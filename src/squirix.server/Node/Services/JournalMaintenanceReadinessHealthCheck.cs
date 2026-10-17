@@ -80,9 +80,8 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
             return null;
 
         var elapsed = _timeProvider.GetElapsedTime(startedTimestamp);
-        return elapsed < _stallThreshold ? null
-            : string.Create(
-                CultureInfo.InvariantCulture,
-                $"journal I/O is stalled: {operation} has been in progress for {elapsed.TotalSeconds:F1} s (threshold {_stallThreshold.TotalSeconds:F1} s).");
+        return elapsed < _stallThreshold
+            ? null
+            : string.Create(CultureInfo.InvariantCulture, $"journal I/O is stalled: {operation} has been in progress for {elapsed.TotalSeconds:F1} s (threshold {_stallThreshold.TotalSeconds:F1} s).");
     }
 }

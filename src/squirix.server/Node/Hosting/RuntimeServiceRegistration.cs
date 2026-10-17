@@ -34,7 +34,8 @@ internal static class RuntimeServiceRegistration
             _ = services.AddSingleton<IRemoteInvocationState>(static sp => sp.GetRequiredService<RemoteInvocationContextAccessor>());
             _ = services.AddHttpContextAccessor();
             _ = services.AddSingleton<IBackpressureClientIdResolver>(static sp => sp.GetRequiredService<AdmissionOptions>().HasPerClientLimits
-                ? new HttpContextClientIdResolver(sp.GetRequiredService<IHttpContextAccessor>()) : SharedClientIdResolver.Instance);
+                ? new HttpContextClientIdResolver(sp.GetRequiredService<IHttpContextAccessor>())
+                : SharedClientIdResolver.Instance);
             _ = services.AddSingleton<IBackpressureGate>(static sp => new AdmissionGate(
                 sp.GetRequiredService<AdmissionOptions>(),
                 sp.GetRequiredService<BackpressureMetrics>(),

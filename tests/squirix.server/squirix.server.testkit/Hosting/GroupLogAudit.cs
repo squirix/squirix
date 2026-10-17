@@ -178,7 +178,8 @@ internal static class GroupLogAudit
             FindRepeatedOperations(member, entries, findings);
 
         var report = CompareCommittedRanges(logs, commitIndex, allowCompactedPrefix, findings);
-        return findings.Count == 0 ? report
+        return findings.Count == 0
+            ? report
             : throw new InvalidOperationException($"The committed log of group {groupId} failed its audit:{Environment.NewLine}{string.Join(Environment.NewLine, findings)}");
     }
 

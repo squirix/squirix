@@ -127,12 +127,9 @@ internal static class ReplicaTransferWire
     private static async Task<ReplicaTransferReply> EndAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken)
     {
         var end = request.End;
-        return request.Sequence > int.MaxValue ? OutOfRange() : await receiver.EndAsync(
-            SenderOf(request),
-            int.CreateChecked(request.Sequence),
-            end.EntryCount,
-            end.EntriesCrc32C,
-            cancellationToken).ConfigureAwait(false);
+        return request.Sequence > int.MaxValue
+            ? OutOfRange()
+            : await receiver.EndAsync(SenderOf(request), int.CreateChecked(request.Sequence), end.EntryCount, end.EntriesCrc32C, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<ReplicaTransferReply> EntriesAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken)
@@ -183,14 +180,11 @@ internal static class ReplicaTransferWire
     private static async Task<ReplicaTransferReply> WipeAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken) =>
         request.Sequence > int.MaxValue ? OutOfRange() : await receiver.WipeAsync(SenderOf(request), int.CreateChecked(request.Sequence), cancellationToken).ConfigureAwait(false);
 
-    private static async Task<ReplicaTransferReply> SnapshotAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken)
+    private static async Task<ReplicaTransferReply> SnapshotAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest r, CancellationToken cancellationToken)
     {
-        var snapshot = request.Snapshot;
-        return request.Sequence > int.MaxValue || snapshot.Offset > long.MaxValue ? OutOfRange() : await receiver.SnapshotAsync(
-            SenderOf(request),
-            int.CreateChecked(request.Sequence),
-            long.CreateChecked(snapshot.Offset),
-            snapshot.Chunk.Memory,
-            cancellationToken).ConfigureAwait(false);
+        var s = r.Snapshot;
+        return r.Sequence > int.MaxValue || s.Offset > long.MaxValue
+            ? OutOfRange()
+            : await receiver.SnapshotAsync(SenderOf(r), int.CreateChecked(r.Sequence), long.CreateChecked(s.Offset), s.Chunk.Memory, cancellationToken).ConfigureAwait(false);
     }
 }

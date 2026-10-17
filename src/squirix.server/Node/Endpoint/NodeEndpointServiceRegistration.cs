@@ -27,23 +27,31 @@ internal static class NodeEndpointServiceRegistration
         internal IServiceCollection AddSquirixNodeEndpointServices(bool persistenceEnabled = false)
         {
             _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
-            _ = persistenceEnabled ? services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new HealthReadyDetailsProvider(
-                new HealthReadyDependencies(
-                    sp.GetRequiredService<Ledger>(),
-                    sp.GetRequiredService<IRetentionCleanupReadinessStatus>(),
-                    sp.GetRequiredService<IJournalCoordinator>(),
-                    sp.GetRequiredService<Coordinator>(),
-                    sp.GetRequiredService<IJournalCompactionStatus>(),
+
+            if (persistenceEnabled)
+            {
+                _ = services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new HealthReadyDetailsProvider(
+                    new HealthReadyDependencies(
+                        sp.GetRequiredService<Ledger>(),
+                        sp.GetRequiredService<IRetentionCleanupReadinessStatus>(),
+                        sp.GetRequiredService<IJournalCoordinator>(),
+                        sp.GetRequiredService<Coordinator>(),
+                        sp.GetRequiredService<IJournalCompactionStatus>(),
+                        sp.GetRequiredService<TopologyOptions>(),
+                        sp.GetRequiredService<IMemoryUsageAccounting>()),
+                    sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
+                    sp.GetRequiredService<PressureOptions>(),
+                    sp.GetService<IReplicaStatusSource>(),
+                    sp.GetRequiredService<TimeProvider>()));
+            }
+            else
+            {
+                _ = services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new EphemeralHealthReadyDetailsProvider(
                     sp.GetRequiredService<TopologyOptions>(),
-                    sp.GetRequiredService<IMemoryUsageAccounting>()),
-                sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
-                sp.GetRequiredService<PressureOptions>(),
-                sp.GetService<IReplicaStatusSource>(),
-                sp.GetRequiredService<TimeProvider>())) : services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new EphemeralHealthReadyDetailsProvider(
-                sp.GetRequiredService<TopologyOptions>(),
-                sp.GetRequiredService<IMemoryUsageAccounting>(),
-                sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
-                sp.GetRequiredService<PressureOptions>()));
+                    sp.GetRequiredService<IMemoryUsageAccounting>(),
+                    sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
+                    sp.GetRequiredService<PressureOptions>()));
+            }
 
             return services;
         }

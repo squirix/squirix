@@ -121,7 +121,8 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         var timeProvider = new FakeTimeProvider();
         var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
 
-        var entry = useAbsoluteExpires ? new NodeCacheEntry<string> { Value = "v", ExpiresUtc = timeProvider.GetUtcNow().UtcDateTime.AddMilliseconds(expirationMs) }
+        var entry = useAbsoluteExpires
+            ? new NodeCacheEntry<string> { Value = "v", ExpiresUtc = timeProvider.GetUtcNow().UtcDateTime.AddMilliseconds(expirationMs) }
             : new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMilliseconds(expirationMs) };
 
         await cache.SetAsync(CacheKey.Default("k"), entry, cancellationToken);

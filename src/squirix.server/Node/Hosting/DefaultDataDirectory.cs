@@ -7,7 +7,15 @@ namespace Squirix.Server.Node.Hosting;
 /// <remarks>Shared by hosting composition and the offline doctor so both inspect the same directory.</remarks>
 internal static class DefaultDataDirectory
 {
-    /// <summary>Resolves <c language="csharp">SQUIRIX_TEST_ROOT/&lt;cluster&gt;/&lt;node&gt;</c> when that variable is set; otherwise <c language="csharp">LocalApplicationData/squirix/&lt;cluster&gt;/&lt;node&gt;</c>.</summary>
+    private const string AppFolder = "squirix";
+
+    private const string NoDirMessage = "Cannot determine default data directory: LocalApplicationData is not available. " +
+                                        "Set PersistenceOptions.DataDir explicitly or define the HOME / XDG_DATA_HOME environment variable.";
+
+    /// <summary>
+    /// Resolves <c language="csharp">SQUIRIX_TEST_ROOT/&lt;cluster&gt;/&lt;node&gt;</c> when that variable is set; otherwise
+    /// <c language="csharp">LocalApplicationData/squirix/&lt;cluster&gt;/&lt;node&gt;</c>.
+    /// </summary>
     /// <param name="clusterId">The configured cluster identifier.</param>
     /// <param name="nodeId">The configured node identifier.</param>
     /// <returns>The absolute default data directory path.</returns>
@@ -22,10 +30,6 @@ internal static class DefaultDataDirectory
         if (string.IsNullOrWhiteSpace(dir) && !OperatingSystem.IsWindows())
             dir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create);
 
-        return string.IsNullOrWhiteSpace(dir)
-            ? throw new InvalidOperationException(
-                "Cannot determine default data directory: LocalApplicationData is not available. " +
-                "Set PersistenceOptions.DataDir explicitly or define the HOME / XDG_DATA_HOME environment variable.")
-            : PathEx.Combine(dir, "squirix", clusterId, nodeId);
+        return string.IsNullOrWhiteSpace(dir) ? throw new InvalidOperationException(NoDirMessage) : PathEx.Combine(dir, AppFolder, clusterId, nodeId);
     }
 }

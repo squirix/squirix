@@ -213,19 +213,22 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
 
         public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
         {
-            return _entries.TryGetValue(Key(cacheName, key), out var entry) ? ValueTask.FromResult(new NodeCacheValueResult<object?>(true, entry.Value))
+            return _entries.TryGetValue(Key(cacheName, key), out var entry)
+                ? ValueTask.FromResult(new NodeCacheValueResult<object?>(true, entry.Value))
                 : ValueTask.FromResult(new NodeCacheValueResult<object?>(false, null));
         }
 
         public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
         {
-            return _entries.Remove(Key(cacheName, key), out var previous) ? ValueTask.FromResult(new CacheRemoveResult<object?>(true, previous.Value))
+            return _entries.Remove(Key(cacheName, key), out var previous)
+                ? ValueTask.FromResult(new CacheRemoveResult<object?>(true, previous.Value))
                 : ValueTask.FromResult(new CacheRemoveResult<object?>(false, null));
         }
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
         {
-            return !_entries.TryGetValue(Key(cacheName, key), out var entry) || entry.ExpiresUtc == null ? ValueTask.FromResult(false)
+            return !_entries.TryGetValue(Key(cacheName, key), out var entry) || entry.ExpiresUtc == null
+                ? ValueTask.FromResult(false)
                 : ValueTask.FromResult(RemoveExpirationEntry(cacheName, key, entry));
         }
 

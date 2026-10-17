@@ -165,8 +165,7 @@ internal static class JournalRecoveryScan
 
         return firstFrame.Status == JournalFrameReadStatus.Success
             ? HeaderState.Damaged
-            : throw new InvalidDataException(
-                $"journal segment '{path}' has a damaged file header and no intact first frame at offset {JournalFraming.FileHeaderSize}; startup repair refuses to discard data.");
+            : throw new InvalidDataException($"journal segment '{path}' has a damaged file header and no intact first frame at offset {JournalFraming.FileHeaderSize}; startup repair refuses to discard data.");
     }
 
     /// <summary>

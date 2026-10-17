@@ -118,8 +118,10 @@ internal sealed class OwnerRouter
     /// <summary>Tells whether an attempt was refused because its target knows no leader of the group with authority; nothing was read or written.</summary>
     /// <param name="exception">The failure of one attempt.</param>
     /// <returns><see langword="true" /> for the no-leader refusal, relayed from a forward's target.</returns>
-    private static bool IsNoLeader(RpcException exception) =>
-        exception.StatusCode == StatusCode.Unavailable && string.Equals(exception.Status.Detail, ServerOpContract.NoLeaderAuthorityDetail, StringComparison.Ordinal);
+    private static bool IsNoLeader(RpcException exception) => exception.StatusCode == StatusCode.Unavailable && string.Equals(
+        exception.Status.Detail,
+        ServerOpContract.NoLeaderAuthorityDetail,
+        StringComparison.Ordinal);
 
     private Task<TResponse> AttemptAsync<TState, TResponse>(
         in LeaderRoute route,
@@ -253,10 +255,9 @@ internal sealed class OwnerRouter
     private async ValueTask<LeaderRoute> ResolveAsync(string groupId, CancellationToken cancellationToken)
     {
         var route = ResolveNow(groupId);
-        return !string.IsNullOrEmpty(route.NodeId) ||
-               (await _table.WaitForLeaderAsync(groupId, LeaderWait(), cancellationToken).ConfigureAwait(false) && _table.TryGetLeader(groupId, out route))
-            ? route
-            : throw ServerOpContract.NoLeaderAuthority();
+        var leader = !string.IsNullOrEmpty(route.NodeId) ||
+                     (await _table.WaitForLeaderAsync(groupId, LeaderWait(), cancellationToken).ConfigureAwait(false) && _table.TryGetLeader(groupId, out route));
+        return leader ? route : throw ServerOpContract.NoLeaderAuthority();
     }
 
     /// <summary>Bounds a wait for a leader, or for this node's own authority, by the leader wait and the remaining deadline.</summary>

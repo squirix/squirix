@@ -81,7 +81,8 @@ internal static class ReplicaGroupCommitterVerification
         {
             // A coordinator that still retains entries is never replaced (its restart refuses): the verified slots are admitted into it,
             // and its resolver commits and applies what they now cover. Otherwise the coordinator starts here, recovering the log tail.
-            var coordinator = !await committer.TryApplyPendingAsync().ConfigureAwait(false) && committer.Coordinator is { } retained ? retained
+            var coordinator = !await committer.TryApplyPendingAsync().ConfigureAwait(false) && committer.Coordinator is { } retained
+                ? retained
                 : (await committer.EnsureStartedAsync(false, cancellationToken).ConfigureAwait(false)).Coordinator;
             var eligibility = await committer.Probe.AdmitVerifiedSlotsAsync(log, snapshot, coordinator, cancellationToken).ConfigureAwait(false);
             if (committer.RunningPipeline is { } pipeline)

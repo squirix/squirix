@@ -15,5 +15,6 @@ internal static class ActivitySourceHolder
     internal static Activity? StartInternal(string name) => Source.StartActivity(name);
 
     internal static Activity? StartServer(string name, in ActivityContext parentContext = default) => parentContext != default
-        ? Source.StartActivity(name, ActivityKind.Server, parentContext) : Source.StartActivity(name, ActivityKind.Server);
+        ? Source.StartActivity(name, ActivityKind.Server, parentContext)
+        : Source.StartActivity(name, ActivityKind.Server);
 }

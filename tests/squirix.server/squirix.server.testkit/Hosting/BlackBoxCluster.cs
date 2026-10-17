@@ -115,7 +115,8 @@ internal static class BlackBoxCluster
                 VirtualNodes = 128,
             };
 
-            var (mtlsOptions, mtlsMaterial, _) = identity == null ? new NodeMtlsStartup(null, null, null)
+            var (mtlsOptions, mtlsMaterial, _) = identity == null
+                ? new NodeMtlsStartup(null, null, null)
                 : await identity.ResolveNodeStartupForBindAsync(clusterConfig, TestNodeProfile.Normal, cancellationToken).ConfigureAwait(false);
             ListenPortPool.ReleaseHeldPrimary(canonicalUri);
             var app = await NodeHost.StartAsync(clusterConfig, CreateNodeHostOptions(options, mtlsOptions, mtlsMaterial), cancellationToken).ConfigureAwait(false);

@@ -76,7 +76,8 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentNullException.ThrowIfNull(faultHooks);
         ArgumentNullException.ThrowIfNull(idempotency);
-        var coversTail = recoveredTail == null ? options.InitialLogIndex == options.InitialCommitIndex
+        var coversTail = recoveredTail == null
+            ? options.InitialLogIndex == options.InitialCommitIndex
             : recoveredTail.FirstIndex == options.InitialCommitIndex + 1 && recoveredTail.LastIndex == options.InitialLogIndex;
         if (!coversTail)
             throw new InvalidOperationException("The recovered tail must hold exactly the durable entries above the initial commit index.");

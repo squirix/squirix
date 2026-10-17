@@ -9,7 +9,7 @@ internal static class CommitOutcomeUnknownClassifier
     internal static CommitOutcomeUnknownException? Map(RpcException exception)
     {
         ArgumentNullException.ThrowIfNull(exception);
-        return exception.StatusCode is StatusCode.Unavailable && string.Equals(exception.Status.Detail, CommitOutcomeUnknownException.StableDetail, StringComparison.Ordinal)
-            ? new CommitOutcomeUnknownException(exception.Status.Detail, exception) : null;
+        var equals = exception.StatusCode is StatusCode.Unavailable && string.Equals(exception.Status.Detail, CommitOutcomeUnknownException.StableDetail, StringComparison.Ordinal);
+        return equals ? new CommitOutcomeUnknownException(exception.Status.Detail, exception) : null;
     }
 }

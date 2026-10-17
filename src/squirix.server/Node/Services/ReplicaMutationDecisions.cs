@@ -73,7 +73,8 @@ internal static class ReplicaMutationDecisions
     /// <returns>The decision.</returns>
     internal static ReplicaDecision DecideRemove(NodeCacheEntry<object?>? current, DateTime now)
     {
-        var outcome = current == null || IsExpired(current, now) ? ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty)
+        var outcome = current == null || IsExpired(current, now)
+            ? ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty)
             : ReplicaOutcomeCodec.Encode(true, current.MapToProto().ToByteArray());
         return new ReplicaDecision([], outcome, 0);
     }

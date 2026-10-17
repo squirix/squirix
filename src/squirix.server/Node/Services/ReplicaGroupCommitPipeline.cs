@@ -96,11 +96,14 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// The commit itself stops at its budget while it waits for the majority.
     /// </remarks>
     /// <exception cref="InvalidOperationException">The entry is not the one this pipeline appended last.</exception>
-    public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
-        mutation.LogIndex == _enqueuedIndex && _enqueuedIndex != 0
+    public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+    {
+        var cond = mutation.LogIndex == _enqueuedIndex && _enqueuedIndex != 0;
+        var message = $"Entry {mutation.LogIndex} was not appended locally by this pipeline; the last one was {_enqueuedIndex}.";
+        return cond
             ? new ValueTask<ReplicaDurableAcknowledgement>(_enqueued[_slots.SenderOf(replicaIndex)])
-            : ValueTask.FromException<ReplicaDurableAcknowledgement>(
-                new InvalidOperationException($"Entry {mutation.LogIndex} was not appended locally by this pipeline; the last one was {_enqueuedIndex}."));
+            : ValueTask.FromException<ReplicaDurableAcknowledgement>(new InvalidOperationException(message));
+    }
 
     /// <inheritdoc />
     /// <remarks>
@@ -158,7 +161,8 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <exception cref="InvalidOperationException">The pipeline leads statically and confirms no read index.</exception>
     /// <remarks>Called outside the commit gate; readers that arrive while a round is in flight share the next round.</remarks>
     internal ValueTask<ulong> ConfirmReadIndexAsync(CancellationToken cancellationToken) =>
-        ReadIndex?.ConfirmAsync(this, static pipeline => pipeline.ReadCommitIndex(), static pipeline => pipeline.Heartbeat(true), cancellationToken) ?? ValueTask.FromException<ulong>(new InvalidOperationException("A pipeline of a static leader confirms no read index."));
+        ReadIndex?.ConfirmAsync(this, static pipeline => pipeline.ReadCommitIndex(), static pipeline => pipeline.Heartbeat(true), cancellationToken) ??
+        ValueTask.FromException<ulong>(new InvalidOperationException("A pipeline of a static leader confirms no read index."));
 
     /// <summary>Gets what a catch-up of a follower slot runs against: this pipeline, the slot's sender, the leader log and term.</summary>
     /// <param name="replicaIndex">Zero-based follower slot, never the leader slot.</param>

@@ -71,7 +71,8 @@ public abstract class NodeIntegrationTestBase : IDisposable
             VirtualNodes = 128,
         };
         (_identity, _, var material) = await ClusterIdentity.ResolveForNodeAsync(_identity, cluster, cancellationToken).ConfigureAwait(false);
-        return material is not { Enabled: true, TrustAnchor: not null } ? LoopbackHttp.CreateHandler()
+        return material is not { Enabled: true, TrustAnchor: not null }
+            ? LoopbackHttp.CreateHandler()
             : TestCertificates.CreateCaTrustingHandlerNoClientCert(material.TrustAnchor, targetPeerNodeId);
     }
 
@@ -99,7 +100,8 @@ public abstract class NodeIntegrationTestBase : IDisposable
             VirtualNodes = 128,
         };
         (_identity, _, var material) = await ClusterIdentity.ResolveForNodeAsync(_identity, cluster, cancellationToken).ConfigureAwait(false);
-        return material is not { Enabled: true } ? LoopbackHttp.CreateHandler()
+        return material is not { Enabled: true }
+            ? LoopbackHttp.CreateHandler()
             : TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, targetPeerNodeId);
     }
 

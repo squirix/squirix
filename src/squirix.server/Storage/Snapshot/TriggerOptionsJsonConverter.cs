@@ -41,29 +41,23 @@ internal sealed class TriggerOptionsJsonConverter : JsonConverter<TriggerOptions
         SnapshotInterval = ReadTimeSpan(root, "snapshotInterval", TimeSpan.FromMinutes(5)),
     };
 
-    private static double ReadDouble(JsonElement root, string name, double defaultValue)
-    {
-        return !TryFindProperty(root, name, out var e) ? defaultValue : e.ValueKind switch
-        {
-            JsonValueKind.Number when e.TryGetDouble(out var number) => number,
-            JsonValueKind.String when double.TryParse(e.GetString(), NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var parsed) => parsed,
-            JsonValueKind.Object or JsonValueKind.Array or JsonValueKind.True or JsonValueKind.False or JsonValueKind.Null or JsonValueKind.Undefined => throw new JsonException(
-                $"Cannot convert {e.ValueKind} to Double for TriggerOptions."),
-            _ => throw new JsonException($"Cannot convert {e.ValueKind} to Double for TriggerOptions."),
-        };
-    }
+    private static double ReadDouble(JsonElement root, string name, double defaultValue) => TryFindProperty(root, name, out var element) ? ToDouble(element) : defaultValue;
 
-    private static long ReadInt64(JsonElement root, string name, long defaultValue)
+    private static double ToDouble(JsonElement element) => element.ValueKind switch
     {
-        return !TryFindProperty(root, name, out var element) ? defaultValue : element.ValueKind switch
-        {
-            JsonValueKind.Number when element.TryGetInt64(out var number) => number,
-            JsonValueKind.String when long.TryParse(element.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) => parsed,
-            JsonValueKind.Object or JsonValueKind.Array or JsonValueKind.True or JsonValueKind.False or JsonValueKind.Null or JsonValueKind.Undefined => throw new JsonException(
-                $"Cannot convert {element.ValueKind} to Int64 for TriggerOptions."),
-            _ => throw new JsonException($"Cannot convert {element.ValueKind} to Int64 for TriggerOptions."),
-        };
-    }
+        JsonValueKind.Number when element.TryGetDouble(out var number) => number,
+        JsonValueKind.String when double.TryParse(element.GetString(), NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var parsed) => parsed,
+        _ => throw new JsonException($"Cannot convert {element.ValueKind} to Double for TriggerOptions."),
+    };
+
+    private static long ReadInt64(JsonElement root, string name, long defaultValue) => TryFindProperty(root, name, out var element) ? ToInt64(element) : defaultValue;
+
+    private static long ToInt64(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.Number when element.TryGetInt64(out var number) => number,
+        JsonValueKind.String when long.TryParse(element.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) => parsed,
+        _ => throw new JsonException($"Cannot convert {element.ValueKind} to Int64 for TriggerOptions."),
+    };
 
     private static TimeSpan ReadTimeSpan(JsonElement root, string name, TimeSpan defaultValue)
     {

@@ -48,7 +48,8 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         var invoker = new CapturingCallInvoker(
             failure: () =>
             {
-                var cause = ++attempt == 1 ? new HttpRequestException(HttpRequestError.ResponseEnded, "the response ended")
+                var cause = ++attempt == 1
+                    ? new HttpRequestException(HttpRequestError.ResponseEnded, "the response ended")
                     : new HttpRequestException(HttpRequestError.ConnectionError, "connection refused");
                 return raw ? cause : new RpcException(new Status(StatusCode.Unavailable, "start failed", cause));
             });

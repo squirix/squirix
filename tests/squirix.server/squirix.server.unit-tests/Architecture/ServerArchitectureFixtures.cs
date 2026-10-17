@@ -82,9 +82,9 @@ internal static class ServerArchitectureFixtures
 
     internal static async Task<XPathNavigator> LoadProjectAsync(string relativeOrAbsolutePath)
     {
-        var path = Path.IsPathRooted(relativeOrAbsolutePath) ? relativeOrAbsolutePath : Path.Join(
-            RepositoryPaths.FindRepositoryRoot(),
-            relativeOrAbsolutePath.Replace('/', Path.DirectorySeparatorChar));
+        var path = Path.IsPathRooted(relativeOrAbsolutePath)
+            ? relativeOrAbsolutePath
+            : Path.Join(RepositoryPaths.FindRepositoryRoot(), relativeOrAbsolutePath.Replace('/', Path.DirectorySeparatorChar));
         _ = await Assert.That(File.Exists(path)).IsTrue();
 
         var document = new XmlDocument();

@@ -70,10 +70,9 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
         var tasks = new Task[50];
         for (var i = 0; i < tasks.Length; i++)
         {
-            tasks[i] = i % 2 == 0 ? Cluster.CacheA.SetAsync(key, $"a-{NodeInvariantIndexStrings.Format(i)}", cancellationToken: cancellationToken) : Cluster.CacheB.SetAsync(
-                key,
-                $"b-{NodeInvariantIndexStrings.Format(i)}",
-                cancellationToken: cancellationToken);
+            tasks[i] = i % 2 == 0
+                ? Cluster.CacheA.SetAsync(key, $"a-{NodeInvariantIndexStrings.Format(i)}", cancellationToken: cancellationToken)
+                : Cluster.CacheB.SetAsync(key, $"b-{NodeInvariantIndexStrings.Format(i)}", cancellationToken: cancellationToken);
         }
 
         await Task.WhenAll(tasks);

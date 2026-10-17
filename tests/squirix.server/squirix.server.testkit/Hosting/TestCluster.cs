@@ -510,17 +510,22 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     /// <returns>The hook to run after the server composition.</returns>
     private static Action<IServiceCollection>? WithCompactionInterval(Action<IServiceCollection>? configure, TimeSpan? interval)
     {
-        return interval is not { } delay ? configure : services =>
+        Action<IServiceCollection> Hook(TimeSpan delay)
         {
-            configure?.Invoke(services);
-            for (var i = services.Count - 1; i >= 0; i--)
+            return services =>
             {
-                if (services[i].ServiceType == typeof(ReplicaLogCompactionOptions))
-                    services.RemoveAt(i);
-            }
+                configure?.Invoke(services);
+                for (var i = services.Count - 1; i >= 0; i--)
+                {
+                    if (services[i].ServiceType == typeof(ReplicaLogCompactionOptions))
+                        services.RemoveAt(i);
+                }
 
-            _ = services.AddSingleton(new ReplicaLogCompactionOptions { Interval = delay });
-        };
+                _ = services.AddSingleton(new ReplicaLogCompactionOptions { Interval = delay });
+            };
+        }
+
+        return interval is not { } delay ? configure : Hook(delay);
     }
 
     private static async ValueTask<ITestNodeHost> StartNodeCoreAsync(
@@ -565,7 +570,8 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             if (identity == null && options?.PartitionFabric != null)
                 throw new InvalidOperationException("A partition fabric needs a topology with remote peers: the node would otherwise dial its peers directly.");
 
-            var startup = identity == null ? new NodeMtlsStartup(null, null, null)
+            var startup = identity == null
+                ? new NodeMtlsStartup(null, null, null)
                 : await identity.ResolveNodeStartupForBindAsync(clusterConfig, mtlsProfile, options?.PartitionFabric, cancellationToken).ConfigureAwait(false);
 
             var nodeHostStartOptions = CreateOptions(options, persistenceOptions, startup.PeerHandlerFactory, startup.Options, startup.Certificate);

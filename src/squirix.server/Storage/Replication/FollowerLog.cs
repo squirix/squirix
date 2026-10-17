@@ -226,7 +226,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        return Refuses ? new FollowerLogAppliedResult(false, RefusalCode, _meta.LastAppliedIndex)
+        return Refuses
+            ? new FollowerLogAppliedResult(false, RefusalCode, _meta.LastAppliedIndex)
             : await FollowerLogAppend.AdvanceAppliedMonotonicAsync(_journal, this, appliedIndex, cancellationToken).ConfigureAwait(false);
     }
 
@@ -235,7 +236,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        return Refuses ? new FollowerLogCommitResult(false, RefusalCode, _meta.CommitIndex)
+        return Refuses
+            ? new FollowerLogCommitResult(false, RefusalCode, _meta.CommitIndex)
             : await FollowerLogAppend.AdvanceCommitMonotonicAsync(_journal, this, commitIndex, cancellationToken).ConfigureAwait(false);
     }
 
@@ -373,7 +375,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         ArgumentOutOfRangeException.ThrowIfZero(fromIndex);
         ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return IsDisposed || Readiness != FollowerLogReadiness.Ready ? throw new InvalidOperationException($"Replica group '{GroupId}' log is not ready to read its entries.")
+        return IsDisposed || Readiness != FollowerLogReadiness.Ready
+            ? throw new InvalidOperationException($"Replica group '{GroupId}' log is not ready to read its entries.")
             : await FollowerLogRead.ReadRangeAsync(_journal, this, fromIndex, maxCount, cancellationToken).ConfigureAwait(false);
     }
 
@@ -384,10 +387,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         // One gate acquisition: a commit advancing between the status and the tail would pair the status with a shorter tail.
         var status = CaptureStatus();
-        return status.LastLogIndex == status.CommitIndex ? new FollowerLogTail(status, 0UL, []) : new FollowerLogTail(
-            status,
-            TermAt(status.CommitIndex),
-            _journal.CollectUncommittedTail(status.CommitIndex));
+        return status.LastLogIndex == status.CommitIndex
+            ? new FollowerLogTail(status, 0UL, [])
+            : new FollowerLogTail(status, TermAt(status.CommitIndex), _journal.CollectUncommittedTail(status.CommitIndex));
     }
 
     /// <inheritdoc />
@@ -537,7 +539,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        return Refuses ? new FollowerLogReconcileResult(false, RefusalCode, 0, Readiness == FollowerLogReadiness.Failed)
+        return Refuses
+            ? new FollowerLogReconcileResult(false, RefusalCode, 0, Readiness == FollowerLogReadiness.Failed)
             : await FollowerLogReconcile.ReconcileTailAsync(_journal, this, fromIndex, prevLogTerm, leaderTerm, cancellationToken).ConfigureAwait(false);
     }
 
@@ -901,8 +904,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             static ulong TermAtApplied(FollowerLogJournal journal, ulong logIndex)
             {
                 // The snapshot base's frame was compacted away, but its term is retained for consistency checks.
-                var baselineTerm = journal.SnapshotBaseline.LastIncludedIndex > 0UL && logIndex == journal.SnapshotBaseline.LastIncludedIndex
-                    ? journal.SnapshotBaseline.LastIncludedTerm : 0UL;
+                var baseline = journal.SnapshotBaseline;
+                var baselineTerm = baseline.LastIncludedIndex > 0UL && logIndex == baseline.LastIncludedIndex ? baseline.LastIncludedTerm : 0UL;
                 return journal.EntryOffsets.TryGetValue(logIndex, out var location) ? location.Term : baselineTerm;
             }
         }
@@ -1303,7 +1306,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 if (total > int.MaxValue)
                     throw new InvalidOperationException($"Compaction tail of {total} bytes exceeds the maximum log size.");
 
-                SafeFileHandle? handle = GroupLogDurability.OpenStandby(_standbyPath);
+                var handle = GroupLogDurability.OpenStandby(_standbyPath);
                 try
                 {
                     WriteTail(handle, total);
@@ -2011,8 +2014,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// <returns>The divergent-boundary result, or <see langword="null" /> when the frame agrees with the snapshot.</returns>
         private static WalkResult? DivergentBoundary(FollowerLogJournal journal, ulong logIndex, ulong term)
         {
-            return journal.SnapshotBaseline.LastIncludedIndex != logIndex || journal.SnapshotBaseline.LastIncludedTerm == term ? null
-                : new WalkResult(GroupLogSlots.HeaderSize, true, true);
+            var baseline = journal.SnapshotBaseline;
+            return baseline.LastIncludedIndex != logIndex || baseline.LastIncludedTerm == term ? null : new WalkResult(GroupLogSlots.HeaderSize, true, true);
         }
 
         /// <summary>Reads the log index of the first frame from the fixed header boundary.</summary>
@@ -2105,7 +2108,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                                            .ConfigureAwait(false);
 
             // The frame content is incomplete: hand ownership back to the caller's pooling path.
-            return payloadEnd == null ? new FrameReadOutcome(frame, exhausted, 0, nextLogIndex, UncommittedTail(owner, frameStart, nextLogIndex))
+            return payloadEnd == null
+                ? new FrameReadOutcome(frame, exhausted, 0, nextLogIndex, UncommittedTail(owner, frameStart, nextLogIndex))
                 : new FrameReadOutcome(frame, exhausted, frameLength, nextLogIndex, null);
         }
 
@@ -2578,7 +2582,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             var memory = owner.Meta.TopologyFingerprint;
             return (!memory.IsEmpty && !memory.Span.SequenceEqual(snapshot.TopologyFingerprint.Span)) || snapshot.ConfigurationGeneration < owner.Meta.ConfigurationGeneration
-                ? FollowerLogRefusal.TopologyMismatch : null;
+                ? FollowerLogRefusal.TopologyMismatch
+                : null;
         }
 
         internal static GroupSnapshot BuildSnapshot(FollowerLogJournal journal, IFollowerLogContext owner, ulong lastIncludedIndex)
@@ -2823,7 +2828,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 _ when owner.Idempotency.HasUnresolvedThrough(index) => GroupSnapshotCaptureOutcome.UnresolvedOutcome,
                 _ => GroupSnapshotCaptureOutcome.Captured,
             };
-            return outcome == GroupSnapshotCaptureOutcome.Captured ? new GroupSnapshotCapture(outcome, FollowerLogSnapshot.BuildSnapshot(journal, owner, index))
+            return outcome == GroupSnapshotCaptureOutcome.Captured
+                ? new GroupSnapshotCapture(outcome, FollowerLogSnapshot.BuildSnapshot(journal, owner, index))
                 : GroupSnapshotCapture.Refused(outcome);
         }
 

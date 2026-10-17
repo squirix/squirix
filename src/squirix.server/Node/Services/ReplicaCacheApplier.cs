@@ -114,21 +114,22 @@ internal static class ReplicaCacheApplier
     {
         if (!ReplicaOutcomeCodec.TryDecode(record.OutcomePayload, out var applied, out var previous))
             throw Inconsistent(in record, "the outcome payload is undecodable", false);
-
-        var deadlineInRange = record.ExpiresUtcTicks >= 0 && record.ExpiresUtcTicks <= DateTime.MaxValue.Ticks;
-        return !deadlineInRange ? throw Inconsistent(in record, "the deadline is out of range", applied) : record.MutationKind switch
-        {
-            ReplicaMutationKinds.LeaderNoop => ResolveLeaderNoop(in record, applied, previous),
-            ReplicaMutationKinds.Remove => ResolveRemove(in record, applied, previous),
-            ReplicaMutationKinds.Expire => ResolveExpire(in record, applied, previous),
-
-            // A conditional mutation that found the key expired folds the expiry into its record and deletes the key; Set and TryAdd write
-            // over an expired key instead, so they never carry this shape.
-            ReplicaMutationKinds.Update or ReplicaMutationKinds.Touch or ReplicaMutationKinds.RemoveExpiration when IsExpiryShape(in record, applied, previous) =>
-                ReplicaEffectKind.Delete,
-            _ => ResolveConditional(in record, applied, previous),
-        };
+        var range = record.ExpiresUtcTicks >= 0 && record.ExpiresUtcTicks <= DateTime.MaxValue.Ticks;
+        return range ? ResolveMutationKind(in record, applied, previous) : throw Inconsistent(in record, "the deadline is out of range", applied);
     }
+
+    private static ReplicaEffectKind ResolveMutationKind(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous) => record.MutationKind switch
+    {
+        ReplicaMutationKinds.LeaderNoop => ResolveLeaderNoop(in record, applied, previous),
+        ReplicaMutationKinds.Remove => ResolveRemove(in record, applied, previous),
+        ReplicaMutationKinds.Expire => ResolveExpire(in record, applied, previous),
+
+        // A conditional mutation that found the key expired folds the expiry into its record and deletes the key; Set and TryAdd write
+        // over an expired key instead, so they never carry this shape.
+        ReplicaMutationKinds.Update or ReplicaMutationKinds.Touch or ReplicaMutationKinds.RemoveExpiration when IsExpiryShape(in record, applied, previous) =>
+            ReplicaEffectKind.Delete,
+        _ => ResolveConditional(in record, applied, previous),
+    };
 
     /// <summary>Tells whether a record has the shape of a deletion of an expired key: not applied, no payload, a deadline, no previous entry.</summary>
     /// <param name="record">The record.</param>
@@ -139,14 +140,16 @@ internal static class ReplicaCacheApplier
         !applied && record.MutationPayload.IsEmpty && record.ExpiresUtcTicks != 0 && previous.IsEmpty;
 
     private static ReplicaEffectKind ResolveExpire(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous) =>
-        IsExpiryShape(in record, applied, previous) ? ReplicaEffectKind.Delete
+        IsExpiryShape(in record, applied, previous)
+            ? ReplicaEffectKind.Delete
             : throw Inconsistent(in record, "an expiration is applied, carries a payload or a previous entry, or has no deadline", applied);
 
     private static ReplicaEffectKind ResolveLeaderNoop(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous)
     {
         var wellFormed = !applied && previous.IsEmpty && record.MutationPayload.IsEmpty && record.ExpiresUtcTicks == 0 && record.KeyPayload.IsEmpty &&
             record.CacheName.Length == 0 && string.Equals(record.OperationScope, ReplicaLeaderOperationId.OperationScope, StringComparison.Ordinal);
-        return wellFormed ? ReplicaEffectKind.NoCacheEffect
+        return wellFormed
+            ? ReplicaEffectKind.NoCacheEffect
             : throw Inconsistent(in record, "a leader-term no-op is applied, names a cache, a key or a deadline, carries a payload, or has another scope", applied);
     }
 
