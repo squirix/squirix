@@ -123,7 +123,7 @@ public class ManifestPublishBreakdownBenchmarks
         private readonly TempDirectory _dir;
         private readonly byte[] _encodeBuffer;
 
-        private Session(TempDirectory dir, Ledger store, PersistentPointerWriter pointerWriter, SessionWarmup warmup)
+        private Session(TempDirectory dir, Ledger store, PointerSlotWriter pointerWriter, SessionWarmup warmup)
         {
             _dir = dir;
             _encodeBuffer = warmup.EncodeBuffer;
@@ -141,7 +141,7 @@ public class ManifestPublishBreakdownBenchmarks
 
         private string ManifestFileNamePrefix { get; }
 
-        private PersistentPointerWriter PointerWriter { get; }
+        private PointerSlotWriter PointerWriter { get; }
 
         private SnapshotRef? Snapshot { get; }
 
@@ -182,7 +182,7 @@ public class ManifestPublishBreakdownBenchmarks
             return new Session(
                 dir,
                 store,
-                new PersistentPointerWriter(currentPath),
+                new PointerSlotWriter(currentPath),
                 new SessionWarmup
                 {
                     Format = 1,

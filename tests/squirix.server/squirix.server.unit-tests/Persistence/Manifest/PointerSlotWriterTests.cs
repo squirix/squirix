@@ -13,21 +13,21 @@ namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
 /// <summary>Coverage for the in-place two-slot <c language="csharp">man-current</c> writer.</summary>
 [Immutable]
-public sealed class PersistentPointerWriterTests : IsolatedStorageTestBase
+public sealed class PointerSlotWriterTests : IsolatedStorageTestBase
 {
     /// <summary>A publish without its mirror already moves the pointer, and a later writer keeps that slot intact.</summary>
     [Test]
     public async Task UnmirroredPublishIsInForce()
     {
         var path = Path.Join(Dir, "man-current");
-        using (var writer = new PersistentPointerWriter(path))
+        using (var writer = new PointerSlotWriter(path))
             writer.Publish(2);
 
         var published = PointerFile.Read(path);
         _ = await Assert.That(published.ManifestIndex).IsEqualTo(2);
 
         var slot = ReadSlot(path, published.Slot);
-        using (var next = new PersistentPointerWriter(path))
+        using (var next = new PointerSlotWriter(path))
             next.Publish(3);
 
         _ = await Assert.That(PointerFile.Read(path).ManifestIndex).IsEqualTo(3);
@@ -39,7 +39,7 @@ public sealed class PersistentPointerWriterTests : IsolatedStorageTestBase
     public async Task MirrorWritesBothSlots()
     {
         var path = Path.Join(Dir, "man-current");
-        using (var writer = new PersistentPointerWriter(path))
+        using (var writer = new PointerSlotWriter(path))
         {
             writer.Publish(4);
             writer.Mirror();
@@ -55,7 +55,7 @@ public sealed class PersistentPointerWriterTests : IsolatedStorageTestBase
     public async Task ReopenPublishesIntoOtherSlotThanNewest()
     {
         var path = Path.Join(Dir, "man-current");
-        using (var writer = new PersistentPointerWriter(path))
+        using (var writer = new PointerSlotWriter(path))
         {
             writer.Publish(2);
             writer.Mirror();
@@ -65,7 +65,7 @@ public sealed class PersistentPointerWriterTests : IsolatedStorageTestBase
 
         _ = await Assert.That(PointerFile.Read(path).Slot).IsEqualTo(1);
 
-        using (var reopened = new PersistentPointerWriter(path))
+        using (var reopened = new PointerSlotWriter(path))
             reopened.Publish(5);
 
         var selection = PointerFile.Read(path);
@@ -78,7 +78,7 @@ public sealed class PersistentPointerWriterTests : IsolatedStorageTestBase
     [Test]
     public void MirrorWithoutPublishIsRefused()
     {
-        using var writer = new PersistentPointerWriter(Path.Join(Dir, "man-current"));
+        using var writer = new PointerSlotWriter(Path.Join(Dir, "man-current"));
 
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(writer, static state => state.Mirror());
     }
@@ -87,7 +87,7 @@ public sealed class PersistentPointerWriterTests : IsolatedStorageTestBase
     [Test]
     public void DisposedWriterRefusesWrites()
     {
-        var writer = new PersistentPointerWriter(Path.Join(Dir, "man-current"));
+        var writer = new PointerSlotWriter(Path.Join(Dir, "man-current"));
         writer.Dispose();
 
         _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(writer, static state => state.Publish(1));

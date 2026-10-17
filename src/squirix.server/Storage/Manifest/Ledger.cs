@@ -161,7 +161,7 @@ internal sealed class Ledger : IDisposable
         private const int DefaultEncodeBufferCapacity = 256;
 
         private readonly IndexAllocator _allocator;
-        private readonly PersistentPointerWriter _currentPointerWriter;
+        private readonly PointerSlotWriter _currentPointerWriter;
 
         private readonly string _dir;
         private readonly Func<(State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8)> _rbl;
@@ -183,7 +183,7 @@ internal sealed class Ledger : IDisposable
             _allocator = allocator;
             _setCache = setCache;
             _rbl = rbl;
-            _currentPointerWriter = new PersistentPointerWriter(path);
+            _currentPointerWriter = new PointerSlotWriter(path);
 
             // A manifest write stuck on disk must not hang node shutdown: disposal waits within the budget, and on expiry the queued writes and
             // rolls are refused and the worker thread is leaked loudly.
