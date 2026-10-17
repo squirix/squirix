@@ -220,6 +220,34 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         _ = await Assert.That(secondFailure).IsSameReferenceAs(flushFailure);
     }
 
+    /// <summary>Ensures a failed flush latches the pipeline before it faults the batch acks, so a faulted caller sees the failed pipeline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FlushFailureLatchesBeforeAckFault(CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions
+        {
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(5),
+            JournalGroupCommitMaxBatch = 8,
+        };
+        var flushFailure = new InvalidOperationException("flush failed");
+        var time = new FakeTimeProvider();
+        var probe = new PipelineLatchProbe();
+        var groupCommit = new JournalDurabilityGroupCommit(new FailingFlush(flushFailure).ThrowAction, static () => { }, probe.LatchAction, options, time);
+
+        probe.GroupCommit = groupCommit;
+        var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
+
+        time.Advance(options.JournalGroupCommitMaxWait);
+        var thrown = NodeExceptionAssert.For<InvalidOperationException>().Throws(groupCommit, static g => g.DrainDueBatchesOnJournalThread());
+
+        await ack.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+        _ = await Assert.That(thrown).IsSameReferenceAs(flushFailure);
+        _ = await Assert.That(probe.Latched).IsSameReferenceAs(flushFailure);
+        _ = await Assert.That(probe.PendingAtLatch).IsEqualTo(1);
+        _ = await Assert.That(ack.Exception?.InnerException).IsSameReferenceAs(flushFailure);
+    }
+
     /// <summary>Ensures cancellation of the first ack does not cancel the shared delayed flush for other acks.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -264,7 +292,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         };
         var flushCounter = new AtomicCounter();
         var time = new SteppedWallClock();
-        var groupCommit = new JournalDurabilityGroupCommit(flushCounter.IncrementAction, static () => { }, options, time);
+        var groupCommit = new JournalDurabilityGroupCommit(flushCounter.IncrementAction, static () => { }, static _ => { }, options, time);
 
         var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
         time.StepWallClock(TimeSpan.FromSeconds(-30));
@@ -408,7 +436,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 
     private static Task AsSingleUseTaskAsync(ValueTask valueTask) => valueTask.AsTask();
 
-    private static JournalDurabilityGroupCommit CreateGroupCommit(Action flush, PersistenceOptions options, FakeTimeProvider time) => new(flush, static () => { }, options, time);
+    private static JournalDurabilityGroupCommit CreateGroupCommit(Action flush, PersistenceOptions options, FakeTimeProvider time) => new(flush, static () => { }, static _ => { }, options, time);
 
     private sealed class AtomicCounter
     {
@@ -439,6 +467,33 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         public override long GetTimestamp() => base.GetUtcNow().UtcTicks;
 
         internal void StepWallClock(TimeSpan step) => _ = Interlocked.Add(ref _wallOffsetTicks, step.Ticks);
+    }
+
+    /// <summary>Stands in for the pipeline failure hook: like the real one it faults the in-flight batch through the group commit, and records how many acks were still pending.</summary>
+    [ThreadSafe]
+    private sealed class PipelineLatchProbe
+    {
+        private Exception? _latched;
+        private int _pendingAtLatch = -1;
+
+        internal PipelineLatchProbe()
+        {
+            LatchAction = Latch;
+        }
+
+        internal JournalDurabilityGroupCommit? GroupCommit { get; set; }
+
+        internal Exception? Latched => Volatile.Read(ref _latched);
+
+        internal Action<Exception> LatchAction { get; }
+
+        internal int PendingAtLatch => Volatile.Read(ref _pendingAtLatch);
+
+        private void Latch(Exception reason)
+        {
+            Volatile.Write(ref _pendingAtLatch, GroupCommit?.CancelPendingCore(reason) ?? -1);
+            Volatile.Write(ref _latched, reason);
+        }
     }
 
     [Immutable]

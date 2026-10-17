@@ -93,7 +93,7 @@ public sealed class JournalDeadlineWaitLogTests : IsolatedStorageTestBase
         var host = RocksDoubles.CreateEventLoopHost();
         var eventLoop = new JournalEventLoop(host.Host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 1024L * 1024L, 1, JournalSegmentProbe.Probe(Dir, 1)), logger, CancellationToken.None);
         if (groupCommit)
-            eventLoop.AttachGroupCommit(new JournalDurabilityGroupCommit(static () => { }, static () => { }, options, TimeProvider.System));
+            eventLoop.AttachGroupCommit(new JournalDurabilityGroupCommit(static () => { }, static () => { }, static _ => { }, options, TimeProvider.System));
 
         return new LoopSetup(eventLoop, ring, segmentWriter);
     }

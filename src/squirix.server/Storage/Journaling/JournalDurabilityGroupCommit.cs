@@ -14,6 +14,7 @@ namespace Squirix.Server.Storage.Journaling;
 internal sealed class JournalDurabilityGroupCommit
 {
     private readonly BatchDeadline _batchDeadline = new();
+    private readonly Action<Exception> _failPipeline;
     private readonly Action _journalThreadFlush;
     private readonly Action<string>? _onWaitCanceled;
     private readonly Action _notifyJournalThread;
@@ -28,11 +29,13 @@ internal sealed class JournalDurabilityGroupCommit
     private bool _sealed;
     private List<TaskCompletionSource>? _inFlight;
 
-    internal JournalDurabilityGroupCommit(Action journalThreadFlush, Action notifyJournalThread, PersistenceOptions opt, TimeProvider timeProvider, Action<string>? onWaitCanceled = null)
+    internal JournalDurabilityGroupCommit(Action journalThreadFlush, Action notifyJournalThread, Action<Exception> failPipeline, PersistenceOptions opt, TimeProvider timeProvider, Action<string>? onWaitCanceled = null)
     {
         ArgumentNullException.ThrowIfNull(journalThreadFlush);
         ArgumentNullException.ThrowIfNull(notifyJournalThread);
+        ArgumentNullException.ThrowIfNull(failPipeline);
         ArgumentNullException.ThrowIfNull(opt);
+        _failPipeline = failPipeline;
         _journalThreadFlush = journalThreadFlush;
         _notifyJournalThread = notifyJournalThread;
         _opt = opt;
@@ -201,9 +204,12 @@ internal sealed class JournalDurabilityGroupCommit
         }
         catch (Exception ex)
         {
-            // Flush failures fail the whole batch so no ack observes partial durability. The rethrow
-            // fails the journal pipeline: a later fsync can succeed after the kernel dropped the dirty
-            // pages of the failed one, so the flush must never be retried and reported as durable.
+            // Flush failures fail the whole batch so no ack observes partial durability. The pipeline is
+            // latched first, outside the lock (the callback takes it again), so a caller whose ack faults
+            // already sees the failed pipeline. A later fsync can succeed after the kernel dropped the dirty
+            // pages of the failed one, so the flush must never be retried and reported as durable; the
+            // rethrow reaches the event loop, where the repeated fail call is harmless.
+            _failPipeline(ex);
             lock (_sync)
             {
                 batch.FaultAll(ex);
