@@ -286,8 +286,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         if (!_store.Remove(key, out var node))
             return (false, default);
 
+        var value = node.Value;
         UntrackLocked(node);
-        return IsExpiredLocked(node) ? (false, default) : (true, node.Value);
+        return IsExpiredLocked(node) ? (false, default) : (true, value);
     }
 
     private void TouchOrderLocked(CacheKey key, Node node)
@@ -326,11 +327,15 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         return true;
     }
 
-    /// <summary>Releases an entry that left the store: its recorded bytes leave the total and it leaves the eviction order.</summary>
+    /// <summary>Releases an entry that left the store: its recorded bytes leave the total, it leaves the eviction order, and it drops its value and tags.</summary>
     /// <param name="node">The entry already removed from, or about to be overwritten in, the store.</param>
     private void UntrackLocked(Node node)
     {
         _footprint.Release(node);
+
+        // A stale item of the deadline index may keep the node reachable until its old deadline: do not let it keep the value alive.
+        node.Value = default;
+        node.Tags = null;
         if (node.OrderNode == null)
             return;
 
