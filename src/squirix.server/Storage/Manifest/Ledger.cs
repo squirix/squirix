@@ -41,7 +41,6 @@ internal sealed class Ledger : IDisposable
         var retentionSettings = new RetentionSettings(
             dir,
             options.ManifestRetentionCount > 0 ? options.ManifestRetentionCount : 3,
-            options.SnapshotRetentionCount > 0 ? options.SnapshotRetentionCount : 3,
             $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}");
         var retentionContext = new RetentionContext(retentionSettings, fileOperations, logger, IndexAllocator.ParseManifestIndex, failureMetrics);
         _retentionWorker = new RetentionWorker(retentionContext, retentionReadiness);

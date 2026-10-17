@@ -105,11 +105,6 @@ internal sealed record PersistenceOptions
     [JsonInclude]
     internal int RetentionCleanupDegradedWrites { get; init; } = PersistenceOptionsDefaults.RetentionCleanupDegradedWrites;
 
-    /// <summary>Gets the number of snapshots to retain before pruning older snapshots.</summary>
-    [JsonPropertyName("snapshotRetentionCount")]
-    [JsonInclude]
-    internal int SnapshotRetentionCount { get; init; } = PersistenceOptionsDefaults.SnapshotRetentionCount;
-
     /// <summary>Validates scalar bounds; throws when any configured value is out of range.</summary>
     /// <exception cref="InvalidOperationException">Thrown when a scalar is out of range.</exception>
     internal void Validate()
@@ -129,8 +124,6 @@ internal sealed record PersistenceOptions
             throw new InvalidOperationException(
                 $"Persistence {nameof(ReplicaLogRetentionMaxMb)} must be at least {nameof(ReplicaLogCompactionMb)} ({ReplicaLogCompactionMb}).");
         }
-
-        RequirePositive(SnapshotRetentionCount, nameof(SnapshotRetentionCount));
     }
 
     /// <summary>Refuses a journal size that cannot hold the largest frame, under which valid writes would be refused forever.</summary>
@@ -199,9 +192,6 @@ internal sealed record PersistenceOptions
 
         /// <summary>Default consecutive manifest retention-cleanup failures required to degrade readiness.</summary>
         internal const int RetentionCleanupDegradedWrites = 3;
-
-        /// <summary>Default number of snapshots retained before pruning.</summary>
-        internal const int SnapshotRetentionCount = 3;
 
         /// <summary>Default maximum wait for an additional journal appends before a shared durability flush; zero disables group commit.</summary>
         internal static readonly TimeSpan JournalGroupCommitMaxWait = TimeSpan.Zero;

@@ -33,7 +33,6 @@ public class SnapshotReadBenchmarks
         var options = new PersistenceOptions
         {
             ManifestRetentionCount = ManifestBenchmarkSupport.ResolveRetentionCount(),
-            SnapshotRetentionCount = ManifestBenchmarkSupport.ResolveRetentionCount(),
         };
         _host = await SnapshotBenchmarkHost.CreateAsync("snapshot-read-binary", options, entryCount).ConfigureAwait(false);
         _snapshotPath = await _host.WriteNextSnapshotAsync().ConfigureAwait(false);

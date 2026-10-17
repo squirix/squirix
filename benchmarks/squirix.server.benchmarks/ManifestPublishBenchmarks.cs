@@ -37,7 +37,6 @@ public class ManifestPublishBenchmarks
         var options = new PersistenceOptions
         {
             ManifestRetentionCount = retention,
-            SnapshotRetentionCount = retention,
         };
         _host = await Host.CreateAsync("manifest-bench", options).ConfigureAwait(false);
         _nextSequence = 1;

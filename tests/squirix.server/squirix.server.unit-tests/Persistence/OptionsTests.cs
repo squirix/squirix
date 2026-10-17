@@ -61,25 +61,22 @@ public sealed class OptionsTests
         {
             JournalMaxSegmentMb = 1,
             ManifestRetentionCount = 1,
-            SnapshotRetentionCount = 1,
         };
 
         _ = await Assert.That(options.JournalMaxSegmentMb).IsEqualTo(1);
         _ = await Assert.That(options.ManifestRetentionCount).IsEqualTo(1);
-        _ = await Assert.That(options.SnapshotRetentionCount).IsEqualTo(1);
     }
 
     /// <summary>Verifies JSON binding still applies valid option values through init setters.</summary>
     [Test]
     public async Task JsonDeserializeBindsValidatedScalars()
     {
-        const string json = """{"dataDir":"data","journalMaxSegmentMb":64,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
+        const string json = """{"dataDir":"data","journalMaxSegmentMb":64,"manifestRetentionCount":2,"strictFsync":true}""";
         var options = new ServerJsonSerializer().Deserialize<PersistenceOptions>(json);
         _ = await Assert.That(options).IsNotNull();
         _ = await Assert.That(options.DataDir).IsEqualTo("data");
         _ = await Assert.That(options.JournalMaxSegmentMb).IsEqualTo(64);
         _ = await Assert.That(options.ManifestRetentionCount).IsEqualTo(2);
-        _ = await Assert.That(options.SnapshotRetentionCount).IsEqualTo(4);
     }
 
     /// <summary>Verifies local scalar validation rejects non-positive values via <see cref="PersistenceOptions.Validate" />.</summary>
@@ -87,7 +84,6 @@ public sealed class OptionsTests
     [Test]
     [Arguments(nameof(PersistenceOptions.JournalMaxSegmentMb))]
     [Arguments(nameof(PersistenceOptions.ManifestRetentionCount))]
-    [Arguments(nameof(PersistenceOptions.SnapshotRetentionCount))]
     [Arguments(nameof(PersistenceOptions.JournalStallDegradedThreshold))]
     [Arguments(nameof(PersistenceOptions.ReplicaLogCompactionMb))]
     [Arguments(nameof(PersistenceOptions.ReplicaLogCompactionEntries))]
@@ -149,14 +145,13 @@ public sealed class OptionsTests
 
         // Unchanged defaults
         _ = await Assert.That(overridden.JournalMaxSegmentMb).IsEqualTo(defaults.JournalMaxSegmentMb);
-        _ = await Assert.That(overridden.SnapshotRetentionCount).IsEqualTo(defaults.SnapshotRetentionCount);
+        _ = await Assert.That(overridden.JournalWriteBatch).IsEqualTo(defaults.JournalWriteBatch);
     }
 
     private static PersistenceOptions CreateWithInvalidScalar(string propertyName) => propertyName switch
     {
         nameof(PersistenceOptions.JournalMaxSegmentMb) => new PersistenceOptions { JournalMaxSegmentMb = 0 },
         nameof(PersistenceOptions.ManifestRetentionCount) => new PersistenceOptions { ManifestRetentionCount = 0 },
-        nameof(PersistenceOptions.SnapshotRetentionCount) => new PersistenceOptions { SnapshotRetentionCount = 0 },
         nameof(PersistenceOptions.JournalStallDegradedThreshold) => new PersistenceOptions { JournalStallDegradedThreshold = TimeSpan.Zero },
         nameof(PersistenceOptions.ReplicaLogCompactionMb) => new PersistenceOptions { ReplicaLogCompactionMb = 0 },
         nameof(PersistenceOptions.ReplicaLogCompactionEntries) => new PersistenceOptions { ReplicaLogCompactionEntries = 0 },

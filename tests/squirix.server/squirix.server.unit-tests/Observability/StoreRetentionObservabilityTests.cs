@@ -159,7 +159,6 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         var options = new PersistenceOptions
         {
             DataDir = dir,
-            SnapshotRetentionCount = 1,
         };
         using var store = new Ledger(options, logger, null, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleSnapshot));
         await store.WriteAsync(

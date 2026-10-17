@@ -164,7 +164,6 @@ public class ManifestPublishBreakdownBenchmarks
             {
                 DataDir = dir,
                 ManifestRetentionCount = retention,
-                SnapshotRetentionCount = retention,
             };
             var store = new Ledger(options, NullLogger<Ledger>.Instance);
             var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
