@@ -371,7 +371,7 @@ internal sealed class JournalEventLoopSegmentWriter
         {
             _owner.SegmentWriter.Write(frameBytes.AsSpan(0, item.FrameLength), offset);
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or UnauthorizedAccessException)
         {
             TruncateActiveSegmentAfterFailedFrame(offset);
             throw;
@@ -388,7 +388,7 @@ internal sealed class JournalEventLoopSegmentWriter
         {
             _owner.SegmentWriter.Write(span, offset);
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or UnauthorizedAccessException)
         {
             TruncateActiveSegmentAfterFailedFrame(offset);
             throw;
@@ -628,10 +628,9 @@ internal sealed class JournalEventLoopSegmentWriter
             }
             catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
             {
-                // The resynced scan can fail with error types the journal thread loop does not
-                // handle: an escape would kill the thread without latching the pipeline, hanging
-                // the End waiter and producers. Fault the ack with the root cause, fail the
-                // pipeline loudly, then exit through the loop handler by throwing a type it
+                // The loop handler does not catch ArgumentException. Fault the End ack with the root
+                // cause first, so the pipeline drain cannot replace it with an earlier latched failure,
+                // then fail the pipeline loudly and exit through the loop handler by throwing a type it
                 // catches. The pointers above stay installed, but a failed pipeline requires a
                 // restart, so nothing proceeds on the torn mix.
                 _ = item.Ack?.TrySetException(ex);

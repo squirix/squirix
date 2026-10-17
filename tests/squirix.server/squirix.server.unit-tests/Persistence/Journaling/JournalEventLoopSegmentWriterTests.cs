@@ -238,6 +238,43 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         await AssertNoRollAsync(run);
     }
 
+    /// <summary>
+    /// A permission failure while preparing the roll target fails the pipeline on the journal thread instead of escaping the loop, and
+    /// advertises no roll.
+    /// </summary>
+    [Test]
+    public async Task RollAccessDeniedFailsPipeline()
+    {
+        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1, JournalMaxSegmentCount = 4 };
+        var counter = new MutableInt32();
+        var host = RocksDoubles.CreateEventLoopHost(counter);
+        var registry = host.State.PendingAppends;
+        using var ring = new BoundedJournalRing(4);
+
+        // The open segment looks nearly full, so the first append rolls; a directory at the roll temp path denies the header write.
+        using var segmentWriter = new FakeSegmentWriter((1024L * 1024L) - 10L);
+        var eventLoop = new JournalEventLoop(host.Host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 0L, 1, JournalSegmentProbe.Probe(Dir, 1)), NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
+        _ = Directory.CreateDirectory(JournalReadPath.BuildRollTempPath(Dir, 2));
+        var buffer = ArrayPool<byte>.Shared.Rent(64);
+        var item = JournalWorkItem.Append(buffer, 64);
+        registry.Track(item, buffer, 64, null);
+        _ = Interlocked.Increment(ref counter.Value);
+        await ring.EnqueueAsync(item, CancellationToken.None);
+        await ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None);
+
+        eventLoop.Run();
+
+        _ = await Assert.That(host.State.PipelineFailure).IsTypeOf<UnauthorizedAccessException>();
+        _ = await Assert.That(host.State.RollsPublished).IsEqualTo(0);
+        _ = await Assert.That(eventLoop.CurrentSegmentIndex).IsEqualTo(1);
+        _ = await Assert.That(File.Exists(JournalReadPath.BuildSegmentPath(Dir, 2))).IsFalse();
+        _ = await Assert.That(registry.PendingCount).IsEqualTo(1);
+        _ = await Assert.That(counter.Value).IsEqualTo(1);
+
+        _ = registry.FailAll(host.State.PipelineFailure!, NullLogger.Instance, counter);
+        _ = await Assert.That(registry.ReturnQuarantinedBuffers()).IsEqualTo(1);
+    }
+
     /// <summary>A segment open failure faults the ack, releases the slot, and propagates.</summary>
     [Test]
     public async Task SegmentOpenFailureFaultsAck()
