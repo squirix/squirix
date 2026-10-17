@@ -127,7 +127,7 @@ internal sealed class IndexAllocator
     {
         cancellationToken.ThrowIfCancellationRequested();
         var disk = ScanMaxManifestIndexOnDisk();
-        return File.Exists(_currentPath) ? ResolveNextIndexFromPointer(PointerFile.ReadIndex(_currentPath), disk) : disk + 1;
+        return ResolveNextIndexFromPointer(PointerFile.Read(_currentPath).ManifestIndex, disk);
     }
 
     private int ScanMaxManifestIndexOnDisk()

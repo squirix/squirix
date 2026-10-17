@@ -26,10 +26,9 @@ internal static class StoreTestSupport
 
     internal static string ManifestDataFileName(int index) => $"{FilePrefixes.Manifest}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Manifest}";
 
-    internal static async Task<int> ReadCurrentManifestIndexAsync(string dataDir, CancellationToken cancellationToken)
+    internal static Task<int> ReadCurrentManifestIndexAsync(string dataDir, CancellationToken cancellationToken)
     {
-        var currentPath = Path.Join(dataDir, $"{FilePrefixes.Manifest}current");
-        var pointerBytes = await File.ReadAllBytesAsync(currentPath, cancellationToken).ConfigureAwait(false);
-        return Pointer.Read(pointerBytes);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(PointerFile.Read(Path.Join(dataDir, $"{FilePrefixes.Manifest}current")).ManifestIndex);
     }
 }

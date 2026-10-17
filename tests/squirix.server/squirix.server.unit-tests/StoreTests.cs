@@ -60,9 +60,8 @@ public sealed class StoreTests : IsolatedStorageTestBase
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
 
         var currentPath = NodePathKit.Combine(Dir, "man-current");
-        var pointerBytes = await File.ReadAllBytesAsync(currentPath, cancellationToken);
-        _ = await Assert.That(pointerBytes.Length).IsEqualTo(12);
-        _ = await Assert.That(Pointer.Read(pointerBytes)).IsEqualTo(1);
+        _ = await Assert.That(new FileInfo(currentPath).Length).IsEqualTo(PointerSlots.FileSize);
+        _ = await Assert.That(PointerFile.Read(currentPath).ManifestIndex).IsEqualTo(1);
 
         var manifestPath = NodePathKit.Combine(Dir, "man-000001.bmqx");
         _ = await Assert.That(File.Exists(manifestPath)).IsTrue();
@@ -71,17 +70,20 @@ public sealed class StoreTests : IsolatedStorageTestBase
         _ = await Assert.That(manifest.NextSequence).IsEqualTo(1UL);
     }
 
-    /// <summary>Verifies CURRENT is updated in place without leaving a temp pointer file.</summary>
+    /// <summary>Verifies CURRENT is written in place: a reader without delete sharing keeps it open across publishes.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task WriteUpdatesPointerViaTempFile(CancellationToken cancellationToken)
+    public async Task PublishSucceedsWhileReaderHoldsPointer(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
-
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
 
-        _ = await Assert.That(File.Exists(NodePathKit.Combine(Dir, "man-current.tmp"))).IsFalse();
-        _ = await Assert.That((await File.ReadAllBytesAsync(NodePathKit.Combine(Dir, "man-current"), cancellationToken)).Length).IsEqualTo(12);
+        var currentPath = NodePathKit.Combine(Dir, "man-current");
+        using var reader = File.OpenHandle(currentPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 2 }, cancellationToken);
+        await store.WriteAsync(new State { CurrentJournal = 3, NextSequence = 3 }, cancellationToken);
+
+        _ = await Assert.That(PointerFile.Read(currentPath).ManifestIndex).IsEqualTo(3);
     }
 }

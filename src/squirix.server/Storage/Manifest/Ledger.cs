@@ -10,7 +10,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Manifest;
 
-/// <summary>Manifest store (<c language="csharp">.bmqx</c> files and fixed-size <c language="csharp">man-current</c> pointer).</summary>
+/// <summary>Manifest store (<c language="csharp">.bmqx</c> files and two-slot <c language="csharp">man-current</c> pointer).</summary>
 [Mutable]
 internal sealed class Ledger : IDisposable
 {
@@ -87,10 +87,10 @@ internal sealed class Ledger : IDisposable
     {
         await _publisher.EnsureDataDirectoryExistsAsync(cancellationToken).ConfigureAwait(false);
 
-        if (!File.Exists(_currentPath))
+        var index = PointerFile.Read(_currentPath).ManifestIndex;
+        if (index == 0)
             return new State();
 
-        var index = PointerFile.ReadIndex(_currentPath);
         var path = _allocator.BuildManifestFilePath(index);
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
         var manifest = FileCodec.Decode(bytes);
@@ -161,8 +161,6 @@ internal sealed class Ledger : IDisposable
         private const int DefaultEncodeBufferCapacity = 256;
 
         private readonly IndexAllocator _allocator;
-        private readonly byte[] _currentPointerBuffer = new byte[Pointer.Size];
-
         private readonly PersistentPointerWriter _currentPointerWriter;
 
         private readonly string _dir;
@@ -196,7 +194,11 @@ internal sealed class Ledger : IDisposable
                 () => ServerLog.ManifestPublisherLeakedOnShutdownTimeout(logger, stopBudget));
         }
 
-        public void Dispose() => _worker.Dispose();
+        public void Dispose()
+        {
+            _worker.Dispose();
+            _currentPointerWriter.Dispose();
+        }
 
         internal void EnqueueRoll(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception> onRollFailed, Action<State> onCommitted) =>
             _worker.Post(new RollItem(currentJournal, nextSequence, onSuccess, onCommitted) { OnFailure = onRollFailed });
@@ -243,8 +245,8 @@ internal sealed class Ledger : IDisposable
             _ = FileCodec.WriteRollEncoded(format, rollItem.CurrentJournal, rollItem.NextSequence, snapshot, snapshotPathUtf8.Span, _encodeBuffer.AsSpan(0, encodedLength));
 
             var targetPath = _allocator.BuildManifestFilePath(nextIndex);
-            Pointer.Write(_currentPointerBuffer, nextIndex);
-            FileDurability.WriteManifestRollBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength), _currentPointerWriter, _currentPointerBuffer);
+            FileDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength));
+            _currentPointerWriter.Publish(nextIndex);
 
             var manifest = new State
             {
@@ -253,7 +255,10 @@ internal sealed class Ledger : IDisposable
                 NextSequence = rollItem.NextSequence,
                 LastSnapshot = snapshot,
             };
+
+            // The pointer already names this manifest, so memory follows it before the mirror write that may still fail.
             _setCache(manifest, nextIndex);
+            _currentPointerWriter.Mirror();
             rollItem.OnSuccess?.Invoke();
             rollItem.OnCommitted?.Invoke(manifest);
         }
@@ -265,9 +270,11 @@ internal sealed class Ledger : IDisposable
             EnsureEncodeBufferCapacity(work.EncodedLength);
             FileCodec.WriteEncoded(work.Manifest, _encodeBuffer.AsSpan(0, work.EncodedLength));
             FileDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, work.EncodedLength));
-            Pointer.Write(_currentPointerBuffer, nextIndex);
-            FileDurability.WriteCurrentPointerBlocking(_currentPointerWriter, _currentPointerBuffer);
+            _currentPointerWriter.Publish(nextIndex);
+
+            // The pointer already names this manifest, so memory follows it before the mirror write that may still fail.
             _setCache(work.Manifest, nextIndex);
+            _currentPointerWriter.Mirror();
         }
 
         [Immutable]
