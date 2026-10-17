@@ -47,7 +47,6 @@ public class ManifestSegmentRollBenchmarks
             JournalMaxSegmentMb = 1,
             JournalMaxSegmentCount = 1024,
             ManifestRetentionCount = retention,
-            SnapshotRetentionCount = retention,
         };
         _host = await JournalBenchmarkHost.CreateAsync("manifest-roll-bench", options, CancellationToken.None).ConfigureAwait(false);
         _overflowPayload = new byte[OverflowPayloadSize];

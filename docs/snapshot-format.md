@@ -77,7 +77,10 @@ on write and materialized as owned `JsonElement` on read.
 Writes go to `snp-NNNNNN.tmp` and are published to `snp-NNNNNN.bsqx` via
 `IStorageFileOperations.PublishSnapshot` with a no-overwrite move: an existing target fails the publish and is never
 replaced. The index is above both the snapshot the manifest names and every `snp-*.bsqx` file on disk, so an unreferenced
-snapshot left by a crash before the manifest update is skipped, not overwritten.
+snapshot left by a crash before the manifest update is skipped, not overwritten, and deleted once a later snapshot is
+published. Retention keeps the snapshot the manifest names and every snapshot file above its index, and deletes the
+files below it. A manifest that names no snapshot, as after a journal compaction, makes retention delete none until
+the next snapshot is published.
 
 ## Replica-group snapshots
 

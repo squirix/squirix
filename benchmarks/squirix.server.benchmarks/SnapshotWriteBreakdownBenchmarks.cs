@@ -123,7 +123,6 @@ public class SnapshotWriteBreakdownBenchmarks
             {
                 DataDir = dir,
                 ManifestRetentionCount = retention,
-                SnapshotRetentionCount = retention,
             };
             var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
             var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

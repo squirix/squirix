@@ -5,11 +5,10 @@ namespace Squirix.Server.Storage.Manifest;
 [Immutable]
 internal sealed record RetentionSettings
 {
-    internal RetentionSettings(string dataDir, int manifestRetention, int snapshotRetention, string manifestFileGlob)
+    internal RetentionSettings(string dataDir, int manifestRetention, string manifestFileGlob)
     {
         DataDir = dataDir;
         ManifestRetention = manifestRetention;
-        SnapshotRetention = snapshotRetention;
         ManifestFileGlob = manifestFileGlob;
     }
 
@@ -18,6 +17,4 @@ internal sealed record RetentionSettings
     internal string ManifestFileGlob { get; }
 
     internal int ManifestRetention { get; }
-
-    internal int SnapshotRetention { get; }
 }

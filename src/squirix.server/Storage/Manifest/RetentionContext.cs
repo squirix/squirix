@@ -19,7 +19,6 @@ internal sealed record RetentionContext
         ArgumentNullException.ThrowIfNull(settings);
         DataDir = settings.DataDir;
         ManifestRetention = settings.ManifestRetention;
-        SnapshotRetention = settings.SnapshotRetention;
         FileOperations = fileOperations ?? new FileOperations();
         ArgumentNullException.ThrowIfNull(logger);
         Logger = logger;
@@ -41,8 +40,6 @@ internal sealed record RetentionContext
     internal int ManifestRetention { get; }
 
     internal Func<string, int> ParseManifestIndex { get; }
-
-    internal int SnapshotRetention { get; }
 
     [Immutable]
     private sealed class NoOpManifestRetentionFailureMetrics : IManifestRetentionFailureMetrics

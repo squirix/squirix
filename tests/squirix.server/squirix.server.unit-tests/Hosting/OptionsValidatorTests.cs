@@ -193,7 +193,6 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             DataDir = " ",
             JournalMaxSegmentMb = 1,
             ManifestRetentionCount = 1,
-            SnapshotRetentionCount = 1,
         };
 
         var result = v.Validate(Options.DefaultName, bad);

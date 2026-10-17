@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -96,34 +95,6 @@ internal sealed class RetentionWorker : IWorkPoolItem
             var snapshotCleanupFailed = TryCleanupOldSnapshots(context, manifest.LastSnapshot);
             var journalCleanupFailed = TryCleanupObsoleteJournalSegments(context, manifest);
             return manifestCleanupFailed || snapshotCleanupFailed || journalCleanupFailed;
-        }
-
-        private static HashSet<string> BuildSnapshotKeepSet(RetentionContext context, IndexedStorageFile[] ordered, SnapshotRef? currentSnapshot)
-        {
-            var keepCapacity = context.SnapshotRetention + (string.IsNullOrWhiteSpace(currentSnapshot?.Path) ? 0 : 1);
-            var keep = new HashSet<string>(keepCapacity, StringComparer.OrdinalIgnoreCase);
-            for (var i = 0; i < context.SnapshotRetention && i < ordered.Length; i++)
-                _ = keep.Add(ordered[i].Path);
-
-            if (!string.IsNullOrWhiteSpace(currentSnapshot?.Path))
-                _ = keep.Add(currentSnapshot.Path);
-
-            return keep;
-        }
-
-        private static bool DeleteStaleSnapshots(RetentionContext context, IndexedStorageFile[] ordered, HashSet<string> keep)
-        {
-            var failed = false;
-            for (var i = context.SnapshotRetention; i < ordered.Length; i++)
-            {
-                var stale = ordered[i];
-                if (keep.Contains(stale.Path))
-                    continue;
-
-                failed |= TryDeleteRetentionArtifact(context, stale.Path, ManifestRetentionArtifactKind.Snapshot);
-            }
-
-            return failed;
         }
 
         private static IndexedStorageFile[] GetIndexedFiles(ReadOnlySpan<string> files, Func<string, int> parseIndex)
@@ -243,17 +214,33 @@ internal sealed class RetentionWorker : IWorkPoolItem
             }
         }
 
+        /// <summary>
+        /// Deletes every snapshot below the manifest's current one; files at or above it are kept. Retention is scheduled only after a publish that
+        /// mirrored both pointer slots, so neither slot can name a manifest whose snapshot is below the current one. A file above the current one is an
+        /// in-flight write or an orphan, which a later snapshot's retention deletes. A failed delete is retried on the next run.
+        /// </summary>
+        /// <param name="context">The retention inputs.</param>
+        /// <param name="currentSnapshot">The snapshot the manifest names, or <see langword="null" /> when it names none.</param>
+        /// <returns><see langword="true" /> when a delete or the directory scan failed; otherwise <see langword="false" />.</returns>
         private static bool TryCleanupOldSnapshots(RetentionContext context, SnapshotRef? currentSnapshot)
         {
+            if (currentSnapshot is not { Index: > 0 })
+                return false;
+
             try
             {
                 var dataDir = FilePathValidator.ResolveValidatedDirectoryPath(context.DataDir);
-                var files = Directory.GetFiles(dataDir, $"{FilePrefixes.Snapshot}*{FileExtensions.Snapshot}");
-                if (files.Length <= context.SnapshotRetention)
-                    return false;
+                var failed = false;
+                foreach (var path in Directory.GetFiles(dataDir, $"{FilePrefixes.Snapshot}*{FileExtensions.Snapshot}"))
+                {
+                    var index = SnapshotFileName.ParseIndex(Path.GetFileName(path));
+                    if (index <= 0 || index >= currentSnapshot.Index || string.Equals(path, currentSnapshot.Path, StringComparison.OrdinalIgnoreCase))
+                        continue;
 
-                var ordered = GetIndexedFiles(files, SnapshotFileName.ParseIndex);
-                return ordered.Length > context.SnapshotRetention && DeleteStaleSnapshots(context, ordered, BuildSnapshotKeepSet(context, ordered, currentSnapshot));
+                    failed |= TryDeleteRetentionArtifact(context, path, ManifestRetentionArtifactKind.Snapshot);
+                }
+
+                return failed;
             }
             catch (ArgumentException ex)
             {

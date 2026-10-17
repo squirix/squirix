@@ -64,7 +64,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
 
     /// <summary>
     /// An unreferenced snapshot file above the published index is skipped: the next snapshot takes the next free
-    /// index and the orphan is left untouched.
+    /// index and the orphan is deleted once that snapshot is published.
     /// </summary>
     /// <param name="publishedIndex">Index the manifest names, or 0 when it names no snapshot.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -88,8 +88,9 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
         var current = await store.ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(current.LastSnapshot?.Index).IsEqualTo(3);
         _ = await Assert.That(File.Exists(Path.Join(Dir, $"{FilePrefixes.Snapshot}000003{FileExtensions.Snapshot}"))).IsTrue();
-        var orphanBytes = await File.ReadAllBytesAsync(orphanPath, cancellationToken);
-        await SequenceAssert.EqualAsync<byte>([7, 7, 7], orphanBytes);
+
+        // Retention runs in the background; the orphan below the new snapshot is deleted once it has run.
+        await orphanPath.WaitUntilAsync(static path => !File.Exists(path), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>
