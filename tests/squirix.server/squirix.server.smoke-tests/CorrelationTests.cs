@@ -41,11 +41,7 @@ public sealed class CorrelationTests : SmokeTestBase
             "A",
             "B",
             node => string.Equals(node, "B", StringComparison.Ordinal)
-                ? new BlackBoxStartOptions
-                {
-                    ConfigureGrpc = static o => o.Interceptors.Add<CapturingHeadersInterceptor>(),
-                    ServicesConfigure = servicesConfigure.Apply,
-                }
+                ? new BlackBoxStartOptions { ConfigureGrpc = static o => o.Interceptors.Add<CapturingHeadersInterceptor>(), ServicesConfigure = servicesConfigure.Apply, }
                 : new BlackBoxStartOptions(),
             cancellationToken);
 

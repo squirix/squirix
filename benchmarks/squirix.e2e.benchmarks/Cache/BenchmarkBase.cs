@@ -72,7 +72,8 @@ public abstract class BenchmarkBase
 
     /// <summary>Gets the next deterministic hit key.</summary>
     /// <returns>A key from the hit keyspace.</returns>
-    protected string NextHitKey() => Scenario.Topology is BenchmarkTopology.TwoNodeHotKeys ? Keyspace.HotKey(Interlocked.Increment(ref _hitOffset))
+    protected string NextHitKey() => Scenario.Topology is BenchmarkTopology.TwoNodeHotKeys
+        ? Keyspace.HotKey(Interlocked.Increment(ref _hitOffset))
         : Keyspace.HitKey(Interlocked.Increment(ref _hitOffset));
 
     /// <summary>Gets the next deterministic miss key.</summary>

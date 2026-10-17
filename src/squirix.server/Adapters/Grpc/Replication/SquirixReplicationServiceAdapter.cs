@@ -126,12 +126,11 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 
     public override async Task<OfferReplicaBootstrapResponse> OfferReplicaBootstrap(OfferReplicaBootstrapRequest request, ServerCallContext context)
     {
-        var header = EnsureHeader(request.Header, context, false);
-        _follower?.NotePeerContact(header.SenderNodeId);
+        var h = EnsureHeader(request.Header, context, false);
+        _follower?.NotePeerContact(h.SenderNodeId);
         var result = _follower == null
             ? new ReplicaBootstrapOfferResult(false, null, RefusalCodes.NotReady)
-            : await _follower.AcceptOfferAsync(header.GroupId, header.SenderNodeId, header.TopologyFingerprint.ToByteArray(), header.ConfigurationGeneration, context.CancellationToken)
-                             .ConfigureAwait(false);
+            : await _follower.AcceptOfferAsync(h.GroupId, h.SenderNodeId, h.TopologyFingerprint.ToByteArray(), h.ConfigurationGeneration, context.CancellationToken).ConfigureAwait(false);
         return new OfferReplicaBootstrapResponse
         {
             Accepted = result.Accepted,
@@ -142,11 +141,11 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 
     public override async Task<ReplicaVoteResponse> PreVote(ReplicaVoteRequest request, ServerCallContext context)
     {
-        var header = EnsureHeader(request.Header, context, false);
-        if (RefusesVotes(header.GroupId))
+        var h = EnsureHeader(request.Header, context, false);
+        if (RefusesVotes(h.GroupId))
             return StubVoteRefusal();
 
-        var result = await _follower.PreVoteAsync(header.GroupId, header.TopologyFingerprint.ToByteArray(), header.ConfigurationGeneration, Ballot(header, request), context.CancellationToken)
+        var result = await _follower.PreVoteAsync(h.GroupId, h.TopologyFingerprint.ToByteArray(), h.ConfigurationGeneration, Ballot(h, request), context.CancellationToken)
                                     .ConfigureAwait(false);
         return MapVote(in result);
     }

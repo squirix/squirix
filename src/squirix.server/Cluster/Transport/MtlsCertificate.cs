@@ -168,9 +168,10 @@ internal sealed class MtlsCertificate : IDisposable
                 errorParts[i] = chain.ChainStatus[i].StatusInformation.Trim();
 
             var errors = string.Join("; ", errorParts);
-            var chainFailureMessage = string.IsNullOrWhiteSpace(errors) ? "mTLS node certificate does not chain to the configured trust root."
+            var message = string.IsNullOrWhiteSpace(errors)
+                ? "mTLS node certificate does not chain to the configured trust root."
                 : $"mTLS node certificate does not chain to the configured trust root. {errors}";
-            throw new InvalidOperationException(chainFailureMessage);
+            throw new InvalidOperationException(message);
         }
 
         /// <summary>Ensures the node certificate common name matches the configured cluster node identifier.</summary>

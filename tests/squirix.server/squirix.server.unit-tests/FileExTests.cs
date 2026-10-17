@@ -168,7 +168,8 @@ public sealed class FileExTests : ServerUnitTestBase
     private static Task<PublishResult> StartPublishAsync(string tempPath, string finalPath, TimeProvider clock, CancellationToken cancellationToken)
     {
         return Task.Factory.StartNew(
-            static state => state is PublishRequest request ? FileEx.PublishFile(request.TempPath, request.FinalPath, request.Clock)
+            static state => state is PublishRequest request
+                ? FileEx.PublishFile(request.TempPath, request.FinalPath, request.Clock)
                 : throw new InvalidOperationException("Unexpected publish state."),
             new PublishRequest(tempPath, finalPath, clock),
             cancellationToken,

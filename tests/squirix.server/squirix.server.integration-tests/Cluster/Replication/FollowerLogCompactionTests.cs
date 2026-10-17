@@ -154,7 +154,8 @@ public sealed class FollowerLogCompactionTests : NodeIntegrationTestBase
     /// <param name="host">The node.</param>
     /// <returns>The group log of the owner's group on the node.</returns>
     /// <exception cref="InvalidOperationException">The node does not serve the owner's group.</exception>
-    private static IFollowerLog GroupLog(ITestNodeHost host) => host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(OwnerId, out var log) ? log
+    private static IFollowerLog GroupLog(ITestNodeHost host) => host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(OwnerId, out var log)
+        ? log
         : throw new InvalidOperationException($"The node does not serve group {OwnerId}.");
 
     /// <summary>Resolves the node's local cache chain below replication, which the group appliers write to.</summary>

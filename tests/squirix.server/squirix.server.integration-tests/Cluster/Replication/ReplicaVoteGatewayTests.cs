@@ -85,6 +85,7 @@ public sealed class ReplicaVoteGatewayTests : NodeIntegrationTestBase
     }
 
     private static IFollowerLog GroupLog(ITestNodeHost host) =>
-        host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(CandidateId, out var log) ? log
+        host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(CandidateId, out var log)
+            ? log
             : throw new InvalidOperationException($"The node does not serve group {CandidateId}.");
 }

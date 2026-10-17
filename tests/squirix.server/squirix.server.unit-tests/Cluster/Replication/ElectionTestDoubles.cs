@@ -135,7 +135,8 @@ internal static class ElectionTestDoubles
             lock (_sync)
                 _calls.Add(call);
 
-            return _answer(call) is { } reply ? Task.FromResult(reply)
+            return _answer(call) is { } reply
+                ? Task.FromResult(reply)
                 : Task.FromException<FollowerLogVoteResult>(new RpcException(new Status(StatusCode.Unavailable, "voter unreachable")));
         }
     }

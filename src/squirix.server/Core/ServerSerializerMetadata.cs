@@ -78,16 +78,12 @@ internal static class ServerSerializerMetadata
         return JsonSerializer.SerializeToElement(value, info);
     }
 
-    private static JsonTypeInfo ResolveByEffectiveType(object? value, Type declaredType)
+    private static JsonTypeInfo ResolveByEffectiveType(object? value, Type dt)
     {
-        var runtimeType = value?.GetType();
-        return runtimeType != null && runtimeType != declaredType
-            ? GetOrResolve(
-                runtimeType,
-                $"No JSON metadata registered for {runtimeType} (runtime type of {declaredType}). Register a source-generated JsonSerializerContext covering this type (AOT requirement).")
-            : GetOrResolve(
-                declaredType,
-                $"No JSON metadata registered for {declaredType}. Register a source-generated JsonSerializerContext covering this type (AOT requirement).");
+        var rt = value?.GetType();
+        return rt == null || rt == dt
+            ? GetOrResolve(dt, $"No JSON metadata registered for {dt}. Register a source-generated JsonSerializerContext covering this type.")
+            : GetOrResolve(rt, $"No JSON metadata registered for {rt} (runtime type of {dt}). Register a source-generated JsonSerializerContext covering this type.");
     }
 
     private static JsonTypeInfo GetOrResolve(Type type, string missingMessage)

@@ -172,16 +172,10 @@ internal static class BinaryJournalCodec
         int payloadLen,
         MutationStamp stamp)
     {
-        var prefixLength = MutationOperationIdCodec.EncodeMutationOperationIdPrefixLength(stamp.OperationId, stamp.Fingerprint);
-        return payloadLen < prefixLength ? throw new InvalidDataException("mutation frame payload is truncated.") : new JournalRecord
-        {
-            Sequence = seq,
-            UnixMs = unixMs,
-            Operation = operation,
-            Key = cacheKey,
-            MutationOperationId = stamp.OperationId,
-            MutationFingerprint = stamp.Fingerprint,
-        };
+        var length = MutationOperationIdCodec.EncodeMutationOperationIdPrefixLength(stamp.OperationId, stamp.Fingerprint);
+        return payloadLen < length
+            ? throw new InvalidDataException("mutation frame payload is truncated.")
+            : new JournalRecord { Sequence = seq, UnixMs = unixMs, Operation = operation, Key = cacheKey, MutationOperationId = stamp.OperationId, MutationFingerprint = stamp.Fingerprint, };
     }
 
     private static JournalRecord DecodePut(ulong seq, long unixMs, CacheKey cacheKey, byte[] frameBuffer, int offset, int payloadLen, MutationStamp stamp)
@@ -256,7 +250,8 @@ internal static class BinaryJournalCodec
     /// <param name="offset">The payload offset within the destination.</param>
     /// <returns>The offset after the encoded payload.</returns>
     private static int EncodeIdempotencyPayload(JournalRecord record, Span<byte> destination, int offset) => record.Operation == JournalOperationKind.IdempotencyOutcome
-        ? EncodeIdempotencyOutcome(record, destination, offset) : EncodeIdempotencyStarted(record, destination, offset);
+        ? EncodeIdempotencyOutcome(record, destination, offset)
+        : EncodeIdempotencyStarted(record, destination, offset);
 
     private static int EncodeIdempotencyStarted(JournalRecord record, Span<byte> destination, int offset)
     {

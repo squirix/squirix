@@ -124,7 +124,8 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
         var deadline = clock.GetUtcNow().UtcDateTime.Add(Expiration);
         var factory = new ReplicaMutationFactory(NewCache(clock), "g1", 1UL, clock, NullLogger.Instance);
         var entry = new NodeCacheEntry<object?> { Value = "v1", Expiration = Expiration };
-        var write = string.Equals(kind, ReplicaMutationKinds.Set, StringComparison.Ordinal) ? factory.PrepareSet("op-1", CacheName, Key, entry, 1UL)
+        var write = string.Equals(kind, ReplicaMutationKinds.Set, StringComparison.Ordinal)
+            ? factory.PrepareSet("op-1", CacheName, Key, entry, 1UL)
             : await factory.PrepareTryAddAsync("op-1", CacheName, Key, entry, 1UL, cancellationToken);
 
         clock.Advance(TimeSpan.FromMinutes(1));

@@ -68,7 +68,8 @@ internal static class GroupLogFrameReader
             header.AsSpan(0, FrameHeaderByteCount).CopyTo(frame);
             var frameEnd = await HandleEx.ReadExactAsync(handle, frame.AsMemory(FrameHeaderByteCount, frameLength - FrameHeaderByteCount), offset + FrameHeaderByteCount, cancellationToken)
                                          .ConfigureAwait(false);
-            return frameEnd != null && GroupLogCodec.TryReadFrame(frame.AsSpan(0, frameLength), out var entry) && entry.LogIndex == logIndex ? entry
+            return frameEnd != null && GroupLogCodec.TryReadFrame(frame.AsSpan(0, frameLength), out var entry) && entry.LogIndex == logIndex
+                ? entry
                 : throw new InvalidDataException($"Committed group log frame {logIndex} at offset {offset} is corrupt.");
         }
         finally

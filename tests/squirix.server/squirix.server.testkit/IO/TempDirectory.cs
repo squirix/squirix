@@ -64,7 +64,8 @@ public sealed class TempDirectory : IDisposable
         if (!string.IsNullOrEmpty(hint))
             PathValidationKit.ValidateSegmentName(hint, nameof(hint));
 
-        var d = string.IsNullOrEmpty(hint) ? System.IO.Path.Join(System.IO.Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"))
+        var d = string.IsNullOrEmpty(hint)
+            ? System.IO.Path.Join(System.IO.Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"))
             : System.IO.Path.Join(System.IO.Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"), hint);
         Directory.CreateDirectory(d);
         return d;

@@ -7,6 +7,7 @@ namespace Squirix.Server.Node.Services;
 [Immutable]
 internal sealed class JournalMetricsExporterOptionsValidator : IValidateOptions<JournalMetricsExporterOptions>
 {
-    public ValidateOptionsResult Validate(string? name, JournalMetricsExporterOptions options) => options.Interval > TimeSpan.Zero ? ValidateOptionsResult.Success
+    public ValidateOptionsResult Validate(string? name, JournalMetricsExporterOptions options) => options.Interval > TimeSpan.Zero
+        ? ValidateOptionsResult.Success
         : ValidateOptionsResult.Fail("journal metrics exporter Interval must be greater than zero.");
 }

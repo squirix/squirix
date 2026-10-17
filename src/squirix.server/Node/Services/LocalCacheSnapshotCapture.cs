@@ -50,7 +50,8 @@ internal sealed class LocalCacheSnapshotCapture<T> : ISnapshotEntryCapture
     private static NodeCacheEntry<object?> ToSnapshotEntry(NodeCacheEntry<T> source)
     {
         var value = source.Normalize();
-        return source is NodeCacheEntry<object?> entry && Equals(value, entry.Value) ? entry
+        return source is NodeCacheEntry<object?> entry && Equals(value, entry.Value)
+            ? entry
             : new NodeCacheEntry<object?>(value, source.Version, source.ExpiresUtc, source.Expiration, source.Tags);
     }
 }

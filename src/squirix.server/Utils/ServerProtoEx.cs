@@ -385,7 +385,8 @@ internal static class ServerProtoEx
             return root.ValueKind is JsonValueKind.Object ? BuildStructFromJsonObject(root) : CreateSingleFieldStruct(ConvertJsonElementToProtoValue(root));
         }
 
-        private static Struct EncodeJsonElement(JsonElement element) => element.ValueKind is JsonValueKind.Object ? BuildStructFromJsonObject(element)
+        private static Struct EncodeJsonElement(JsonElement element) => element.ValueKind is JsonValueKind.Object
+            ? BuildStructFromJsonObject(element)
             : CreateSingleFieldStruct(ConvertJsonElementToProtoValue(element));
 
         /// <summary>Writes list values as a JSON array, recursing through nested values.</summary>

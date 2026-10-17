@@ -521,7 +521,8 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
                 length += ComputeOutcomeEncodedLength(in outcome);
             }
 
-            return length > int.MaxValue ? throw new InvalidOperationException($"Replica group snapshot encoded length {length} exceeds the maximum.")
+            return length > int.MaxValue
+                ? throw new InvalidOperationException($"Replica group snapshot encoded length {length} exceeds the maximum.")
                 : int.CreateTruncating(length);
         }
 

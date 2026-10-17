@@ -120,7 +120,8 @@ internal sealed class ReplicaVoteRound
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(giveUp, timeout.Token);
         try
         {
-            return preVote ? await _votes.PreVoteAsync(nodeId, header, last.Index, last.Term, linked.Token).ConfigureAwait(false)
+            return preVote
+                ? await _votes.PreVoteAsync(nodeId, header, last.Index, last.Term, linked.Token).ConfigureAwait(false)
                 : await _votes.RequestVoteAsync(nodeId, header, last.Index, last.Term, linked.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)

@@ -587,7 +587,8 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         {
             for (var i = 0; i < batch.Count; i++)
             {
-                _ = result.Success ? batch[i].Completion.TrySetResult(AcknowledgementOf(batch[i].Mutation))
+                _ = result.Success
+                    ? batch[i].Completion.TrySetResult(AcknowledgementOf(batch[i].Mutation))
                     : batch[i].Completion.TrySetException(new InvalidOperationException($"Follower '{nodeId}' refused append: {result.RefusalCode}."));
             }
         }

@@ -143,7 +143,8 @@ public sealed class FailoverRetryTests : TestBase
             static (nodeId, state, _) =>
             {
                 state.Observed.Add((nodeId, state.OperationId));
-                return string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal) ? throw new RpcException(new Status(StatusCode.FailedPrecondition, "stale-term"))
+                return string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal)
+                    ? throw new RpcException(new Status(StatusCode.FailedPrecondition, "stale-term"))
                     : new ValueTask<int>(42);
             },
             observer,

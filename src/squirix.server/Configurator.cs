@@ -209,7 +209,8 @@ public static class Configurator
     /// <summary>Resolves a settings file path from an explicit path or the standard discovery order.</summary>
     /// <param name="explicitPath">Optional explicit settings path.</param>
     /// <returns>The resolved path when found; otherwise <see langword="null" />.</returns>
-    public static string? ResolveSettingsPath(string? explicitPath = null) => explicitPath == null ? FileEx.FindFile(["Squirix.settings.json", "squirix.settings.json"])
+    public static string? ResolveSettingsPath(string? explicitPath = null) => explicitPath == null
+        ? FileEx.FindFile(["Squirix.settings.json", "squirix.settings.json"])
         : ResolveValidatedFilePath(explicitPath);
 
     /// <summary>Validates and canonicalizes an operator-supplied data directory path.</summary>

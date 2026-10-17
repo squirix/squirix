@@ -260,7 +260,8 @@ public sealed class PhysicalCacheFootprintTests : ServerUnitTestBase
         await cache.SetAsync(KeyB, Entry("newest"), cancellationToken);
         armed = true;
 
-        _ = touch ? NodeExceptionAssert.For<InvalidOperationException>().Throws(cache, static c => _ = c.TouchAsync(KeyA, TimeSpan.FromMinutes(1), CancellationToken.None).AsTask())
+        _ = touch
+            ? NodeExceptionAssert.For<InvalidOperationException>().Throws(cache, static c => _ = c.TouchAsync(KeyA, TimeSpan.FromMinutes(1), CancellationToken.None).AsTask())
             : NodeExceptionAssert.For<InvalidOperationException>().Throws(cache, static c => _ = c.UpdateAsync(KeyA, "updated", CancellationToken.None).AsTask());
 
         armed = false;

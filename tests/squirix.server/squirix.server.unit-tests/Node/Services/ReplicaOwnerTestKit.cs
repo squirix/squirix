@@ -333,7 +333,8 @@ internal static class ReplicaOwnerTestKit
     }
 
     internal static async Task<FollowerLogStatus> StatusAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken) =>
-        registry.TryGetLog("n1", out var log) ? await log.GetStatusAsync(cancellationToken)
+        registry.TryGetLog("n1", out var log)
+            ? await log.GetStatusAsync(cancellationToken)
             : throw new InvalidOperationException("The owned group log is not open.");
 
     internal static string TailOperationId(string key) => "tail-" + key;
@@ -384,7 +385,8 @@ internal static class ReplicaOwnerTestKit
         }
 
         private static FollowerLogAppendResult AppendBehindLonger(in FollowerBatch batch, ulong last) =>
-            batch.Records.Count == 0 ? new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, batch.LeaderTerm, 0)
+            batch.Records.Count == 0
+                ? new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, batch.LeaderTerm, 0)
                 : new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last + 5);
 
         private Task<FollowerLogAppendResult> AnswerForAsync(FollowerMode mode, string nodeId, in FollowerBatch batch, ulong last, CancellationToken cancellationToken) => mode switch

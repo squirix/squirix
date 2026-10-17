@@ -123,6 +123,7 @@ internal sealed class ReplicaLeaderTenure : IDisposable
     /// <param name="groupId">The group identifier, for the refusal.</param>
     /// <returns>The won term.</returns>
     /// <exception cref="ReplicaTermSupersededException">The log moved past the won term: a newer leader exists.</exception>
-    internal ulong TermFor(in FollowerLogStatus status, string groupId) => status.CurrentTerm <= Term ? Term
+    internal ulong TermFor(in FollowerLogStatus status, string groupId) => status.CurrentTerm <= Term
+        ? Term
         : throw new ReplicaTermSupersededException($"Replica group '{groupId}' moved to term {status.CurrentTerm} past the led term {Term}.");
 }

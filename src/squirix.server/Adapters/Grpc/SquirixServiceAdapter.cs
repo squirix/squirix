@@ -251,7 +251,8 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
                 return AddedResponse(entry);
 
             var existing = await api.GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
-            return existing.Found ? new GetOrAddAsyncResponse { Added = false, Found = true, Value = ServerProtoEx.CacheValueToGrpcValue(existing.Value) }
+            return existing.Found
+                ? new GetOrAddAsyncResponse { Added = false, Found = true, Value = ServerProtoEx.CacheValueToGrpcValue(existing.Value) }
                 : new GetOrAddAsyncResponse { Added = false, Found = false };
         }
 

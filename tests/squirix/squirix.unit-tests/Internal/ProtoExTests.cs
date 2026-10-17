@@ -42,7 +42,7 @@ public sealed class ProtoExTests
             },
         };
 
-        var result = await ProtoEx.FromCacheValueAsync<object>(cacheValue, serializer);
+        var result = await ProtoEx.ReadAsync<object>(cacheValue, serializer);
         switch (kind)
         {
             case "string":
@@ -84,17 +84,17 @@ public sealed class ProtoExTests
         };
 
         if (string.Equals(kind, "string", StringComparison.Ordinal))
-            _ = await Assert.That(await ProtoEx.FromCacheValueAsync<string>(wire, serializer)).IsEqualTo("hello");
+            _ = await Assert.That(await ProtoEx.ReadAsync<string>(wire, serializer)).IsEqualTo("hello");
         else if (string.Equals(kind, "bool", StringComparison.Ordinal))
-            _ = await Assert.That(await ProtoEx.FromCacheValueAsync<bool>(wire, serializer)).IsTrue();
+            _ = await Assert.That(await ProtoEx.ReadAsync<bool>(wire, serializer)).IsTrue();
         else if (string.Equals(kind, "int", StringComparison.Ordinal))
-            _ = await Assert.That(await ProtoEx.FromCacheValueAsync<int>(wire, serializer)).IsEqualTo(11);
+            _ = await Assert.That(await ProtoEx.ReadAsync<int>(wire, serializer)).IsEqualTo(11);
         else if (string.Equals(kind, "long", StringComparison.Ordinal))
-            _ = await Assert.That(await ProtoEx.FromCacheValueAsync<long>(wire, serializer)).IsEqualTo(22L);
+            _ = await Assert.That(await ProtoEx.ReadAsync<long>(wire, serializer)).IsEqualTo(22L);
         else if (string.Equals(kind, "double", StringComparison.Ordinal))
-            _ = await Assert.That(await ProtoEx.FromCacheValueAsync<double>(wire, serializer)).IsEqualTo(3.25d);
+            _ = await Assert.That(await ProtoEx.ReadAsync<double>(wire, serializer)).IsEqualTo(3.25d);
         else
-            _ = await Assert.That(await ProtoEx.FromCacheValueAsync<string>(wire, serializer)).IsNull();
+            _ = await Assert.That(await ProtoEx.ReadAsync<string>(wire, serializer)).IsNull();
     }
 
     /// <summary>Entry mapping round-trips typed values and expiration metadata.</summary>
@@ -161,7 +161,7 @@ public sealed class ProtoExTests
         var serializer = new SystemTextJsonSerializer();
         var wire = new CacheValue { Int32Value = 5 };
 
-        _ = await Assert.That(await ProtoEx.FromCacheValueAsync<double>(wire, serializer)).IsEqualTo(5d);
+        _ = await Assert.That(await ProtoEx.ReadAsync<double>(wire, serializer)).IsEqualTo(5d);
     }
 
     /// <summary>Negative zero JSON values preserve sign through protobuf round-trip.</summary>

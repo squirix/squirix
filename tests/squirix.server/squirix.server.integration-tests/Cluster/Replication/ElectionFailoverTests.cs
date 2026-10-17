@@ -158,7 +158,8 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
         (await Log(node).GetStatusAsync(cancellationToken)).CurrentTerm >= follower.Term && Table(node).TryGetLeader(OwnerId, out var route) &&
         !string.Equals(route.NodeId, follower.NodeId, StringComparison.Ordinal);
 
-    private static IFollowerLog Log(ITestNodeHost host) => host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(OwnerId, out var log) ? log
+    private static IFollowerLog Log(ITestNodeHost host) => host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(OwnerId, out var log)
+        ? log
         : throw new InvalidOperationException($"The group log {OwnerId} is not open.");
 
     /// <summary>Reads the leader-term entry the leader of the owner group appended in its term, and whether it is committed.</summary>

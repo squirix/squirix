@@ -13,12 +13,12 @@ namespace Squirix.Internal;
 /// <summary>Maps CLR and JSON values into protobuf <see cref="Struct" /> payloads for cache entries.</summary>
 internal static class ProtoEx
 {
-    internal static ValueTask<T?> FromCacheValueAsync<T>(CacheValue value, ISquirixSerializer serializer)
+    internal static ValueTask<T?> ReadAsync<T>(CacheValue value, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(serializer);
-        return typeof(T) == typeof(object) ? new ValueTask<T?>(ProtoScalarMapping.Coerce<T>(FromCacheValueAsObject(value, serializer)))
-            : FromTypedCacheValueAsync<T>(value, serializer);
+        var isObject = typeof(T) == typeof(object);
+        return isObject ? new ValueTask<T?>(ProtoScalarMapping.Coerce<T>(FromCacheValueAsObject(value, serializer))) : FromTypedCacheValueAsync<T>(value, serializer);
     }
 
     internal static CacheEntryWire MapEntryToProto<T>(CacheEntry<T> entry, ISquirixSerializer serializer)
@@ -85,9 +85,8 @@ internal static class ProtoEx
                 if (ProtoStructCodec.EncodeScalarAsStruct(value) is { } scalar)
                     return scalar;
 
-                var root = serializer.SerializeToElement(value);
-                return root.ValueKind is JsonValueKind.Object ? ProtoJsonCodec.StructFromJson(root)
-                    : WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, ProtoJsonCodec.ValueFromJson(root));
+                var r = serializer.SerializeToElement(value);
+                return r.ValueKind is JsonValueKind.Object ? ProtoJsonCodec.StructFromJson(r) : WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, ProtoJsonCodec.ValueFromJson(r));
         }
     }
 

@@ -133,7 +133,8 @@ public class ReplicaLeaderReapplyBenchmarks
             ValueTask.FromResult(_store.GetValueOrDefault(new CacheKey(cacheName, key)));
 
         public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(
-            _store.TryGetValue(new CacheKey(cacheName, key), out var entry) ? new NodeCacheValueResult<object?>(true, entry.Value)
+            _store.TryGetValue(new CacheKey(cacheName, key), out var entry)
+                ? new NodeCacheValueResult<object?>(true, entry.Value)
                 : new NodeCacheValueResult<object?>(false, null));
 
         public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(

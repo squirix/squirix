@@ -30,7 +30,9 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     {
         var pipeline = new RecordingPipeline(1);
         var hooks = new RecordingHooks(pipeline.Trace);
-        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 4), pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System)) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System);
+        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         var mutation = CreateMutation();
         try
         {
@@ -72,7 +74,9 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     {
         var pipeline = new RecordingPipeline(0);
         var hooks = new RecordingHooks(pipeline.Trace);
-        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 4), pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System)) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System);
+        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         var mutation = CreateMutation();
         using var cancellation = new CancellationTokenSource();
         try
@@ -108,18 +112,20 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
         var stalledBudget = TimeSpan.FromMilliseconds(200);
         var stalledClock = new DueTimerClock(stalledBudget);
-        var stalled = new ReplicaCommitCoordinator(options, stalledPipeline, stalledHooks, new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System), eligibility)
+        var provider = TimeProvider.System;
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, provider);
+        var stalled = new ReplicaCommitCoordinator(options, stalledPipeline, stalledHooks, state, eligibility)
         {
-            ObserveTimeProvider = TimeProvider.System,
+            ObserveTimeProvider = provider,
             BudgetTimeProvider = stalledClock,
         };
         try
         {
             // The budget runs on a fake clock that moves only once the entry is appended locally, so the wait for a majority is what expires.
             var stalledCommit = stalled.CommitAsync(CreateMutation(), stalledBudget, cancellationToken).AsTask();
-            _ = await stalledPipeline.LocalAppended.Task.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+            _ = await stalledPipeline.LocalAppended.Task.WaitAsync(TimeSpan.FromSeconds(10), provider, cancellationToken);
             stalledClock.Advance(stalledBudget);
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(stalledCommit.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken));
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(stalledCommit.WaitAsync(TimeSpan.FromSeconds(10), provider, cancellationToken));
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
         }
         finally
@@ -131,7 +137,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         _ = await Assert.That(eligibility.TryMarkReady(1, in ready, in ready)).IsTrue();
         var pipeline = new RecordingPipeline(1);
         var hooks = new RecordingHooks(pipeline.Trace);
-        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System), eligibility) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state, eligibility) { ObserveTimeProvider = provider, BudgetTimeProvider = provider };
         try
         {
             var outcome = await coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), cancellationToken);
@@ -181,7 +187,9 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     {
         var pipeline = new RecordingPipeline(1, true);
         var hooks = new RecordingHooks(pipeline.Trace);
-        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 4), pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System)) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
+        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         Task? disposal = null;
         try
         {
@@ -215,7 +223,9 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     {
         var pipeline = new RecordingPipeline(0);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
-        var coordinator = new ReplicaCommitCoordinator(options, pipeline, CreateThrowOnFanOutHooks(), new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System)) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
+        var provider = TimeProvider.System;
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, provider);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, CreateThrowOnFanOutHooks(), state) { ObserveTimeProvider = provider, BudgetTimeProvider = provider };
         Task? disposal = null;
         try
         {
@@ -382,7 +392,8 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
         // The observe bound runs on an injected clock, so the test moves it past the 5 s bound instead of waiting in real time.
         var observeClock = new DueTimerClock(TimeSpan.FromSeconds(5));
-        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System)) { BudgetTimeProvider = TimeProvider.System, ObserveTimeProvider = observeClock };
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state) { BudgetTimeProvider = TimeProvider.System, ObserveTimeProvider = observeClock };
         try
         {
             // Leader plus follower 1 reach majority; follower 2 lags past the observe bound.
@@ -415,14 +426,11 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     {
         var pipeline = new RecordingPipeline(1);
         var tail = new ReplicaRecoveredTail([TailEntry(2, 1, TailOperationA), TailEntry(3, 1, TailOperationB)], 1, TailRebuilder.Instance);
-        var coordinator = new ReplicaCommitCoordinator(
-            new ReplicaCommitCoordinatorOptions(3, 3, 1, 4),
-            pipeline,
-            new RecordingHooks(pipeline.Trace),
-            new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System),
-            null,
-            tail)
-        { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
+        var provider = TimeProvider.System;
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, provider);
+        var options = new ReplicaCommitCoordinatorOptions(3, 3, 1, 4);
+        var hooks = new RecordingHooks(pipeline.Trace);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state, null, tail) { ObserveTimeProvider = provider, BudgetTimeProvider = provider };
         try
         {
             _ = await Assert.That(await coordinator.ApplyCommittedAsync()).IsFalse();
@@ -468,13 +476,17 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     public async Task RecoveredTailKeepsPinsUntilCommit(CancellationToken cancellationToken)
     {
         var pipeline = new RecordingPipeline(1);
-        var idempotency = new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System);
+        var provider = TimeProvider.System;
+        var idempotency = new GroupIdempotencyState(10, TimeSpan.MaxValue, provider);
         var tail = new ReplicaRecoveredTail([TailEntry(2, 1, TailOperationA)], 1, TailRebuilder.Instance);
-        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 2, 1, 4), pipeline, new RecordingHooks(pipeline.Trace), idempotency, null, tail) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
+        var options = new ReplicaCommitCoordinatorOptions(3, 2, 1, 4);
+        var hooks = new RecordingHooks(pipeline.Trace);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, idempotency, null, tail) { ObserveTimeProvider = provider, BudgetTimeProvider = provider };
         var retry = CreateMutation(3, TailOperationA);
         try
         {
-            var unknown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(retry, TimeSpan.FromSeconds(5), cancellationToken));
+            var unknown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(
+                coordinator.CommitAsync(retry, TimeSpan.FromSeconds(5), cancellationToken));
             _ = await Assert.That(unknown.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
             _ = await Assert.That(idempotency.Lookup(retry.OperationScope, retry.OperationId, retry.OperationFingerprint.Span, out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
 
@@ -502,14 +514,11 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     {
         var pipeline = new RecordingPipeline(1);
         var tail = new ReplicaRecoveredTail([TailEntry(2, 1, TailOperationA)], 2, TailRebuilder.Instance);
-        var coordinator = new ReplicaCommitCoordinator(
-            new ReplicaCommitCoordinatorOptions(3, 2, 1, 4),
-            pipeline,
-            new RecordingHooks(pipeline.Trace),
-            new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System),
-            null,
-            tail)
-        { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
+        var provider = TimeProvider.System;
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, provider);
+        var options = new ReplicaCommitCoordinatorOptions(3, 2, 1, 4);
+        var hooks = new RecordingHooks(pipeline.Trace);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state, null, tail) { ObserveTimeProvider = provider, BudgetTimeProvider = provider };
         try
         {
             coordinator.AdmitReplica(1, 2);
@@ -561,7 +570,9 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     {
         var pipeline = new RecordingPipeline(1, true);
         var hooks = new RecordingHooks(pipeline.Trace);
-        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 4), pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System)) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System);
+        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         try
         {
             var operation = coordinator.CommitAsync(CreateMutation(), TimeSpan.FromMilliseconds(100), cancellationToken);
@@ -579,7 +590,9 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     private static ReplicaCommitCoordinator CreateCoordinator(int replicaCount, IReplicaCommitPipeline pipeline, IReplicaCommitFaultHooks? hooks = null)
     {
         var options = new ReplicaCommitCoordinatorOptions(replicaCount, 0, 0, 8);
-        return new ReplicaCommitCoordinator(options, pipeline, hooks ?? ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(16, TimeSpan.MaxValue, TimeProvider.System)) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
+        var state = new GroupIdempotencyState(16, TimeSpan.MaxValue, TimeProvider.System);
+        var faultHooks = hooks ?? ReplicaFaultHooks.CreateNoOp();
+        return new ReplicaCommitCoordinator(options, pipeline, faultHooks, state) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
     }
 
     private static PreparedReplicaMutation CreateMutation(ulong logIndex = 1, string operationId = "0123456789abcdef0123456789abcdef") => new(
@@ -591,12 +604,11 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     private static IReplicaCommitFaultHooks CreateThrowOnFanOutHooks()
     {
         var expectations = new IReplicaCommitFaultHooksCreateExpectations();
-        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
-                        .Callback(static (stage, _, _) =>
-                        {
-                            var exception = new InvalidOperationException("Injected fan-out failure.");
-                            return stage == ReplicaCommitStage.FollowerFanOutStarted ? ValueTask.FromException(exception) : ValueTask.CompletedTask;
-                        });
+        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).Callback(static (stage, _, _) =>
+        {
+            var exception = new InvalidOperationException("Injected fan-out failure.");
+            return stage == ReplicaCommitStage.FollowerFanOutStarted ? ValueTask.FromException(exception) : ValueTask.CompletedTask;
+        });
         return expectations.Instance();
     }
 
@@ -605,19 +617,32 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         var expectations = new IReplicaCommitFaultHooksCreateExpectations();
         _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
                         .Callback(static (stage, mutation, _) =>
-                        {
-                            var exception = new InvalidOperationException("Injected post-majority failure.");
-                            return stage == ReplicaCommitStage.MajorityReached && mutation.LogIndex == 1
-                                ? ValueTask.FromException(exception)
-                                : ValueTask.CompletedTask;
-                        });
+                         {
+                             var exception = new InvalidOperationException("Injected post-majority failure.");
+                             return stage == ReplicaCommitStage.MajorityReached && mutation.LogIndex == 1 ? ValueTask.FromException(exception) : ValueTask.CompletedTask;
+                         });
         return expectations.Instance();
     }
 
     private static FollowerLogEntry TailEntry(ulong logIndex, ulong term, string operationId)
     {
         // The canonical record carries the identity CreateMutation uses, so a same-identity retry matches the recovered pin.
-        var record = new ReplicaLogRecord(logIndex, term, operationId, "client", new byte[] { 1, 2, 3 }, "UserMutation", "cache", Encoding.UTF8.GetBytes("k"), "Set", new byte[] { 4 }, new byte[] { 7 }, 0, 0, 0, 0);
+        var record = new ReplicaLogRecord(
+            logIndex,
+            term,
+            operationId,
+            "client",
+            new byte[] { 1, 2, 3 },
+            "UserMutation",
+            "cache",
+            Encoding.UTF8.GetBytes("k"),
+            "Set",
+            new byte[] { 4 },
+            new byte[] { 7 },
+            0,
+            0,
+            0,
+            0);
         return new FollowerLogEntry(logIndex, term, ReplicaLogCodec.Encode(in record));
     }
 
@@ -843,7 +868,8 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             FollowerCalls++;
             Trace.Add($"send:{replicaIndex}");
             _recordedMutation ??= mutation;
-            return replicaIndex == _immediateFollowerIndex ? ValueTask.FromResult(CreateReadyAcknowledgement(mutation))
+            return replicaIndex == _immediateFollowerIndex
+                ? ValueTask.FromResult(CreateReadyAcknowledgement(mutation))
                 : new ValueTask<ReplicaDurableAcknowledgement>(_followers.Task);
         }
 
