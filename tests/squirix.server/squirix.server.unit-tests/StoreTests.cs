@@ -66,6 +66,27 @@ public sealed class StoreTests : IsolatedStorageTestBase
         _ = await Assert.That(manifest.NextSequence).IsEqualTo(1UL);
     }
 
+    /// <summary>Verifies a roll on a ledger that has not read the manifest yet keeps the snapshot the manifest on disk names.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RollBeforeFirstReadKeepsSnapshot(CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions { DataDir = Dir };
+        var snapshot = new SnapshotRef { Index = 4, LastAppliedSequence = 9, ReplayFromJournalSegment = 2, CreatedUtc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc) };
+        using (var first = new Ledger(options, NullLogger<Ledger>.Instance))
+            await first.WriteAsync(new State { CurrentJournal = 2, NextSequence = 10, LastSnapshot = snapshot }, cancellationToken);
+
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        var rolled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        store.EnqueueRoll(3, 12, () => rolled.TrySetResult(), ex => rolled.TrySetException(ex));
+        await rolled.Task.WaitAsync(cancellationToken);
+
+        var manifest = SlotFile.Read(NodePathKit.Combine(Dir, "man-current")).State;
+        _ = await Assert.That(manifest.CurrentJournal).IsEqualTo(3);
+        _ = await Assert.That(manifest.NextSequence).IsEqualTo(12UL);
+        _ = await Assert.That(manifest.LastSnapshot).IsEqualTo(snapshot);
+    }
+
     /// <summary>Verifies CURRENT is written in place: a reader without delete sharing keeps it open across publishes.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

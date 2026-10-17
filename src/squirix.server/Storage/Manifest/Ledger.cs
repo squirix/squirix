@@ -97,7 +97,7 @@ internal sealed class Ledger : IDisposable
     {
         using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        // The publisher merges over the cache, so an unloaded cache must not leave the floors standing over the on-disk manifest.
+        // Warms the cache the publisher merges over; an unloaded cache would make it fall back to the slots on disk.
         if (!TryGetCachedCurrent(out _))
             _ = await LoadCurrentFromDiskAsync(cancellationToken).ConfigureAwait(false);
 
@@ -117,10 +117,10 @@ internal sealed class Ledger : IDisposable
         return TryGetCachedCurrent(out var current) ? current : selection.State;
     }
 
-    private State ReadRollBaselineLocked()
+    private State? ReadRollBaselineLocked()
     {
         lock (_cacheSync)
-            return !_cache.IsInitialized ? new State() : _cache.Current;
+            return _cache.IsInitialized ? _cache.Current : null;
     }
 
     private void SetCache(State manifest, ulong sequence)
@@ -168,7 +168,7 @@ internal sealed class Ledger : IDisposable
     private sealed class Publisher : IDisposable
     {
         private readonly string _dir;
-        private readonly Func<State> _rbl;
+        private readonly Func<State?> _rbl;
         private readonly Action<State, ulong> _setCache;
         private readonly SlotWriter _slotWriter;
         private readonly SingleConsumerWorker<WorkItemBase> _worker;
@@ -179,7 +179,7 @@ internal sealed class Ledger : IDisposable
             string dir,
             string path,
             Action<State, ulong> setCache,
-            Func<State> rbl,
+            Func<State?> rbl,
             ILogger logger,
             TimeSpan stopBudget)
         {
@@ -241,7 +241,7 @@ internal sealed class Ledger : IDisposable
             {
                 CurrentJournal = rollItem.CurrentJournal,
                 NextSequence = rollItem.NextSequence,
-                LastSnapshot = _rbl().LastSnapshot,
+                LastSnapshot = ReadBaseline().LastSnapshot,
             };
             WriteManifest(manifest);
             rollItem.OnSuccess?.Invoke();
@@ -254,7 +254,7 @@ internal sealed class Ledger : IDisposable
         {
             // A roll queued ahead of this write has already moved the cache, so the floors never move the journal pointer or the
             // next sequence backward.
-            var current = _rbl();
+            var current = ReadBaseline();
             var snapshot = work.Snapshot;
             WriteManifest(
                 new State
@@ -264,6 +264,10 @@ internal sealed class Ledger : IDisposable
                     LastSnapshot = snapshot.LastSnapshot,
                 });
         }
+
+        /// <summary>Reads the manifest a publish builds on; an unloaded cache falls back to the slots on disk, so a publish never drops what an unread manifest names.</summary>
+        /// <returns>The cached manifest, or the manifest the slots hold.</returns>
+        private State ReadBaseline() => _rbl() ?? _slotWriter.ReadCurrentOrDefault();
 
         private void WriteManifest(State manifest)
         {
