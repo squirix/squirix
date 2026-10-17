@@ -91,7 +91,6 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
 
         // Retention runs in the background; the orphan below the new snapshot is deleted once it has run.
         await orphanPath.WaitUntilAsync(static path => !File.Exists(path), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(File.Exists(orphanPath)).IsFalse();
     }
 
     /// <summary>

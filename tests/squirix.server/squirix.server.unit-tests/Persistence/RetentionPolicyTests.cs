@@ -100,7 +100,7 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
     /// <summary>Verifies a snapshot file left above the published one by a crash is kept after a restart and deleted once a later snapshot is published.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CrashOrphanDeletedByLaterSnapshot(CancellationToken cancellationToken)
+    public async Task RestartOrphanDeletedByLaterSnapshot(CancellationToken cancellationToken)
     {
         CreateSnapshot(3);
         using (var first = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance))
