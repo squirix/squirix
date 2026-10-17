@@ -113,8 +113,8 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         var stalledBudget = TimeSpan.FromMilliseconds(200);
         var stalledClock = new DueTimerClock(stalledBudget);
         var provider = TimeProvider.System;
-        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, provider);
-        var stalled = new ReplicaCommitCoordinator(options, stalledPipeline, stalledHooks, state, eligibility)
+        var stalledState = new GroupIdempotencyState(10, TimeSpan.MaxValue, provider);
+        var stalled = new ReplicaCommitCoordinator(options, stalledPipeline, stalledHooks, stalledState, eligibility)
         {
             ObserveTimeProvider = provider,
             BudgetTimeProvider = stalledClock,
@@ -137,6 +137,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         _ = await Assert.That(eligibility.TryMarkReady(1, in ready, in ready)).IsTrue();
         var pipeline = new RecordingPipeline(1);
         var hooks = new RecordingHooks(pipeline.Trace);
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, provider);
         var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state, eligibility) { ObserveTimeProvider = provider, BudgetTimeProvider = provider };
         try
         {
