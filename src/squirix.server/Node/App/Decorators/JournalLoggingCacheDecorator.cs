@@ -279,7 +279,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         if (raw is not { ExpiresUtc: { } expiresUtc } || expiresUtc > UtcNow)
             return raw;
 
-        // The dead node is still in memory and no sweeper removes it: a lazy-expiring read drops it, and order no longer matters for it.
+        // The dead node is still in memory because the sweep may not have removed it yet: a lazy-expiring read drops it, and order no longer matters for it.
         _ = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         return null;
     }

@@ -20,15 +20,7 @@ internal static class ServiceRegistration
             // Do not pass ServiceLifetime — that binds the keyed (serviceType, serviceKey, instance) ctor.
             // Reaching registration with RF>1 means the activation guard already accepted the persistence
             // and mTLS prerequisites, so networking is activated; otherwise the host stays disabled.
-            FeatureState featureState;
-            if (foundationOnly)
-                featureState = FeatureState.Foundation;
-            else if (cluster.ReplicaCount > 1)
-                featureState = FeatureState.Activated;
-            else
-                featureState = FeatureState.Disabled;
-
-            services.Add(new ServiceDescriptor(typeof(FeatureState), featureState));
+            services.Add(new ServiceDescriptor(typeof(FeatureState), FeatureState.Resolve(cluster, foundationOnly)));
             return services;
         }
     }

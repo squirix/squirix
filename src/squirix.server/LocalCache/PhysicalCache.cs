@@ -20,8 +20,9 @@ namespace Squirix.Server.LocalCache;
 /// inserts, removals, expirations, and evictions across those two structures could leave them
 /// out of sync - a key present in one but not the other. Merging both into one <see cref="Node" /> per key, mutated only
 /// inside <see cref="_lock" />, makes that class of bug structurally impossible: there is no
-/// second structure left to diverge from. Under <see cref="CacheExpiryAuthority.CommittedRecords" /> a deadline index lists the entries
-/// whose deadline passed without walking the store (#1031).
+/// second structure left to diverge from. A deadline index finds the entries whose deadline passed without walking the store: under
+/// <see cref="CacheExpiryAuthority.CommittedRecords" /> it lists them, under <see cref="CacheExpiryAuthority.LocalClock" /> the local expiry
+/// sweep removes them.
 /// </remarks>
 [Immutable]
 internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotReader<T>
@@ -185,8 +186,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             if (node.ExpiresUtc == null)
                 _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(node.Value, node.Version, expiresUtc, tags: node.Tags)));
 
-            node.ExpiresUtc = expiresUtc;
-            _deadlines.RecordLocked(key, node);
+            _deadlines.MoveLocked(key, node, expiresUtc);
             TouchOrderLocked(key, node);
             return ValueTask.FromResult(true);
         }
@@ -286,8 +286,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         if (!_store.Remove(key, out var node))
             return (false, default);
 
+        var value = node.Value;
         UntrackLocked(node);
-        return IsExpiredLocked(node) ? (false, default) : (true, node.Value);
+        return IsExpiredLocked(node) ? (false, default) : (true, value);
     }
 
     private void TouchOrderLocked(CacheKey key, Node node)
@@ -326,11 +327,15 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         return true;
     }
 
-    /// <summary>Releases an entry that left the store: its recorded bytes leave the total and it leaves the eviction order.</summary>
+    /// <summary>Releases an entry that left the store: its recorded bytes leave the total, it leaves the eviction order, and it drops its value and tags.</summary>
     /// <param name="node">The entry already removed from, or about to be overwritten in, the store.</param>
     private void UntrackLocked(Node node)
     {
         _footprint.Release(node);
+
+        // A stale item of the deadline index may keep the node reachable until its old deadline: do not let it keep the value alive.
+        node.Value = default;
+        node.Tags = null;
         if (node.OrderNode == null)
             return;
 
@@ -433,6 +438,12 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         /// <summary>Gets or sets the access frequency, maintained only for the LFU policy.</summary>
         internal long Frequency { get; set; } = 1;
 
+        /// <summary>Gets or sets the deadline, in UTC ticks, of the one canonical item the deadline index holds for this entry; <see cref="long.MaxValue" /> when it holds none.</summary>
+        internal long IndexedTicks { get; set; } = long.MaxValue;
+
+        /// <summary>Gets or sets the generation of the canonical item: another item of this entry with the same deadline is stale unless it carries this generation.</summary>
+        internal int IndexedGeneration { get; set; }
+
         /// <summary>Gets or sets the node in the shared eviction-order list, or <see langword="null" /> when eviction is unbounded.</summary>
         internal LinkedListNode<CacheKey>? OrderNode { get; set; }
 
@@ -443,29 +454,33 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         internal long Version { get; set; }
     }
 
-    /// <summary>The deadline index: a heap of the deadlines recorded for the stored entries, earliest first, apart from skipped keys.</summary>
+    /// <summary>The deadline index: a heap of deadlines, earliest first, apart from skipped keys, with one canonical item per entry, at or before its deadline.</summary>
     /// <remarks>
-    /// Kept only under <see cref="CacheExpiryAuthority.CommittedRecords" />, where an entry past its deadline stays until a committed record
-    /// removes it. An item whose entry left the store, was replaced, or got another deadline is stale: it is dropped when it reaches the top,
-    /// and the heap is rebuilt from the store once the stale items outnumber the entries. Every member but <see cref="ListExpired" /> runs under
-    /// the cache lock.
+    /// Under <see cref="CacheExpiryAuthority.CommittedRecords" /> an entry past its deadline stays until a committed record removes it, so the
+    /// index only lists it. Under <see cref="CacheExpiryAuthority.LocalClock" /> the local expiry sweep removes it. The heap is lazy: the item of
+    /// an entry, canonical when its generation equals <see cref="Node.IndexedGeneration" />, is pushed when the entry is stored and when its deadline appears
+    /// or moves before that, never when it moves later. When an item reaches the top, it is dropped when its entry left the store, was replaced or
+    /// has another canonical item; it is dropped when the entry lost its deadline; it is put back with the later deadline of its entry; otherwise
+    /// the entry is due. The heap is rebuilt from the store once it holds <c language="csharp">2 * store.Count + 1024</c> items. Every member but <see cref="ListExpired" /> and <see cref="RemoveExpired" /> runs under the cache lock.
     /// </remarks>
     [ThreadSafe]
     private sealed class DeadlineIndex : ILocalCacheExpiredKeys
     {
-        private readonly PriorityQueue<Deadline, long>? _heap;
+        private const int RemoveBatchSize = 1024;
+
+        private readonly PriorityQueue<Deadline, long> _heap = new();
         private readonly PhysicalCache<T> _owner;
 
         internal DeadlineIndex(PhysicalCache<T> owner)
         {
             _owner = owner;
-            _heap = owner._expiry == CacheExpiryAuthority.CommittedRecords ? new PriorityQueue<Deadline, long>() : null;
         }
 
         /// <inheritdoc />
         /// <remarks>
         /// Pops the heap while its top is due, at most four items per key asked for, so the work under the cache lock and the allocations follow
-        /// the expired entries, not the stored ones. A stale item is dropped. Every current item is pushed back, listed or not, since only a
+        /// the expired entries, not the stored ones. A stale item is dropped, and one whose entry has a later deadline is put back with it; both
+        /// count toward the four. Every current item is pushed back, listed or not, since only a
         /// committed record removes its entry. A listed item keeps its place. A skipped one goes behind every item due before this call, so
         /// keys the caller skips, such as those of a group whose leader is away, cannot hold back the keys it can expire.
         /// </remarks>
@@ -473,24 +488,48 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(max);
             ArgumentNullException.ThrowIfNull(include);
-            if (_heap == null)
+            if (_owner._expiry != CacheExpiryAuthority.CommittedRecords)
                 return [];
 
             lock (_owner._lock)
                 return ListDueLocked(_heap, nowUtc.Ticks, max, include);
         }
 
-        /// <summary>Sets the deadline of a stored entry, recording it only when it moved, so an entry is never current twice in the heap.</summary>
+        /// <inheritdoc />
+        /// <remarks>Pops the due items in batches of <see cref="RemoveBatchSize" /> per cache lock hold, so a large backlog cannot stall writers.</remarks>
+        public int RemoveExpired()
+        {
+            if (_owner._expiry != CacheExpiryAuthority.LocalClock)
+                return 0;
+
+            var removed = 0;
+            int examined;
+            do
+            {
+                lock (_owner._lock)
+                {
+                    (examined, var batchRemoved) = RemoveDueLocked(_owner.UtcNow.Ticks, RemoveBatchSize);
+                    removed += batchRemoved;
+                }
+            }
+            while (examined == RemoveBatchSize);
+
+            return removed;
+        }
+
+        /// <summary>Sets the deadline of a stored entry, recording it only when it appeared or moved earlier: a later deadline needs no new item.</summary>
         /// <param name="key">The key of the entry.</param>
         /// <param name="node">The entry.</param>
         /// <param name="expiresUtc">The new deadline, or <see langword="null" /> for none.</param>
         internal void MoveLocked(CacheKey key, Node node, DateTime? expiresUtc)
         {
-            if (node.ExpiresUtc == expiresUtc)
+            var previous = node.ExpiresUtc;
+            if (previous == expiresUtc)
                 return;
 
             node.ExpiresUtc = expiresUtc;
-            RecordLocked(key, node);
+            if (expiresUtc is { } moved && moved.Ticks < node.IndexedTicks)
+                RecordLocked(key, node);
         }
 
         /// <summary>Records the deadline just set on an entry, rebuilding the heap once stale items outnumber the entries.</summary>
@@ -498,13 +537,13 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         /// <param name="node">The entry; one without a deadline is not recorded.</param>
         internal void RecordLocked(CacheKey key, Node node)
         {
-            if (_heap == null || node.ExpiresUtc is not { } deadline)
+            if (node.ExpiresUtc is not { } deadline)
                 return;
 
             var store = _owner._store;
             if (_heap.Count < (2 * store.Count) + 1024)
             {
-                _heap.Enqueue(new Deadline(key, node, deadline.Ticks), deadline.Ticks);
+                Index(key, node, deadline.Ticks);
                 return;
             }
 
@@ -513,7 +552,14 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             foreach (var (storedKey, stored) in store)
             {
                 if (stored.ExpiresUtc is { } expires)
-                    _heap.Enqueue(new Deadline(storedKey, stored, expires.Ticks), expires.Ticks);
+                {
+                    Index(storedKey, stored, expires.Ticks);
+                }
+                else
+                {
+                    stored.IndexedTicks = long.MaxValue;
+                    stored.IndexedGeneration++;
+                }
             }
         }
 
@@ -532,13 +578,65 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return true;
         }
 
-        /// <summary>Tells whether an item still names a stored entry with that deadline.</summary>
-        /// <param name="item">The item.</param>
-        /// <returns><see langword="false" /> when the entry left the store, was replaced, or got another deadline since the item was recorded.</returns>
-        private bool IsCurrent(in Deadline item) =>
-            _owner._store.TryGetValue(item.Key, out var node) && ReferenceEquals(node, item.Node) && node.ExpiresUtc is { } expires && expires.Ticks == item.Ticks;
+        /// <summary>Pushes the canonical item of an entry, which makes every other item of the entry stale.</summary>
+        /// <param name="key">The key of the entry.</param>
+        /// <param name="node">The entry.</param>
+        /// <param name="ticks">The deadline of the item, in UTC ticks.</param>
+        private void Index(CacheKey key, Node node, long ticks)
+        {
+            node.IndexedTicks = ticks;
+            node.IndexedGeneration++;
+            _heap.Enqueue(new Deadline(key, node, ticks, node.IndexedGeneration), ticks);
+        }
 
-        /// <summary>Lists the due keys the caller includes and pushes every current due item back, as <see cref="ListExpired" /> tells.</summary>
+        /// <summary>Tells what a popped item stands for, putting it back when its entry has a later deadline.</summary>
+        /// <param name="item">The item popped.</param>
+        /// <returns>
+        /// <see langword="true" /> when the item names a stored entry with the deadline it recorded; <see langword="false" /> when it was dropped as
+        /// stale or put back with the later deadline of its entry.
+        /// </returns>
+        private bool TryResolve(in Deadline item)
+        {
+            if (!_owner._store.TryGetValue(item.Key, out var node) || !ReferenceEquals(node, item.Node) || node.IndexedGeneration != item.Generation)
+                return false;
+
+            if (node.ExpiresUtc is not { } expires)
+            {
+                node.IndexedTicks = long.MaxValue;
+                node.IndexedGeneration++;
+                return false;
+            }
+
+            if (expires.Ticks <= item.Ticks)
+                return true;
+
+            Index(item.Key, node, expires.Ticks);
+            return false;
+        }
+
+        /// <summary>Removes the entries whose deadline passed, examining at most a batch of heap items.</summary>
+        /// <param name="nowTicks">The current time, in UTC ticks.</param>
+        /// <param name="max">The most heap items to examine.</param>
+        /// <returns>The number of heap items examined and the number of entries removed.</returns>
+        private (int Examined, int Removed) RemoveDueLocked(long nowTicks, int max)
+        {
+            var examined = 0;
+            var removed = 0;
+            while (examined < max && TryPopDue(_heap, nowTicks, out var item, out _))
+            {
+                examined++;
+                if (!TryResolve(in item))
+                    continue;
+
+                _ = _owner._store.Remove(item.Key);
+                _owner.UntrackLocked(item.Node);
+                removed++;
+            }
+
+            return (examined, removed);
+        }
+
+        /// <summary>Lists the due keys the caller includes and pushes every due item that is still current back, as <see cref="ListExpired" /> tells.</summary>
         /// <param name="heap">The heap.</param>
         /// <param name="nowTicks">The current time, in UTC ticks.</param>
         /// <param name="max">The most keys to list.</param>
@@ -551,7 +649,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             List<(Deadline Item, long Priority)>? due = null;
             for (var popped = 0; popped < budget && listed.Count < max && TryPopDue(heap, nowTicks, out var item, out var priority); popped++)
             {
-                if (!IsCurrent(in item))
+                if (!TryResolve(in item))
                     continue;
 
                 var included = include(item.Key);
@@ -574,8 +672,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         /// <summary>An item of the heap: the entry a deadline was recorded for, and the deadline then.</summary>
         /// <param name="Key">The key of the entry.</param>
         /// <param name="Node">The entry; a later entry under the same key makes the item stale.</param>
-        /// <param name="Ticks">The deadline recorded, in UTC ticks; another deadline on the entry makes the item stale.</param>
-        private readonly record struct Deadline(CacheKey Key, Node Node, long Ticks);
+        /// <param name="Ticks">The deadline recorded, in UTC ticks; a later deadline on the entry moves the item.</param>
+        /// <param name="Generation">The generation of the entry when the item was pushed; the item is stale unless it equals <see cref="Node.IndexedGeneration" />.</param>
+        private readonly record struct Deadline(CacheKey Key, Node Node, long Ticks, int Generation);
     }
 
     [Immutable]

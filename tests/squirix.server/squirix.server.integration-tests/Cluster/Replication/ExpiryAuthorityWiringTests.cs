@@ -13,10 +13,10 @@ using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
-/// <summary>Only network-replication-activated hosts leave expiry to committed records and run the leader expiration sweep.</summary>
+/// <summary>Only network-replication-activated hosts leave expiry to committed records and run the leader expiration sweep; every other host sweeps its own expired entries.</summary>
 public sealed class ExpiryAuthorityWiringTests : NodeIntegrationTestBase
 {
-    /// <summary>A foundation-only host keeps expiring on its local clock and runs no sweep.</summary>
+    /// <summary>A foundation-only host keeps expiring on its local clock and sweeps its own expired entries.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task FoundationKeepsLocalClock(CancellationToken cancellationToken)
@@ -26,7 +26,7 @@ public sealed class ExpiryAuthorityWiringTests : NodeIntegrationTestBase
         await AssertWiringAsync(cluster["node-a"], CacheExpiryAuthority.LocalClock, false);
     }
 
-    /// <summary>An RF=1 host keeps expiring on its local clock and runs no sweep.</summary>
+    /// <summary>An RF=1 host keeps expiring on its local clock and sweeps its own expired entries.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task RfOneKeepsLocalClock(CancellationToken cancellationToken)
@@ -36,7 +36,7 @@ public sealed class ExpiryAuthorityWiringTests : NodeIntegrationTestBase
         await AssertWiringAsync(cluster["n1"], CacheExpiryAuthority.LocalClock, false);
     }
 
-    /// <summary>An activated RF=2 host leaves expiry to committed records and runs the sweep.</summary>
+    /// <summary>An activated RF=2 host leaves expiry to committed records and runs the leader sweep.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task RfTwoUsesCommittedRecords(CancellationToken cancellationToken)
@@ -51,10 +51,15 @@ public sealed class ExpiryAuthorityWiringTests : NodeIntegrationTestBase
     private static async Task AssertWiringAsync(ITestNodeHost host, CacheExpiryAuthority expected, bool sweeps)
     {
         var sweepRegistered = false;
+        var localSweepRegistered = false;
         foreach (var service in host.GetRequiredService<IEnumerable<IHostedService>>())
+        {
             sweepRegistered |= service is ReplicaExpirationSweepService;
+            localSweepRegistered |= service is LocalExpirationSweepService;
+        }
 
         _ = await Assert.That(host.GetRequiredService<CacheExpiryAuthority>()).IsEqualTo(expected);
         _ = await Assert.That(sweepRegistered).IsEqualTo(sweeps);
+        _ = await Assert.That(localSweepRegistered).IsEqualTo(!sweeps);
     }
 }

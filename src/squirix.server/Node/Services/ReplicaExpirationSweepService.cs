@@ -20,7 +20,7 @@ namespace Squirix.Server.Node.Services;
 /// swept: one it leads statically, or one it leads by election with local authority. The committer decides each expiry again under its
 /// commit gate, so a key written or touched since the walk is left alone. A group whose tombstone fails is logged once and skipped for the
 /// rest of the pass, so it holds back no other group; the next pass retries it.
-/// Activated hosts only: on other hosts the local clock decides expiry and nothing needs sweeping.
+/// Activated hosts only: on other hosts the local clock decides expiry and <see cref="LocalExpirationSweepService" /> sweeps.
 /// </remarks>
 internal sealed class ReplicaExpirationSweepService : BackgroundService
 {
