@@ -62,6 +62,16 @@ internal sealed class SlotWriter : IDisposable
         return WriteInactiveSlot(manifest);
     }
 
+    /// <summary>Gets the manifest the slots hold, as selected when the file was opened or as last published by this writer.</summary>
+    /// <returns>The current manifest, or the default manifest when none was ever published.</returns>
+    /// <exception cref="ObjectDisposedException">The writer was disposed.</exception>
+    /// <exception cref="InvalidDataException">The existing file was written by an earlier build or holds no valid slot; it is left unchanged.</exception>
+    internal State ReadCurrentOrDefault()
+    {
+        EnsureOpen();
+        return _currentManifest ?? new State();
+    }
+
     /// <summary>Durably writes the current manifest into the other slot too.</summary>
     /// <exception cref="ObjectDisposedException">The writer was disposed.</exception>
     /// <exception cref="InvalidOperationException">The manifest has never been published.</exception>
