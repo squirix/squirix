@@ -86,7 +86,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         EventLoop = new JournalEventLoop(bridge, Ring, probedWriter, Options, eventLoopStartup, loggerFactory.CreateLogger<JournalEventLoop>(), BackgroundCancellation.Token);
 
         // The group-commit window runs on the system clock: on a clock nobody advances, a waiting flush would never be released.
-        GroupCommit = Options.IsJournalGroupCommitEnabled ? new JournalDurabilityGroupCommit(EventLoop.FlushGroupCommitOnJournalThread, Ring.NotifyWorkAvailable, Options, TimeProvider.System, StallProbe.ReportWaitCanceled) : null;
+        GroupCommit = Options.IsJournalGroupCommitEnabled ? new JournalDurabilityGroupCommit(EventLoop.FlushGroupCommitOnJournalThread, Ring.NotifyWorkAvailable, DurabilityPipeline.FailJournalPipeline, Options, TimeProvider.System, StallProbe.ReportWaitCanceled) : null;
         EventLoop.AttachGroupCommit(GroupCommit);
         _ = DirectoryEx.CreateDirectory(Options.DataDir);
         _nextSequence = JournalRecoveryScan.DetermineNextSequence(manifest, Options);

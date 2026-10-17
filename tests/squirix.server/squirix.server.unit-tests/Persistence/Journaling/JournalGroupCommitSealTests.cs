@@ -53,7 +53,7 @@ public sealed class JournalGroupCommitSealTests : IsolatedStorageTestBase
     public async Task EarlierFailureStaysUnknown()
     {
         var options = CreateOptions();
-        var groupCommit = new JournalDurabilityGroupCommit(static () => { }, static () => { }, options, TimeProvider.System);
+        var groupCommit = new JournalDurabilityGroupCommit(static () => { }, static () => { }, static _ => { }, options, TimeProvider.System);
         var parked = groupCommit.AwaitCommitAsync(CancellationToken.None).AsTask();
         var failure = new IOException("pipeline failed");
 

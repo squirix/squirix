@@ -10,25 +10,6 @@ internal static class TaskCompletionSourceExtensions
     /// <param name="source">The completion source fulfilled by the operation.</param>
     extension(TaskCompletionSource source)
     {
-        /// <summary>Runs <paramref name="action" /> and completes the source with its outcome; a failure faults the source and is rethrown.</summary>
-        /// <typeparam name="TState">The type of the state handed to the operation.</typeparam>
-        /// <param name="state">The state passed to <paramref name="action" />.</param>
-        /// <param name="action">The operation, expected to be a <see langword="static" /> lambda or method group so the call does not allocate.</param>
-        internal void Run<TState>(TState state, Action<TState> action)
-        {
-            try
-            {
-                action(state);
-            }
-            catch (Exception ex)
-            {
-                _ = source.TrySetException(ex);
-                throw;
-            }
-
-            _ = source.TrySetResult();
-        }
-
         /// <summary>Runs <paramref name="action" /> and completes the source with its outcome; a failure faults the source and is contained.</summary>
         /// <typeparam name="TState">The type of the state handed to the operation.</typeparam>
         /// <param name="state">The state passed to <paramref name="action" />.</param>

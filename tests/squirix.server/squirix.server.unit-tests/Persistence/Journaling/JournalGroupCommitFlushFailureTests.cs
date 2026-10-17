@@ -28,7 +28,7 @@ public sealed class JournalGroupCommitFlushFailureTests : IsolatedStorageTestBas
 
     private static readonly byte[] Payload = [1, 2, 3];
 
-    /// <summary>A failed group commit flush faults the batch, latches the pipeline failure and is never retried.</summary>
+    /// <summary>A failed group commit flush latches the pipeline failure before it faults the batch, and is never retried.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task FailedFlushFailsPipelineWithoutRetry(CancellationToken cancellationToken)
@@ -50,12 +50,35 @@ public sealed class JournalGroupCommitFlushFailureTests : IsolatedStorageTestBas
         var first = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask().WaitAsync(Bound, TimeProvider.System, cancellationToken));
         _ = await Assert.That(first).IsSameReferenceAs(writer.Failure);
 
-        // The waiter is faulted before the journal thread latches the pipeline failure; joining the thread waits for the latch.
-        _ = await Assert.That(await journal.DurabilityPipeline.TryJoinJournalThreadAsync(Bound)).IsTrue();
-        _ = await Assert.That(journal.GetJournalThreadFailure()).IsNotNull();
+        // The pipeline failure is latched before the batch acks fault, so the faulted waiter already observes it.
+        _ = await Assert.That(journal.GetJournalThreadFailure()).IsSameReferenceAs(writer.Failure);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAgainAsync(journal, key, cancellationToken).WaitAsync(Bound, TimeProvider.System, cancellationToken));
         _ = await Assert.That(writer.FlushCount).IsEqualTo(1);
+    }
+
+    /// <summary>An append too large for the write batch takes the unbatched path; its write ack completes and a failed group flush still latches the pipeline before the commit wait faults.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OversizedAppendFlushFailureLatches(CancellationToken cancellationToken)
+    {
+        var options = CreateOptions(16);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var writer = new FailOnceFsyncSegmentWriter();
+        await using var journal = new JournalCoordinator(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            writer,
+            NullLoggerFactory.Instance,
+            TimeProvider.System);
+
+        await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), Payload, cancellationToken);
+        var thrown = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask().WaitAsync(Bound, TimeProvider.System, cancellationToken));
+
+        _ = await Assert.That(thrown).IsSameReferenceAs(writer.Failure);
+        _ = await Assert.That(journal.GetJournalThreadFailure()).IsSameReferenceAs(writer.Failure);
     }
 
     private static async Task CommitAgainAsync(JournalCoordinator journal, CacheKey key, CancellationToken cancellationToken)
@@ -64,8 +87,9 @@ public sealed class JournalGroupCommitFlushFailureTests : IsolatedStorageTestBas
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
     }
 
-    private PersistenceOptions CreateOptions() => new()
+    private PersistenceOptions CreateOptions(int? writeBatchBytes = null) => new()
     {
+        JournalWriteBatch = writeBatchBytes ?? new PersistenceOptions().JournalWriteBatch,
         DataDir = Dir,
         JournalMaxSegmentMb = 4,
         ManifestRetentionCount = 1,
