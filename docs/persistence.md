@@ -64,7 +64,7 @@ When persistence is enabled, a node data directory typically contains:
 
 - journal segment files ([binary journal format](journal-binary-format.md))
 - snapshot files ([binary snapshot format](snapshot-format.md), `.bsqx`)
-- manifest files and a `man-current` pointer ([manifest format](manifest-format.md))
+- the `man-current` manifest ([manifest format](manifest-format.md))
 
 Backups must include journal, snapshots, and manifest from the same point in time. Copying snapshots without matching
 journal/manifest metadata can break recovery.
