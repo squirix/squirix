@@ -66,7 +66,7 @@ internal static class StateInstallScenario
     /// <returns>The bytes of the file.</returns>
     internal static async Task<byte[]> ReadLogBytesAsync(TempDirectory dir, CancellationToken cancellationToken)
     {
-        using var handle = File.OpenHandle(GroupStoragePaths.GetLogPath(dir, GroupId), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.Asynchronous);
+        using var handle = File.OpenHandle(GroupLogFile.ActivePath(dir, GroupId), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.Asynchronous);
         var bytes = new byte[RandomAccess.GetLength(handle)];
         var read = 0;
         while (read < bytes.Length)

@@ -790,7 +790,6 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-torn-suffix");
         var composition = GroupComposition.Create(GroupId);
-        var logPath = GroupStoragePaths.GetLogPath(dir, GroupId);
 
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
@@ -804,11 +803,12 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 3UL, cancellationToken);
         }
 
+        var logPath = GroupLogFile.ActivePath(dir, GroupId);
         var bytes = await File.ReadAllBytesAsync(logPath, cancellationToken);
 
         // Skip the file header and the first frame's preamble; the four overwritten bytes are the frame's
         // body-length field, so the frame is read as torn rather than as a corrupted body.
-        var corruptionOffset = GroupLogCodec.LogFileHeader.Length + GroupLogCodec.FramePreambleByteCount;
+        const int corruptionOffset = GroupLogSlots.HeaderSize + GroupLogCodec.FramePreambleByteCount;
         _ = await Assert.That(bytes.Length > corruptionOffset + sizeof(int)).IsTrue();
         bytes[corruptionOffset] = 0x88;
         bytes[corruptionOffset + 1] = 0x13;
@@ -836,7 +836,6 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-torn-suffix-committed");
         var composition = GroupComposition.Create(GroupId);
-        var logPath = GroupStoragePaths.GetLogPath(dir, GroupId);
 
         await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
@@ -857,11 +856,12 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         // The durable commit watermark (five) now sits above the compaction boundary (three).
         _ = await Assert.That(await ReadDurableCommitIndexAsync(dir, cancellationToken)).IsEqualTo(5UL);
 
+        var logPath = GroupLogFile.ActivePath(dir, GroupId);
         var bytes = await File.ReadAllBytesAsync(logPath, cancellationToken);
 
         // Same torn-shape corruption as the truncatable case: overwrite the first suffix frame's
         // body-length field so the frame reads as torn rather than as a corrupted body.
-        var corruptionOffset = GroupLogCodec.LogFileHeader.Length + GroupLogCodec.FramePreambleByteCount;
+        const int corruptionOffset = GroupLogSlots.HeaderSize + GroupLogCodec.FramePreambleByteCount;
         _ = await Assert.That(bytes.Length > corruptionOffset + sizeof(int)).IsTrue();
         bytes[corruptionOffset] = 0x88;
         bytes[corruptionOffset + 1] = 0x13;
@@ -877,7 +877,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
         _ = await Assert.That(await ReadDurableCommitIndexAsync(dir, cancellationToken)).IsEqualTo(5UL);
         var survivingBytes = await File.ReadAllBytesAsync(logPath, cancellationToken);
-        _ = await Assert.That(survivingBytes.Length > GroupLogCodec.LogFileHeader.Length).IsTrue();
+        _ = await Assert.That(survivingBytes.Length > GroupLogSlots.HeaderSize).IsTrue();
     }
 
     /// <summary>Unspecified snapshot timestamps round-trip as UTC because the encoder relabels rather than converts them.</summary>

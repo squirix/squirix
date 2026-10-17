@@ -2,80 +2,80 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
-/// <summary>Durable file-handle behavior of the replica-group log replacement path.</summary>
+/// <summary>Durable file-handle behavior of the replica-group log generation files.</summary>
 public sealed class GroupLogDurabilityTests : ServerUnitTestBase
 {
-    /// <summary>Replacement deletes the temp file and detaches the previous durable handle when publication fails mid-way.</summary>
+    /// <summary>Adopting a sealed file makes it the live log and empties the file it supersedes.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ReplaceCleansUpTempWhenPublicationFails(CancellationToken cancellationToken)
+    public async Task AdoptMovesTheLiveLogAndEmptiesTheOldFile(CancellationToken cancellationToken)
     {
-        using var dir = new TempDirectory("squirix-log-durability-publish-fail");
-        var finalPath = Path.Join(dir, "existing-directory");
-        Directory.CreateDirectory(finalPath);
-        var tempPath = Path.Join(dir, "group.log.tmp");
-        await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(1, 2, 3), cancellationToken);
-        var oldPath = Path.Join(dir, "old-group.log");
-
+        using var dir = new TempDirectory("squirix-log-durability-adopt");
+        var oldPath = Path.Join(dir, "group.log.0");
+        var newPath = Path.Join(dir, "group.log.1");
+        await File.WriteAllBytesAsync(newPath, ReadOnlyMemory<byte>.Of(9, 9), cancellationToken);
         using var durability = new GroupLogDurability();
+        durability.Open(oldPath, 10L);
 
-        // A live pre-replacement handle makes the detach observable: without it, a leaked stale handle would be
-        // indistinguishable from the expected closed-handle state.
-        durability.Open(oldPath, 0L);
-        _ = NodeExceptionAssert.For<IOException>().ThrowsAny((durability, tempPath, finalPath), static state => state.durability.Replace(state.tempPath, state.finalPath, 3L));
+        SafeFileHandle? standby = GroupLogDurability.OpenStandby(newPath);
+        try
+        {
+            GroupLogDurability.Seal(standby, 2UL);
+            var sealedHandle = standby;
+            standby = null;
+            durability.Adopt(sealedHandle);
+        }
+        finally
+        {
+            standby?.Dispose();
+        }
 
-        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(durability.Flush);
-
-        _ = await Assert.That(File.Exists(tempPath)).IsFalse();
-    }
-
-    /// <summary>Replacement publication leaves the durable handle attached to the new log.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ReplacePublishesAndReopensTheReplacement(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-log-durability-replace");
-        var finalPath = Path.Join(dir, "group.log");
-        var tempPath = Path.Join(dir, "group.log.tmp");
-        await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(1, 2, 3), cancellationToken);
-
-        using var durability = new GroupLogDurability();
-        _ = durability.Replace(tempPath, finalPath, 3L);
-
-        // The durable handle must now point at the replacement, so a flush succeeds.
+        durability.Write(ReadOnlyMemory<byte>.Of(7), GroupLogSlots.HeaderSize);
         durability.Flush();
 
-        _ = await Assert.That(File.Exists(tempPath)).IsFalse();
-        using var published = File.OpenHandle(finalPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        var content = new byte[RandomAccess.GetLength(published)];
-        var offset = 0L;
-        _ = await Assert.That(HandleEx.TryReadExact(published, content, ref offset)).IsTrue();
-        await SequenceAssert.EqualAsync<byte>([1, 2, 3], content);
+        _ = await Assert.That(new FileInfo(oldPath).Length).IsEqualTo(0L);
+        _ = await Assert.That(new FileInfo(newPath).Length).IsEqualTo(GroupLogSlots.HeaderSize + 1L);
     }
 
-    /// <summary>Replacement refuses a path without a containing directory and cleans up the temp file.</summary>
+    /// <summary>Creating the first log seals generation 1 into the file and leaves it as the live log.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ReplaceRefusesPathWithoutDirectory(CancellationToken cancellationToken)
+    public async Task CreateSealsTheFirstGeneration(CancellationToken cancellationToken)
     {
-        using var dir = new TempDirectory("squirix-log-durability-no-dir");
-        var tempPath = Path.Join(dir, "group.log.tmp");
-        await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(1, 2, 3), cancellationToken);
+        using var dir = new TempDirectory("squirix-log-durability-create");
+        var path = Path.Join(dir, "group.log.0");
+        using (var durability = new GroupLogDurability())
+        {
+            durability.Create(path, 1UL);
+            durability.Flush();
+        }
 
-        using var durability = new GroupLogDurability();
-        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws((durability, tempPath), static state => state.durability.Replace(state.tempPath, "standalone.log", 3L));
+        var actual = await File.ReadAllBytesAsync(path, cancellationToken);
+        _ = await Assert.That(actual.Length).IsEqualTo(GroupLogSlots.HeaderSize);
+        _ = await Assert.That(GroupLogSlots.Select(actual, actual.Length, [], -1L, "dir")).IsEqualTo((0, 1UL));
+    }
 
-        _ = await Assert.That(File.Exists(tempPath)).IsFalse();
+    /// <summary>Opening a standby file empties whatever an earlier generation left in it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OpenStandbyEmptiesAnExistingFile(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-log-durability-standby");
+        var path = Path.Join(dir, "group.log.1");
+        await File.WriteAllBytesAsync(path, ReadOnlyMemory<byte>.Of(1, 2, 3), cancellationToken);
+
+        using (GroupLogDurability.OpenStandby(path))
+            _ = await Assert.That(new FileInfo(path).Length).IsEqualTo(0L);
     }
 }

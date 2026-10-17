@@ -75,13 +75,6 @@ internal static class GroupLogCodec
     /// <summary>Metadata format version.</summary>
     private const byte MetaVersion = 2;
 
-    /// <summary>Gets the file header bytes written at the start of a replica-group log file.</summary>
-    internal static ReadOnlySpan<byte> LogFileHeader =>
-    [
-        0x53, 0x51, 0x52, 0x4C, // "SQRL"
-        0x01, // version 1
-    ];
-
     /// <summary>Computes the exact encoded length of a log frame.</summary>
     /// <param name="len">The entry payload length in bytes.</param>
     /// <returns>The encoded frame length in bytes.</returns>

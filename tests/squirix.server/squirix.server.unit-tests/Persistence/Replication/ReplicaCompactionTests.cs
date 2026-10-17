@@ -224,8 +224,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
             _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
             await FollowerSnapshotScenario.PublishWithoutCompactionAsync(log, faults, 2UL, cancellationToken);
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
-            var tempPath = GroupStoragePaths.GetLogTempPath(dir, GroupId);
-            _ = await Assert.That(File.Exists(tempPath)).IsFalse().Because($"Compaction temp file should be cleaned up after failure: {tempPath}");
+            _ = await Assert.That(GroupLogFile.ActivePath(dir, GroupId)).IsEqualTo(GroupStoragePaths.GetLogSlotPath(dir, GroupId, 0));
         }
 
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
@@ -235,6 +234,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         _ = await Assert.That(status.CommitIndex).IsEqualTo(2UL);
         _ = await Assert.That(status.LastLogIndex).IsEqualTo(3UL);
+        _ = await Assert.That(new FileInfo(GroupStoragePaths.GetLogSlotPath(dir, GroupId, 1)).Length).IsEqualTo(0L);
         var tail = await reopened.GetUncommittedTailAsync(cancellationToken);
         _ = await Assert.That(tail).HasSingleItem();
         _ = await Assert.That(tail[0].LogIndex).IsEqualTo(3UL);
@@ -447,8 +447,8 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
     /// <returns>The first frame's log index, or <c language="csharp">0</c> when no frame opens the log.</returns>
     private static async Task<ulong> FirstFrameIndexAsync(string dir, CancellationToken cancellationToken)
     {
-        var bytes = await File.ReadAllBytesAsync(GroupStoragePaths.GetLogPath(dir, GroupId), cancellationToken);
-        return GroupLogCodec.TryReadFrameFields(bytes.AsSpan(GroupLogCodec.LogFileHeader.Length), out var logIndex, out _) ? logIndex : 0UL;
+        var bytes = await File.ReadAllBytesAsync(GroupLogFile.ActivePath(dir, GroupId), cancellationToken);
+        return GroupLogCodec.TryReadFrameFields(bytes.AsSpan(GroupLogSlots.HeaderSize), out var logIndex, out _) ? logIndex : 0UL;
     }
 
     /// <summary>Opens a log holding entries 1 to 5, committed through 4 and applied through 2.</summary>

@@ -48,7 +48,7 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
     public async Task CommittedPrefixCorruptionFailsReadiness(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-restart-corruption");
-        var logPath = GroupStoragePaths.GetLogPath(dir, GroupId);
+        var logPath = GroupLogFile.ActivePath(dir, GroupId);
 
         await using (var log = OpenLog(dir))
         {
@@ -57,7 +57,7 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         }
 
-        await FollowerLogTestKit.CorruptByteAsync(logPath, 8, cancellationToken);
+        await FollowerLogTestKit.CorruptByteAsync(logPath, GroupLogSlots.HeaderSize + 3, cancellationToken);
 
         await using var reopened = OpenLog(dir);
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));

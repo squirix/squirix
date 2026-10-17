@@ -272,14 +272,18 @@ machinery scales across the allowed RF set; operational budgets are validated by
 The storage layer publishes a CRC32C-validated snapshot, held in two in-place slot files (`group.snapshot.0` and
 `group.snapshot.1`; see [snapshot format](../snapshot-format.md#replica-group-snapshots)), containing the committed
 baseline and resolved idempotency outcomes, and carries no cache entries. Compaction removes only the journal prefix covered by the
-published snapshot and preserves the log header. A snapshot reaches a follower only inside a
+published snapshot and rewrites the log into a new generation file. A snapshot reaches a follower only inside a
 [state transfer](#state-transfer), which also carries the cache entries of the group; there is no request that installs
 a snapshot alone, because it would move the applied index of a follower past data that follower does not hold.
 
 ### Group log retention and compaction
 
 Every node maintains each group log it serves: the log of the group it owns (leads) and its copy of every group it
-follows.
+follows. A group log lives in two files, `group.log.0` and `group.log.1`; each starts with a header that holds a
+generation number. A rewrite empties the inactive file, writes and flushes the frames, and only then writes and flushes
+the header with the next generation, so a crash leaves the previous file or the new one complete. On open the node uses
+the file whose header is valid and has the higher generation, and empties the other. A `group.log` left by an earlier
+build is refused and left unchanged.
 
 - **Applied index.** The owner applies every committed entry to memory in log order and tracks the index it reached.
   A follower does the same for each group it follows: one apply loop per group applies the entries the leader marked
@@ -288,24 +292,24 @@ follows.
   applied payloads from memory. After a restart the owner applies the committed entries above the persisted index again,
   in log order, before it serves writes; a follower's apply loop first rebuilds the outcomes of the committed entries,
   then does the same.
-- **Trigger.** The same pass compacts a group log once `group.log` reaches `ReplicaLogCompactionMb` (default 64 MiB) or
+- **Trigger.** The same pass compacts a group log once the group log reaches `ReplicaLogCompactionMb` (default 64 MiB) or
   holds `ReplicaLogCompactionEntries` entries (default 100 000); see
   [configuration](../configuration.md#persistence-host-defaults).
 - **Follower compaction.** A follower compacts its copy of a group through the applied index it persisted, while the
-  commit index may be higher. It publishes the group snapshot through that index and rewrites `group.log` to its header
+  commit index may be higher. It publishes the group snapshot through that index and rewrites the group log to its header
   plus every entry above it, committed or not, so the apply loop and the leader's next append find them. The step waits
   until the apply loop has rebuilt the outcomes of the applied entries, and while nothing was applied past the last
-  snapshot. A crash after the snapshot is published, or after `group.log` is rewritten, recovers the same state: the
+  snapshot. A crash after the snapshot is published, or after the group log is rewritten, recovers the same state: the
   snapshot, the commit index, and the entries above the snapshot.
 - **Gated owner step.** The owner's compaction runs as one step under the commit gate, so writes wait for it and
   continue after it.
   It requires no uncommitted tail, every committed entry applied, every idempotency outcome resolved, and every
   follower slot verified ready with a durable match index at the commit index. It then publishes the group snapshot
-  through the commit index and rewrites `group.log` to its header.
+  through the commit index and rewrites the group log to its header.
 - **Every follower must have caught up, up to a limit.** The leader keeps every entry a follower may still need: a
   follower that is down, or that missed an entry, blocks compaction of the owner's group log until it is back. A
   follower whose append failed is taken out of the write quorum; once it answers again, the owner sends it the entries
-  it lacks from the group log through its sender, admits it, and compaction resumes. Once `group.log` reaches
+  it lacks from the group log through its sender, admits it, and compaction resumes. Once the group log reaches
   `ReplicaLogRetentionMaxMb` (default 1 GiB), a follower slot that is not verified ready no longer holds the log: the
   owner compacts without it and reports `compacted_past_follower`; a pass whose outcome changes to it logs `4071`. A
   ready follower behind the commit index still holds it. A follower that needs entries already compacted is repaired by

@@ -29,7 +29,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
     public async Task CommittedPrefixConflictFailsReadiness(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-recovery-committed-conflict");
-        var logPath = GroupStoragePaths.GetLogPath(dir, GroupId);
+        var logPath = GroupLogFile.ActivePath(dir, GroupId);
 
         await using (var log = OpenLog(dir))
         {
@@ -39,7 +39,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
             _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
         }
 
-        await FollowerLogTestKit.CorruptByteAsync(logPath, 8, cancellationToken);
+        await FollowerLogTestKit.CorruptByteAsync(logPath, GroupLogSlots.HeaderSize + 3, cancellationToken);
 
         await using var reopened = OpenLog(dir);
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
@@ -77,7 +77,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
     public async Task DivergentTailIsTruncatedOrQuarantined(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-recovery-divergent-tail");
-        var logPath = GroupStoragePaths.GetLogPath(dir, GroupId);
+        var logPath = GroupLogFile.ActivePath(dir, GroupId);
 
         await using (var log = OpenLog(dir))
         {
@@ -106,7 +106,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
     public async Task EmptyLogWithCommittedIndexFailsReadiness(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-recovery-empty-log");
-        var logPath = GroupStoragePaths.GetLogPath(dir, GroupId);
+        var logPath = GroupLogFile.ActivePath(dir, GroupId);
 
         await using (var log = OpenLog(dir))
         {
@@ -129,7 +129,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
     public async Task MissingLogFailsReadinessAtCommit(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-recovery-missing-log");
-        var logPath = GroupStoragePaths.GetLogPath(dir, GroupId);
+        var logPath = GroupLogFile.ActivePath(dir, GroupId);
 
         await using (var log = OpenLog(dir))
         {
@@ -345,7 +345,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
     public async Task TruncatedTailReleasesPendingReservation(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-recovery-truncate-releases");
-        var logPath = GroupStoragePaths.GetLogPath(dir, GroupId);
+        var logPath = GroupLogFile.ActivePath(dir, GroupId);
 
         await using (var log = OpenLog(dir))
         {

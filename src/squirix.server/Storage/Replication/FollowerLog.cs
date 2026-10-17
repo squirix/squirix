@@ -137,9 +137,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <inheritdoc />
     IFollowerLogFaultHooks IFollowerLogDurability.Faults => _faults;
 
-    /// <inheritdoc />
-    ILogger IFollowerLogDurability.Log => _log;
-
     public string GroupId { get; }
 
     /// <inheritdoc />
@@ -363,7 +360,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         var frames = newest.ToArray();
         Array.Reverse(frames);
-        return await GroupLogFrameReader.ReadAsync(_journal.Paths.LogPath, frames, visit, cancellationToken).ConfigureAwait(false);
+        return await GroupLogFrameReader.ReadAsync(_journal.LogPath, frames, visit, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -558,7 +555,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         _ = await DirectoryEx.CreateDirectoryAsync(_journal.Paths.GroupDirectory, cancellationToken: cancellationToken).ConfigureAwait(false);
         _ = FileEx.TryDeleteFile(_journal.Paths.MetadataTempPath);
-        _ = FileEx.TryDeleteFile(_journal.Paths.LogTempPath);
 
         await FollowerLogStartup.OpenGroupAsync(_journal, this, cancellationToken).ConfigureAwait(false);
         if (_meta.MemberState != GroupMemberState.Complete)
@@ -1039,22 +1035,15 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (toAppend.Count == 0)
                 return;
 
-            // The file header precedes the first frame and is written exactly once
-            // when the log file is still empty.
-            var writeHeader = owner.LogLength == 0;
-
             // The whole batch is encoded into a single contiguous buffer, so the OS
             // performs one sequential writing instead of many small ones.
-            var totalLength = writeHeader ? GroupLogCodec.LogFileHeader.Length : 0;
+            var totalLength = 0;
             for (var i = 0; i < toAppend.Count; i++)
                 totalLength += GroupLogCodec.ComputeFrameEncodedLength(toAppend[i].Payload.Length);
 
             var buffer = ArrayPool<byte>.Shared.Rent(totalLength);
-            var position = writeHeader ? GroupLogCodec.LogFileHeader.Length : 0;
-            var startOffset = writeHeader ? 0 : owner.LogLength;
-
-            if (writeHeader)
-                GroupLogCodec.LogFileHeader.CopyTo(buffer);
+            var position = 0;
+            var startOffset = owner.LogLength;
 
             // Each frame is encoded at its final on-disk offset, and that offset is remembered,
             // so the in-memory index can serve reads without re-walking the file.
@@ -1098,25 +1087,21 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             List<FollowerLogEntry> tail,
             CancellationToken cancellationToken)
         {
-            var work = new ReplaceDurableWork(owner.Acks, owner.Durability, journal.Paths.LogTempPath, journal.Paths.LogPath, tail, owner.Faults, owner.Log);
             cancellationToken.ThrowIfCancellationRequested();
-            Task durable;
+            var standbySlot = 1 - journal.LogSlot;
+            var generation = journal.LogGeneration + 1;
+            var work = new ReplaceDurableWork(owner.Acks, owner.Durability, journal.Paths.GetLogSlotPath(standbySlot), generation, tail, owner.Faults);
             try
             {
-                durable = work.RunTrackedAsync();
+                await work.RunTrackedAsync().ConfigureAwait(false);
             }
-            catch
+            finally
             {
-                // Execute returns every rented buffer in its final block once it starts; return them here only
-                // when the work item never ran, so the pool never sees a double Return. A shutdown fault of the
-                // awaited ack below may race a running Execute, so it never touches the buffers.
-                if (!work.Started)
-                    work.ReturnBuffers();
-
-                throw;
+                // Once the header is flushed the new file is the durable log, even when a later step fails.
+                if (work.Sealed)
+                    journal.UseLog(standbySlot, generation);
             }
 
-            await durable.ConfigureAwait(false);
             return (work.Length, work.Offsets);
         }
 
@@ -1274,35 +1259,32 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
         }
 
-        /// <summary>Writes and flushes the header plus each retained frame incrementally before atomically publishing the result as the log.</summary>
+        /// <summary>Writes and flushes each retained frame into the inactive generation file, seals it, and makes it the live log.</summary>
         /// <remarks>
         /// Frames are encoded into short-lived pooled buffers one at a time, so the retained tail is never materialized into a
-        /// single contiguous array (which could overflow <see cref="int" /> or exhaust contiguous memory for a large tail).
+        /// single contiguous array (which could overflow <see cref="int" /> or exhaust contiguous memory for a large tail). The superseded
+        /// file stays intact until the sealed header of the new one is flushed, so a crash at any point leaves a complete log.
         /// </remarks>
         private sealed class ReplaceDurableWork : TrackedDurableWorkBase
         {
             private readonly GroupLogDurability _durability;
             private readonly IFollowerLogFaultHooks _faults;
-            private readonly string _finalPath;
-            private readonly ILogger _log;
+            private readonly ulong _generation;
+            private readonly string _standbyPath;
             private readonly List<FollowerLogEntry> _tail;
-            private readonly string _tempPath;
-            private byte[]? _headerBuffer;
 
             internal ReplaceDurableWork(
                 FollowerLogAckRegistry acks,
                 GroupLogDurability durability,
-                string tempPath,
-                string finalPath,
+                string standbyPath,
+                ulong generation,
                 List<FollowerLogEntry> tail,
-                IFollowerLogFaultHooks faults,
-                ILogger log)
+                IFollowerLogFaultHooks faults)
                 : base(acks)
             {
-                _log = log;
                 _durability = durability;
-                _tempPath = tempPath;
-                _finalPath = finalPath;
+                _standbyPath = standbyPath;
+                _generation = generation;
                 _tail = tail;
                 _faults = faults;
             }
@@ -1311,84 +1293,64 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             internal List<long> Offsets { get; } = [];
 
-            internal bool Started { get; private set; }
-
-            internal void ReturnBuffers()
-            {
-                if (_headerBuffer == null)
-                    return;
-                ArrayPool<byte>.Shared.ReturnCleared(_headerBuffer);
-                _headerBuffer = null;
-            }
+            internal bool Sealed { get; private set; }
 
             protected override void Run()
             {
-                Started = true;
-                var published = false;
+                long total = GroupLogSlots.HeaderSize;
+                for (var i = 0; i < _tail.Count; i++)
+                    total += GroupLogCodec.ComputeFrameEncodedLength(_tail[i].Payload.Length);
+                if (total > int.MaxValue)
+                    throw new InvalidOperationException($"Compaction tail of {total} bytes exceeds the maximum log size.");
+
+                SafeFileHandle? handle = GroupLogDurability.OpenStandby(_standbyPath);
                 try
                 {
-                    const FileOptions options = FileOptions.WriteThrough;
-                    var headerLength = GroupLogCodec.LogFileHeader.Length;
-                    _headerBuffer = ArrayPool<byte>.Shared.Rent(headerLength);
-                    GroupLogCodec.LogFileHeader.CopyTo(_headerBuffer);
+                    WriteTail(handle, total);
+                    _faults.OnFlushed();
+                    GroupLogDurability.Seal(handle, _generation);
+                    Sealed = true;
+                    _faults.OnFlushed();
 
-                    long total = headerLength;
-                    for (var i = 0; i < _tail.Count; i++)
-                        total += GroupLogCodec.ComputeFrameEncodedLength(_tail[i].Payload.Length);
-                    if (total > int.MaxValue)
-                        throw new InvalidOperationException($"Compaction tail of {total} bytes exceeds the maximum log size.");
-
-                    var (offsets, length) = WriteTail(_headerBuffer, headerLength, total, options);
-                    Offsets.AddRange(offsets);
-                    Length = length;
-                    var result = _durability.Replace(_tempPath, _finalPath, length);
-                    published = true;
-                    if (result.Attempts > 1)
-                        ServerLog.DurablePublishRetried(_log, _finalPath, result.Attempts, result.Holders ?? FileEx.UnknownHolders);
+                    // Adopt owns the handle from here on, whether or not emptying the superseded file succeeds.
+                    var sealedHandle = handle;
+                    handle = null;
+                    _durability.Adopt(sealedHandle);
                 }
                 finally
                 {
-                    if (!published)
-                        _ = FileEx.TryDeleteFile(_tempPath);
-
-                    ReturnBuffers();
+                    handle?.Dispose();
                 }
+
+                Length = int.CreateTruncating(total);
             }
 
-            private (List<long> Offsets, int Length) WriteTail(byte[] headerBuffer, int headerLength, long total, FileOptions options)
+            private void WriteTail(SafeFileHandle handle, long total)
             {
-                var offsets = new List<long>(_tail.Count);
-                using (var handle = File.OpenHandle(_tempPath, FileMode.Create, FileAccess.Write, FileShare.None, options))
+                long position = GroupLogSlots.HeaderSize;
+                for (var i = 0; i < _tail.Count; i++)
                 {
-                    RandomAccess.Write(handle, headerBuffer.AsSpan(0, headerLength), 0);
-                    var position = headerLength;
-                    for (var i = 0; i < _tail.Count; i++)
+                    var entry = _tail[i];
+                    var frameLength = GroupLogCodec.ComputeFrameEncodedLength(entry.Payload.Length);
+                    var frameBuffer = ArrayPool<byte>.Shared.Rent(frameLength);
+                    try
                     {
-                        var entry = _tail[i];
-                        var frameLength = GroupLogCodec.ComputeFrameEncodedLength(entry.Payload.Length);
-                        var frameBuffer = ArrayPool<byte>.Shared.Rent(frameLength);
-                        try
-                        {
-                            GroupLogCodec.EncodeFrame(frameBuffer.AsSpan(0, frameLength), in entry);
-                            RandomAccess.Write(handle, frameBuffer.AsSpan(0, frameLength), position);
-                        }
-                        finally
-                        {
-                            // The frame bytes are durable in the open handle; release the pooled
-                            // buffer immediately, so a large tail never holds every frame buffer at once.
-                            ArrayPool<byte>.Shared.ReturnCleared(frameBuffer);
-                        }
-
-                        offsets.Add(position);
-                        position += frameLength;
+                        GroupLogCodec.EncodeFrame(frameBuffer.AsSpan(0, frameLength), in entry);
+                        RandomAccess.Write(handle, frameBuffer.AsSpan(0, frameLength), position);
+                    }
+                    finally
+                    {
+                        // The frame bytes are in the open handle; release the pooled
+                        // buffer immediately, so a large tail never holds every frame buffer at once.
+                        ArrayPool<byte>.Shared.ReturnCleared(frameBuffer);
                     }
 
-                    RandomAccess.SetLength(handle, total);
-                    RandomAccess.FlushToDisk(handle);
+                    Offsets.Add(position);
+                    position += frameLength;
                 }
 
-                _faults.OnFlushed();
-                return (offsets, int.CreateTruncating(total));
+                RandomAccess.SetLength(handle, total);
+                RandomAccess.FlushToDisk(handle);
             }
         }
 
@@ -1700,7 +1662,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             var entries = new List<FollowerLogEntry>(count);
             _ = await GroupLogFrameReader.ReadAsync(
-                journal.Paths.LogPath,
+                journal.LogPath,
                 frames,
                 entry =>
                 {
@@ -1755,7 +1717,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         internal static async Task OpenGroupAsync(FollowerLogJournal journal, IFollowerLogContext owner, CancellationToken cancellationToken)
         {
             var metaExists = File.Exists(journal.Paths.MetadataPath);
-            var logExists = File.Exists(journal.Paths.LogPath);
+            SelectLog(journal, owner);
+            var logExists = File.Exists(journal.Paths.LogSlot0Path) || File.Exists(journal.Paths.LogSlot1Path);
 
             switch (metaExists)
             {
@@ -1765,8 +1728,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                     await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(journal, owner, fresh, cancellationToken).ConfigureAwait(false);
                     owner.Meta = fresh;
                     owner.LastLogIndex = 0;
-                    owner.LogLength = 0;
-                    owner.Durability.Open(journal.Paths.LogPath, owner.LogLength);
+                    CreateFirstLog(journal, owner);
                     owner.Readiness = FollowerLogReadiness.Ready;
                     return;
 
@@ -1796,8 +1758,75 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
 
             await FollowerLogRecovery.RecoverLogFileAsync(journal, owner, cancellationToken).ConfigureAwait(false);
-            owner.Durability.Open(journal.Paths.LogPath, owner.LogLength);
+            if (journal.LogGeneration == 0UL)
+            {
+                CreateFirstLog(journal, owner);
+            }
+            else
+            {
+                // A retried open can still hold the superseded file from a rewrite that failed after its commit point; release it first.
+                owner.Durability.Dispose();
+                await FollowerLogRecovery.EmptySupersededLogAsync(journal, cancellationToken).ConfigureAwait(false);
+                owner.Durability.Open(journal.LogPath, owner.LogLength);
+            }
+
             owner.Readiness = FollowerLogReadiness.Ready;
+        }
+
+        private static void CreateFirstLog(FollowerLogJournal journal, IFollowerLogContext owner)
+        {
+            owner.Durability.Create(journal.Paths.GetLogSlotPath(0), 1UL);
+            journal.UseLog(0, 1UL);
+            owner.LogLength = GroupLogSlots.HeaderSize;
+        }
+
+        /// <summary>Picks the active group log file from the two generation files, refusing a log this build cannot trust.</summary>
+        /// <param name="journal">The storage surface; its active log is set.</param>
+        /// <param name="owner">The owning follower log, whose readiness fails on a refusal.</param>
+        /// <exception cref="InvalidDataException">An earlier build's log exists, or the generation files are refused.</exception>
+        private static void SelectLog(FollowerLogJournal journal, IFollowerLogContext owner)
+        {
+            if (File.Exists(journal.Paths.LegacyLogPath))
+            {
+                owner.Readiness = FollowerLogReadiness.Failed;
+                throw new InvalidDataException(
+                    $"Replica group '{owner.GroupId}' log at '{journal.Paths.LegacyLogPath}' was written by an earlier build and is not supported; the file was left unchanged.");
+            }
+
+            Span<byte> first = stackalloc byte[GroupLogSlots.HeaderSize];
+            Span<byte> second = stackalloc byte[GroupLogSlots.HeaderSize];
+            var firstLength = ReadLogHead(journal.Paths.LogSlot0Path, first, out var firstRead);
+            var secondLength = ReadLogHead(journal.Paths.LogSlot1Path, second, out var secondRead);
+            try
+            {
+                var (slot, generation) = GroupLogSlots.Select(first[..firstRead], firstLength, second[..secondRead], secondLength, journal.Paths.GroupDirectory);
+                journal.UseLog(slot, generation);
+            }
+            catch (InvalidDataException)
+            {
+                owner.Readiness = FollowerLogReadiness.Failed;
+                throw;
+            }
+        }
+
+        private static long ReadLogHead(string path, Span<byte> head, out int read)
+        {
+            read = 0;
+            if (!File.Exists(path))
+                return -1;
+
+            using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var length = RandomAccess.GetLength(handle);
+            while (read < head.Length)
+            {
+                var count = RandomAccess.Read(handle, head[read..], read);
+                if (count == 0)
+                    break;
+
+                read += count;
+            }
+
+            return length;
         }
     }
 
@@ -1812,21 +1841,33 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // index plus one when the covered prefix was compacted away.
             var snapshotBase = await RestoreSnapshotBaseAsync(journal, owner, cancellationToken).ConfigureAwait(false);
 
-            // A missing log file simply means the group has never persisted anything beyond the snapshot baseline.
-            if (!File.Exists(journal.Paths.LogPath))
+            // Generation 0 means the group has never persisted a log, so nothing exists beyond the snapshot baseline.
+            if (journal.LogGeneration == 0UL)
             {
                 await SnapshotBoundaryWatermarks.ResetAndEnsureAsync(journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
             var handle = File.OpenHandle(
-                journal.Paths.LogPath,
+                journal.LogPath,
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
             using (handle)
                 await RecoverOpenedFileAsync(handle, journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>Empties the generation file the active one superseded, which a rewrite or a crash may have left holding a full copy of the log.</summary>
+        /// <param name="journal">The storage surface.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        internal static async Task EmptySupersededLogAsync(FollowerLogJournal journal, CancellationToken cancellationToken)
+        {
+            var path = journal.Paths.GetLogSlotPath(1 - journal.LogSlot);
+            if (!File.Exists(path) || new FileInfo(path).Length == 0)
+                return;
+
+            await WorkPool.RunAsync(new RecoveryTruncateWork(path, 0), TaskCreationOptions.None, cancellationToken).ConfigureAwait(false);
         }
 
         private static async Task RecoverOpenedFileAsync(
@@ -1838,8 +1879,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             if (await TryResetShortFileAsync(handle, journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false))
                 return;
-
-            await ReadAndValidateLogFileHeaderAsync(handle, owner, cancellationToken).ConfigureAwait(false);
 
             journal.ClearEntries();
 
@@ -1867,20 +1906,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             ulong snapshotBase,
             CancellationToken cancellationToken)
         {
-            // An empty file is treated the same as no file at all.
             // A header-only file carries no frames, so only the snapshot baseline (if any) is durable.
-            var length = RandomAccess.GetLength(handle);
-            if (length == 0 || length == GroupLogCodec.LogFileHeader.Length)
-            {
-                await SnapshotBoundaryWatermarks.ResetAndEnsureAsync(journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
-                return true;
-            }
-
-            // Anything preceding the expected header marks the file as unusable.
-            if (length >= GroupLogCodec.LogFileHeader.Length)
+            if (RandomAccess.GetLength(handle) != GroupLogSlots.HeaderSize)
                 return false;
-            owner.Readiness = FollowerLogReadiness.Failed;
-            throw new InvalidDataException($"Replica group '{owner.GroupId}' log header is corrupt.");
+
+            await SnapshotBoundaryWatermarks.ResetAndEnsureAsync(journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
+            return true;
         }
 
         private static async Task<bool> TryResetTornFirstFrameAsync(
@@ -1903,7 +1934,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 throw new InvalidDataException($"Replica group '{owner.GroupId}' first journal frame above snapshot base '{snapshotBase}' is unreadable while the commit watermark '{owner.Meta.CommitIndex}' exceeds it.");
             }
 
-            await TruncateAndResetAsync(journal, owner, GroupLogCodec.LogFileHeader.Length, snapshotBase, cancellationToken).ConfigureAwait(false);
+            await TruncateAndResetAsync(journal, owner, GroupLogSlots.HeaderSize, snapshotBase, cancellationToken).ConfigureAwait(false);
             return true;
         }
 
@@ -1921,7 +1952,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // suffix above it belongs to a divergent history and is discarded, restarting from the snapshot.
             if (result.BoundaryDivergent)
             {
-                await TruncateAndResetAsync(journal, owner, GroupLogCodec.LogFileHeader.Length, snapshotBase, cancellationToken).ConfigureAwait(false);
+                await TruncateAndResetAsync(journal, owner, GroupLogSlots.HeaderSize, snapshotBase, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -1981,7 +2012,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         private static WalkResult? DivergentBoundary(FollowerLogJournal journal, ulong logIndex, ulong term)
         {
             return journal.SnapshotBaseline.LastIncludedIndex != logIndex || journal.SnapshotBaseline.LastIncludedTerm == term ? null
-                : new WalkResult(GroupLogCodec.LogFileHeader.Length, true, true);
+                : new WalkResult(GroupLogSlots.HeaderSize, true, true);
         }
 
         /// <summary>Reads the log index of the first frame from the fixed header boundary.</summary>
@@ -1990,7 +2021,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// <returns>The first frame's log index, or <c language="csharp">0</c> when no valid frame opens the file.</returns>
         private static async Task<ulong> PeekFirstFrameIndexAsync(SafeFileHandle handle, CancellationToken cancellationToken)
         {
-            var start = GroupLogCodec.LogFileHeader.Length;
+            const int start = GroupLogSlots.HeaderSize;
             var length = RandomAccess.GetLength(handle);
             if (length - start < FrameHeaderByteCount)
                 return 0UL;
@@ -2024,29 +2055,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             finally
             {
                 ArrayPool<byte>.Shared.ReturnCleared(frameHeader);
-            }
-        }
-
-        /// <summary>Reads and verifies the log file header, failing recovery when it is corrupt.</summary>
-        /// <param name="handle">The open log file handle.</param>
-        /// <param name="owner">The log being recovered.</param>
-        /// <param name="cancellationToken">A token to observe while reading.</param>
-        /// <exception cref="InvalidDataException">The log file header is corrupt.</exception>
-        private static async Task ReadAndValidateLogFileHeaderAsync(SafeFileHandle handle, IFollowerLogContext owner, CancellationToken cancellationToken)
-        {
-            var header = ArrayPool<byte>.Shared.Rent(GroupLogCodec.LogFileHeader.Length);
-            try
-            {
-                var end = await HandleEx.ReadExactAsync(handle, header.AsMemory(0, GroupLogCodec.LogFileHeader.Length), 0, cancellationToken).ConfigureAwait(false);
-                if (end == null || !header.AsSpan(0, GroupLogCodec.LogFileHeader.Length).SequenceEqual(GroupLogCodec.LogFileHeader))
-                {
-                    owner.Readiness = FollowerLogReadiness.Failed;
-                    throw new InvalidDataException($"Replica group '{owner.GroupId}' log header is corrupt.");
-                }
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.ReturnCleared(header);
             }
         }
 
@@ -2280,7 +2288,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         private static Task ScheduleTruncateAsync(FollowerLogJournal journal, long truncateLength, CancellationToken cancellationToken)
         {
-            var work = new RecoveryTruncateWork(journal.Paths.LogPath, truncateLength);
+            var work = new RecoveryTruncateWork(journal.LogPath, truncateLength);
             return WorkPool.RunAsync(work, TaskCreationOptions.None, cancellationToken);
         }
 
@@ -2291,7 +2299,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             ulong snapshotBase,
             CancellationToken cancellationToken)
         {
-            var work = new RecoveryTruncateWork(journal.Paths.LogPath, truncateLength);
+            var work = new RecoveryTruncateWork(journal.LogPath, truncateLength);
             await WorkPool.RunAsync(work, TaskCreationOptions.None, cancellationToken).ConfigureAwait(false);
             journal.ClearEntries();
 
@@ -2317,7 +2325,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         private static async Task<WalkResult> WalkFramesAsync(FollowerLogJournal journal, IFollowerLogContext owner, SafeFileHandle handle, CancellationToken cancellationToken)
         {
-            long lastValidEnd = GroupLogCodec.LogFileHeader.Length;
+            long lastValidEnd = GroupLogSlots.HeaderSize;
 
             // Two pool rents for the whole walk instead of two per frame; the frame buffer grows on demand.
             var frameHeader = ArrayPool<byte>.Shared.Rent(FrameHeaderByteCount);
@@ -2479,7 +2487,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         private static void ResetLogState(IFollowerLogContext owner, ulong snapshotBase)
         {
-            owner.LogLength = 0;
+            owner.LogLength = GroupLogSlots.HeaderSize;
             owner.LastLogIndex = snapshotBase;
         }
     }
