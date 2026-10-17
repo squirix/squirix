@@ -83,6 +83,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
 
         var manifest = SlotFile.Read(NodePathKit.Combine(Dir, "man-current")).State;
         _ = await Assert.That(manifest.CurrentJournal).IsEqualTo(3);
+        _ = await Assert.That(manifest.NextSequence).IsEqualTo(12UL);
         _ = await Assert.That(manifest.LastSnapshot).IsEqualTo(snapshot);
     }
 

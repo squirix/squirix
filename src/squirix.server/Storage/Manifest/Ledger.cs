@@ -97,7 +97,7 @@ internal sealed class Ledger : IDisposable
     {
         using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        // The publisher merges over the cache, so an unloaded cache must not leave the floors standing over the on-disk manifest.
+        // Warms the cache the publisher merges over; an unloaded cache would make it fall back to the slots on disk.
         if (!TryGetCachedCurrent(out _))
             _ = await LoadCurrentFromDiskAsync(cancellationToken).ConfigureAwait(false);
 
