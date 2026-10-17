@@ -64,6 +64,9 @@ internal static class RocksDoubles
         /// <summary>Gets the number of roll publications the journal thread made.</summary>
         internal int RollsPublished { get; private set; }
 
+        /// <summary>Gets or sets the callback run on every pipeline failure report, before the failure is recorded.</summary>
+        internal Action<Exception>? OnPipelineFailed { get; set; }
+
         /// <summary>Gets or sets the callback run on every roll publication, standing in for the manifest roll thread.</summary>
         internal Action? OnRollPublished { get; set; }
 
@@ -72,7 +75,11 @@ internal static class RocksDoubles
 
         /// <summary>Records the reason the journal thread reported as a pipeline failure.</summary>
         /// <param name="reason">The reason.</param>
-        internal void RecordPipelineFailure(Exception reason) => PipelineFailure = reason;
+        internal void RecordPipelineFailure(Exception reason)
+        {
+            OnPipelineFailed?.Invoke(reason);
+            PipelineFailure = reason;
+        }
 
         /// <summary>Records one roll publication.</summary>
         internal void RecordRollPublished()

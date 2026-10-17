@@ -304,16 +304,20 @@ internal sealed class JournalEventLoopSegmentWriter
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
+            // Latched before the ack faults, so a producer that observes the fault already sees the failed pipeline.
+            _owner.Host.FailPipeline(ex);
             FailAppendWorkItem(item, ex);
             throw;
         }
 
         ReleaseQueuedAppendResources(item);
 
+        // The write ack means the frame is written, not durable (durability is awaited separately through the group commit). It completes
+        // before the due-batch drain, as in FlushWriteBatch: a failing group flush must not leave this untracked ack pending forever.
+        CompleteJournalWorkItem(item);
+
         if (_owner.Options.IsJournalGroupCommitEnabled)
             _owner.GroupCommit?.DrainDueBatchesOnJournalThread();
-
-        CompleteJournalWorkItem(item);
     }
 
     private bool RejectAbandonedAppend(JournalWorkItem item)
