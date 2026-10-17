@@ -103,6 +103,9 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
                 case JournalRepairKind.TornTailTruncated:
                     ServerLog.JournalTornTailTruncated(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
                     break;
+                case JournalRepairKind.CompactedSegmentPublished:
+                    ServerLog.JournalCompactedSegmentPublished(_log, repair.Path, repair.OriginalLength);
+                    break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(repairs), repair.Kind, "Unsupported journal repair kind.");
             }

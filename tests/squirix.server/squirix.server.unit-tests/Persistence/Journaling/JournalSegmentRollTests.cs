@@ -205,67 +205,34 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         }
     }
 
-    /// <summary>After a restart, a roll reuses a target that already holds frames without truncating it.</summary>
+    /// <summary>Startup refuses a segment above the manifest journal that holds frames and leaves every segment untouched.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RestartReusesSegmentWithFrames(CancellationToken cancellationToken)
+    public async Task FramesAboveCurrentFailStartup(CancellationToken cancellationToken)
     {
         var options = CreateOptions(Dir);
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
-        await using (var journal = JournalCoordinatorFactory.Create(
-                         options,
-                         await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
-                         manifestStore,
-                         new AsyncManualResetEvent(true),
-                         NullLoggerFactory.Instance,
-                         TimeProvider.System,
-                         out _))
-        {
-            var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
-            var overflowPayload = new byte[LargePayloadSize];
-            Array.Fill(overflowPayload, Convert.ToByte('y'));
-            var overflowFrameLen = FrameLength(overflowPayload, CacheKey.Default("overflow-key"));
-            await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, cancellationToken);
-        }
-
-        // Pre-existing segment above the manifest journal, holding a record (crash/foreign aftermath).
+        var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 1, BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "current", "v"));
         var preexisting = BinaryJournalTestSegmentWriter.BuildPutRecord(100_000UL, "preexisting", "v");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 2, preexisting);
+        var segmentOneBefore = await File.ReadAllBytesAsync(SegmentPath(Dir, 1), cancellationToken);
+        var segmentTwoBefore = await File.ReadAllBytesAsync(SegmentPath(Dir, 2), cancellationToken);
 
-        await using var restarted = JournalCoordinatorFactory.Create(
-            options,
-            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true),
-            NullLoggerFactory.Instance,
-            TimeProvider.System,
-            out _);
-        var restartedPipelined = (await Assert.That(restarted).IsTypeOf<JournalCoordinator>())!;
-        _ = await Assert.That(restartedPipelined.CurrentSegmentIndex).IsEqualTo(1);
-        _ = await Assert.That(restarted.NextSequence).IsEqualTo(100_001UL);
+        var failure = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            (options, manifest, manifestStore),
+            static state => _ = JournalCoordinatorFactory.Create(
+                state.options,
+                state.manifest,
+                state.manifestStore,
+                new AsyncManualResetEvent(true),
+                NullLoggerFactory.Instance,
+                TimeProvider.System,
+                out _));
 
-        var payload = new byte[LargePayloadSize];
-        Array.Fill(payload, Convert.ToByte('y'));
-        await restarted.AppendPutUnderGateAsync(CacheKey.Default("overflow-key"), payload, cancellationToken);
-        await restarted.AwaitDurabilityCommitAsync(cancellationToken);
-
-        await manifestStore.WaitUntilValueAsync(RolledToTwoAsync, cancellationToken);
-
-        _ = await Assert.That((await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken)).CurrentJournal).IsEqualTo(2);
-        _ = await Assert.That(ContainsPutKey(Dir, 2, "overflow-key")).IsTrue();
-        _ = await Assert.That(ContainsPutKey(Dir, 2, "preexisting")).IsTrue();
-
-        // Reuse adds nothing: in-memory totals match the on-disk layout exactly.
-        var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(Dir);
-        _ = await Assert.That(segmentCount).IsEqualTo(2);
-        _ = await Assert.That(restartedPipelined.EventLoop.JournalSegmentCount).IsEqualTo(2);
-        _ = await Assert.That(restartedPipelined.UsedBytes).IsEqualTo(totalBytes);
-        return;
-
-        static async ValueTask<bool> RolledToTwoAsync(Ledger s, CancellationToken ct)
-        {
-            return (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 2;
-        }
+        _ = await Assert.That(failure.Message).Contains("holds frames above", StringComparison.Ordinal);
+        _ = await Assert.That(Convert.ToHexString(await File.ReadAllBytesAsync(SegmentPath(Dir, 1), cancellationToken))).IsEqualTo(Convert.ToHexString(segmentOneBefore));
+        _ = await Assert.That(Convert.ToHexString(await File.ReadAllBytesAsync(SegmentPath(Dir, 2), cancellationToken))).IsEqualTo(Convert.ToHexString(segmentTwoBefore));
     }
 
     /// <summary>The roll target segment is created durably before the roll manifest is published.</summary>

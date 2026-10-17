@@ -52,6 +52,10 @@ Readiness reports snapshot age and in-flight state on `/health/ready/details`.
 Background journal compaction rewrites tail segments covered by the latest snapshot watermark. Compaction thresholds are
 host defaults in v0.1 public hosting (not a `Squirix.settings.json` section) — see [configuration](configuration.md).
 
+Compaction stages the rewritten journal as a temp file, then commits by writing the manifest that names it, then publishes the
+file under its final name and deletes the old segments. If the node stops between the manifest write and the publish, startup
+finishes the publish. Startup refuses a data directory where a journal segment above the manifest's current segment holds frames.
+
 Compaction state is visible on `/health/ready/details` (`compaction.*`).
 
 ## On-disk layout

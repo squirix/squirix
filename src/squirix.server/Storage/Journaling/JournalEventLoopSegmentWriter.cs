@@ -483,9 +483,9 @@ internal sealed class JournalEventLoopSegmentWriter
                 return false;
             }
 
-            // A longer file already holds content: never replace it here, reuse as-is. Startup recovery
-            // validated its header before any roll could run, and nothing else writes the file while appends
-            // are deferred, so revalidating here would add I/O without changing the only safe action.
+            // A longer file already holds content: never replace it here, reuse as-is. Startup refuses a layout
+            // where a segment above the manifest journal holds frames, so this is unreachable on a validated
+            // data directory; the guard only keeps a roll from ever discarding frames it did not write.
             // (see PrepareRollTargetSegment).
             if (length > JournalFraming.FileHeaderSize)
                 return true;
