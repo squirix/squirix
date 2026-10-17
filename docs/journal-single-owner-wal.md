@@ -28,7 +28,8 @@ Complete durability waiters
 ```
 
 Manifest roll notifications are handed off to a dedicated manifest publisher thread. The journal thread
-creates the next segment durably (header staged under a temp name and published atomically) before
+creates the next segment durably (header staged under a temp name and moved into a name that must not exist;
+a leftover holding at most a header is deleted first, a longer one is reused) before
 starting the manifest publish, without blocking on manifest disk I/O. The new segment becomes the
 active segment only after manifest success.
 
