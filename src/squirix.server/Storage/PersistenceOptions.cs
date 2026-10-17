@@ -85,11 +85,6 @@ internal sealed record PersistenceOptions
     [JsonInclude]
     internal int ReplicaLogRetentionMaxMb { get; init; } = PersistenceOptionsDefaults.ReplicaLogRetentionMaxMb;
 
-    /// <summary>Gets the number of manifest versions to retain before pruning older versions.</summary>
-    [JsonPropertyName("manifestRetentionCount")]
-    [JsonInclude]
-    internal int ManifestRetentionCount { get; init; } = PersistenceOptionsDefaults.ManifestRetentionCount;
-
     /// <summary>Gets the number of retention cleanup failures inside <see cref="RetentionCleanupDegradedWindowMinutes" /> required to degrade readiness.</summary>
     [JsonPropertyName("retentionCleanupDegradedWindowFailures")]
     [JsonInclude]
@@ -116,7 +111,6 @@ internal sealed record PersistenceOptions
         RequireHoldsLargestFrame(JournalMaxTotalBytesMb, nameof(JournalMaxTotalBytesMb));
         RequirePositive(JournalStallDegradedThreshold, nameof(JournalStallDegradedThreshold));
         RequirePositive(JournalWriteBatch, nameof(JournalWriteBatch));
-        RequirePositive(ManifestRetentionCount, nameof(ManifestRetentionCount));
         RequirePositive(ReplicaLogCompactionEntries, nameof(ReplicaLogCompactionEntries));
         RequirePositive(ReplicaLogCompactionMb, nameof(ReplicaLogCompactionMb));
         if (ReplicaLogRetentionMaxMb < ReplicaLogCompactionMb)
@@ -171,9 +165,6 @@ internal sealed record PersistenceOptions
 
         /// <summary>Default per-coordinator journal write-coalescing buffer size in bytes.</summary>
         internal const int JournalWriteBatch = 16 * 1024 * 1024;
-
-        /// <summary>The default number of manifest versions retained before pruning.</summary>
-        internal const int ManifestRetentionCount = 3;
 
         /// <summary>Default retention-cleanup failures inside the degradation window required to degrade readiness.</summary>
         internal const int RetentionCleanupDegradedWindowFailures = 5;

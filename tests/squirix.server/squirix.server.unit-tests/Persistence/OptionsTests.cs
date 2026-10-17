@@ -30,7 +30,6 @@ public sealed class OptionsTests
         _ = await Assert.That(o.JournalMaxSegmentMb).IsEqualTo(64);
         _ = await Assert.That(o.JournalMaxSegmentCount).IsEqualTo(32);
         _ = await Assert.That(o.JournalMaxTotalBytesMb).IsEqualTo(2048);
-        _ = await Assert.That(o.ManifestRetentionCount).IsEqualTo(3);
         _ = await Assert.That(o.JournalGroupCommitMaxWait).IsEqualTo(TimeSpan.Zero);
         _ = await Assert.That(o.JournalGroupCommitMaxBatch).IsEqualTo(32);
         _ = await Assert.That(o.IsJournalGroupCommitEnabled).IsFalse();
@@ -60,30 +59,26 @@ public sealed class OptionsTests
         var options = new PersistenceOptions
         {
             JournalMaxSegmentMb = 1,
-            ManifestRetentionCount = 1,
         };
 
         _ = await Assert.That(options.JournalMaxSegmentMb).IsEqualTo(1);
-        _ = await Assert.That(options.ManifestRetentionCount).IsEqualTo(1);
     }
 
     /// <summary>Verifies JSON binding still applies valid option values through init setters.</summary>
     [Test]
     public async Task JsonDeserializeBindsValidatedScalars()
     {
-        const string json = """{"dataDir":"data","journalMaxSegmentMb":64,"manifestRetentionCount":2,"strictFsync":true}""";
+        const string json = """{"dataDir":"data","journalMaxSegmentMb":64,"strictFsync":true}""";
         var options = new ServerJsonSerializer().Deserialize<PersistenceOptions>(json);
         _ = await Assert.That(options).IsNotNull();
         _ = await Assert.That(options.DataDir).IsEqualTo("data");
         _ = await Assert.That(options.JournalMaxSegmentMb).IsEqualTo(64);
-        _ = await Assert.That(options.ManifestRetentionCount).IsEqualTo(2);
     }
 
     /// <summary>Verifies local scalar validation rejects non-positive values via <see cref="PersistenceOptions.Validate" />.</summary>
     /// <param name="propertyName">Property being validated.</param>
     [Test]
     [Arguments(nameof(PersistenceOptions.JournalMaxSegmentMb))]
-    [Arguments(nameof(PersistenceOptions.ManifestRetentionCount))]
     [Arguments(nameof(PersistenceOptions.JournalStallDegradedThreshold))]
     [Arguments(nameof(PersistenceOptions.ReplicaLogCompactionMb))]
     [Arguments(nameof(PersistenceOptions.ReplicaLogCompactionEntries))]
@@ -136,12 +131,10 @@ public sealed class OptionsTests
         var overridden = defaults with
         {
             DataDir = "/var/lib/squirix",
-            ManifestRetentionCount = 100,
         };
 
         // Overridden values
         _ = await Assert.That(overridden.DataDir).IsEqualTo("/var/lib/squirix");
-        _ = await Assert.That(overridden.ManifestRetentionCount).IsEqualTo(100);
 
         // Unchanged defaults
         _ = await Assert.That(overridden.JournalMaxSegmentMb).IsEqualTo(defaults.JournalMaxSegmentMb);
@@ -151,7 +144,6 @@ public sealed class OptionsTests
     private static PersistenceOptions CreateWithInvalidScalar(string propertyName) => propertyName switch
     {
         nameof(PersistenceOptions.JournalMaxSegmentMb) => new PersistenceOptions { JournalMaxSegmentMb = 0 },
-        nameof(PersistenceOptions.ManifestRetentionCount) => new PersistenceOptions { ManifestRetentionCount = 0 },
         nameof(PersistenceOptions.JournalStallDegradedThreshold) => new PersistenceOptions { JournalStallDegradedThreshold = TimeSpan.Zero },
         nameof(PersistenceOptions.ReplicaLogCompactionMb) => new PersistenceOptions { ReplicaLogCompactionMb = 0 },
         nameof(PersistenceOptions.ReplicaLogCompactionEntries) => new PersistenceOptions { ReplicaLogCompactionEntries = 0 },

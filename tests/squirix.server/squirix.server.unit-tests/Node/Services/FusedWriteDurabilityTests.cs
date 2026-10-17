@@ -63,7 +63,7 @@ public sealed class FusedWriteDurabilityTests : IsolatedStorageTestBase
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var harness = new FusedWriteHarness(Dir, journal);
         var operationId = FusedWriteHarness.OpId(1);
-        var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 4, ManifestRetentionCount = 1 };
+        var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 4 };
         journal.Writer.Flush.Arm();
 
         var write = harness.SetThroughScopeAsync(operationId, "a", cancellationToken);

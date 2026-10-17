@@ -45,7 +45,6 @@ public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBas
         {
             DataDir = dir,
             JournalMaxSegmentMb = 16,
-            ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
         using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);

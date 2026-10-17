@@ -92,7 +92,6 @@ public sealed class JournalGroupCommitFlushFailureTests : IsolatedStorageTestBas
         JournalWriteBatch = writeBatchBytes ?? new PersistenceOptions().JournalWriteBatch,
         DataDir = Dir,
         JournalMaxSegmentMb = 4,
-        ManifestRetentionCount = 1,
         JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(20),
         JournalGroupCommitMaxBatch = 1,
     };

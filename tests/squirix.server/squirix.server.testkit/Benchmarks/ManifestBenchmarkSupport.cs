@@ -12,11 +12,6 @@ public static class ManifestBenchmarkSupport
     /// <returns>The resolved operation count.</returns>
     public static int ResolvePublishOperationsPerInvoke(int defaultCount = 2_000) => IsQuickMode ? Math.Max(defaultCount / 4, 500) : defaultCount;
 
-    /// <summary>Returns manifest/snapshot retention count for benchmark hosts.</summary>
-    /// <param name="defaultCount">Retention count when quick mode is disabled.</param>
-    /// <returns>The resolved retention count.</returns>
-    public static int ResolveRetentionCount(int defaultCount = 100_000) => IsQuickMode ? Math.Max(defaultCount / 10, 10_000) : defaultCount;
-
     /// <summary>Returns segment rolls per invoke (default 4; quick 2).</summary>
     /// <param name="defaultCount">Rolls per invoke when quick mode is disabled.</param>
     /// <returns>The resolved roll count.</returns>

@@ -35,7 +35,6 @@ public sealed class JournalDisposeDrainTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 4,
-            ManifestRetentionCount = 1,
         };
 
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);

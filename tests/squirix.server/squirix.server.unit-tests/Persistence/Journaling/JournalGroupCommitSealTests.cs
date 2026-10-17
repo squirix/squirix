@@ -103,7 +103,6 @@ public sealed class JournalGroupCommitSealTests : IsolatedStorageTestBase
     {
         DataDir = Dir,
         JournalMaxSegmentMb = 4,
-        ManifestRetentionCount = 1,
         JournalGroupCommitMaxWait = TimeSpan.FromHours(1),
         JournalGroupCommitMaxBatch = 64,
     };

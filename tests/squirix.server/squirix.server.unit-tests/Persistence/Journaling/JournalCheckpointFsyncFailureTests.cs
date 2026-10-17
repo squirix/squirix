@@ -93,7 +93,6 @@ public sealed class JournalCheckpointFsyncFailureTests : IsolatedStorageTestBase
     {
         DataDir = Dir,
         JournalMaxSegmentMb = 4,
-        ManifestRetentionCount = 1,
     };
 
     private sealed class FailingFsyncSegmentWriter : IJournalSegmentWriter

@@ -313,7 +313,6 @@ internal sealed class StallableJournal : IAsyncDisposable
             JournalMaxSegmentCount = limits.SegmentCount,
             JournalMaxSegmentMb = limits.SegmentMb,
             JournalMaxTotalBytesMb = limits.TotalMb,
-            ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = groupCommitMaxWait,
             JournalGroupCommitMaxBatch = groupCommitMaxBatch,
         };

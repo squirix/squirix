@@ -229,7 +229,6 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
     {
         DataDir = dataDir,
         JournalMaxSegmentMb = 1,
-        ManifestRetentionCount = 3,
     };
 
     private static async Task EnqueueCalibrationRollAsync(Ledger ledger)

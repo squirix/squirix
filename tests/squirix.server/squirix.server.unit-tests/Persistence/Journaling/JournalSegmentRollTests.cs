@@ -493,7 +493,6 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     {
         DataDir = dataDir,
         JournalMaxSegmentMb = 1,
-        ManifestRetentionCount = 3,
     };
 
     private static async Task FillSegmentOneForOverflowAsync(JournalCoordinator journal, int overflowFrameLen, CancellationToken cancellationToken)

@@ -39,7 +39,6 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 4,
-            ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
             JournalGroupCommitMaxBatch = 8,
         };
@@ -80,7 +79,6 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(5),
             JournalGroupCommitMaxBatch = 8,
         };

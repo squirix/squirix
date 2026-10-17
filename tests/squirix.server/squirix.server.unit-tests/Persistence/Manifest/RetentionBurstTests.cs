@@ -35,7 +35,6 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
         var options = new PersistenceOptions
         {
             DataDir = dir,
-            ManifestRetentionCount = 32,
         };
 
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
@@ -93,7 +92,6 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
         var options = new PersistenceOptions
         {
             DataDir = dir,
-            ManifestRetentionCount = 2,
         };
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
         var rollError = new StrongBox<Exception?>(null);

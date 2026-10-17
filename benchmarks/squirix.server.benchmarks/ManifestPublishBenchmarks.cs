@@ -33,11 +33,7 @@ public class ManifestPublishBenchmarks
     public async Task GlobalSetupAsync()
     {
         _operationsPerInvoke = ManifestBenchmarkSupport.ResolvePublishOperationsPerInvoke();
-        var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
-        var options = new PersistenceOptions
-        {
-            ManifestRetentionCount = retention,
-        };
+        var options = new PersistenceOptions();
         _host = await Host.CreateAsync("manifest-bench", options).ConfigureAwait(false);
         _nextSequence = 1;
 

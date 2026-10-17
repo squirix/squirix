@@ -31,7 +31,6 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
             JournalGroupCommitMaxBatch = 8,
         };
@@ -77,7 +76,6 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(5) : TimeSpan.Zero,
         };
 
@@ -118,7 +116,6 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            ManifestRetentionCount = 1,
         };
 
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);

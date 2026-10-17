@@ -29,10 +29,7 @@ public class SnapshotWriteBenchmarks
     {
         _operationsPerInvoke = SnapshotBenchmarkSupport.ResolveOperationsPerInvoke();
         var entryCount = SnapshotBenchmarkSupport.ResolveEntryCount();
-        var options = new PersistenceOptions
-        {
-            ManifestRetentionCount = ManifestBenchmarkSupport.ResolveRetentionCount(),
-        };
+        var options = new PersistenceOptions();
         _host = await SnapshotBenchmarkHost.CreateAsync("snapshot-write-binary", options, entryCount).ConfigureAwait(false);
         _ = await _host.WriteNextSnapshotAsync().ConfigureAwait(false);
     }
