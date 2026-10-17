@@ -144,7 +144,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         await manifestStore.WriteAsync(manifest, cancellationToken);
         var current = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
 
-        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
+        var failure = NodeExceptionAssert.For<InvalidDataException>().Throws(
             (persistence, current, manifestStore),
             static state => _ = JournalCoordinatorFactory.Create(
                 state.persistence,
@@ -154,6 +154,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
                 NullLoggerFactory.Instance,
                 TimeProvider.System,
                 out _));
+        _ = await Assert.That(failure.Message).Contains("holds frames above", StringComparison.Ordinal);
     }
 
     /// <summary>The next sequence follows records at/after manifest CurrentJournal; obsolete lower segments are not consulted.</summary>

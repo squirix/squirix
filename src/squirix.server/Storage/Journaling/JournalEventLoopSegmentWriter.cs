@@ -485,8 +485,7 @@ internal sealed class JournalEventLoopSegmentWriter
 
             // A longer file already holds content: never replace it here, reuse as-is. Startup refuses a layout
             // where a segment above the manifest journal holds frames, so this is unreachable on a validated
-            // data directory; the guard only keeps a roll from ever discarding frames it did not write.
-            // (see PrepareRollTargetSegment).
+            // data directory; this check only keeps a roll from discarding frames it did not write.
             if (length > JournalFraming.FileHeaderSize)
                 return true;
 

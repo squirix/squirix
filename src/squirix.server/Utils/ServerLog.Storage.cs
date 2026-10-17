@@ -40,7 +40,7 @@ internal static partial class ServerLog
     internal static partial void JournalHeaderRestored(ILogger logger, string path, long originalLength, long discardedBytes);
 
     [LoggerMessage(
-        EventId = 1020,
+        EventId = 1022,
         Level = LogLevel.Warning,
         Message = "Journal segment {Path} was staged by a compaction the manifest already committed; it was published ({Length} bytes)")]
     internal static partial void JournalCompactedSegmentPublished(ILogger logger, string path, long length);

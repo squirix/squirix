@@ -66,23 +66,23 @@ internal static class JournalRecoveryScan
 
     /// <summary>
     /// Finishes a compaction whose manifest write landed but whose segment move did not: when the manifest names a segment that
-    /// does not exist and its staged temp file does, the temp file is published under the final name.
+    /// does not exist and its staged temp file does, the temp file is published under the final name. A committed compaction
+    /// always writes a manifest without a snapshot reference, so a manifest with one never names a staged compaction.
     /// A roll publishes its segment before the manifest names it, so only a compaction can leave this layout.
     /// </summary>
     /// <param name="manifest">The current manifest.</param>
     /// <param name="options">Persistence options locating the segments.</param>
-    /// <param name="timeProvider">The clock the publish waits between attempts with.</param>
     /// <returns>The repair when a segment was published; otherwise <see langword="null" />.</returns>
-    internal static JournalRepair? RollForwardCompactedSegment(State manifest, PersistenceOptions options, TimeProvider timeProvider)
+    internal static JournalRepair? RollForwardCompactedSegment(State manifest, PersistenceOptions options)
     {
         var currentJournal = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
         var finalPath = JournalReadPath.BuildSegmentPath(options.DataDir, currentJournal);
         var tmpPath = JournalPaths.BuildRollTempPath(options.DataDir, currentJournal);
-        if (File.Exists(finalPath) || !File.Exists(tmpPath))
+        if (manifest.LastSnapshot != null || File.Exists(finalPath) || !File.Exists(tmpPath))
             return null;
 
         var length = new FileInfo(tmpPath).Length;
-        _ = FileEx.PublishFile(tmpPath, finalPath, timeProvider);
+        _ = FileEx.PublishFile(tmpPath, finalPath, TimeProvider.System);
         return new JournalRepair(finalPath, JournalRepairKind.CompactedSegmentPublished, length, 0);
     }
 
@@ -103,7 +103,7 @@ internal static class JournalRecoveryScan
                 continue;
 
             throw new InvalidDataException(
-                $"journal segment '{segment.Path}' holds frames above the manifest journal segment {currentJournal}; startup refuses to replay or discard it.");
+                $"journal segment '{segment.Path}' holds frames above the manifest journal segment {currentJournal}; startup refuses to replay or discard it, and the data directory needs manual inspection.");
         }
     }
 
