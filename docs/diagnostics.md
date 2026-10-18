@@ -145,6 +145,9 @@ follower is repaired by a state transfer when it returns. When its group log rea
 `stale_term`, `refused`, `unreachable`, `corrupt`, `aborted`, `incomplete`, or `unseeded`.
 A replica group log record whose effect contradicts its outcome, or that cannot be decoded, is never applied; each refusal
 is logged at error level and counted by `squirix_replication_inconsistent_records_total` (labels `node`, `group`).
+The readiness probe also refreshes `squirix_replication_idempotency_capacity_evictions_total` (labels `node`, `group`):
+the group idempotency outcomes the node gave up to make room before they expired, since the group log was opened. Outcomes
+that expire are not counted; a count that keeps growing means the group keeps outcomes for one minute, not 15.
 The gauge `squirix_replication_role` (labels `node`, `group`) reports the role of the node in each group: `0` follower,
 `1` pre-candidate, `2` candidate, `3` leader whose leader-term entry is not committed yet, `4` leader with authority. Without
 automatic failover the owner of a group reports `4` and every other member `0`. The replica status role names map as

@@ -111,6 +111,24 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
         _ = await Assert.That(Count(records, "squirix_replication_log_compaction_skipped_total", "snapshot_too_large")).IsEqualTo(1);
     }
 
+    /// <summary>Verifies the group idempotency outcomes given up to make room are reported per node and group as the snapshot carries them.</summary>
+    [Test]
+    public async Task ReportsIdempotencyCapacityEvictions()
+    {
+        using var meter = new Meter("Squirix");
+        using var listener = CreateListener(meter, out var records);
+        var metrics = new ReplicationMetrics(meter);
+
+        var owned = new ReplicaStatusSnapshot("node-a", "node-a", 3, 4, 4, 30, 30, 30, true, true, true, true, true, GroupMemberState.Complete)
+        {
+            IdempotencyCapacityEvictions = 7,
+        };
+        metrics.ReportGroup(in owned, ReplicaReadinessVerdict.Ready);
+        listener.RecordObservableInstruments();
+
+        await AssertGaugeAsync(records, "squirix_replication_idempotency_capacity_evictions_total", "node-a", 7);
+    }
+
     /// <summary>Verifies the role gauge reports the election role of each observed group, a follower unless the snapshot names another.</summary>
     [Test]
     public async Task ReportsElectionRole()
