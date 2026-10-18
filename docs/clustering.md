@@ -142,6 +142,16 @@ When a leader goes silent:
   served. A successful append clears the 30 seconds, and the window does not double. A failure, a quiet period, and
   another failure end the leadership at the second failure once 30 seconds passed without a success. Each fault type is
   logged once until an append succeeds. A node that leads its group without an election has no such deadline.
+- A follower that holds committed entries of a group it cannot apply, such as with a full node journal or a failing disk,
+  does not campaign for that group, because a win would fail the start of its leadership and cost the group a term and an
+  election. It still votes and accepts appends. The block ends at the first pass that applies everything committed, within
+  about a second once the fault clears, and the node campaigns at its next election timeout. A group that a committed
+  record it cannot apply stopped stays blocked until a state transfer replaces its copy. A block is logged once. A node
+  that becomes blocked while it campaigns drops the candidacy before it promotes itself. When every member is blocked
+  nobody campaigns, as nobody could lead the group anyway. After a restart a node also waits, without campaigning or
+  taking its own group at the provisional term, until its apply loop has looked at the group once, which is after local
+  recovery, and for a copy that is not complete or not ready, until it is; a node that cannot read the log status of a
+  group keeps waiting.
 
 What clients see:
 

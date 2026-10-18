@@ -144,6 +144,27 @@ elects a replacement.
   and a failure give the group up at the second failure once 30 seconds passed without a success; this is accepted. A
   failed append of a leader is logged once per fault type until an append succeeds. A static leader, led without an
   election, has no such deadline and nobody can take its group.
+- **Blocked apply.** The apply loop of a follower group marks the group blocked when a pass fails with a storage
+  fault, a full node journal, or memory that refuses the write while committed entries are pending, or while the
+  outcomes of the log are rebuilt (a leader start would fail on that too), and when a committed record it cannot apply
+  stopped the group. A pass that ends with nothing left to apply clears the mark, also after a fault with nothing
+  pending; so does a pass the loop skips because a committer leads the group, unless the group is stopped. A stopped
+  group runs no pass until a state transfer resets its applied index; the next pass then clears the mark. A pass that
+  finds the log not ready or the copy not complete, or that cannot read the log status, leaves the mark as it is. The
+  driver reads the mark without any gate and, once the gate that checks for a complete copy, a ready log, and a
+  current term admits the node, does not campaign while it is set: it reports the denial once per block, re-arms the
+  election timeout, and checks again. The mark starts unassessed and turns assessed on the first decision of the loop
+  for a complete copy with a ready log (a pass that blocks or clears, one that finds nothing to apply, or one it skips
+  because a lease is held), and for a group that has no loop because this node leads it from the start. A copy that is
+  not complete or not ready stays unassessed until it is, so the pass after it becomes complete decides before the
+  node can campaign. Until then the driver does not campaign, and the owner does not take its own group at the
+  provisional term, with a distinct debug-level denial, so a backlog the node cannot apply is never won first at
+  start-up. It checks again after one heartbeat interval, not a full election timeout, so the node campaigns soon
+  after the loop decided. A group whose log status cannot be read stays unassessed. The driver reads the mark again
+  before it makes its own vote durable and before it promotes a won term, and drops the candidacy if the apply blocked
+  meanwhile. A blocked node still grants votes and pre-votes, whose rules depend on the log, and accepts appends. When
+  every member is blocked nobody campaigns, which is no worse than a blocked winner that fails its start and steps
+  down. A hung apply is not a fault and is not marked; a leader is judged by the apply window above.
 - **Repair.** A follower out of the write quorum that answers a heartbeat or an append from its log is queued for repair
   at once, at most once per election timeout, instead of waiting for the readiness retry.
 - **Status.** While a driver runs, the replica status reports a node as leader only with authority, its majority contact
