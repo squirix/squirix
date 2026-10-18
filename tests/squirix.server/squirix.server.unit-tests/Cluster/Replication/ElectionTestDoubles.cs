@@ -46,8 +46,9 @@ internal static class ElectionTestDoubles
     /// <param name="votes">The voters.</param>
     /// <param name="options">The election timing; <see cref="Options" /> unless set.</param>
     /// <param name="seeded">Whether the copy is complete; otherwise it stays unseeded, as on a fresh disk.</param>
+    /// <param name="assessed">Whether the apply loop already looked at the group; otherwise the node waits for it before it campaigns.</param>
     /// <returns>The opened scope.</returns>
-    internal static async Task<ElectionScope> OpenAsync(string groupId, int replicaCount, IReplicaVoteGateway votes, ElectionTimerOptions? options = null, bool seeded = true)
+    internal static async Task<ElectionScope> OpenAsync(string groupId, int replicaCount, IReplicaVoteGateway votes, ElectionTimerOptions? options = null, bool seeded = true, bool assessed = true)
     {
         var dir = new TempDirectory("squirix-election-driver");
         FollowerLog? log = null;
@@ -61,6 +62,9 @@ internal static class ElectionTestDoubles
 
             var time = new FakeTimeProvider();
             var state = new ReplicaGroupState(replicaCount, options ?? Options, time);
+            if (assessed)
+                state.ApplyBlock.Assess();
+
             var scope = new ElectionScope(groupId, dir, log, time, state, votes, new RecordingLeadership(state));
             log = null;
             return scope;

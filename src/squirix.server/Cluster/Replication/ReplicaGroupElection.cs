@@ -180,14 +180,22 @@ internal sealed class ReplicaGroupElection
             _state.HighestObservedTerm);
 
         // A node whose apply is blocked could win, but its start would then fail applying the committed backlog and cost the group a term
-        // and an election for nothing. It still votes and accepts appends; only its own candidacy waits. The flag is read without any gate.
-        // With every member blocked nobody campaigns, which is no worse than a blocked winner that fails its start.
-        if (verdict.Eligible && _state.ApplyBlock.IsBlocked)
-            verdict = new FailoverEligibilityVerdict(false, FailoverDenial.ApplyBlocked);
+        // and an election for nothing. The same holds before the apply loop looked at the group, which it does after local recovery: the
+        // node waits for that decision. It still votes and accepts appends; only its own candidacy waits. The flag is read without any
+        // gate. With every member blocked nobody campaigns, which is no worse than a blocked winner that fails its start.
+        var apply = _state.ApplyBlock.Denial();
+        if (verdict.Eligible && apply != FailoverDenial.None)
+            verdict = new FailoverEligibilityVerdict(false, apply);
 
         if (!verdict.Eligible)
         {
             Arm();
+
+            // The apply loop decides soon after local recovery: a node waiting for it checks again after a heartbeat interval, not a
+            // full election timeout, so it campaigns soon after the decision. The wait is never zero, so the driver does not spin.
+            if (verdict.Denial == FailoverDenial.ApplyUnassessed)
+                _timeout = _state.Options.HeartbeatInterval;
+
             return new ElectionOutcome(ElectionEvent.Denied, status.CurrentTerm, verdict.Denial);
         }
 
@@ -406,6 +414,11 @@ internal sealed class ReplicaGroupElection
             Arm();
             return new ElectionOutcome(ElectionEvent.None, status.CurrentTerm);
         }
+
+        // Leading the group starts by applying its committed backlog, so the owner waits for the apply loop to decide, and keeps out of it
+        // while the apply is blocked; the start is retried, and the other members elect meanwhile.
+        if (_state.ApplyBlock.Denial() is var apply and not FailoverDenial.None)
+            return new ElectionOutcome(ElectionEvent.Denied, status.CurrentTerm, apply);
 
         // Term one belongs to the owner alone: no vote is ever granted for it, so leading it needs none. A log that moved past it
         // meanwhile reports the higher term, and the group is then followed like any other.

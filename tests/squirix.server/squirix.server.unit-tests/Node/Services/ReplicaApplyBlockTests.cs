@@ -74,7 +74,7 @@ public sealed class ReplicaApplyBlockTests : ServerUnitTestBase
         try
         {
             await events.WhenLoggedAsync(RetryEventId).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-            whileFaulting = block.IsBlocked;
+            whileFaulting = block.IsBlocked && block.IsAssessed;
             _ = await new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers()).AppendAsync("n2", Fingerprint, 1, Batch(Prepare("k2", 2UL), 1UL, 2UL), cancellationToken);
             await applied.Task.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
@@ -173,6 +173,95 @@ public sealed class ReplicaApplyBlockTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(block.IsBlocked).IsFalse();
+    }
+
+    /// <summary>A group is unassessed until its loop decides; a pass that applies everything assesses it as not blocked.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AppliedPassAssessesTheGroup(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-apply-block-assessed");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await SeedAsync(registry, "n2", 1UL, cancellationToken, "k1");
+        var cache = new StubCache();
+        using var meter = new Meter("test");
+        var appliers = CreateAppliers(registry, cache, meter);
+        var block = registry.StateFor("n2").ApplyBlock;
+        using var service = CreateService(registry, appliers, new EventRecordingLogger());
+        var before = block.IsAssessed;
+        var applied = WhenAppliedAsync(cache, 1);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            await applied.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            await appliers.For("n2").DriverLease.LeadAsync(cancellationToken);
+            appliers.For("n2").DriverLease.EndLeading();
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(before).IsFalse();
+        _ = await Assert.That(block.IsAssessed).IsTrue();
+        _ = await Assert.That(block.IsBlocked).IsFalse();
+    }
+
+    /// <summary>A pass the loop skips because a lease is held assesses the group, so a leadership or a transfer does not leave it unassessed.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SkippedPassAssessesTheGroup(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-apply-block-skipped");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        using var meter = new Meter("test");
+        var appliers = CreateAppliers(registry, new StubCache(), meter);
+        await appliers.For("n2").DriverLease.LeadAsync(cancellationToken);
+        var block = registry.StateFor("n2").ApplyBlock;
+        var events = new EventRecordingLogger();
+        using var service = CreateService(registry, appliers, events);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            await events.WhenLoggedAsync(PassSkippedEventId, "group n2 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(block.IsAssessed).IsTrue();
+        _ = await Assert.That(block.IsBlocked).IsFalse();
+    }
+
+    /// <summary>A group this node leads from the start runs no apply loop, and is assessed at once.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LedGroupIsAssessedWithoutALoop(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-apply-block-led");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await SeedAsync(registry, "n2", 1UL, cancellationToken, "k1");
+        var cache = new StubCache();
+        using var meter = new Meter("test");
+        var appliers = CreateAppliers(registry, cache, meter);
+        using var service = CreateService(registry, appliers, new EventRecordingLogger());
+        var applied = WhenAppliedAsync(cache, 1);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            // The loops start in group order, so the loop of n2 applying means the service already passed over n1.
+            await applied.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(registry.StateFor("n1").ApplyBlock.IsAssessed).IsTrue();
     }
 
     private static ReplicaApplyService CreateService(ReplicaGroupRegistry registry, ReplicaGroupAppliers appliers, EventRecordingLogger events) => new(

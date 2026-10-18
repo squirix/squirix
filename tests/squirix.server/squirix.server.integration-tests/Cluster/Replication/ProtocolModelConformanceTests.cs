@@ -68,6 +68,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         var time = new FakeTimeProvider();
         var timing = new ElectionTimerOptions { ElectionTimeout = TimeSpan.FromMilliseconds(500), MaxJitter = TimeSpan.Zero, JitterSeed = 3UL };
         var state = new ReplicaGroupState(3, timing, time);
+        state.ApplyBlock.Assess();
         var election = new ReplicaGroupElection(
             state,
             log,

@@ -32,4 +32,7 @@ internal enum FailoverDenial
 
     /// <summary>The node cannot apply the committed entries of the group it holds, so a win would fail its start: it does not campaign.</summary>
     ApplyBlocked = 9,
+
+    /// <summary>The apply loop of the group has not looked at it yet, so the node cannot know whether a win would fail its start: it waits and asks again.</summary>
+    ApplyUnassessed = 10,
 }

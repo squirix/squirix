@@ -90,6 +90,8 @@ internal sealed class ReplicaApplyService : BackgroundService
             // election may hand this node keeps its loop, which skips its passes while a committer leads the group.
             if (!_committers.Leads(groupIds[i]))
                 loops.Add(ApplyLoopAsync(groupIds[i], stopping.Token));
+            else
+                _registry.StateFor(groupIds[i]).ApplyBlock.Assess();
         }
 
         // Without a failed loop, every loop ended with the host: memory keeps what was applied, and a restart applies the committed entries
@@ -219,8 +221,10 @@ internal sealed class ReplicaApplyService : BackgroundService
     /// replays its outcome on this node too. A rebuild that fails is run again on the next pass.
     /// The block follows the pass: a retryable fault with a committed entry still unapplied, or one while the outcomes are rebuilt (a
     /// leader start would fail on it too), marks the apply blocked; a pass that ends with nothing left to apply clears the mark, also
-    /// after a retryable fault with nothing pending. A log that is not ready or a copy that is not complete leaves the mark as it is, as
-    /// the election gate denies such a node anyway, and a failure to read the log status leaves it as it is.
+    /// after a retryable fault with nothing pending. A log that is not ready or a copy that is not complete leaves the mark, and the
+    /// assessment, as they are: the election gate denies such a node anyway, and the pass after the copy becomes complete decides before
+    /// the node can campaign. A failure to read the log status leaves them as they are too. Every pass that gets past the status, and a
+    /// pass the loop skips, marks the group assessed, which the election driver waits for before it campaigns.
     /// </remarks>
     private async Task CatchUpAsync(string groupId, (ReplicaGroupApplier Applier, IFollowerLog Log, ReplicaApplyBlock Block) group, CancellationToken stoppingToken)
     {

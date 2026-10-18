@@ -113,6 +113,7 @@ internal sealed class ReplicaElectionService : BackgroundService
         FailoverDenial.Unseeded => "unseeded",
         FailoverDenial.Incomplete => "incomplete",
         FailoverDenial.ApplyBlocked => "apply_blocked",
+        FailoverDenial.ApplyUnassessed => "apply_unassessed",
         _ => throw new ArgumentOutOfRangeException(nameof(denial), denial, "Unsupported failover denial."),
     };
 

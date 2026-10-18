@@ -190,4 +190,59 @@ public sealed class ApplyBlockedElectionTests : ServerUnitTestBase
         _ = await Assert.That(scope.Leadership.Calls).IsEqualTo(string.Empty);
         _ = await Assert.That(scope.State.Role).IsEqualTo(ReplicaGroupRole.Follower);
     }
+
+    /// <summary>Before the apply loop looked at the group the node waits: no pre-vote, no vote, no term; after the first decision it campaigns.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnassessedNodeWaitsForTheApplyLoop(CancellationToken cancellationToken)
+    {
+        var votes = new ScriptedVotes(Grant);
+        await using var scope = await OpenAsync("n2", 3, votes, assessed: false);
+        var election = CreateElection(scope, Three);
+        _ = await election.StepAsync(cancellationToken);
+        var before = await scope.Log.GetStatusAsync(cancellationToken);
+
+        scope.Time.Advance(Options.ElectionTimeout);
+        var first = await election.StepAsync(cancellationToken);
+        scope.Time.Advance(Options.ElectionTimeout);
+        var second = await election.StepAsync(cancellationToken);
+        var callsWhileWaiting = votes.Calls.Length;
+        var during = await scope.Log.GetStatusAsync(cancellationToken);
+        var delay = election.NextDelay();
+        scope.State.ApplyBlock.Clear();
+        scope.Time.Advance(Options.HeartbeatInterval - Tick);
+        var early = await election.StepAsync(cancellationToken);
+        scope.Time.Advance(Tick);
+        var campaigned = await election.StepAsync(cancellationToken);
+
+        _ = await Assert.That(delay).IsEqualTo(Options.HeartbeatInterval);
+        _ = await Assert.That(early.Event).IsEqualTo(ElectionEvent.None);
+        _ = await Assert.That(first).IsEqualTo(new ElectionOutcome(ElectionEvent.Denied, before.CurrentTerm, FailoverDenial.ApplyUnassessed));
+        _ = await Assert.That(second).IsEqualTo(first);
+        _ = await Assert.That(callsWhileWaiting).IsEqualTo(0);
+        _ = await Assert.That((during.CurrentTerm, during.VotedFor)).IsEqualTo((before.CurrentTerm, before.VotedFor));
+        _ = await Assert.That(campaigned.Event).IsEqualTo(ElectionEvent.Authorized);
+    }
+
+    /// <summary>The owner of a group does not lead it at its provisional term before the apply loop looked at it, nor while the apply is blocked.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OwnerWaitsForTheApplyLoopToLead(CancellationToken cancellationToken)
+    {
+        await using var scope = await OpenAsync("n1", 3, new ScriptedVotes(Grant), assessed: false);
+        var election = CreateElection(scope, ["n1", "n2", "n3"]);
+
+        var unassessed = await election.StepAsync(cancellationToken);
+        scope.State.ApplyBlock.Block();
+        var blocked = await election.StepAsync(cancellationToken);
+        var callsWhileHeld = scope.Leadership.Calls;
+        scope.State.ApplyBlock.Clear();
+        var started = await election.StepAsync(cancellationToken);
+
+        _ = await Assert.That(unassessed.Denial).IsEqualTo(FailoverDenial.ApplyUnassessed);
+        _ = await Assert.That(blocked.Denial).IsEqualTo(FailoverDenial.ApplyBlocked);
+        _ = await Assert.That(callsWhileHeld).IsEqualTo(string.Empty);
+        _ = await Assert.That(started.Event).IsEqualTo(ElectionEvent.Authorized);
+        _ = await Assert.That(scope.State.Role).IsEqualTo(ReplicaGroupRole.Leader);
+    }
 }
