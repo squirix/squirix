@@ -231,7 +231,7 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
         while (remaining > TimeSpan.Zero && outcome.Event is not (ElectionEvent.SteppedDown or ElectionEvent.ApplyTimedOut))
         {
             var slice = remaining < Slice ? remaining : Slice;
-            scope.State.RecordFollowerContact(0, scope.State.Term);
+            _ = scope.State.RecordFollowerContact(0, scope.State.Term);
             scope.Time.Advance(slice);
             outcome = await election.StepAsync(cancellationToken);
             remaining -= slice;

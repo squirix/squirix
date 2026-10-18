@@ -130,6 +130,18 @@ When a leader goes silent:
   double. Entries no majority holds do not count; a leader that lost its majority steps
   down by the quorum check instead. A node that leads its group without an election (fewer than three replicas, or
   failover off) has no such deadline, and no other member can take its group.
+- A leader with authority whose appends to its own group log keep failing, with a write or flush error, a log that
+  refuses as not ready, or an append that never returns, gives the group up the same way after 30 seconds, so a member
+  that can append takes the group. A failed append or a refusing log starts the 30 seconds at the first failure after
+  the last success, and the leader gives up while a failure is still visible. A log that latched its failure counts as refusing
+  from then on, also when the next writes are refused before they reach it. An append that is merely in flight does
+  not count from that moment: it must be the same append at two checks in a row and stand still for the whole 30
+  seconds itself. The leader gives up only while the other members, without the leader, form a majority that answered
+  from a ready log within the election timeout. A member whose log latched a failure answers but cannot vote, so when
+  every replica runs out of disk together nobody could take the group, and the leader keeps it and its reads keep being
+  served. A successful append clears the 30 seconds, and the window does not double. A failure, a quiet period, and
+  another failure end the leadership at the second failure once 30 seconds passed without a success. Each fault type is
+  logged once until an append succeeds. A node that leads its group without an election has no such deadline.
 
 What clients see:
 

@@ -79,6 +79,9 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <remarks>The pipeline closes them together with its senders.</remarks>
     internal ReplicaReadIndexRound? ReadIndex { private get; init; }
 
+    /// <summary>Initializes the record of the local appends, which the committer owns so it outlives this pipeline; a pipeline of its own records for itself.</summary>
+    internal ReplicaLocalAppends LocalAppends { private get; init; } = new();
+
     /// <inheritdoc />
     public async ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
     {
@@ -118,7 +121,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         var entries = new FollowerLogEntry[1];
         entries[0] = new FollowerLogEntry(mutation.LogIndex, mutation.Term, mutation.CanonicalPayload);
         var request = new FollowerLogAppendRequest(_selfId, mutation.Term, _prevLogIndex, _prevLogTerm, _commitIndex, new ReadOnlyMemory<FollowerLogEntry>(entries));
-        var result = await _log.AppendAsync(request, cancellationToken).ConfigureAwait(false);
+        var result = await AppendToLogAsync(request, cancellationToken).ConfigureAwait(false);
         if (!result.Success && string.Equals(result.RefusalCode, FollowerLogRefusal.StaleTerm, StringComparison.Ordinal))
             throw new ReplicaTermSupersededException($"Local group append was refused: the log holds a term above the entry term {mutation.Term}.");
         if (!result.Success)
@@ -199,6 +202,46 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         }
 
         return null;
+    }
+
+    private static ReplicaLocalAppends.Outcome Classify(in FollowerLogAppendResult result) =>
+        true switch
+        {
+            _ when result.Success => ReplicaLocalAppends.Outcome.Appended,
+            _ when string.Equals(result.RefusalCode, FollowerLogRefusal.StaleTerm, StringComparison.Ordinal) => ReplicaLocalAppends.Outcome.Ignored,
+            _ when string.Equals(result.RefusalCode, FollowerLogRefusal.NotReady, StringComparison.Ordinal) => ReplicaLocalAppends.Outcome.Refused,
+            _ => ReplicaLocalAppends.Outcome.Failed,
+        };
+
+    /// <summary>Appends to the owned group log and records how the append ended.</summary>
+    /// <param name="request">The append request.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The result of the log.</returns>
+    /// <remarks>
+    /// A refusal for a stale term and an <see cref="ObjectDisposedException" /> are not counted: neither says the log cannot append. A
+    /// disposed log that was drained answers not ready instead, which is counted as a refusal. Any other failure, including the budget
+    /// running out while the append waits for the gate of the log, is counted.
+    /// </remarks>
+    private async ValueTask<FollowerLogAppendResult> AppendToLogAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken)
+    {
+        LocalAppends.Begin();
+        var outcome = ReplicaLocalAppends.Outcome.Ignored;
+        try
+        {
+            var result = await _log.AppendAsync(request, cancellationToken).ConfigureAwait(false);
+            outcome = Classify(in result);
+            return result;
+        }
+        catch (Exception error) when (error is not ObjectDisposedException)
+        {
+            // An append that left the log latched is a refusal that stays: the next write does not reach the log at all.
+            outcome = _log.Readiness == FollowerLogReadiness.Failed ? ReplicaLocalAppends.Outcome.Refused : ReplicaLocalAppends.Outcome.Failed;
+            throw;
+        }
+        finally
+        {
+            LocalAppends.End(outcome);
+        }
     }
 
     /// <summary>Reads the commit index, which the commit path advances while heartbeats and reads run outside the commit gate.</summary>

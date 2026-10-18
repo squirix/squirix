@@ -15,19 +15,25 @@ internal static class ReplicaGroupStateReplies
         /// Only an answer from the follower's log is a contact: accepted, a log mismatch the leader repairs, a log not ready yet, or a copy that
         /// is incomplete and awaits a state transfer, which is alive; its reply carries the durable term of the copy, and a higher term is
         /// observed like in any other reply. A refusal before the log (another topology, another membership) proves nothing, and its term is
-        /// still observed. A contact never counts toward a commit or a read index confirmation.
+        /// still observed. A contact never counts toward a commit or a read index confirmation. Only an accepted append or a log mismatch also
+        /// counts as an electable contact, because a log that is not ready or incomplete refuses every ballot.
         /// </remarks>
         internal void RecordFollowerReply(int replicaIndex, in FollowerLogAppendResult reply)
         {
             var code = reply.RefusalCode;
-            var fromLog = reply.Success ||
-                          string.Equals(code, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal) ||
+            var ready = reply.Success || string.Equals(code, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal);
+            var fromLog = ready ||
                           string.Equals(code, FollowerLogRefusal.NotReady, StringComparison.Ordinal) ||
                           string.Equals(code, FollowerLogRefusal.Incomplete, StringComparison.Ordinal);
-            if (fromLog)
-                state.RecordFollowerContact(replicaIndex, reply.CurrentTerm);
-            else
+            if (!fromLog)
+            {
                 state.ObserveHigherTerm(reply.CurrentTerm);
+                return;
+            }
+
+            // A log that is not ready, or an incomplete copy, answers but refuses every ballot: only a ready log can elect another leader.
+            if (state.RecordFollowerContact(replicaIndex, reply.CurrentTerm) && ready)
+                state.ElectableContacts.Record(replicaIndex);
         }
     }
 }

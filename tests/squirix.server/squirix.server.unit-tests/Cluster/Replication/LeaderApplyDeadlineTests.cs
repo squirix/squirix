@@ -202,7 +202,7 @@ public sealed class LeaderApplyDeadlineTests : ServerUnitTestBase
         _ = await Assert.That(votes.Calls.Length).IsGreaterThan(callsWhileWaiting);
     }
 
-    private static int CountHeartbeats(ElectionScope scope)
+    internal static int CountHeartbeats(ElectionScope scope)
     {
         var calls = scope.Leadership.Calls;
         var count = 0;
@@ -221,7 +221,7 @@ public sealed class LeaderApplyDeadlineTests : ServerUnitTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The driver, leading with authority.</returns>
     /// <exception cref="InvalidOperationException">The leader did not get authority.</exception>
-    private static async Task<ReplicaGroupElection> AuthorizedAsync(ElectionScope scope, CancellationToken cancellationToken)
+    internal static async Task<ReplicaGroupElection> AuthorizedAsync(ElectionScope scope, CancellationToken cancellationToken)
     {
         scope.Leadership.AnswerPromotions(false);
         var election = await ElectAsync(scope, cancellationToken);

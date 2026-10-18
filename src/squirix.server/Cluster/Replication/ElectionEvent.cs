@@ -38,4 +38,7 @@ internal enum ElectionEvent
 
     /// <summary>A leader with authority stepped down because it applied no committed entry within its apply deadline; see the wait.</summary>
     ApplyTimedOut = 11,
+
+    /// <summary>A leader with authority stepped down because its appends to its own group log kept failing for its append deadline; see the wait.</summary>
+    AppendTimedOut = 12,
 }

@@ -127,8 +127,23 @@ elects a replacement.
   the applied index restarts the 30 seconds, catching up clears them, and they never double; entries without a majority
   do not count, as that is a lost quorum. The leader then revokes its authority and reports the timeout at once, and its retirement runs in the
   next step, because it waits for the commit gate that a hung apply may hold; the node abstains for the same time once its
-  retirement completed. The retirement itself still waits until every committed entry is applied. A static
-  leader, led without an election, has no such deadline and nobody can take its group.
+  retirement completed. The retirement itself still waits until every committed entry is applied. A leader with authority
+  has a third, separate window for the appends to its own group log. The driver reads the counters of the local appends
+  (appended, failed, started, whether an append is in flight, and whether the log refused the last one as not ready)
+  without the commit gate or the log gate. A failed append or a refusing log starts a window at the first failure after
+  the last success. A successful append clears it, and the first observation after authority only records the counters.
+  After 30 seconds the leader gives the group up as for the apply window, but only while a failure is still visible in
+  that tick (a new failure since the previous tick, or a log that refused as not ready or latched its failure under an
+  append or before one, which stays refused until an append succeeds). An append in flight counts separately: it must be the same append, by the started-appends counter,
+  on two ticks in a row, and then stand still for the whole 30 seconds itself, so a healthy append caught mid-flush
+  after an old failure is no stall. The leader also gives up only while the followers alone, without the leader, form a
+  majority that answered from a ready log within the election timeout (an accepted append or a log mismatch; a
+  follower whose log is not ready or incomplete answers but refuses every ballot, and does not count; a new leader
+  gets no grace). Without that majority nobody could win an election, so the leader keeps the group and its reads, and
+  gives up at the first later tick where the contact is back and the stall is still visible. A failure, a quiet period,
+  and a failure give the group up at the second failure once 30 seconds passed without a success; this is accepted. A
+  failed append of a leader is logged once per fault type until an append succeeds. A static leader, led without an
+  election, has no such deadline and nobody can take its group.
 - **Repair.** A follower out of the write quorum that answers a heartbeat or an append from its log is queued for repair
   at once, at most once per election timeout, instead of waiting for the readiness retry.
 - **Status.** While a driver runs, the replica status reports a node as leader only with authority, its majority contact
@@ -446,7 +461,7 @@ A committed entry whose apply fails for another reason, such as a full node jour
 and the committer retries it before a write, on every readiness pass, and when the leadership retires. The warning for the
 failed apply is logged once while the fault type and the applied index stay the same, and again after an apply that
 completed. A leader with authority that makes no apply progress for 30 seconds gives the group up, as described under
-heartbeats and step-down above.
+heartbeats and step-down above; so does one whose own log append keeps failing, which leaves no committed entry unapplied.
 
 Update, Touch and RemoveExpiration apply by writing the whole decided entry. Memory admission runs before the write is
 proposed: an apply of a committed entry never passes admission, never fails and never waits because of memory, on the leader

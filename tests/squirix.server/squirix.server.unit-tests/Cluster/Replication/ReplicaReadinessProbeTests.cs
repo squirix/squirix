@@ -254,7 +254,7 @@ public sealed class ReplicaReadinessProbeTests
         var results = await ProbeAsync(followers, [false, true, true, true, true], 1, CancellationToken.None);
         ReplicaReadinessProbe.RecordContacts(state, results, 2UL);
         var givenUp = state.HasQuorumContact(0, options.ElectionTimeout);
-        state.RecordFollowerContact(2, 2UL);
+        _ = state.RecordFollowerContact(2, 2UL);
 
         _ = await Assert.That(givenUp).IsFalse();
         _ = await Assert.That(state.HasQuorumContact(0, options.ElectionTimeout)).IsTrue();

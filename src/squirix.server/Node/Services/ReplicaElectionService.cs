@@ -179,6 +179,10 @@ internal sealed class ReplicaElectionService : BackgroundService
         {
             ServerLog.ReplicaElectionApplyTimedOut(_log, groupId, outcome.Term, outcome.Waited);
         }
+        else if (outcome.Event == ElectionEvent.AppendTimedOut)
+        {
+            ServerLog.ReplicaElectionAppendTimedOut(_log, groupId, outcome.Term, outcome.Waited);
+        }
         else if (outcome.Event != ElectionEvent.None)
         {
             throw new ArgumentOutOfRangeException(nameof(outcome), outcome.Event, "Unsupported election event.");

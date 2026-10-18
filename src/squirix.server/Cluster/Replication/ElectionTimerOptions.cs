@@ -17,6 +17,7 @@ internal sealed class ElectionTimerOptions
     /// <summary>The longest configurable wait for a leader; a request deadline is far shorter.</summary>
     internal static readonly TimeSpan MaxLeaderWaitTimeout = TimeSpan.FromMinutes(1);
 
+    private static readonly TimeSpan DefaultAppendTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DefaultApplyTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DefaultAuthorityTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DefaultElectionTimeout = TimeSpan.FromSeconds(1);
@@ -32,6 +33,14 @@ internal sealed class ElectionTimerOptions
     /// progress being kept on the follower.
     /// </remarks>
     internal TimeSpan AuthorityTimeout { get; init; } = DefaultAuthorityTimeout;
+
+    /// <summary>Gets the time a leader with authority may fail to append to its own group log before it gives the group up.</summary>
+    /// <remarks>
+    /// The window starts at the first failed or stuck append after the last successful one and any successful append clears it; the leader gives
+    /// the group up only while the failure is still visible and the followers without it form a majority that can elect a new leader. Like
+    /// <see cref="ApplyTimeout" /> it never doubles and is separate from <see cref="AuthorityTimeout" />.
+    /// </remarks>
+    internal TimeSpan AppendTimeout { get; init; } = DefaultAppendTimeout;
 
     /// <summary>Gets the time a leader with authority may stand still on a committed entry it cannot apply before it gives the group up.</summary>
     /// <remarks>

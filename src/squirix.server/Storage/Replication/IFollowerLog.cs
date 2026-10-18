@@ -23,6 +23,13 @@ internal interface IFollowerLog : IAsyncDisposable
     /// </returns>
     bool IsComplete { get; }
 
+    /// <summary>Gets the readiness of the log, which is read without the log gate.</summary>
+    /// <returns>
+    /// <see cref="FollowerLogReadiness.Failed" /> once the log latched a failure, which only a restart clears; the value may have just changed, and a
+    /// caller that acts on it relies on the log, which checks its readiness again under its gate.
+    /// </returns>
+    FollowerLogReadiness Readiness { get; }
+
     /// <summary>
     /// Advances the applied index monotonically, never beyond the committed index, and releases the applied
     /// entry payloads from memory. The byte offsets of applied entries are retained, so a later divergence at or

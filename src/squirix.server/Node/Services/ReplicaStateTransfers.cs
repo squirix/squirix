@@ -120,7 +120,7 @@ internal sealed class ReplicaStateTransfers
             return;
         }
 
-        election.RecordFollowerContact(replicaIndex, reply.Term);
+        _ = election.RecordFollowerContact(replicaIndex, reply.Term);
         election.TransferProgress.Record();
     }
 

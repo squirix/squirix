@@ -37,7 +37,7 @@ internal static class ReplicaReadinessProbe
         for (var i = 0; i < results.Length; i++)
         {
             if (results[i].Kind is ReplicaProbeKind.Accepted or ReplicaProbeKind.LogMismatch or ReplicaProbeKind.Incomplete)
-                election.RecordFollowerContact(i, term);
+                _ = election.RecordFollowerContact(i, term);
         }
     }
 
