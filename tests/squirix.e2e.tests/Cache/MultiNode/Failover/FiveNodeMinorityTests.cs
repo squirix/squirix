@@ -47,7 +47,7 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
     {
         const string testName = nameof(TwoNodeMinorityFailsClosed);
         await using var fabric = new PartitionFabric();
-        await using var cluster = await HostedCluster.StartFiveNodeAsync(testName, FailoverSteps.Options(testName, fabric: fabric, replicaCount: 5), true, cancellationToken);
+        await using var cluster = await HostedCluster.StartFiveNodeAsync(testName, FailoverSteps.Options(testName, fabric: fabric, replicaCount: 5, timing: FailoverTiming.ForRefusal(testName)), true, cancellationToken);
         var probe = new ClusterLeaderProbe<ClusterStartOptions>(cluster.Cluster);
         var (former, formerTerm) = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.FiveNodes, FailoverSteps.Bound, cancellationToken);
         var others = FailoverSteps.Except(FailoverSteps.FiveNodes, former);
@@ -196,35 +196,42 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
         var followerWriting = caches.Follower.SetAsync(singles.LostByFollower, 98L, cancellationToken: cancellationToken);
         var leaderReading = caches.Leader.GetValueAsync(singles.Stale, cancellationToken);
         var followerReading = caches.Follower.GetValueAsync(singles.Stale, cancellationToken);
-        Exception leaderWrite, followerWrite, leaderRead, followerRead;
+        var calls = new List<Task> { recovery, leaderWriting, followerWriting, leaderReading, followerReading };
+        Exception leaderWrite, followerWrite, leaderRead, followerRead, deposedLeaderRead, deposedFollowerRead;
         (CacheValueResult<long> Read, TimeSpan Elapsed) probed;
+        (string NodeId, ulong Term) leader;
         try
         {
+            // The calls above run while the majority recovers; the deposed reads start once the former leader has stepped down.
+            probed = await recovery;
+            leader = await scene.Probe.WaitForNewLeaderAsync(Group, scene.Former.Term, FailoverSteps.Bound, cancellationToken);
+            await Eventually.SucceedsAsync(
+                (Cache: caches.Writer, Key: singles.Stale),
+                static (s, token) => s.Cache.SetAsync(s.Key, 2L, cancellationToken: token),
+                FailoverSteps.Bound,
+                attempts,
+                cancellationToken);
+            await scene.Probe.Ledger(Group).UntilAsync(() => scene.Probe.Ledger(Group).Observe([scene.Former.NodeId]).Term == 0UL, "the former leader steps down", cancellationToken);
+            var deposedLeaderReading = caches.Leader.GetValueAsync(singles.Stale, cancellationToken);
+            calls.Add(deposedLeaderReading);
+            var deposedFollowerReading = caches.Follower.GetValueAsync(singles.Stale, cancellationToken);
+            calls.Add(deposedFollowerReading);
             leaderWrite = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(leaderWriting);
             followerWrite = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(followerWriting);
             leaderRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(leaderReading);
             followerRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(followerReading);
-            probed = await recovery;
+            deposedLeaderRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(deposedLeaderReading);
+            deposedFollowerRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(deposedFollowerReading);
         }
         catch
         {
             // Waits for every call started above, so none outlives the cluster; the first failure is the one rethrown.
-            await Task.WhenAll(recovery, leaderWriting, followerWriting, leaderReading, followerReading).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            await Task.WhenAll(calls).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             throw;
         }
 
         var (probeRead, elapsed) = probed;
         var heldAuthority = string.Equals(holder, scene.Former.NodeId, StringComparison.Ordinal);
-        var leader = await scene.Probe.WaitForNewLeaderAsync(Group, scene.Former.Term, FailoverSteps.Bound, cancellationToken);
-
-        await Eventually.SucceedsAsync(
-            (Cache: caches.Writer, Key: singles.Stale),
-            static (s, token) => s.Cache.SetAsync(s.Key, 2L, cancellationToken: token),
-            FailoverSteps.Bound,
-            attempts,
-            cancellationToken);
-        var deposedLeaderRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(caches.Leader.GetValueAsync(singles.Stale, cancellationToken));
-        var deposedFollowerRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(caches.Follower.GetValueAsync(singles.Stale, cancellationToken));
         recovered.SetResult();
         return new Split((leaderWrite, followerWrite), (leaderRead, followerRead), (deposedLeaderRead, deposedFollowerRead), heldAuthority, (probeRead, elapsed), leader, attempts);
     }

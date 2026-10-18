@@ -47,7 +47,7 @@ public sealed class PartitionFailoverTests : EndToEndTestBase
     {
         const string testName = nameof(IsolatedLeaderFailsClosed);
         await using var fabric = new PartitionFabric();
-        await using var cluster = await HostedCluster.StartThreeNodeAsync(testName, FailoverSteps.Options(testName, fabric: fabric), true, cancellationToken);
+        await using var cluster = await HostedCluster.StartThreeNodeAsync(testName, FailoverSteps.Options(testName, fabric: fabric, timing: FailoverTiming.ForRefusal(testName)), true, cancellationToken);
         var probe = new ClusterLeaderProbe<ClusterStartOptions>(cluster.Cluster);
         var (former, formerTerm) = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
         var majority = FailoverSteps.Except(FailoverSteps.ThreeNodes, former);
