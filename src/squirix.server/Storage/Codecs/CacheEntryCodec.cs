@@ -943,7 +943,7 @@ internal static class CacheEntryCodec
 
             public void Dispose()
             {
-                ArrayPool<byte>.Shared.Return(_array);
+                ArrayPool<byte>.Shared.ReturnCleared(_array);
                 _array = [];
             }
 
@@ -967,7 +967,7 @@ internal static class CacheEntryCodec
 
                 var grown = ArrayPool<byte>.Shared.Rent(Math.Max(needed, _array.Length * 2));
                 _array.AsSpan(0, _written).CopyTo(grown);
-                ArrayPool<byte>.Shared.Return(_array);
+                ArrayPool<byte>.Shared.ReturnCleared(_array);
                 _array = grown;
             }
         }
