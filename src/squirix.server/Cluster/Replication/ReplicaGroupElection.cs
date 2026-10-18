@@ -25,6 +25,9 @@ namespace Squirix.Server.Cluster.Replication;
 /// <see cref="AuthorityDeadline" />. A leader with authority that applies no committed entry for the apply timeout, as with a full node
 /// journal, does the same: it reads the apply progress from the leadership on every tick, without the commit gate that a blocked apply
 /// holds, and it reports the timeout and revokes its authority before the retirement, which waits for that gate, starts in a later step.
+/// A leader with authority whose appends to its own group log keep failing or hang does the same after the append timeout, but only while
+/// the followers without it form a majority that answered lately: with no such majority nobody could take the group, so the leader keeps
+/// it and serves its reads. It reads the append progress from the leadership without any gate, as it does the apply progress.
 /// A static leader, which no election hands the group to, has no such deadline, and nobody else can take its group.
 /// </para>
 /// <para>
@@ -104,6 +107,9 @@ internal sealed class ReplicaGroupElection
 
         /// <summary>It has authority but applied no committed entry within the apply deadline.</summary>
         ApplyTimedOut = 3,
+
+        /// <summary>It has authority but its appends to its own group log failed within the append deadline, and the followers can elect another leader.</summary>
+        AppendTimedOut = 4,
     }
 
     /// <summary>Gets the replica group identifier.</summary>
@@ -225,7 +231,7 @@ internal sealed class ReplicaGroupElection
             : new ElectionOutcome(ElectionEvent.Elected, term);
     }
 
-    /// <summary>One leader tick: leave on a higher term, a silent majority, or a missed authority or apply deadline, otherwise heartbeat and finish the promotion.</summary>
+    /// <summary>One leader tick: leave on a higher term, a silent majority, or a missed authority, apply, or append deadline, otherwise heartbeat and finish the promotion.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The outcome of the tick.</returns>
     private async Task<ElectionOutcome> LeadStepAsync(CancellationToken cancellationToken)
@@ -249,53 +255,60 @@ internal sealed class ReplicaGroupElection
     /// <returns>
     /// <see cref="LeaderExit.Deposed" /> on a higher term or a silent majority; otherwise <see cref="LeaderExit.AuthorityTimedOut" />
     /// when the leader got no authority within its deadline; otherwise <see cref="LeaderExit.ApplyTimedOut" /> when the leader with authority
-    /// applied no committed entry within its apply deadline, both checked after the first; otherwise <see cref="LeaderExit.None" />.
+    /// applied no committed entry within its apply deadline, or otherwise <see cref="LeaderExit.AppendTimedOut" /> when the leader with authority
+    /// failed to append to its own log within its append deadline while the followers form a majority; both checked after the first;
+    /// otherwise <see cref="LeaderExit.None" />.
     /// </returns>
-    /// <remarks>The apply progress is read only by a leader with authority that no higher term or silent majority deposes.</remarks>
+    /// <remarks>The apply and append progress are read only by a leader with authority that no higher term or silent majority deposes.</remarks>
     private LeaderExit LeaderVerdict(ulong term)
     {
         var deposed = _state.HighestObservedTerm > term || !_state.HasQuorumContact(_selfSlot, _state.Options.ElectionTimeout);
 
-        // The apply window is judged only in the tick that observed the progress: a higher term seen meanwhile revokes the authority, and
-        // the next tick then deposes the leader instead of timing it out.
-        var applyObserved = !deposed && _state.HasAuthority;
-        if (applyObserved)
+        // The apply and append windows are judged only in the tick that observed the progress: a higher term seen meanwhile revokes the
+        // authority, and the next tick then deposes the leader instead of timing it out.
+        var observed = !deposed && _state.HasAuthority;
+        if (observed)
+        {
             _deadline.ObserveApply(_leadership.ApplyProgress(GroupId));
+            _deadline.ObserveAppend(_leadership.AppendProgress(GroupId));
+        }
 
         return true switch
         {
             _ when deposed => LeaderExit.Deposed,
             _ when _deadline.IsOverdue(_state.TransferProgress.IsRecent(_state.Options.ElectionTimeout)) => LeaderExit.AuthorityTimedOut,
-            _ when applyObserved && _deadline.IsApplyOverdue() => LeaderExit.ApplyTimedOut,
+            _ when observed && _deadline.IsApplyOverdue() => LeaderExit.ApplyTimedOut,
+            _ when observed && _deadline.IsAppendOverdue() && _state.HasQuorumContact(_selfSlot, _state.Options.ElectionTimeout, false) => LeaderExit.AppendTimedOut,
             _ => LeaderExit.None,
         };
     }
 
-    /// <summary>Leaves the led term; a leader that missed its authority or apply deadline then does not campaign for a while.</summary>
+    /// <summary>Leaves the led term; a leader that missed its authority, apply, or append deadline then does not campaign for a while.</summary>
     /// <param name="term">The term led.</param>
     /// <param name="exit">Why the leader leaves.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// The outcome of the step-down; for a missed deadline it also carries how long the leader waited, and a missed apply deadline reports
-    /// <see cref="ElectionEvent.ApplyTimedOut" />.
+    /// The outcome of the step-down; for a missed deadline it also carries how long the leader waited, and a missed apply or append deadline
+    /// reports <see cref="ElectionEvent.ApplyTimedOut" /> or <see cref="ElectionEvent.AppendTimedOut" />.
     /// </returns>
     /// <remarks>
-    /// The authority is revoked before the retirement, as for every step-down. A missed apply deadline returns at once, with the retirement
-    /// left to the next step: the retirement waits for the commit gate, which a hung apply may hold, and the report must not wait for it.
+    /// The authority is revoked before the retirement, as for every step-down. A missed apply or append deadline returns at once, with the
+    /// retirement left to the next step: the retirement waits for the commit gate, which a hung apply or append may hold, and the report
+    /// must not wait for it.
     /// The retirement stays pending while a committed entry is unapplied and keeps the node from campaigning until it completes; the group
     /// has no heartbeat meanwhile, so another member takes it.
     /// </remarks>
     private async Task<ElectionOutcome> LeaveAsync(ulong term, LeaderExit exit, CancellationToken cancellationToken)
     {
-        if (exit != LeaderExit.AuthorityTimedOut && exit != LeaderExit.ApplyTimedOut)
+        if (exit is not (LeaderExit.AuthorityTimedOut or LeaderExit.ApplyTimedOut or LeaderExit.AppendTimedOut))
             return await StepDownAsync(term, true, cancellationToken).ConfigureAwait(false);
 
         // The abstain starts when the retirement inside the step-down completes, possibly in a later step.
-        if (exit == LeaderExit.ApplyTimedOut)
+        if (exit is LeaderExit.ApplyTimedOut or LeaderExit.AppendTimedOut)
         {
-            var applyWaited = _deadline.GiveUpApply();
+            var stalled = exit == LeaderExit.ApplyTimedOut ? _deadline.GiveUpApply() : _deadline.GiveUpAppend();
             _ = await StepDownAsync(term, false, cancellationToken).ConfigureAwait(false);
-            return new ElectionOutcome(ElectionEvent.ApplyTimedOut, term, FailoverDenial.None, applyWaited);
+            return new ElectionOutcome(exit == LeaderExit.ApplyTimedOut ? ElectionEvent.ApplyTimedOut : ElectionEvent.AppendTimedOut, term, FailoverDenial.None, stalled);
         }
 
         var waited = _deadline.GiveUp();

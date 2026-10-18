@@ -4,7 +4,7 @@ namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>
 /// The time a new leader of one group may wait for authority, the time a leader with authority may stand still on a committed entry it cannot
-/// apply, and the wait that follows when it gives the group up.
+/// apply or fail to append to its own group log, and the wait that follows when it gives the group up.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -30,11 +30,20 @@ namespace Squirix.Server.Cluster.Replication;
 /// never doubles, a give-up for it leaves the authority windows alone, and the node abstains afterwards for the same time as after an
 /// authority give-up. Entries no majority holds do not count: that is a lost quorum, which the quorum check of the driver handles.
 /// </para>
+/// <para>
+/// A third window, the append timeout, runs for a leader with authority whose appends to its own group log fail or hang. It starts at the
+/// first failed or stuck append after the last successful one, and any successful append clears it. The first observation after a leadership
+/// got authority only records the counters, so failures of an earlier leadership never count. The window alone does not end the leadership:
+/// the stall must still be visible in the current tick, a new failure since the previous tick or an append that is blocked. A failure, an
+/// idle period, and another failure therefore give the group up at the second failure once the timeout passed without a success; that is
+/// accepted. It never doubles, and a give-up for it leaves the authority windows alone.
+/// </para>
 /// </remarks>
 internal sealed class AuthorityDeadline
 {
     private const int MaxDoublings = 3;
 
+    private readonly AppendStallWindow _append;
     private readonly TimeProvider _clock;
     private readonly ElectionTimerOptions _options;
     private long _abstainFrom;
@@ -55,6 +64,7 @@ internal sealed class AuthorityDeadline
     {
         _clock = clock;
         _options = options;
+        _append = new AppendStallWindow(clock);
     }
 
     /// <summary>Gets how long the node still may not campaign after it gave a group up.</summary>
@@ -81,6 +91,7 @@ internal sealed class AuthorityDeadline
         _authorized = false;
         _waiting = false;
         StopApplyWindow();
+        _append.Reset();
     }
 
     /// <summary>Records that the leadership got authority and restarts the windows from the authority timeout.</summary>
@@ -89,7 +100,38 @@ internal sealed class AuthorityDeadline
         _authorized = true;
         _failures = 0;
         StopApplyWindow();
+        _append.Reset();
     }
+
+    /// <summary>Records the local append progress of a leader with authority; the window of a stall starts at the first failed or stuck append after the last success.</summary>
+    /// <param name="progress">What the appends of the leader to its own group log did.</param>
+    /// <remarks>
+    /// The first observation after a leadership got authority only records the counters. A successful append clears the window. Without
+    /// authority nothing runs.
+    /// </remarks>
+    internal void ObserveAppend(in ReplicaAppendProgress progress)
+    {
+        if (!_authorized)
+        {
+            _append.Reset();
+            return;
+        }
+
+        _append.Observe(in progress);
+    }
+
+    /// <summary>Records that the leader gave the group up because it could not append, without touching the authority windows.</summary>
+    /// <returns>How long the appends kept failing.</returns>
+    internal TimeSpan GiveUpAppend()
+    {
+        var waited = _append.End();
+        _abstainPending = true;
+        return waited;
+    }
+
+    /// <summary>Tells whether the leader with authority failed to append for the whole append timeout and the failure is visible in the current tick.</summary>
+    /// <returns><see langword="true" /> when the append window runs and elapsed, the leadership has authority, and the last observation saw a new failure or a blocked append.</returns>
+    internal bool IsAppendOverdue() => _authorized && _append.IsOverdue(_options.AppendTimeout);
 
     /// <summary>Records the apply progress of a leader with authority; the window of a stall starts when the applied index first stands still behind a majority.</summary>
     /// <param name="progress">How far the group applies behind the entries a majority backs.</param>

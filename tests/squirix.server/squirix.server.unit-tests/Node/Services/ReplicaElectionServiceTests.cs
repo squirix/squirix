@@ -24,6 +24,9 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
     /// <summary>The event id of a leader whose leader-term entry is committed.</summary>
     private const int AuthorizedEventId = 4040;
 
+    /// <summary>The event id of a leader that gave the group up because it could not append to its own log.</summary>
+    private const int AppendTimedOutEventId = 4074;
+
     /// <summary>The event id of a leader that gave the group up because it could not apply.</summary>
     private const int ApplyTimedOutEventId = 4073;
 
@@ -38,6 +41,15 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
 
     private static readonly string[] Groups = ["n1", "n2", "n3"];
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
+    /// <summary>The quiet timing with an append deadline that lapses at once, so the first leader tick that finds the appends stalled twice gives up.</summary>
+    private static readonly ElectionTimerOptions ImpatientAppend = new()
+    {
+        ElectionTimeout = TimeSpan.FromHours(1),
+        MaxJitter = TimeSpan.FromHours(1),
+        JitterSeed = 7UL,
+        AppendTimeout = TimeSpan.FromMilliseconds(1),
+    };
 
     /// <summary>The quiet timing with an apply deadline that lapses at once, so the first leader tick that finds the apply stalled gives up.</summary>
     private static readonly ElectionTimerOptions ImpatientApply = new()
@@ -184,6 +196,34 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         _ = await Assert.That(registry.StateFor("n1").HasAuthority).IsFalse();
     }
 
+    /// <summary>A leader with authority whose appends to its own log stay blocked gives the group up and logs it once, as a warning, naming the group and the term.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AppendTimeoutIsLoggedOnce(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-election-service-append");
+        await using var registry = await OpenAsync(dir, cancellationToken, ImpatientAppend);
+        var leadership = new Leadership { Appends = new ReplicaAppendProgress(0UL, 1UL, true), Answering = registry.StateFor("n1") };
+        var log = new EventRecordingLogger();
+        using var service = Create(registry, 3, leadership, log);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            await log.WhenLoggedAsync(AppendTimedOutEventId, "group n1 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(log.Count(AppendTimedOutEventId)).IsEqualTo(1);
+        _ = await Assert.That(log.Find(AppendTimedOutEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.FindMessage(AppendTimedOutEventId)).Contains("term 1");
+        _ = await Assert.That((log.Count(ApplyTimedOutEventId), log.Count(AuthorityTimedOutEventId), log.Count(SteppedDownEventId))).IsEqualTo((0, 0, 0));
+        _ = await Assert.That(registry.StateFor("n1").HasAuthority).IsFalse();
+    }
+
     /// <summary>An ordinary step-down of a leader logs the step-down message and never the missed-deadline warning.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -277,13 +317,26 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
 
         internal string Calls => string.Join(',', _calls);
 
+        internal ReplicaAppendProgress Appends { get; init; }
+
+        internal ReplicaGroupState? Answering { get; init; }
+
         internal ReplicaApplyProgress Progress { get; init; }
 
-        public Task HeartbeatAsync(string groupId, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task HeartbeatAsync(string groupId, CancellationToken cancellationToken)
+        {
+            if (Answering is { } state)
+            {
+                state.RecordFollowerContact(1, state.Term);
+                state.RecordFollowerContact(2, state.Term);
+            }
+
+            return Task.CompletedTask;
+        }
 
         public ReplicaApplyProgress ApplyProgress(string groupId) => Progress;
 
-        public ReplicaAppendProgress AppendProgress(string groupId) => default;
+        public ReplicaAppendProgress AppendProgress(string groupId) => Appends;
 
         public Task<bool> PromoteAsync(string groupId, ulong term, CancellationToken cancellationToken)
         {

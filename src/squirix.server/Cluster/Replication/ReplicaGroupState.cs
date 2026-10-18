@@ -198,21 +198,25 @@ internal sealed class ReplicaGroupState
             _wake.Notify();
     }
 
-    /// <summary>Tells whether this leader heard from enough followers lately to form a majority with itself.</summary>
-    /// <param name="leaderReplicaIndex">The slot of this node, which counts for itself.</param>
+    /// <summary>Tells whether this leader heard from enough followers lately to form a majority.</summary>
+    /// <param name="leaderReplicaIndex">The slot of this node.</param>
     /// <param name="window">How recent a follower reply must be.</param>
+    /// <param name="withLeader">
+    /// Whether this node counts for itself, as the quorum check of a leader does; otherwise only the followers count, which is what a member needs
+    /// to take the group over once this leader gives it up.
+    /// </param>
     /// <returns>
-    /// <see langword="true" /> while a majority answered within the window, and for one window after this node became leader, so a new
-    /// leader is not deposed before its first heartbeats could be answered.
+    /// <see langword="true" /> while a majority answered within the window; with <paramref name="withLeader" />, also for one window after this
+    /// node became leader, so a new leader is not deposed before its first heartbeats could be answered.
     /// </returns>
-    internal bool HasQuorumContact(int leaderReplicaIndex, TimeSpan window)
+    internal bool HasQuorumContact(int leaderReplicaIndex, TimeSpan window, bool withLeader = true)
     {
         lock (_sync)
         {
-            if (Clock.GetElapsedTime(_leaderSince) < window)
+            if (withLeader && Clock.GetElapsedTime(_leaderSince) < window)
                 return true;
 
-            var recent = 1;
+            var recent = withLeader ? 1 : 0;
             for (var i = 0; i < _followerContact.Length; i++)
             {
                 if (i != leaderReplicaIndex && _followerContact[i] != NoContact && Clock.GetElapsedTime(_followerContact[i]) < window)
