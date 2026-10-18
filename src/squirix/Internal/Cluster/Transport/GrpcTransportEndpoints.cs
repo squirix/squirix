@@ -12,8 +12,8 @@ internal static class GrpcTransportEndpoints
     /// </summary>
     /// <remarks>
     /// A silent connection is closed after the delay, the ping timeout and up to two one-second handler ticks, four to five seconds, and the
-    /// next call connects anew instead of waiting out its per-attempt timeout on it. An idle connection costs one ping and its acknowledgement
-    /// per second.
+    /// next call connects anew instead of waiting out its per-attempt timeout on it; a connect to a host that is still silent is bounded only
+    /// by that timeout. An idle connection costs one ping and its acknowledgement per second.
     /// </remarks>
     private static readonly TimeSpan KeepAlivePingDelay = TimeSpan.FromSeconds(1);
 

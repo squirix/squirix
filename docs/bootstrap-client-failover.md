@@ -64,11 +64,14 @@ bootstrap endpoint, and the server-side routing to the key owner. It does not gr
 The client checks its connections with HTTP/2 keepalive pings: one per second of silence, and the connection is closed
 when a ping is unanswered for two seconds.
 
-- A node whose host stops answering without closing the connection (power loss, a network partition) is found within
-  about five seconds, also while the connection is idle. The next call connects anew instead of spending its attempts
-  on the dead connection.
+- A connection that stops delivering anything without being closed (power loss, a network partition, a load balancer
+  or firewall that dropped it) is found within about five seconds, also while it is idle, and the next call connects
+  anew instead of spending its attempts on it. The pings also keep idle connections open through such devices.
+- A new connection to a host that is still silent is not bounded on its own: each attempt waits out its 3-second
+  timeout before the next endpoint is tried.
 - A call already written to such a connection still ends as a transport error or a timeout and is retried as above.
-- An idle connection costs one ping and its acknowledgement per second.
+- An idle connection costs one ping and its acknowledgement per second. A proxy between the client and the nodes must
+  allow HTTP/2 pings at that rate on idle connections; one that refuses them closes the connections.
 
 ## Testing
 
