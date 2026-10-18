@@ -148,6 +148,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// </remarks>
     internal ReplicaGroupState? Election { get; init; }
 
+    /// <summary>Gets the record of the appends to the owned group log; it outlives the pipelines, which are recreated after a failed append.</summary>
+    internal ReplicaLocalAppends LocalAppends { get; } = new();
+
     /// <summary>Gets the pipeline of the running coordinator, whose senders carry the heartbeats of an elected leader.</summary>
     internal ReplicaGroupCommitPipeline? RunningPipeline => Volatile.Read(ref _pipeline);
 
@@ -301,6 +304,11 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var majority = coordinator.MajorityIndex;
         return new ReplicaApplyProgress(Math.Min(Applier.AppliedIndex, majority), majority);
     }
+
+    /// <summary>Reports what the appends to the owned group log did, without taking the commit gate or the gate of the log.</summary>
+    /// <returns>The progress; healthy before the first append.</returns>
+    /// <remarks>Called by the election driver, which must not wait for a gate that a hung append holds.</remarks>
+    internal ReplicaAppendProgress AppendProgress() => LocalAppends.Snapshot();
 
     /// <summary>Reads the running coordinator outside the commit gate.</summary>
     /// <returns>The running coordinator, or <see langword="null" /> when there is none.</returns>

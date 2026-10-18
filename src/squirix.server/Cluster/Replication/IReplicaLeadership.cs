@@ -41,4 +41,10 @@ internal interface IReplicaLeadership
     /// blocked apply may hold.
     /// </remarks>
     ReplicaApplyProgress ApplyProgress(string groupId);
+
+    /// <summary>Reports what the appends of a led group to its own log did; it takes no commit gate and no log gate.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <returns>The progress; healthy when the group has no committer or never appended.</returns>
+    /// <remarks>The election driver reads it on every tick, so it must never wait for a gate that a hung append holds.</remarks>
+    ReplicaAppendProgress AppendProgress(string groupId);
 }

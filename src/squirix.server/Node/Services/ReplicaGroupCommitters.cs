@@ -139,6 +139,9 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     public ReplicaApplyProgress ApplyProgress(string groupId) => Created(groupId)?.ApplyProgress() ?? default;
 
     /// <inheritdoc />
+    public ReplicaAppendProgress AppendProgress(string groupId) => Created(groupId)?.AppendProgress() ?? default;
+
+    /// <inheritdoc />
     /// <exception cref="InvalidOperationException">The led set is fixed, or the group still leads another term.</exception>
     public async Task<bool> PromoteAsync(string groupId, ulong term, CancellationToken cancellationToken)
     {

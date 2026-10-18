@@ -283,6 +283,8 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
 
         public ReplicaApplyProgress ApplyProgress(string groupId) => Progress;
 
+        public ReplicaAppendProgress AppendProgress(string groupId) => default;
+
         public Task<bool> PromoteAsync(string groupId, ulong term, CancellationToken cancellationToken)
         {
             _calls.Enqueue($"promote:{groupId}:{term}");

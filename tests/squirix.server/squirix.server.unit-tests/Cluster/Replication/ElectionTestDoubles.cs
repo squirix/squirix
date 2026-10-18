@@ -189,6 +189,9 @@ internal static class ElectionTestDoubles
         /// <summary>Gets or sets the apply progress the leadership reports; caught up unless set.</summary>
         internal ReplicaApplyProgress Progress { get; set; }
 
+        /// <summary>Gets or sets the append progress the leadership reports; healthy unless set.</summary>
+        internal ReplicaAppendProgress Appends { get; set; }
+
         /// <inheritdoc />
         public Task HeartbeatAsync(string groupId, CancellationToken cancellationToken)
         {
@@ -198,6 +201,9 @@ internal static class ElectionTestDoubles
 
         /// <inheritdoc />
         public ReplicaApplyProgress ApplyProgress(string groupId) => Progress;
+
+        /// <inheritdoc />
+        public ReplicaAppendProgress AppendProgress(string groupId) => Appends;
 
         /// <inheritdoc />
         public Task<bool> PromoteAsync(string groupId, ulong term, CancellationToken cancellationToken)
