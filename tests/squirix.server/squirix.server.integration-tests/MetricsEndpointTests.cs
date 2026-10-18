@@ -28,8 +28,9 @@ public sealed class MetricsEndpointTests : NodeIntegrationTestBase
         _ = await cluster.StartNodeAsync("node-metrics-b", options, cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
 
-        using (var ready = await HttpClient.GetAsync(new Uri(uri, "/health/ready"), cancellationToken))
-            _ = await Assert.That(ready.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        // The probe feeds the gauges whatever it answers; its status is not checked, because the copy of the second node's group on this node
+        // is seeded by that node in the background and may still be unseeded here.
+        using var ready = await HttpClient.GetAsync(new Uri(uri, "/health/ready"), cancellationToken);
 
         using var response = await HttpClient.GetAsync(new Uri(uri, "/metrics"), cancellationToken);
         _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);

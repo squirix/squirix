@@ -20,7 +20,6 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// and a read through the SDK, keeps one leader per term and one committed log; at the end no acknowledged write of any step is lost.
 /// </summary>
 [Property(StressSuite.TraitName, StressSuite.TraitValue)]
-[Explicit]
 public sealed class FaultScheduleTests : EndToEndTestBase
 {
     private const string CacheName = "fault-schedule";
@@ -56,6 +55,7 @@ public sealed class FaultScheduleTests : EndToEndTestBase
     [ParallelLimiter<FailoverLimit>]
     [Arguments(3)]
     [Arguments(5)]
+    [Explicit]
     public async Task SeededFaultScheduleKeepsInvariants(int replicas, CancellationToken cancellationToken)
     {
         var testName = $"{nameof(SeededFaultScheduleKeepsInvariants)}-rf{replicas.ToString(CultureInfo.InvariantCulture)}";
