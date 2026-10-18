@@ -114,10 +114,12 @@ public sealed class JournalStopTests : IsolatedStorageTestBase
         var writerDisposedOnFullRing = journal.Writer.DisposeCount;
         var timedOutStages = log.Count(QuiescenceTimedOutEventId) + log.Count(MarkerTimedOutEventId);
         journal.Writer.Write.Release();
-        await journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         // The parked producer settles once the ring drains: it is admitted, or refused when the shutdown began before it entered the gate.
+        // The retry starts only after the drain, so its budget does not depend on how fast the machine writes the full ring.
         _ = await Task.WhenAny(parked).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        await WaitUntilAsync(() => journal.Journal.PendingAppends.PendingCount == 0, cancellationToken);
+        await journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         var acknowledged = new List<string> { CacheKey.Default("first").ToString() };
         for (var i = 0; i < RingCapacity; i++)
             acknowledged.Add(CacheKey.Default($"k{i}").ToString());
