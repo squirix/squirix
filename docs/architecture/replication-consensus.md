@@ -425,7 +425,9 @@ A replica group keeps up to 65,536 idempotency outcomes. An outcome is always re
 older than one minute; the write is refused for capacity only when every outcome is younger.
 Unresolved operations are never evicted. Ages are counted on each node's own clock, and on a follower from the leader's
 decision time, so clock skew between nodes shortens the minute on a node whose clock runs ahead. Outcomes are evicted by
-age and the eviction is not replicated, so replicas can differ on outcomes older than one minute.
+age and the eviction is not replicated, so replicas can differ on outcomes older than one minute. Each node counts the
+outcomes it gave up to make room, apart from the ones that expired, in `squirix_replication_idempotency_capacity_evictions_total`
+(labels `node`, `group`); a group whose count keeps growing runs at the one-minute minimum instead of the full retention.
 
 A retry replays its outcome across a restart of the owner too. The group snapshot carries the outcomes of the entries it
 covers; for the committed entries above it, applied or not, the restarted owner reads the records back from the group

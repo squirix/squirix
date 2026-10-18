@@ -42,6 +42,7 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         _ = await Assert.That(Lookup(state, "first")).IsEqualTo(GroupIdempotencyLookup.Miss);
         _ = await Assert.That(Lookup(state, "second")).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(Lookup(state, "third")).IsEqualTo(GroupIdempotencyLookup.Unresolved);
+        _ = await Assert.That(state.CapacityEvictions).IsEqualTo(1L);
     }
 
     /// <summary>With every outcome younger than the minimum retention the operation is refused, and admitted once the oldest passes it.</summary>
@@ -63,6 +64,7 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         _ = await Assert.That(admitted).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(Lookup(state, "first")).IsEqualTo(GroupIdempotencyLookup.Miss);
         _ = await Assert.That(Lookup(state, "second")).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(state.CapacityEvictions).IsEqualTo(1L);
     }
 
     /// <summary>A table full of unresolved records refuses a new operation however old they are.</summary>
@@ -153,6 +155,7 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         _ = await Assert.That(Lookup(state, "c")).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(Lookup(state, "d")).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(Lookup(state, "e")).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(state.CapacityEvictions).IsEqualTo(2L);
     }
 
     /// <summary>A committed outcome that is itself past the minimum retention is kept, never evicted by its own trim.</summary>
@@ -210,6 +213,23 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         _ = await Assert.That(Lookup(state, "a")).IsEqualTo(GroupIdempotencyLookup.Miss);
         _ = await Assert.That(Lookup(state, "b")).IsEqualTo(GroupIdempotencyLookup.Miss);
         _ = await Assert.That(Lookup(state, "c")).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(state.CapacityEvictions).IsEqualTo(2L);
+    }
+
+    /// <summary>An outcome that leaves the table because its retention passed is not counted as given up for room.</summary>
+    [Test]
+    public async Task ExpiryIsNotCountedAsEviction()
+    {
+        var clock = new FakeTimeProvider(Epoch);
+        var state = new GroupIdempotencyState(1, Retention, clock, Floor);
+        Resolve(state, "first", 1UL);
+        clock.Advance(Retention);
+
+        var admitted = state.Reserve(Scope, "second", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
+
+        _ = await Assert.That(admitted).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(Lookup(state, "first")).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(state.CapacityEvictions).IsEqualTo(0L);
     }
 
     /// <summary>With unbounded retention and a finite minimum retention a full table still gives up its oldest outcome.</summary>

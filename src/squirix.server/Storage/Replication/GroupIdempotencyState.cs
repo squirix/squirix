@@ -81,6 +81,9 @@ internal sealed class GroupIdempotencyState
     /// <summary>The state of the rebuild in progress; <see langword="null" /> outside a rebuild. Guarded by <see cref="_sync" />.</summary>
     private OutcomeRebuild? _rebuild;
 
+    /// <summary>The outcomes given up to make room since the store was created; written under <see cref="_sync" />.</summary>
+    private long _capacityEvictions;
+
     /// <summary>Initializes a new instance of the <see cref="GroupIdempotencyState" /> class.</summary>
     /// <param name="capacity">The maximum number of retained records; new reservations are rejected at capacity.</param>
     /// <param name="retention">
@@ -139,6 +142,13 @@ internal sealed class GroupIdempotencyState
     /// Until then a miss may only mean the outcome is still on the log.
     /// </summary>
     internal bool OutcomesRebuilt => Volatile.Read(ref _outcomesRebuilt) != 0;
+
+    /// <summary>Gets the number of resolved outcomes given up to make room, not expired, since the store was created.</summary>
+    /// <remarks>
+    /// It counts the oldest outcome a full store gives up to admit an operation and the outcomes an applied entry trims while the store is over
+    /// its capacity; a rebuild of the committed log entries keeps the newest outcomes it has room for and counts nothing.
+    /// </remarks>
+    internal long CapacityEvictions => Interlocked.Read(ref _capacityEvictions);
 
     /// <summary>Records that the outcomes of the committed log entries are rebuilt, so a miss now means no outcome is retained.</summary>
     /// <remarks>Pins admitted past the capacity while the rebuild ran are made up for here: the outcomes with the oldest log indexes are evicted until the store fits.</remarks>
@@ -549,6 +559,9 @@ internal sealed class GroupIdempotencyState
         var evicted = 0;
         while (evicted < maxEvictions && _records.Count - _exemptPins >= Capacity && _order.TryTakeOldest(MinRetention, out var oldest))
             evicted += _records.Remove(oldest) ? 1 : 0;
+
+        if (evicted > 0)
+            _ = Interlocked.Add(ref _capacityEvictions, evicted);
 
         return evicted > 0 || _records.Count - _exemptPins < Capacity;
     }

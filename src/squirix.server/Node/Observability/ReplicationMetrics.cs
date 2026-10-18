@@ -58,6 +58,11 @@ internal sealed class ReplicationMetrics
             "{entry}",
             "Entries retained in the replica group log file observed by the replica group log");
         _ = meter.CreateObservableGauge("squirix_replication_snapshot_index", ObserveSnapshotIndexes, IndexUnit, "Last log index the published replica group snapshot covers");
+        _ = meter.CreateObservableCounter(
+            "squirix_replication_idempotency_capacity_evictions_total",
+            ObserveIdempotencyCapacityEvictions,
+            "{outcome}",
+            "Group idempotency outcomes this node gave up to make room before they expired, since the group log was opened");
         _ = meter.CreateObservableGauge(
             "squirix_replication_role",
             ObserveRoles,
@@ -127,6 +132,7 @@ internal sealed class ReplicationMetrics
             new GroupRetention(snapshot.LogBytes, snapshot.RetainedEntries, long.CreateSaturating(snapshot.SnapshotIndex)))
         {
             Role = snapshot.Role,
+            IdempotencyCapacityEvictions = snapshot.IdempotencyCapacityEvictions,
         };
 
         var (topologyRaised, generationRaised) = GetAndStoreTransitions(snapshot.GroupId, in observation);
@@ -197,6 +203,13 @@ internal sealed class ReplicationMetrics
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
             yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].GenerationMatch ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private IEnumerable<Measurement<long>> ObserveIdempotencyCapacityEvictions()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].IdempotencyCapacityEvictions, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<long>> ObserveLogBytes()
@@ -278,6 +291,8 @@ internal sealed class ReplicationMetrics
         GroupRetention Retention)
     {
         internal string GroupId { get; init; } = string.Empty;
+
+        internal long IdempotencyCapacityEvictions { get; init; }
 
         internal ReplicaElectionRole Role { get; init; }
     }
