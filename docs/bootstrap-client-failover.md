@@ -59,6 +59,20 @@ bootstrap endpoint, and the server-side routing to the key owner. It does not gr
   a new call gets a new `operation_id`, so read the key back before repeating a change that is not idempotent.
 - Deadline expiry is counted in `squirix_rpc_timeouts_total` with tags `scope=overall` and `kind=deadline_budget`.
 
+## Silent nodes
+
+The client checks its connections with HTTP/2 keepalive pings: one per second of silence, and the connection is closed
+when a ping is unanswered for two seconds.
+
+- A connection that stops delivering anything without being closed (power loss, a network partition, a load balancer
+  or firewall that dropped it) is found within about five seconds, also while it is idle, and the next call connects
+  anew instead of spending its attempts on it. The pings also keep idle connections open through such devices.
+- A new connection to a host that is still silent is not bounded on its own: each attempt waits out its 3-second
+  timeout before the next endpoint is tried.
+- A call already written to such a connection still ends as a transport error or a timeout and is retried as above.
+- An idle connection costs one ping and its acknowledgement per second. A proxy between the client and the nodes must
+  allow HTTP/2 pings at that rate on idle connections; one that refuses them closes the connections.
+
 ## Testing
 
 - E2E (`ClientBootstrapConnectTests`) exercises the public `SquirixClient.ConnectAsync` path with a live endpoint plus
@@ -68,6 +82,7 @@ bootstrap endpoint, and the server-side routing to the key owner. It does not gr
   deadline, its gRPC call deadline, caller cancellation and the `operation_id` across retries.
 - E2E (`OperationDeadlineE2ETests`) checks that the server receives the client deadline and that an owner-routing hop
   gets a budget no larger than the entry node's.
+- Client unit tests (`GrpcTransportEndpointsTests`) check the keepalive settings of the client's own connections.
 
 ## What this is not
 
