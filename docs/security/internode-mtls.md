@@ -48,7 +48,9 @@ Multi-node settings must use **HTTPS** `Cluster.Uri` values. Plaintext `http://`
    not a subordinate CA.
 2. Issue a **unique node certificate** per Squirix node, signed by that CA. The certificate **common name (CN)** must
    equal that node's `Cluster.NodeId` (the same string as in `Peers[].NodeId`). Store the private key in a secret
-   manager or mounted volume.
+   manager or mounted volume. A node certificate either has no extended key usage extension or lists both `serverAuth`
+   and `clientAuth`, because every node accepts and opens internode connections; any other extended key usage is
+   refused.
 3. Configure **the same internal port number on every node** (`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`). It must differ from
    the primary listener port on each node. Outbound peer connections target `https://<peer-host>:<internal-port>`.
 4. Configure **JWT/OIDC** for external clients on the primary listener using the existing `SQUIRIX_JWT_*` variables.
