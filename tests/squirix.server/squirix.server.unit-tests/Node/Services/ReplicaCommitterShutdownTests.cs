@@ -32,9 +32,9 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
     private static readonly TimeSpan ObserverDrainBudget = TimeSpan.FromMilliseconds(500);
 
     /// <summary>
-    /// A verification that passed its first disposal check and then queued behind a disposal does not apply the committed entry still
-    /// pending in the coordinator, and fails with <see cref="ObjectDisposedException" />, because the disposal keeps the gate until the
-    /// coordinator and the gate are disposed.
+    /// A verification that passed its first disposal check and queued on the gate to retry the committed entry still pending in the
+    /// coordinator does not apply it once a disposal began behind it, and fails with <see cref="ObjectDisposedException" />, because it
+    /// checks the disposal again once it holds the gate.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -70,15 +70,11 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
             var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), CancellationToken.None);
             await local.ApplyEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-            // A follower that is not ready makes the verification probe, and park, before it queues on the gate.
-            _ = registry.EligibilityFor(OwnedGroup).TryMarkCatchingUp(1, default);
-            gateway.Arm();
+            // The verification retries the pending apply before it probes, so it queues on the gate behind the write at once.
             var verify = committer.VerifyReplicasAsync(CancellationToken.None);
-            await gateway.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-            // The disposal queues on the gate ahead of the verification, which queues only once its probe answers.
+            // The disposal queues on the gate behind the verification and marks the committer disposed first.
             var dispose = committer.DisposeAsync().AsTask();
-            gateway.Release();
             local.ReleaseApply();
 
             _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(verify.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
@@ -90,7 +86,6 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
         }
         finally
         {
-            gateway.Release();
             gateway.ReleaseHeld();
             local.ReleaseApply();
             await committer.DisposeAsync();

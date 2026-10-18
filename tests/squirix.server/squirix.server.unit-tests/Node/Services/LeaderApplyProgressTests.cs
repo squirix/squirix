@@ -93,6 +93,30 @@ public sealed class LeaderApplyProgressTests : ServerUnitTestBase
         _ = await Assert.That(events.Count(PendingApplyFailedEventId)).IsEqualTo(2);
     }
 
+    /// <summary>A readiness pass applies the committed entry a failed apply left behind, so a leader nobody writes to catches its memory up.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VerificationRetriesCommittedApply(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-apply-verification");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await TermAsync(registry, 2UL, cancellationToken);
+        var cache = new StubCache();
+        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1");
+        await using var committer = CreateElectedCommitter(registry, "n2", new ScriptedGateway(), cache, applier);
+        _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
+        GrantAuthority(registry, 2UL);
+        cache.OnApplied = static () => throw new IOException("memory refused the apply");
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        var blocked = committer.ApplyProgress();
+
+        cache.OnApplied = null;
+        _ = await committer.VerifyReplicasAsync(cancellationToken);
+
+        _ = await Assert.That(blocked.IsBehind).IsTrue();
+        _ = await Assert.That(committer.ApplyProgress()).IsEqualTo(new ReplicaApplyProgress(2UL, 2UL));
+    }
+
     private static void GrantAuthority(ReplicaGroupRegistry registry, ulong term)
     {
         var state = registry.StateFor("n2");
