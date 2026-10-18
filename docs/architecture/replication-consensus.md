@@ -125,8 +125,9 @@ elects a replacement.
   covers that the current-term rule lets it commit) and has not moved since the window started. The driver reads both
   indexes without the commit gate, which a blocked apply may hold, because it is the only source of heartbeats. Any move of
   the applied index restarts the 30 seconds, catching up clears them, and they never double; entries without a majority
-  do not count, as that is a lost quorum. The leader then steps down as above, authority first, and abstains for the same
-  time once its retirement completed. The retirement itself still waits until every committed entry is applied. A static
+  do not count, as that is a lost quorum. The leader then revokes its authority and reports the timeout at once, and its retirement runs in the
+  next step, because it waits for the commit gate that a hung apply may hold; the node abstains for the same time once its
+  retirement completed. The retirement itself still waits until every committed entry is applied. A static
   leader, led without an election, has no such deadline and nobody can take its group.
 - **Repair.** A follower out of the write quorum that answers a heartbeat or an append from its log is queued for repair
   at once, at most once per election timeout, instead of waiting for the readiness retry.

@@ -123,9 +123,11 @@ When a leader goes silent:
   getting authority, the 30 seconds double up to 4 minutes. The group accepts no writes or reads from that leader in
   the meantime.
 - A leader with authority that cannot apply entries a majority already holds, such as with a full node journal or a
-  failing disk, and whose applied index does not move for 30 seconds steps down the same way and does not campaign for a
-  few seconds afterwards, so a member that can apply takes the group. Any progress of the applied index restarts the 30
-  seconds, and the window does not double. Entries no majority holds do not count; a leader that lost its majority steps
+  failing disk, and whose applied index does not move for 30 seconds revokes its authority and stops heartbeating, so a
+  member that can apply takes the group. The node does not campaign until it has applied its committed entries, which
+  can take arbitrarily long with a full journal, and then waits a few seconds more; its memory of the group does not
+  follow the new leader meanwhile. Any progress of the applied index restarts the 30 seconds, and the window does not
+  double. Entries no majority holds do not count; a leader that lost its majority steps
   down by the quorum check instead. A node that leads its group without an election (fewer than three replicas, or
   failover off) has no such deadline, and no other member can take its group.
 
