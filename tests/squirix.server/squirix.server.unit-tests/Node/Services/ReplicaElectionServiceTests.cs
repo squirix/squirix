@@ -1,12 +1,18 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
+using Rocks;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
@@ -32,6 +38,15 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
 
     /// <summary>The event id of a leader that gave the group up for want of authority.</summary>
     private const int AuthorityTimedOutEventId = 4052;
+
+    /// <summary>The event id of a node that does not campaign because its apply is blocked.</summary>
+    private const int ApplyBlockedEventId = 4076;
+
+    /// <summary>The event id of a node that may not campaign.</summary>
+    private const int DeniedEventId = 4036;
+
+    /// <summary>The event id of a pre-vote round that found no majority.</summary>
+    private const int PreVoteLostEventId = 4037;
 
     /// <summary>The event id of a leader that stepped down.</summary>
     private const int SteppedDownEventId = 4042;
@@ -73,6 +88,9 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         JitterSeed = 7UL,
         AuthorityTimeout = TimeSpan.FromMilliseconds(1),
     };
+
+    /// <summary>A short election timeout, so a group that may campaign does so within the test.</summary>
+    private static readonly ElectionTimerOptions Brisk = new() { ElectionTimeout = TimeSpan.FromMilliseconds(30), MaxJitter = TimeSpan.Zero, JitterSeed = 7UL };
 
     /// <summary>An election timeout no test run reaches, so only the own group, which needs no election, changes.</summary>
     private static readonly ElectionTimerOptions Quiet = new() { ElectionTimeout = TimeSpan.FromHours(1), MaxJitter = TimeSpan.FromHours(1), JitterSeed = 7UL };
@@ -254,6 +272,90 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         _ = await Assert.That((log.Count(SteppedDownEventId), log.Count(AuthorityTimedOutEventId))).IsEqualTo((1, 0));
     }
 
+    /// <summary>A follower whose apply is blocked logs once per block, as a warning, that it does not campaign, and campaigns again when the block clears.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BlockedApplyIsLoggedOnce(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-election-service-blocked");
+        await using var registry = await OpenAsync(dir, cancellationToken, Brisk);
+        var block = registry.StateFor("n2").ApplyBlock;
+        block.Block();
+        var log = new EventRecordingLogger();
+        using var service = Create(registry, 3, new Leadership(), log);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            await log.WhenLoggedAsync(ApplyBlockedEventId, "group n2 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            block.Clear();
+            await log.WhenLoggedAsync(PreVoteLostEventId, "group n2 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+            // A second block after the recovery is a new episode, even in the same term, and is logged again.
+            block.Block();
+            await WhenCountAsync(log, ApplyBlockedEventId, 2, cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(log.Count(ApplyBlockedEventId)).IsEqualTo(2);
+        _ = await Assert.That(log.Find(ApplyBlockedEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.FindMessage(ApplyBlockedEventId)).Contains("group n2 ");
+    }
+
+    /// <summary>
+    /// A node whose election driver armed before its apply loop looked at the group waits for it, and a committed backlog it cannot apply
+    /// then blocks it: the node never makes a self-vote durable, so its term is unchanged.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BlockedBacklogAtStartMakesNoSelfVote(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-election-service-startup");
+        await using var registry = await OpenAsync(dir, cancellationToken, Brisk, false);
+        await ReplicaApplyServiceTests.SeedAsync(registry, "n2", 1UL, cancellationToken, "k1");
+        _ = registry.TryGetLog("n2", out var group);
+        var before = await group!.GetStatusAsync(cancellationToken);
+        var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
+        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+                 .Callback(static (_, _, _, _, _) => ValueTask.FromException(new JournalCapacityExceededException()));
+        using var meter = new Meter("test");
+        var appliers = ReplicaApplyServiceTests.CreateAppliers(registry, cache.Instance(), meter);
+        var log = new EventRecordingLogger();
+        using var election = Create(registry, 3, new Leadership(), log);
+        using var apply = new ReplicaApplyService(
+            registry,
+            appliers,
+            ReplicaApplyServiceTests.LeadOwnGroup(registry, appliers),
+            ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            log,
+            new FakeTimeProvider());
+
+        await election.StartAsync(cancellationToken);
+        try
+        {
+            await log.WhenLoggedAsync(DeniedEventId, "group n2 may not campaign").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            await apply.StartAsync(cancellationToken);
+            try
+            {
+                await log.WhenLoggedAsync(ApplyBlockedEventId, "group n2 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            }
+            finally
+            {
+                await apply.StopAsync(cancellationToken);
+            }
+        }
+        finally
+        {
+            await election.StopAsync(cancellationToken);
+        }
+
+        var after = await group.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((after.CurrentTerm, after.VotedFor)).IsEqualTo((before.CurrentTerm, before.VotedFor));
+    }
+
     /// <summary>Groups of two replicas run no election loop: their owner leads them statically, and nothing is promoted.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -271,6 +373,12 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         _ = await Assert.That((leadership.Calls, registry.StateFor("n1").IsElectionDriven)).IsEqualTo((string.Empty, false));
     }
 
+    private static async Task WhenCountAsync(EventRecordingLogger log, int eventId, int count, CancellationToken cancellationToken)
+    {
+        while (log.Count(eventId) < count)
+            await Task.Delay(TimeSpan.FromMilliseconds(1), TimeProvider.System, cancellationToken);
+    }
+
     private static ReplicaElectionService Create(ReplicaGroupRegistry registry, int replicaCount, Leadership leadership, EventRecordingLogger log, CancellationTokenSource? hostStopping = null) => new(
         registry,
         new FixedLocator(replicaCount),
@@ -282,7 +390,7 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         HostStopping = hostStopping?.Token ?? CancellationToken.None,
     };
 
-    private static async Task<ReplicaGroupRegistry> OpenAsync(string dir, CancellationToken cancellationToken, ElectionTimerOptions? election = null)
+    private static async Task<ReplicaGroupRegistry> OpenAsync(string dir, CancellationToken cancellationToken, ElectionTimerOptions? election = null, bool assessed = true)
     {
         await SeededLogs.SeedGroupsAsync(dir, Groups, cancellationToken);
         var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System, Election = election ?? Quiet };
@@ -295,6 +403,10 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
             await registry.DisposeAsync();
             throw;
         }
+
+        // The apply loop is not part of these tests: it would have looked at every group before the drivers campaign.
+        for (var i = 0; assessed && i < Groups.Length; i++)
+            registry.StateFor(Groups[i]).ApplyBlock.Assess();
 
         return registry;
     }

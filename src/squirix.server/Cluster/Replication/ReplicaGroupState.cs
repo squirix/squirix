@@ -49,6 +49,9 @@ internal sealed class ReplicaGroupState
         TransferProgress = new ReplicaTransferProgress(clock);
     }
 
+    /// <summary>Gets whether the apply loop of the group cannot apply the committed entries it holds; a node in that case does not campaign.</summary>
+    internal ReplicaApplyBlock ApplyBlock { get; } = new();
+
     /// <summary>Gets the time source of every contact and timeout.</summary>
     internal TimeProvider Clock { get; }
 

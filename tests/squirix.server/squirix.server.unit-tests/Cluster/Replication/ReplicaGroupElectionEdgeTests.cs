@@ -54,6 +54,7 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
             new ValueTask<FollowerLogStatus>(Status("n1", Interlocked.Increment(ref reads) == 1 ? FollowerLogReadiness.Failed : FollowerLogReadiness.Ready)));
         _ = log.Setups.ObserveTermAsync(Arg.Any<ulong>(), Arg.Any<CancellationToken>()).ReturnValue(Task.FromResult(2UL));
         var state = new ReplicaGroupState(3, Options, new FakeTimeProvider());
+        state.ApplyBlock.Assess();
         var leadership = new RecordingLeadership(state);
         var election = new ReplicaGroupElection(state, log.Instance(), new ScriptedVotes(Grant), leadership, ["n1", "n2", "n3"], Header("n1"));
 
@@ -101,6 +102,7 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
         });
         var time = new FakeTimeProvider();
         var state = new ReplicaGroupState(3, Options, time);
+        state.ApplyBlock.Assess();
         var votes = new ScriptedVotes(Grant);
         var leadership = new RecordingLeadership(state);
         var election = new ReplicaGroupElection(state, log.Instance(), votes, leadership, Three, Header("n2"));

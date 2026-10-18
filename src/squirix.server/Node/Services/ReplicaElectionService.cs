@@ -112,6 +112,8 @@ internal sealed class ReplicaElectionService : BackgroundService
         FailoverDenial.StaleTerm => "stale_term",
         FailoverDenial.Unseeded => "unseeded",
         FailoverDenial.Incomplete => "incomplete",
+        FailoverDenial.ApplyBlocked => "apply_blocked",
+        FailoverDenial.ApplyUnassessed => "apply_unassessed",
         _ => throw new ArgumentOutOfRangeException(nameof(denial), denial, "Unsupported failover denial."),
     };
 
@@ -130,15 +132,21 @@ internal sealed class ReplicaElectionService : BackgroundService
     {
         var state = _registry.StateFor(election.GroupId);
         ElectionOutcome? reported = null;
+        var blockLogged = 0L;
         try
         {
             while (true)
             {
                 var outcome = await election.StepAsync(stoppingToken).ConfigureAwait(false);
-                if (outcome != reported && outcome.Event != ElectionEvent.None)
+
+                // A block is reported once per episode of the flag, however many rounds the node then sits out.
+                var blocked = outcome is { Event: ElectionEvent.Denied, Denial: FailoverDenial.ApplyBlocked };
+                var episodes = state.ApplyBlock.Episodes;
+                if (blocked ? episodes != blockLogged : outcome != reported && outcome.Event != ElectionEvent.None)
                 {
                     Report(election.GroupId, in outcome);
                     reported = outcome;
+                    blockLogged = blocked ? episodes : blockLogged;
                 }
 
                 _ = await state.WaitAsync(election.NextDelay(), stoppingToken).ConfigureAwait(false);
@@ -166,7 +174,11 @@ internal sealed class ReplicaElectionService : BackgroundService
             return;
         }
 
-        if (outcome.Event == ElectionEvent.Denied)
+        if (outcome is { Event: ElectionEvent.Denied, Denial: FailoverDenial.ApplyBlocked })
+        {
+            ServerLog.ReplicaElectionApplyBlocked(_log, groupId, outcome.Term);
+        }
+        else if (outcome.Event == ElectionEvent.Denied)
         {
             var denial = DenialName(outcome.Denial);
             ServerLog.ReplicaElectionDenied(_log, groupId, outcome.Term, denial);

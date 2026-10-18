@@ -66,6 +66,62 @@ public sealed class ReplicaApplyNotCompleteTests : ServerUnitTestBase
         _ = await Assert.That((appliers.For("n2").AppliedIndex, appliers.For("n3").AppliedIndex)).IsEqualTo((0UL, 1UL));
     }
 
+    /// <summary>A pass over a copy that is not complete leaves the apply block as it is: the election gate denies such a node anyway.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NotCompleteCopyKeepsTheApplyBlock(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-apply-not-complete-block");
+        await using var registry = await OpenAsync(dir, (GroupMemberState.Incomplete, false), cancellationToken);
+        var block = registry.StateFor("n2").ApplyBlock;
+        block.Block();
+        using var meter = new Meter("test");
+        var appliers = CreateAppliers(registry, new StubCache(), meter);
+        var clock = new ParkingClock();
+        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, clock);
+        var firstPasses = clock.WhenTimersAsync(2);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            await firstPasses.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(block.IsBlocked).IsTrue();
+    }
+
+    /// <summary>A pass over a copy that is not complete leaves the group unassessed, so the pass after it becomes complete decides before the node campaigns.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NotCompleteCopyStaysUnassessed(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-apply-not-complete-assessed");
+        await using var registry = await OpenAsync(dir, (GroupMemberState.Incomplete, false), cancellationToken);
+        var block = registry.StateFor("n2").ApplyBlock;
+        using var meter = new Meter("test");
+        var appliers = CreateAppliers(registry, new StubCache(), meter);
+        var clock = new ParkingClock();
+        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, clock);
+        var firstPasses = clock.WhenTimersAsync(2);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            await firstPasses.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(block.IsAssessed).IsFalse();
+        _ = await Assert.That(block.IsBlocked).IsFalse();
+    }
+
     /// <summary>An unseeded copy applies its committed entries once it becomes complete, and none before.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
