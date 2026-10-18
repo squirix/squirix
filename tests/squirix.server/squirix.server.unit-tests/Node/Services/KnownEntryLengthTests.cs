@@ -228,12 +228,12 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
     }
 
     /// <summary>
-    /// An object with duplicate property names merges when it is decoded, so it encodes shorter than the bytes it came from: the replicated apply
-    /// neither fails nor journals a short frame, and accounts the merged entry.
+    /// An object with duplicate property names keeps them when it is decoded, so the replicated apply stores, journals and accounts the entry the
+    /// leader encoded.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DuplicatePropertyNamesAreAppliedMerged(CancellationToken cancellationToken)
+    public async Task DuplicatePropertyNamesAreKept(CancellationToken cancellationToken)
     {
         var clock = JournalReplayKit.CreateWriteClock(TimeSpan.Zero);
         var estimator = new ObjectCacheEntrySizeEstimator();
@@ -257,18 +257,8 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
                 await ReplicaCacheApplier.ApplyAsync(chain.Cache, in record, cancellationToken);
 
             var stored = await chain.Physical.GetEntryAsync(new CacheKey(CacheName, "dup"), cancellationToken);
-            var properties = 0;
-            var merged = 0L;
             var element = stored!.Value is JsonElement found ? found : ThrowHelper.Throw<JsonElement>(new InvalidOperationException("The stored value must be a JSON element."));
-            foreach (var property in element.EnumerateObject())
-            {
-                properties++;
-                if (string.Equals(property.Name, "a", StringComparison.Ordinal))
-                    merged = property.Value.GetInt64();
-            }
-
-            _ = await Assert.That(properties).IsEqualTo(2);
-            _ = await Assert.That(merged).IsEqualTo(2L);
+            _ = await Assert.That(element.GetRawText()).IsEqualTo("""{"a":1,"b":"some text","a":2}""");
             accounted = BytesOf(chain.Physical);
             walked = await WalkedBytesAsync(chain.Physical, estimator, cancellationToken);
         }

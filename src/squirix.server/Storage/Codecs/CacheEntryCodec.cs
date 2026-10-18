@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Frozen;
 using System.Collections.Generic;
@@ -7,7 +8,7 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
+using System.Text.Unicode;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Utils;
@@ -544,14 +545,40 @@ internal static class CacheEntryCodec
             _ => throw new InvalidDataException("Unsupported JSON value kind for binary tree encoding."),
         };
 
+        /// <summary>Decodes a tree straight into UTF-8 JSON and parses that once into a <see cref="JsonElement" />.</summary>
+        /// <param name="source">The encoded tree.</param>
+        /// <param name="element">The decoded element; <see langword="default" /> for a null root.</param>
+        /// <param name="bytesRead">The number of bytes the tree spans.</param>
+        /// <returns><see langword="true" /> when the tree decodes.</returns>
+        /// <remarks>Repeated property names are kept as they were encoded.</remarks>
         internal static bool TryReadInternal(ReadOnlySpan<byte> source, out JsonElement element, out int bytesRead)
         {
             element = default;
             bytesRead = 0;
-            if (!JsonTreeReadCodec.TryReadNode(source, out var node, out bytesRead))
+            if (source.IsEmpty)
                 return false;
 
-            element = node == null ? default : JsonSerializer.SerializeToElement(node, JsonTreeJsonContext.Default.JsonNode);
+            if (source[0] == ValueKind.Null)
+            {
+                bytesRead = 1;
+                return true;
+            }
+
+            using var buffer = new PooledJsonBuffer(source.Length);
+
+            // Sync flush: the writer writes to memory; async Utf8JsonWriter disposal would allocate a state machine on every decoding.
+#pragma warning disable MA0045
+            using (var writer = new Utf8JsonWriter(buffer))
+            {
+                if (!JsonTreeReadCodec.TryWriteNode(source, writer, out bytesRead))
+                    return false;
+
+                writer.Flush();
+            }
+#pragma warning restore MA0045
+
+            var reader = new Utf8JsonReader(buffer.WrittenSpan);
+            element = JsonElement.ParseValue(ref reader);
             return true;
         }
 
@@ -583,62 +610,61 @@ internal static class CacheEntryCodec
 
         private static class JsonTreeReadCodec
         {
-            internal static bool TryReadNode(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
+            /// <summary>The nesting depth a JSON reader accepts by default; the decoded value is parsed with that reader.</summary>
+            private const int MaxDepth = 64;
+
+            internal static bool TryWriteNode(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
             {
-                node = null;
                 bytesRead = 0;
                 return !source.IsEmpty && source[0] switch
                 {
-                    ValueKind.Null => TryReadNull(out node, out bytesRead),
-                    ValueKind.Bool => TryReadBool(source, out node, out bytesRead),
-                    ValueKind.String => TryReadString(source, out node, out bytesRead),
-                    ValueKind.Int64 => TryReadInt64(source, out node, out bytesRead),
-                    ValueKind.Double => TryReadDouble(source, out node, out bytesRead),
-                    ValueKind.Decimal => TryReadDecimal(source, out node, out bytesRead),
-                    ValueKind.Object => TryReadObject(source, out node, out bytesRead),
-                    ValueKind.Array => TryReadArray(source, out node, out bytesRead),
+                    ValueKind.Null => WriteNull(writer, out bytesRead),
+                    ValueKind.Bool => TryWriteBool(source, writer, out bytesRead),
+                    ValueKind.String => TryWriteString(source, writer, out bytesRead),
+                    ValueKind.Int64 => TryWriteInt64(source, writer, out bytesRead),
+                    ValueKind.Double => TryWriteDouble(source, writer, out bytesRead),
+                    ValueKind.Decimal => TryWriteDecimal(source, writer, out bytesRead),
+                    ValueKind.Object => TryWriteObject(source, writer, out bytesRead),
+                    ValueKind.Array => TryWriteArray(source, writer, out bytesRead),
                     _ => false,
                 };
             }
 
-            private static bool TryReadArray(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
+            private static bool TryWriteArray(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
             {
-                node = null;
                 bytesRead = 0;
                 if (source.Length < 1 + 4)
                     return false;
 
                 var count = BinaryPrimitives.ReadUInt32LittleEndian(source[1..]);
                 bytesRead = 5;
-                var array = new JsonArray();
+                ThrowIfTooDeep(writer);
+                writer.WriteStartArray();
                 for (var i = 0; i < count; i++)
                 {
-                    if (!TryReadNode(source[bytesRead..], out var item, out var itemBytes))
+                    if (!TryWriteNode(source[bytesRead..], writer, out var itemBytes))
                         return false;
 
-                    array.Add(item);
                     bytesRead += itemBytes;
                 }
 
-                node = array;
+                writer.WriteEndArray();
                 return true;
             }
 
-            private static bool TryReadBool(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
+            private static bool TryWriteBool(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
             {
-                node = null;
                 bytesRead = 0;
                 if (source.Length < 2)
                     return false;
 
-                node = JsonValue.Create(source[1] != 0);
+                writer.WriteBooleanValue(source[1] != 0);
                 bytesRead = 2;
                 return true;
             }
 
-            private static bool TryReadDecimal(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
+            private static bool TryWriteDecimal(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
             {
-                node = null;
                 bytesRead = 0;
                 if (!TryReadUtf8Prefixed(source[1..], out var decimalText, out var decimalBytesRead))
                     return false;
@@ -646,78 +672,94 @@ internal static class CacheEntryCodec
                 if (!decimal.TryParse(decimalText, NumberStyles.Float, CultureInfo.InvariantCulture, out var decimalValue))
                     return false;
 
-                node = JsonValue.Create(decimalValue);
+                writer.WriteNumberValue(decimalValue);
                 bytesRead = 1 + decimalBytesRead;
                 return true;
             }
 
-            private static bool TryReadDouble(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
+            private static bool TryWriteDouble(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
             {
-                node = null;
                 bytesRead = 0;
                 if (source.Length < 1 + 8)
                     return false;
 
-                node = JsonValue.Create(BinaryPrimitives.ReadDoubleLittleEndian(source[1..]));
+                writer.WriteNumberValue(BinaryPrimitives.ReadDoubleLittleEndian(source[1..]));
                 bytesRead = 1 + 8;
                 return true;
             }
 
-            private static bool TryReadInt64(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
+            private static bool TryWriteInt64(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
             {
-                node = null;
                 bytesRead = 0;
                 if (source.Length < 1 + 8)
                     return false;
 
-                node = JsonValue.Create(BinaryPrimitives.ReadInt64LittleEndian(source[1..]));
+                writer.WriteNumberValue(BinaryPrimitives.ReadInt64LittleEndian(source[1..]));
                 bytesRead = 1 + 8;
                 return true;
             }
 
-            private static bool TryReadNull(out JsonNode? node, out int bytesRead)
+            private static bool TryWriteObject(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
             {
-                node = null;
-                bytesRead = 1;
-                return true;
-            }
-
-            private static bool TryReadObject(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
-            {
-                node = null;
                 bytesRead = 0;
                 if (source.Length < 1 + 2)
                     return false;
 
                 var count = BinaryPrimitives.ReadUInt16LittleEndian(source[1..]);
                 bytesRead = 3;
-                var obj = new JsonObject();
+                ThrowIfTooDeep(writer);
+                writer.WriteStartObject();
                 for (var i = 0; i < count; i++)
                 {
-                    if (!TryReadUtf8Prefixed(source[bytesRead..], out var name, out var nameBytes))
+                    if (!TryReadUtf8PrefixedBytes(source[bytesRead..], out var name, out var nameBytes))
                         return false;
 
+                    // Bytes that are not valid UTF-8 decode with replacement characters, as a string conversion does.
+                    if (Utf8.IsValid(name))
+                        writer.WritePropertyName(name);
+                    else
+                        writer.WritePropertyName(Encoding.UTF8.GetString(name));
+
                     bytesRead += nameBytes;
-                    if (!TryReadNode(source[bytesRead..], out var value, out var valueBytes))
+                    if (!TryWriteNode(source[bytesRead..], writer, out var valueBytes))
                         return false;
 
                     bytesRead += valueBytes;
-                    obj[name] = value;
                 }
 
-                node = obj;
+                writer.WriteEndObject();
                 return true;
             }
 
-            private static bool TryReadString(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
+            private static bool TryWriteString(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
             {
-                node = null;
                 bytesRead = 0;
                 if (!TryReadUtf32Prefixed(source[1..], out var stringBytes, out var stringBytesRead))
                     return false;
 
-                node = JsonValue.Create(Encoding.UTF8.GetString(stringBytes));
+                // Bytes that are not valid UTF-8 decode with replacement characters, as a string conversion does.
+                if (Utf8.IsValid(stringBytes))
+                    writer.WriteStringValue(stringBytes);
+                else
+                    writer.WriteStringValue(Encoding.UTF8.GetString(stringBytes));
+
                 bytesRead = 1 + stringBytesRead;
+                return true;
+            }
+
+            /// <summary>Refuses a container nested deeper than a JSON reader accepts by default, before it is written.</summary>
+            /// <param name="writer">The writer about to open a container.</param>
+            /// <exception cref="JsonException">The container would be nested deeper than <see cref="MaxDepth" /> levels.</exception>
+            private static void ThrowIfTooDeep(Utf8JsonWriter writer)
+            {
+                if (writer.CurrentDepth >= MaxDepth)
+                    throw new JsonException("The JSON value is nested deeper than the maximum depth of 64.");
+            }
+
+            private static bool WriteNull(Utf8JsonWriter writer, out int bytesRead)
+            {
+                writer.WriteNullValue();
+                bytesRead = 1;
                 return true;
             }
 
@@ -741,6 +783,16 @@ internal static class CacheEntryCodec
             private static bool TryReadUtf8Prefixed(ReadOnlySpan<byte> source, out string text, out int bytesRead)
             {
                 text = string.Empty;
+                if (!TryReadUtf8PrefixedBytes(source, out var bytes, out bytesRead))
+                    return false;
+
+                text = Encoding.UTF8.GetString(bytes);
+                return true;
+            }
+
+            private static bool TryReadUtf8PrefixedBytes(ReadOnlySpan<byte> source, out ReadOnlySpan<byte> bytes, out int bytesRead)
+            {
+                bytes = default;
                 bytesRead = 0;
                 if (source.Length < 2)
                     return false;
@@ -750,7 +802,7 @@ internal static class CacheEntryCodec
                 if (source.Length < bytesRead)
                     return false;
 
-                text = Encoding.UTF8.GetString(source.Slice(2, length));
+                bytes = source.Slice(2, length);
                 return true;
             }
         }
@@ -870,6 +922,53 @@ internal static class CacheEntryCodec
                 BinaryPrimitives.WriteUInt16LittleEndian(destination, ushort.CreateTruncating(byteCount));
                 _ = Encoding.UTF8.GetBytes(text, destination[2..]);
                 return 2 + byteCount;
+            }
+        }
+
+        /// <summary>A growable byte buffer rented from the shared pool for one decode; disposing it returns the array.</summary>
+        [Mutable]
+        private sealed class PooledJsonBuffer : IBufferWriter<byte>, IDisposable
+        {
+            private byte[] _array;
+            private int _written;
+
+            internal PooledJsonBuffer(int initialCapacity)
+            {
+                _array = ArrayPool<byte>.Shared.Rent(Math.Max(256, initialCapacity * 2));
+            }
+
+            internal ReadOnlySpan<byte> WrittenSpan => _array.AsSpan(0, _written);
+
+            public void Advance(int count) => _written += count;
+
+            public void Dispose()
+            {
+                ArrayPool<byte>.Shared.Return(_array);
+                _array = [];
+            }
+
+            public Memory<byte> GetMemory(int sizeHint = 0)
+            {
+                Ensure(sizeHint);
+                return _array.AsMemory(_written);
+            }
+
+            public Span<byte> GetSpan(int sizeHint = 0)
+            {
+                Ensure(sizeHint);
+                return _array.AsSpan(_written);
+            }
+
+            private void Ensure(int sizeHint)
+            {
+                var needed = _written + Math.Max(sizeHint, 1);
+                if (needed <= _array.Length)
+                    return;
+
+                var grown = ArrayPool<byte>.Shared.Rent(Math.Max(needed, _array.Length * 2));
+                _array.AsSpan(0, _written).CopyTo(grown);
+                ArrayPool<byte>.Shared.Return(_array);
+                _array = grown;
             }
         }
     }
