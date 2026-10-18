@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -79,6 +80,29 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
         }
     }
 
+    /// <summary>A local append that fails unconfirmed is a commit-unknown outcome, and a retry with the same identity is answered the same without a second append.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnconfirmedLocalAppendIsCommitUnknown(CancellationToken cancellationToken)
+    {
+        var pipeline = new RetryLocalPipeline(new GroupLogAppendUnconfirmedException(new IOException("Injected flush failure.")));
+        await using var coordinator = new ReplicaCommitCoordinator(
+            new ReplicaCommitCoordinatorOptions(3, 0, 0, 8),
+            pipeline,
+            ReplicaFaultHooks.CreateNoOp(),
+            new GroupIdempotencyState(16, TimeSpan.MaxValue, TimeProvider.System))
+        { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
+        var mutation = CreateMutation("00000000000000000000000000000001");
+
+        var first = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(2), cancellationToken));
+        var retry = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(2), cancellationToken));
+
+        _ = await Assert.That(first.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+        _ = await Assert.That(first.InnerException).IsTypeOf<GroupLogAppendUnconfirmedException>();
+        _ = await Assert.That(retry.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+        _ = await Assert.That(pipeline.LocalAppendCount).IsEqualTo(1);
+    }
+
     /// <summary>A definite pre-append failure can release its unresolved reservation.</summary>
     [Test]
     public async Task PreAppendFailureReleasesReservation()
@@ -102,6 +126,18 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
     [Mutable]
     private sealed class RetryLocalPipeline : IReplicaCommitPipeline
     {
+        private readonly Exception _firstFailure;
+
+        internal RetryLocalPipeline()
+            : this(new InvalidOperationException("Injected pre-append failure."))
+        {
+        }
+
+        internal RetryLocalPipeline(Exception firstFailure)
+        {
+            _firstFailure = firstFailure;
+        }
+
         internal int LocalAppendCount { get; private set; }
 
         public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
@@ -112,7 +148,7 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
         public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
             LocalAppendCount++;
-            return LocalAppendCount == 1 ? ValueTask.FromException(new InvalidOperationException("Injected pre-append failure.")) : ValueTask.CompletedTask;
+            return LocalAppendCount == 1 ? ValueTask.FromException(_firstFailure) : ValueTask.CompletedTask;
         }
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;

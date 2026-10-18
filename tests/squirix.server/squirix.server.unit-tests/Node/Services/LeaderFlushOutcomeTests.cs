@@ -9,6 +9,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -29,6 +30,7 @@ public sealed class LeaderFlushOutcomeTests : ServerUnitTestBase
     private const string GroupId = "n2";
     private const ulong LeaderTerm = 2UL;
     private const ulong PromotionIndex = 1UL;
+    private const ulong RestartTerm = 3UL;
     private const ulong WriteIndex = 2UL;
     private const int ReadLimit = 8;
 
@@ -111,6 +113,87 @@ public sealed class LeaderFlushOutcomeTests : ServerUnitTestBase
         _ = await Assert.That(await HoldsAsync(reopened, cancellationToken)).IsEqualTo(1);
     }
 
+    /// <summary>A retry of an unknown write with the same operation identifier is answered as unknown again and is not executed a second time.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RetryOfUnknownWriteIsNotReExecuted(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-flush-retry");
+        var hooks = new FailingFrameWriteHooks();
+        var cache = new StubCache();
+        await using var registry = await OpenRegistryAsync(dir, Groups, Options(hooks), cancellationToken);
+        await using var committer = await LeadAsync(registry, cache, LeaderTerm, cancellationToken);
+        var operationId = NewOperationId();
+        hooks.Arm();
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, CacheName, "b", Entry("b"), cancellationToken));
+        hooks.Disarm();
+        var lengthAtFailure = LogFileLength(dir);
+
+        var retry = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, CacheName, "b", Entry("b"), cancellationToken));
+
+        _ = await Assert.That(retry.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
+        _ = await Assert.That(hooks.Failures).IsEqualTo(1);
+        _ = await Assert.That(LogFileLength(dir)).IsEqualTo(lengthAtFailure);
+        _ = await Assert.That(cache.Applied.Count).IsEqualTo(0);
+    }
+
+    /// <summary>
+    /// After a restart the frame of an unknown write is a tail that the next leadership commits; the retry with the same operation identifier
+    /// is answered from the committed entry and is applied once.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnknownWriteCommitsAfterRestart(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-flush-commit");
+        var hooks = new FailingFrameWriteHooks();
+        var operationId = NewOperationId();
+        await using (var registry = await OpenRegistryAsync(dir, Groups, Options(hooks), cancellationToken))
+        {
+            await using var committer = await LeadAsync(registry, cancellationToken);
+            hooks.Arm();
+            _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, CacheName, "b", Entry("b"), cancellationToken));
+        }
+
+        var cache = new StubCache();
+        await using var reopened = await OpenRegistryAsync(dir, Groups, Options(new FailingFrameWriteHooks()), cancellationToken);
+        await using var restarted = await LeadAsync(reopened, cache, RestartTerm, cancellationToken);
+
+        await restarted.CommitSetAsync(operationId, CacheName, "b", Entry("b"), cancellationToken);
+
+        await SequenceAssert.EqualAsync<string>(["b"], cache.Applied.ToArray(), StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// After a restart that lost the frame of an unknown write, the retry with the same operation identifier runs as a new write and is
+    /// applied once.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LostUnknownWriteRunsOnceAfterRestart(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-flush-lost");
+        var hooks = new FailingFrameWriteHooks();
+        var operationId = NewOperationId();
+        long lengthBefore;
+        await using (var registry = await OpenRegistryAsync(dir, Groups, Options(hooks), cancellationToken))
+        {
+            await using var committer = await LeadAsync(registry, cancellationToken);
+            lengthBefore = LogFileLength(dir);
+            hooks.Arm();
+            _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, CacheName, "b", Entry("b"), cancellationToken));
+        }
+
+        TruncateLog(dir, lengthBefore);
+        var cache = new StubCache();
+        await using var reopened = await OpenRegistryAsync(dir, Groups, Options(new FailingFrameWriteHooks()), cancellationToken);
+        await using var restarted = await LeadAsync(reopened, cache, RestartTerm, cancellationToken);
+
+        await restarted.CommitSetAsync(operationId, CacheName, "b", Entry("b"), cancellationToken);
+
+        await SequenceAssert.EqualAsync<string>(["b"], cache.Applied.ToArray(), StringComparer.Ordinal);
+    }
+
     private static long LogFileLength(string dir)
     {
         var groupDir = GroupStoragePaths.GetGroupDirectory(dir, GroupId);
@@ -133,25 +216,33 @@ public sealed class LeaderFlushOutcomeTests : ServerUnitTestBase
         return read.Entries.Count;
     }
 
-    private static async Task<ReplicaGroupCommitter> LeadAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)
+    private static Task<ReplicaGroupCommitter> LeadAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken) =>
+        LeadAsync(registry, new StubCache(), LeaderTerm, cancellationToken);
+
+    private static async Task<ReplicaGroupCommitter> LeadAsync(ReplicaGroupRegistry registry, StubCache cache, ulong term, CancellationToken cancellationToken)
     {
         if (!registry.TryGetLog(GroupId, out var log))
             throw new InvalidOperationException("The group log n2 is not open.");
 
-        _ = await log.ObserveTermAsync(LeaderTerm, cancellationToken);
-        var cache = new StubCache();
+        _ = await log.ObserveTermAsync(term, cancellationToken);
         var committer = CreateElectedBudgetCommitter(
             registry,
             GroupId,
             new ScriptedGateway(),
             (cache, new ReplicaGroupApplier(cache, NullLogger.Instance, GroupId, "n1")),
             TimeProvider.System);
-        _ = await committer.PromoteAsync(LeaderTerm, cancellationToken);
+        _ = await committer.PromoteAsync(term, cancellationToken);
         var state = registry.StateFor(GroupId);
         state.SetElectionDriven(true);
-        _ = state.BecomeLeader(LeaderTerm);
-        _ = state.GrantAuthority(LeaderTerm);
+        _ = state.BecomeLeader(term);
+        _ = state.GrantAuthority(term);
         return committer;
+    }
+
+    private static void TruncateLog(string dir, long length)
+    {
+        using var handle = File.OpenHandle(GroupLogFile.ActivePath(dir, GroupId), FileMode.Open, FileAccess.Write, FileShare.None);
+        RandomAccess.SetLength(handle, length);
     }
 
     private static FollowerLogOptions Options(IFollowerLogFaultHooks hooks) =>
