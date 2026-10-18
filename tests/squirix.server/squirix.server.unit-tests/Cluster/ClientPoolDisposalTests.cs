@@ -577,11 +577,12 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         certificate.ReleaseHold();
         _ = await Assert.That(log.Find(MaterialLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
         _ = await Assert.That(certificate.IsReleased).IsFalse();
-        _ = await Assert.That(pool.LateMaterialRelease.IsCompleted).IsFalse();
+        var connections = ThrowHelper.Required(tracked, "Expected the pool to create its owned handler.");
+        _ = await Assert.That(connections.LateRelease.IsCompleted).IsFalse();
 
         for (var i = 0; i < HandlersPerPeer; i++)
-            tracked!.Exit();
-        await pool.LateMaterialRelease.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+            connections.Exit();
+        await connections.LateRelease.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(certificate.IsReleased).IsTrue();
         _ = await Assert.That(log.Find(MaterialReleasedLateEventId)?.Level).IsEqualTo(LogLevel.Information);
