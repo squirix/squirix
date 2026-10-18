@@ -23,6 +23,7 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
     private const int RsaKeySize = 2048;
     private const int ValidityDays = 30;
     private const int BackdateDays = 1;
+    private const string ServerAuthOid = "1.3.6.1.5.5.7.3.1";
 
     private static readonly TimeSpan MaxAge = TimeSpan.FromMinutes(10);
 
@@ -42,6 +43,19 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
         _ = await Assert.That(cache.TryVerify(certificate, clock.GetUtcNow(), out _)).IsFalse();
         _ = await Assert.That(cache.ChainBuilds).IsEqualTo(2L);
         _ = await Assert.That(cache.Count).IsEqualTo(0);
+    }
+
+    /// <summary>Shows that a certificate without the client and server roles is accepted today.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ServerOnlyCertificateIsAcceptedToday(CancellationToken cancellationToken)
+    {
+        var now = TimeProvider.System.GetUtcNow();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(bundle.Ca, "node-b", [ServerAuthOid]);
+        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
+
+        _ = await Assert.That(cache.TryVerify(certificate, now, out _)).IsTrue();
     }
 
     /// <summary>Verifies the number of remembered certificates never exceeds the capacity and an evicted certificate is built again.</summary>
