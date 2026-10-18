@@ -89,6 +89,9 @@ copies admits less led data for the same value; raise it for the replication fac
 refused, and only when they grow memory. A follower always applies a committed entry, and recovery always inserts, even
 past the limit; removes and writes that shrink an entry always pass.
 
+The estimate of an entry includes the cache's own bookkeeping for it, the index of expiration deadlines too: an entry with
+an expiration counts about 90 to 100 bytes more than the same entry without one.
+
 Example fragment:
 
 ```json
