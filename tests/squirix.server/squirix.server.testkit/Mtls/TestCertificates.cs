@@ -115,35 +115,21 @@ public static class TestCertificates
         return caRequest.CreateSelfSigned(notBefore, notAfter);
     }
 
-    /// <summary>Validates a peer server certificate against the configured cluster trust root.</summary>
-    /// <param name="serverCertificate">The presented peer server certificate.</param>
-    /// <param name="trustAnchor">Configured cluster trust root.</param>
-    /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-    /// <returns><see langword="true" /> when the certificate is trusted for internode traffic.</returns>
-    public static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
-    {
-        if (serverCertificate == null)
-            return false;
-
-        using var certificate = new X509Certificate2(serverCertificate);
-        return MtlsClientCertificateValidator.ValidateForExpectedNodeId(certificate, trustAnchor, expectedPeerNodeId);
-    }
-
     /// <summary>Loads an exportable certificate copy suitable for Schannel client and server authentication.</summary>
     /// <param name="certificate">Source certificate with private key.</param>
     /// <returns>Exportable certificate copy.</returns>
     internal static X509Certificate2 LoadExportableCertificate(X509Certificate2 certificate) =>
         X509CertificateLoader.LoadPkcs12(certificate.Export(X509ContentType.Pfx), null, X509KeyStorageFlags.Exportable);
 
-    [Immutable]
+    [ThreadSafe]
     private sealed class PeerCertificateValidator
     {
+        private readonly PeerChainCache _chains;
         private readonly string _expectedPeerNodeId;
-        private readonly X509Certificate2 _trustAnchor;
 
         internal PeerCertificateValidator(X509Certificate2 trustAnchor, string expectedPeerNodeId)
         {
-            _trustAnchor = trustAnchor;
+            _chains = new PeerChainCache(trustAnchor, PeerChainCache.DefaultCapacity, PeerChainCache.DefaultMaxAge);
             _expectedPeerNodeId = expectedPeerNodeId;
         }
 
@@ -152,7 +138,17 @@ public static class TestCertificates
             _ = sender;
             _ = chain;
             _ = errors;
-            return ValidatePeerServerCertificate(certificate, _trustAnchor, _expectedPeerNodeId);
+            if (certificate == null)
+                return false;
+
+            if (certificate is X509Certificate2 presented)
+                return IsExpectedPeer(presented);
+
+            using var copy = new X509Certificate2(certificate);
+            return IsExpectedPeer(copy);
         }
+
+        private bool IsExpectedPeer(X509Certificate2 certificate) =>
+            _chains.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out var verdict) && string.Equals(verdict.NodeId, _expectedPeerNodeId, StringComparison.Ordinal);
     }
 }

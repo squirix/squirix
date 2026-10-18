@@ -54,7 +54,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         ArgumentNullException.ThrowIfNull(clock);
         _mtlsOptions = mtlsOptions;
         _transfers = transfers;
-        _peers = mtls is { Enabled: true, TrustAnchor: { } trustAnchor } ? new VerifiedPeerCertificates(trustAnchor, MtlsTopology.GetRemotePeerNodeIds(cluster), clock) : null;
+        _peers = mtls is { Enabled: true, PeerChains: { } peerChains } ? new VerifiedPeerCertificates(peerChains, MtlsTopology.GetRemotePeerNodeIds(cluster), clock) : null;
         _follower = groups == null ? null : new ReplicaFollower(groups, members ?? throw new ArgumentNullException(nameof(members)));
 
         // The static leader resumes at the durable term of its log, so a network vote must not raise that term: it would let the

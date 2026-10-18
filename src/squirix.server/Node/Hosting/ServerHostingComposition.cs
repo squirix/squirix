@@ -697,8 +697,9 @@ internal static class ServerHostingComposition
         {
             https.ServerCertificate = material.NodeCertificate;
             https.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
+            var peerChains = material.PeerChains!;
             https.ClientCertificateValidation = (certificate, _, _) =>
-                MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, material.TrustAnchor!, remotePeerNodeIds);
+                peerChains.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out var verdict) && MtlsTopology.IsRemotePeer(remotePeerNodeIds, verdict.NodeId);
         }
 
         private static void ConfigurePrimaryEndpoint(ListenOptions listenOptions)

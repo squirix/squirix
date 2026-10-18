@@ -33,6 +33,23 @@ internal static class MtlsTopology
         return trimmed;
     }
 
+    /// <summary>Returns whether a certificate node identifier is one of the configured remote peers.</summary>
+    /// <param name="remotePeerNodeIds">Configured remote peer node identifiers.</param>
+    /// <param name="nodeId">The node identifier read from the peer certificate.</param>
+    /// <returns><see langword="true" /> when <paramref name="nodeId" /> equals one of <paramref name="remotePeerNodeIds" /> by ordinal comparison.</returns>
+    internal static bool IsRemotePeer(string[] remotePeerNodeIds, string nodeId)
+    {
+        ArgumentNullException.ThrowIfNull(remotePeerNodeIds);
+
+        for (var i = 0; i < remotePeerNodeIds.Length; i++)
+        {
+            if (string.Equals(nodeId, remotePeerNodeIds[i], StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
     /// <summary>Returns whether the configured topology performs internode traffic that requires mTLS.</summary>
     /// <param name="cluster">Cluster topology configuration.</param>
     /// <returns><see langword="true" /> when at least one remote peer is configured.</returns>
