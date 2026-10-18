@@ -141,8 +141,8 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
 
         var trusted = cache.TryVerify(leaf, now, out _);
 
-        _ = await Assert.That(trusted).IsTrue();
-        _ = await Assert.That(issuerServer.Requests).IsGreaterThan(0);
+        _ = await Assert.That(trusted).IsFalse();
+        _ = await Assert.That(issuerServer.Requests).IsEqualTo(0);
     }
 
     /// <summary>Verifies a repeated certificate, also as a separate instance with the same bytes, builds one chain and reports its NodeId.</summary>

@@ -161,6 +161,7 @@ internal sealed class MtlsCertificate : IDisposable
 
             using var chain = new X509Chain();
             chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+            chain.ChainPolicy.DisableCertificateDownloads = true;
             chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
             _ = chain.ChainPolicy.CustomTrustStore.Add(trustAnchor);
 
