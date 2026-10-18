@@ -65,9 +65,7 @@ internal sealed class LostForwardResponseProbe
 
     private static async Task<TResponse> LoseResponseAsync<TResponse>(KeyFault fault, AsyncUnaryCall<TResponse> call)
     {
-#pragma warning disable VSTHRD003 // The call was started by the forwarder through this probe; its response is the signal that the owner executed.
         _ = await call.ResponseAsync.ConfigureAwait(false);
-#pragma warning restore VSTHRD003
         fault.MarkOwnerExecuted();
         await fault.AfterOwnerExecuted().ConfigureAwait(false);
         throw new RpcException(new Status(StatusCode.Unavailable, "Injected: the owner response was lost."));

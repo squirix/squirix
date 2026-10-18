@@ -97,10 +97,7 @@ internal sealed class FailoverTimeline<TOptions> : IAsyncDisposable
         try
         {
             await _stop.CancelAsync().ConfigureAwait(false);
-
-#pragma warning disable VSTHRD003 // The sampling loop is started by this timeline's constructor and ends once the stop token above is cancelled.
             await _sampling.ConfigureAwait(false);
-#pragma warning restore VSTHRD003
         }
         finally
         {

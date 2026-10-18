@@ -40,9 +40,7 @@ internal sealed class EchoUpstream : IAsyncDisposable
             _clients.Clear();
         }
 
-#pragma warning disable VSTHRD003 // The accept loop is started by this upstream's constructor and ends once the listener above is closed.
         await _acceptLoop;
-#pragma warning restore VSTHRD003
     }
 
     internal static EchoUpstream Start()

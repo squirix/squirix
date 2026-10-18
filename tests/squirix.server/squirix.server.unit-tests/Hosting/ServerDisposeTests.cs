@@ -147,9 +147,7 @@ public sealed class ServerDisposeTests
 
         private TaskCompletionSource StopEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-#pragma warning disable VSTHRD003 // The task is a completion source owned and signalled by this probe.
         internal Task WaitForStopAsync() => StopEntered.Task;
-#pragma warning restore VSTHRD003
 
         internal void RecordStop(bool dependencyDisposed)
         {

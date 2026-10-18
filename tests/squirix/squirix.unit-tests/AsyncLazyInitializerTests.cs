@@ -9,8 +9,6 @@ using TUnit.Core;
 
 namespace Squirix.UnitTests;
 
-#pragma warning disable VSTHRD003 // Handing one task to every caller is the behavior under test; the gates are completion sources the tests own.
-
 /// <summary>Single-run coordination of <see cref="AsyncLazyInitializer" />.</summary>
 [Immutable]
 public sealed class AsyncLazyInitializerTests : TestBase
