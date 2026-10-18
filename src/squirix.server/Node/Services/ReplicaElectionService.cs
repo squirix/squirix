@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,6 +23,19 @@ namespace Squirix.Server.Node.Services;
 /// </remarks>
 internal sealed class ReplicaElectionService : BackgroundService
 {
+    /// <summary>The log of each election event that names only its group and term.</summary>
+    private static readonly FrozenDictionary<ElectionEvent, Action<ILogger, string, ulong>> TermEventLogs = new Dictionary<ElectionEvent, Action<ILogger, string, ulong>>
+    {
+        [ElectionEvent.PreVoteLost] = ServerLog.ReplicaElectionPreVoteLost,
+        [ElectionEvent.VoteLost] = ServerLog.ReplicaElectionVoteLost,
+        [ElectionEvent.Elected] = ServerLog.ReplicaElectionElected,
+        [ElectionEvent.Authorized] = ServerLog.ReplicaElectionAuthorized,
+        [ElectionEvent.PromotionPending] = ServerLog.ReplicaElectionPromotionPending,
+        [ElectionEvent.RetirePending] = ServerLog.ReplicaElectionRetirePending,
+        [ElectionEvent.TermObserved] = ServerLog.ReplicaElectionTermObserved,
+        [ElectionEvent.TermNotDurable] = ServerLog.ReplicaElectionTermNotDurable,
+    }.ToFrozenDictionary();
+
     private readonly ReplicaRpcHeader _header;
     private readonly IReplicaLeadership _leadership;
     private readonly IReplicaGroupLocator _locator;
@@ -140,48 +154,34 @@ internal sealed class ReplicaElectionService : BackgroundService
         }
     }
 
+    /// <summary>Logs what a step of the election driver did.</summary>
+    /// <param name="groupId">The replica group.</param>
+    /// <param name="outcome">The outcome of the step.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The event is not one of the election events.</exception>
     private void Report(string groupId, in ElectionOutcome outcome)
     {
-        switch (outcome.Event)
+        if (TermEventLogs.TryGetValue(outcome.Event, out var log))
         {
-            case ElectionEvent.None:
-                break;
-            case ElectionEvent.Denied:
-                var denial = DenialName(outcome.Denial);
-                ServerLog.ReplicaElectionDenied(_log, groupId, outcome.Term, denial);
-                break;
-            case ElectionEvent.PreVoteLost:
-                ServerLog.ReplicaElectionPreVoteLost(_log, groupId, outcome.Term);
-                break;
-            case ElectionEvent.VoteLost:
-                ServerLog.ReplicaElectionVoteLost(_log, groupId, outcome.Term);
-                break;
-            case ElectionEvent.Elected:
-                ServerLog.ReplicaElectionElected(_log, groupId, outcome.Term);
-                break;
-            case ElectionEvent.Authorized:
-                ServerLog.ReplicaElectionAuthorized(_log, groupId, outcome.Term);
-                break;
-            case ElectionEvent.PromotionPending:
-                ServerLog.ReplicaElectionPromotionPending(_log, groupId, outcome.Term);
-                break;
-            case ElectionEvent.SteppedDown:
-                ReportSteppedDown(groupId, in outcome);
-                break;
-            case ElectionEvent.ApplyTimedOut:
-                ServerLog.ReplicaElectionApplyTimedOut(_log, groupId, outcome.Term, outcome.Waited);
-                break;
-            case ElectionEvent.RetirePending:
-                ServerLog.ReplicaElectionRetirePending(_log, groupId, outcome.Term);
-                break;
-            case ElectionEvent.TermObserved:
-                ServerLog.ReplicaElectionTermObserved(_log, groupId, outcome.Term);
-                break;
-            case ElectionEvent.TermNotDurable:
-                ServerLog.ReplicaElectionTermNotDurable(_log, groupId, outcome.Term);
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(outcome), outcome.Event, "Unsupported election event.");
+            log(_log, groupId, outcome.Term);
+            return;
+        }
+
+        if (outcome.Event == ElectionEvent.Denied)
+        {
+            var denial = DenialName(outcome.Denial);
+            ServerLog.ReplicaElectionDenied(_log, groupId, outcome.Term, denial);
+        }
+        else if (outcome.Event == ElectionEvent.SteppedDown)
+        {
+            ReportSteppedDown(groupId, in outcome);
+        }
+        else if (outcome.Event == ElectionEvent.ApplyTimedOut)
+        {
+            ServerLog.ReplicaElectionApplyTimedOut(_log, groupId, outcome.Term, outcome.Waited);
+        }
+        else if (outcome.Event != ElectionEvent.None)
+        {
+            throw new ArgumentOutOfRangeException(nameof(outcome), outcome.Event, "Unsupported election event.");
         }
     }
 
