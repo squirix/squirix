@@ -271,7 +271,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, LeaderId);
         var material = MtlsCertificate.Create(certificate, bundle.Ca);
         var topology = new TopologyOptions(new ServerPeer { NodeId = LeaderId, Uri = new Uri("https://localhost:6002") });
-        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material, registry, members, withReceiver ? receiver : null);
+        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material, TimeProvider.System, registry, members, withReceiver ? receiver : null);
         var httpContext = new DefaultHttpContext { Connection = { LocalPort = mtls.InternalListenPort, ClientCertificate = certificate } };
         var header = new ReplicationEnvelopeHeader
         {

@@ -3,7 +3,6 @@ using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
@@ -40,9 +39,8 @@ internal static class FrameworkServiceRegistration
 
     private sealed class InvocationContextInterceptor : Interceptor
     {
-        private readonly TopologyOptions _cluster;
-        private readonly MtlsCertificate _mtls;
         private readonly MtlsOptions _mtlsOptions;
+        private readonly VerifiedPeerCertificates? _peers;
         private readonly RingAgreement _ringAgreement;
         private readonly IRemoteInvocationScopeFactory _scopeFactory;
 
@@ -59,9 +57,10 @@ internal static class FrameworkServiceRegistration
             ArgumentNullException.ThrowIfNull(mtls);
             ArgumentNullException.ThrowIfNull(ringAgreement);
             _scopeFactory = scopeFactory;
-            _cluster = cluster;
             _mtlsOptions = mtlsOptions;
-            _mtls = mtls;
+            _peers = mtls is { Enabled: true, TrustAnchor: { } trustAnchor }
+                ? new VerifiedPeerCertificates(trustAnchor, MtlsTopology.GetRemotePeerNodeIds(cluster), TimeProvider.System)
+                : null;
             _ringAgreement = ringAgreement;
         }
 
@@ -92,8 +91,8 @@ internal static class FrameworkServiceRegistration
 
         private bool ResolveInternalOwnerInvocation(ServerCallContext context)
         {
-            SquirixClusterConnectionSecurity.RejectSpoofedInternalOwnerHeader(context, _cluster, _mtlsOptions, _mtls);
-            if (!SquirixClusterConnectionSecurity.IsTrustedInternalOwnerCall(context, _cluster, _mtlsOptions, _mtls))
+            SquirixClusterConnectionSecurity.RejectSpoofedInternalOwnerHeader(context, _mtlsOptions, _peers);
+            if (!SquirixClusterConnectionSecurity.IsTrustedInternalOwnerCall(context, _mtlsOptions, _peers))
                 return false;
 
             // Refuse a caller with a different ring before any handler or idempotency store runs.
@@ -105,29 +104,25 @@ internal static class FrameworkServiceRegistration
         /// <summary>Centralizes trusted cluster-peer checks used by transport auth and inbound RPC classification.</summary>
         private static class SquirixClusterConnectionSecurity
         {
-            internal static bool IsTrustedInternalOwnerCall(ServerCallContext context, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificate mtls)
+            internal static bool IsTrustedInternalOwnerCall(ServerCallContext context, MtlsOptions mtlsOptions, VerifiedPeerCertificates? peers)
             {
                 ArgumentNullException.ThrowIfNull(context);
-                ArgumentNullException.ThrowIfNull(cluster);
                 ArgumentNullException.ThrowIfNull(mtlsOptions);
-                ArgumentNullException.ThrowIfNull(mtls);
 
-                if (!mtls.Enabled || mtlsOptions.InternalListenPort <= 0)
+                if (peers == null || mtlsOptions.InternalListenPort <= 0)
                     return false;
 
                 var httpContext = context.GetHttpContext();
                 return httpContext.Connection.LocalPort == mtlsOptions.InternalListenPort && IsInternalOwnerHeaderPresent(context) &&
-                       IsTrustedClusterPeer(httpContext, cluster, mtls);
+                       httpContext.Connection.ClientCertificate is { } certificate && peers.TryVerify(certificate, out _);
             }
 
-            internal static void RejectSpoofedInternalOwnerHeader(ServerCallContext context, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificate mtls)
+            internal static void RejectSpoofedInternalOwnerHeader(ServerCallContext context, MtlsOptions mtlsOptions, VerifiedPeerCertificates? peers)
             {
                 ArgumentNullException.ThrowIfNull(context);
-                ArgumentNullException.ThrowIfNull(cluster);
                 ArgumentNullException.ThrowIfNull(mtlsOptions);
-                ArgumentNullException.ThrowIfNull(mtls);
 
-                if (!IsInternalOwnerHeaderPresent(context) || IsTrustedInternalOwnerCall(context, cluster, mtlsOptions, mtls))
+                if (!IsInternalOwnerHeaderPresent(context) || IsTrustedInternalOwnerCall(context, mtlsOptions, peers))
                     return;
 
                 throw new RpcException(new Status(StatusCode.Unauthenticated, "Internal cluster invocation requires trusted peer mTLS."));
@@ -137,15 +132,6 @@ internal static class FrameworkServiceRegistration
             {
                 var value = context.RequestHeaders.GetValue(RemoteInvocationContract.InternalOwnerRpcHeaderName);
                 return string.Equals(value, RemoteInvocationContract.InternalOwnerRpcHeaderValue, StringComparison.Ordinal);
-            }
-
-            private static bool IsTrustedClusterPeer(HttpContext httpContext, TopologyOptions cluster, MtlsCertificate mtls)
-            {
-                if (!mtls.Enabled || mtls.TrustAnchor == null)
-                    return false;
-
-                var certificate = httpContext.Connection.ClientCertificate;
-                return MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, mtls.TrustAnchor, MtlsTopology.GetRemotePeerNodeIds(cluster));
             }
         }
     }

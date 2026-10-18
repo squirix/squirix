@@ -367,6 +367,7 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<TopologyOptions>(),
             sp.GetRequiredService<MtlsOptions>(),
             sp.GetRequiredService<MtlsCertificate>(),
+            TimeProvider.System,
             sp.GetService<ReplicaGroupRegistry>(),
             sp.GetService<IReplicaMembership>(),
             sp.GetService<ReplicaTransferReceiver>()));
