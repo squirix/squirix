@@ -20,12 +20,9 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 [Immutable]
 public sealed class PeerChainCacheTests : ServerUnitTestBase
 {
-    private const string LoopbackHost = "http://127.0.0.1:";
-    private const int NotFoundStatusCode = 404;
-    private const string CertificateContentType = "application/pkix-cert";
-    private const string IssuerPath = "intermediate.cer";
     private const int RsaKeySize = 2048;
     private const int ValidityDays = 30;
+    private const int BackdateDays = 1;
 
     private static readonly TimeSpan MaxAge = TimeSpan.FromMinutes(10);
 
@@ -128,21 +125,27 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
     }
 
     /// <summary>Verifies a peer certificate cannot make the node download a missing intermediate from the address in its authority information access extension.</summary>
+    /// <exception cref="InvalidOperationException">The issuer endpoint is not an IP endpoint.</exception>
     [Test]
     public async Task MissingIntermediateIsNotDownloaded()
     {
         var now = TimeProvider.System.GetUtcNow();
-        var port = GetFreeLoopbackPort();
         using var root = CreateAuthority("CN=Squirix Test Root", null, now);
         using var intermediate = CreateAuthority("CN=Squirix Test Intermediate", root, now);
-        using var leaf = CreateLeaf(intermediate, $"{LoopbackHost}{port}/{IssuerPath}", now);
-        using var issuerServer = new IssuerServer(port, IssuerPath, intermediate.RawData);
+        using var issuerEndpoint = new TcpListener(IPAddress.Loopback, 0);
+        issuerEndpoint.Start();
+        if (issuerEndpoint.LocalEndpoint is not IPEndPoint endpoint)
+            throw new InvalidOperationException("The issuer endpoint is not an IP endpoint.");
+
+        var issuerPort = endpoint.Port;
+        using var leaf = CreateLeaf(intermediate, new UriBuilder(Uri.UriSchemeHttp, IPAddress.Loopback.ToString(), issuerPort, "intermediate.cer").Uri.AbsoluteUri, now);
         var cache = new PeerChainCache(root, PeerChainCache.DefaultCapacity, MaxAge);
 
         var trusted = cache.TryVerify(leaf, now, out _);
 
         _ = await Assert.That(trusted).IsFalse();
-        _ = await Assert.That(issuerServer.Requests).IsEqualTo(0);
+        _ = await Assert.That(issuerEndpoint.Pending()).IsFalse();
+        _ = await Assert.That(CanBuildWithSuppliedIntermediate(root, intermediate, leaf, now)).IsTrue();
     }
 
     /// <summary>Verifies a repeated certificate, also as a separate instance with the same bytes, builds one chain and reports its NodeId.</summary>
@@ -166,11 +169,16 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
         _ = await Assert.That(cache.Count).IsEqualTo(1);
     }
 
-    private static int GetFreeLoopbackPort()
+    private static bool CanBuildWithSuppliedIntermediate(X509Certificate2 root, X509Certificate2 intermediate, X509Certificate2 leaf, DateTimeOffset now)
     {
-        using var probe = new TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        return probe.LocalEndpoint is IPEndPoint endpoint ? endpoint.Port : 0;
+        using var chain = new X509Chain();
+        chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+        chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+        chain.ChainPolicy.DisableCertificateDownloads = true;
+        chain.ChainPolicy.VerificationTime = now.UtcDateTime;
+        _ = chain.ChainPolicy.CustomTrustStore.Add(root);
+        _ = chain.ChainPolicy.ExtraStore.Add(intermediate);
+        return chain.Build(leaf);
     }
 
     private static X509Certificate2 CreateAuthority(string subject, X509Certificate2? issuer, DateTimeOffset now)
@@ -178,7 +186,7 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
         using var key = RSA.Create(RsaKeySize);
         var request = new CertificateRequest(subject, key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         request.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
-        var notBefore = now.AddDays(-1);
+        var notBefore = now.AddDays(-BackdateDays);
         var notAfter = notBefore.AddDays(ValidityDays);
         if (issuer == null)
             return request.CreateSelfSigned(notBefore, notAfter);
@@ -194,59 +202,8 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
         var request = new CertificateRequest("CN=node-b", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         request.AddClusterNodeExtensions();
         request.CertificateExtensions.Add(new X509AuthorityInformationAccessExtension(null, [issuerUrl]));
-        var notBefore = now.AddDays(-1);
+        var notBefore = now.AddDays(-BackdateDays);
         using var publicOnly = request.Create(issuer, notBefore, notBefore.AddDays(ValidityDays), Guid.NewGuid().ToByteArray());
         return publicOnly.CopyWithPrivateKey(key);
-    }
-
-    private sealed class IssuerServer : IDisposable
-    {
-        private readonly HttpListener _listener = new();
-        private readonly byte[] _payload;
-        private readonly string _path;
-        private int _requests;
-
-        internal IssuerServer(int port, string path, byte[] payload)
-        {
-            _path = $"/{path}";
-            _payload = payload;
-            _listener.Prefixes.Add($"{LoopbackHost}{port}/");
-            _listener.Start();
-            _ = ServeAsync();
-        }
-
-        internal int Requests => Volatile.Read(ref _requests);
-
-        public void Dispose() => _listener.Close();
-
-        private async Task ServeAsync()
-        {
-            while (_listener.IsListening)
-            {
-                HttpListenerContext context;
-                try
-                {
-                    context = await _listener.GetContextAsync();
-                }
-                catch (Exception ex) when (ex is HttpListenerException or ObjectDisposedException or InvalidOperationException)
-                {
-                    return;
-                }
-
-                _ = Interlocked.Increment(ref _requests);
-                if (string.Equals(context.Request.Url?.AbsolutePath, _path, StringComparison.Ordinal))
-                {
-                    context.Response.ContentType = CertificateContentType;
-                    context.Response.ContentLength64 = _payload.Length;
-                    await context.Response.OutputStream.WriteAsync(_payload, CancellationToken.None);
-                }
-                else
-                {
-                    context.Response.StatusCode = NotFoundStatusCode;
-                }
-
-                context.Response.Close();
-            }
-        }
     }
 }
