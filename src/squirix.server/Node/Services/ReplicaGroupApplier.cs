@@ -37,6 +37,7 @@ internal sealed class ReplicaGroupApplier
     private readonly ILogger _log;
     private readonly ReplicationMetrics? _metrics;
     private ulong _appliedIndex;
+    private long _reseeds;
 
     /// <summary>The message of the inconsistent record last reported; it names the log index and the reason.</summary>
     private string? _lastReported;
@@ -66,6 +67,9 @@ internal sealed class ReplicaGroupApplier
     /// <summary>Gets the highest log index applied to memory: the seeded durable applied index, then the last entry applied.</summary>
     /// <remarks>Every entry at or below it has returned from its apply, so its cache journal frame is appended.</remarks>
     internal ulong AppliedIndex => Volatile.Read(ref _appliedIndex);
+
+    /// <summary>Gets how many times a state transfer reset the applied index, which lets the apply loop tell a stopped group that got a new copy.</summary>
+    internal long Reseeds => Volatile.Read(ref _reseeds);
 
     /// <summary>Gets the lease of the one driver of this applier.</summary>
     /// <remarks>
@@ -171,6 +175,7 @@ internal sealed class ReplicaGroupApplier
     {
         Volatile.Write(ref _appliedIndex, index);
         _seeded = true;
+        _ = Interlocked.Increment(ref _reseeds);
     }
 
     /// <summary>Persists the in-memory applied index of the group log once the cache journal holds every applied entry durably.</summary>
