@@ -42,9 +42,7 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var expiration = new ReplicaExpirationCoordinator<string>(async (_, _) =>
         {
-#pragma warning disable VSTHRD003 // The gate is a completion source this test owns and signals.
             await started.Task.ConfigureAwait(false);
-#pragma warning restore VSTHRD003
             _ = await commit.CommitAsync(tombstone, TimeSpan.FromSeconds(2), CancellationToken.None).ConfigureAwait(false);
             return null;
         })

@@ -192,10 +192,7 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
             connections = [.. _connections];
 
         var aborted = AbortConnections(connections);
-
-#pragma warning disable VSTHRD003 // The accept loop is started by this proxy's constructor and ends once the listener above is closed.
         await _acceptLoop.ConfigureAwait(false);
-#pragma warning restore VSTHRD003
 
         // The accept loop has ended, so no bridge is added after this snapshot; each one is cancelled through the stopping token.
         Task[] bridges;
@@ -425,10 +422,8 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
         {
             get
             {
-#pragma warning disable VSTHRD003 // The task is a completion source owned and pulsed by this signal.
                 lock (_lock)
                     return _next.Task;
-#pragma warning restore VSTHRD003
             }
         }
 
@@ -567,9 +562,7 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
             _changed.Pulse();
             try
             {
-#pragma warning disable VSTHRD003 // Both tasks are completion sources owned by this proxy: the gate's release and the connection's abort.
                 var first = await Task.WhenAny(open, connection.Aborted).ConfigureAwait(false);
-#pragma warning restore VSTHRD003
                 return first == open;
             }
             finally

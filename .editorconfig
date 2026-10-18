@@ -637,6 +637,7 @@ dotnet_diagnostic.ZA1402.severity = none # a closure passed to StartNew/Register
 dotnet_diagnostic.S1075.severity = none # S1075 (hardcoded URI) is test data, not prod concern
 dotnet_diagnostic.CA1822.severity = none # CA1822 (mark members as static) not applicable to TUnit (test methods must be instance for source gen)
 dotnet_diagnostic.VSTHRD111.severity = none # VSTHRD111 (ConfigureAwait(bool)) targets production code; test classes with [Test] are excluded
+dotnet_diagnostic.VSTHRD003.severity = none # VSTHRD003 (foreign Task) is the purpose of test hooks: a test awaits the TaskCompletionSource that the component under test completes, or observes an operation the caller already started (AsyncAssert/NodeAsyncAssert). Tests have no SynchronizationContext, so nothing can deadlock, and the TCS task is the only completion signal a test double can expose.
 dotnet_diagnostic.CA1515.severity = none # test classes and fixtures must stay public for TUnit discovery
 dotnet_diagnostic.CA2007.severity = none # no SynchronizationContext in tests; ConfigureAwait is noise
 dotnet_diagnostic.MA0004.severity = none # Meziantou twin of CA2007; same rationale
@@ -663,9 +664,6 @@ dotnet_diagnostic.CA1515.severity = none # design-time Raft safety explorer; not
 
 [tests/squirix.protocol-model/**]
 dotnet_diagnostic.CS1591.severity = none # test projects omit XML docs on fixtures
-
-[**/{AsyncAssert,NodeAsyncAssert}.cs]
-dotnet_diagnostic.VSTHRD003.severity = none # The closure-free exception assertions exist to observe an operation the caller already started
 
 [src/squirix.server/Threading/{Isolated,TaskExtensions}.cs]
 dotnet_diagnostic.CA1031.severity = none # The isolation helpers exist to catch every failure and hand it back to the caller, which decides how to report it

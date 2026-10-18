@@ -13,8 +13,6 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
-#pragma warning disable VSTHRD003 // One expiry run is handed to every caller of a key, which is the behavior under test; the gates are completion sources the tests own.
-
 /// <summary>Leader expiry single-flight, bounded shutdown and tombstone identity tests.</summary>
 [Immutable]
 public sealed class ReplicatedExpirationTests : ServerUnitTestBase

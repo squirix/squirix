@@ -86,9 +86,6 @@ internal sealed class ServerClientPool : IServerClientPool
 
     internal IReadOnlyCollection<string> NodeIds { get; }
 
-    /// <summary>Gets the task that releases the material hold late after a connection drain timeout; completed when disposal released the hold in time.</summary>
-    internal Task LateMaterialRelease => _connections.LateRelease;
-
     /// <summary>Gets the number of connections of the pool's handlers, owned or factory-supplied, that are still open.</summary>
     internal int OpenConnections => _connections.Pending;
 
