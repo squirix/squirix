@@ -12,8 +12,8 @@ internal static class JournalEntryPayload
     /// <param name="prepared">The prepared entry.</param>
     /// <returns>The pooled payload; its length is the encoded length of the entry.</returns>
     /// <remarks>
-    /// The prepared length may be a hint taken from bytes the entry was decoded from. When the entry does not encode to exactly that length, for
-    /// example a decoded object whose duplicate property names merged, it is measured and encoded again at its real length.
+    /// The prepared length may be a hint taken from bytes the entry was decoded from. When the entry does not encode to exactly that length, it is
+    /// measured and encoded again at its real length.
     /// </remarks>
     /// <exception cref="InvalidOperationException">The entry does not encode to its measured length.</exception>
     internal static PooledJournalPayload Encode(in PreparedJournalEntry prepared)
@@ -112,8 +112,7 @@ internal static class JournalEntryPayload
     /// <param name="entry">The decoded entry carrying <paramref name="expiresUtcTicks" /> and no relative expiration.</param>
     /// <param name="encodedLength">
     /// The journal-encoded length of <paramref name="entry" /> derived from the payload bytes, or <see langword="null" /> when the payload holds
-    /// bytes past the entry and the length is not derived. Decoding merges repeated property names, so it can exceed what
-    /// <see cref="MeasureSerializedBytes{T}" /> returns; encoding treats it as a hint and measures when it does not fit.
+    /// bytes past the entry and the length is not derived. Encoding treats it as a hint and measures when the entry does not fit it.
     /// </param>
     /// <returns><see langword="true" /> when the payload decodes.</returns>
     internal static bool TryDecodeWithDeadline(ReadOnlySpan<byte> source, long expiresUtcTicks, out NodeCacheEntry<object?>? entry, out int? encodedLength)
