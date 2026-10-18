@@ -150,7 +150,7 @@ internal sealed class MtlsCertificate : IDisposable
         /// <param name="nodeCertificate">The node certificate.</param>
         /// <param name="trustAnchor">The configured cluster CA.</param>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="nodeCertificate" /> or <paramref name="trustAnchor" /> is null.</exception>
-        /// <exception cref="InvalidOperationException">Thrown when the node certificate is missing a private key or does not chain to the trust root.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the node certificate is missing a private key, does not chain to the trust root, or names an extended key usage without both TLS roles.</exception>
         internal static void EnsureNodeCertificateChainsToTrustAnchor(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
         {
             ArgumentNullException.ThrowIfNull(nodeCertificate);
@@ -163,6 +163,7 @@ internal sealed class MtlsCertificate : IDisposable
             chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
             chain.ChainPolicy.DisableCertificateDownloads = true;
             chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+            MtlsCertificateIdentity.RequireNodeRoles(chain.ChainPolicy);
             _ = chain.ChainPolicy.CustomTrustStore.Add(trustAnchor);
 
             if (chain.Build(nodeCertificate))
