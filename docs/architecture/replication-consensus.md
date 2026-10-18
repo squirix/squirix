@@ -484,6 +484,16 @@ failed apply is logged once while the fault type and the applied index stay the 
 completed. A leader with authority that makes no apply progress for 30 seconds gives the group up, as described under
 heartbeats and step-down above; so does one whose own log append keeps failing, which leaves no committed entry unapplied.
 
+A group log append that fails after its frame was handed to the storage, in the frame write, the flush, or the update of
+the in-memory index, is unconfirmed: the frame may be on disk, and a restart recovers it as an uncommitted tail that a
+majority can commit. The log latches failed at once, for a leader and a follower alike, and refuses every later append
+as not ready until the node restarts, because writing behind a failed flush is unsafe. The client of the write gets
+`COMMIT_OUTCOME_UNKNOWN`, its idempotency outcome stays unresolved, and a retry with the same operation identifier gets
+`COMMIT_OUTCOME_UNKNOWN` again without a second execution. After a restart the retry is answered from the committed
+entry, or runs as a new write when the frame did not reach the disk. An electable leader with a latched log gives the
+group up through the append window above, and the log is logged once at error level. A leader without an election stays
+without writes until the node restarts.
+
 Update, Touch and RemoveExpiration apply by writing the whole decided entry. Memory admission runs before the write is
 proposed: an apply of a committed entry never passes admission, never fails and never waits because of memory, on the leader
 and on every follower alike.
