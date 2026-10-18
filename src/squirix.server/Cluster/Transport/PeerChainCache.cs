@@ -13,7 +13,8 @@ namespace Squirix.Server.Cluster.Transport;
 /// The trust root is fixed per instance, so a certificate of another authority never gets a hit. An entry answers only inside the validity
 /// window of its chain and for at most the configured age; otherwise the chain is rebuilt, which bounds how long a change of operating system
 /// trust state (for example a revoked intermediate) goes unseen. Failures are never cached. The chain is built outside the lock, so
-/// concurrent misses for one certificate may each build it; the results are identical. The cache checks the chain only: the caller
+/// concurrent misses for one certificate may each build it; the results are identical. The chain build also requires both TLS roles of a certificate
+/// that names its extended key usage; that verdict depends on the certificate alone, so it is cached like the rest. The cache checks the chain only: the caller
 /// checks the NodeId of the verdict on every use.
 /// </remarks>
 [ThreadSafe]
@@ -117,6 +118,7 @@ internal sealed class PeerChainCache
             chain.ChainPolicy.DisableCertificateDownloads = true;
             chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
             chain.ChainPolicy.VerificationTime = verificationTime.UtcDateTime;
+            MtlsCertificateIdentity.RequireNodeRoles(chain.ChainPolicy);
             chain.ChainPolicy.CustomTrustStore.Clear();
             _ = chain.ChainPolicy.CustomTrustStore.Add(_trustAnchor);
             if (!chain.Build(certificate))

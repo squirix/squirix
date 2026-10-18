@@ -146,11 +146,14 @@ internal sealed class MtlsCertificate : IDisposable
     /// <summary>Loads cluster mTLS certificates from explicit file paths.</summary>
     private static class MtlsCertificateLoader
     {
+        private const string NodeRolesMessage =
+            "Cluster mTLS node certificate extended key usage must list both serverAuth and clientAuth, or be absent; the issuing CA must allow both.";
+
         /// <summary>Ensures the node certificate chains to the configured cluster trust root.</summary>
         /// <param name="nodeCertificate">The node certificate.</param>
         /// <param name="trustAnchor">The configured cluster CA.</param>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="nodeCertificate" /> or <paramref name="trustAnchor" /> is null.</exception>
-        /// <exception cref="InvalidOperationException">Thrown when the node certificate is missing a private key or does not chain to the trust root.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the node certificate is missing a private key, does not chain to the trust root, or names an extended key usage without both TLS roles.</exception>
         internal static void EnsureNodeCertificateChainsToTrustAnchor(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
         {
             ArgumentNullException.ThrowIfNull(nodeCertificate);
@@ -163,6 +166,7 @@ internal sealed class MtlsCertificate : IDisposable
             chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
             chain.ChainPolicy.DisableCertificateDownloads = true;
             chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+            MtlsCertificateIdentity.RequireNodeRoles(chain.ChainPolicy);
             _ = chain.ChainPolicy.CustomTrustStore.Add(trustAnchor);
 
             if (chain.Build(nodeCertificate))
@@ -170,7 +174,12 @@ internal sealed class MtlsCertificate : IDisposable
 
             var errorParts = new string[chain.ChainStatus.Length];
             for (var i = 0; i < chain.ChainStatus.Length; i++)
+            {
+                if (chain.ChainStatus[i].Status.HasFlag(X509ChainStatusFlags.NotValidForUsage))
+                    throw new InvalidOperationException(NodeRolesMessage);
+
                 errorParts[i] = chain.ChainStatus[i].StatusInformation.Trim();
+            }
 
             var errors = string.Join("; ", errorParts);
             var message = string.IsNullOrWhiteSpace(errors)

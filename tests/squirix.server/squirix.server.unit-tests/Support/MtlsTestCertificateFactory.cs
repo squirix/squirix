@@ -31,6 +31,20 @@ internal static class MtlsTestCertificateFactory
         return await MtlsTestCertificateBundle.CreateAsync(ca, nodeCertificate, cancellationToken);
     }
 
+    internal static X509Certificate2 CreateAuthorityWithPurposes(string subject, string[] purposes)
+    {
+        using var caKey = RSA.Create(2048);
+        var caRequest = new CertificateRequest(subject, caKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        caRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+        var oids = new OidCollection();
+        foreach (var purpose in purposes)
+            _ = oids.Add(new Oid(purpose));
+
+        caRequest.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(oids, false));
+        var notBefore = DateTimeOffset.UtcNow.AddDays(-1);
+        return caRequest.CreateSelfSigned(notBefore, notBefore.AddDays(30));
+    }
+
     internal static X509Certificate2 CreatePeerCertificate(X509Certificate2 ca, string commonName, DateTimeOffset? notBefore = null, DateTimeOffset? notAfter = null)
     {
         ArgumentNullException.ThrowIfNull(ca);
@@ -43,6 +57,36 @@ internal static class MtlsTestCertificateFactory
         var peerRequest = new CertificateRequest($"CN={commonName}", peerKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         peerRequest.AddClusterNodeExtensions();
         var peerPublic = peerRequest.Create(ca, effectiveNotBefore, effectiveNotAfter, Guid.NewGuid().ToByteArray());
+        return peerPublic.CopyWithPrivateKey(peerKey);
+    }
+
+    /// <summary>Creates a peer certificate whose extended key usage lists exactly the given purposes, or has no such extension when <paramref name="purposes" /> is <see langword="null" />.</summary>
+    /// <param name="ca">The issuing test certificate authority.</param>
+    /// <param name="commonName">The certificate common name.</param>
+    /// <param name="purposes">The extended key usage OIDs, or <see langword="null" /> for no extended key usage extension.</param>
+    /// <returns>A peer certificate with a private key.</returns>
+    internal static X509Certificate2 CreatePeerCertificateWithPurposes(X509Certificate2 ca, string commonName, string[]? purposes)
+    {
+        ArgumentNullException.ThrowIfNull(ca);
+        ArgumentException.ThrowIfNullOrWhiteSpace(commonName);
+
+        using var peerKey = RSA.Create(2048);
+        var peerRequest = new CertificateRequest($"CN={commonName}", peerKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        peerRequest.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, true));
+        if (purposes != null)
+        {
+            var oids = new OidCollection();
+            foreach (var purpose in purposes)
+                _ = oids.Add(new Oid(purpose));
+
+            peerRequest.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(oids, false));
+        }
+
+        var peerPublic = peerRequest.Create(
+            ca,
+            new DateTimeOffset(ca.NotBefore.ToUniversalTime()),
+            new DateTimeOffset(ca.NotAfter.ToUniversalTime()),
+            Guid.NewGuid().ToByteArray());
         return peerPublic.CopyWithPrivateKey(peerKey);
     }
 }

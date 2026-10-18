@@ -1,4 +1,5 @@
 using System;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
 namespace Squirix.Server.Cluster.Transport;
@@ -6,6 +7,23 @@ namespace Squirix.Server.Cluster.Transport;
 /// <summary>Reads cluster node identity from internode mTLS certificates.</summary>
 internal static class MtlsCertificateIdentity
 {
+    /// <summary>The server authentication extended key usage OID.</summary>
+    internal const string ServerAuthOid = "1.3.6.1.5.5.7.3.1";
+
+    /// <summary>The client authentication extended key usage OID.</summary>
+    internal const string ClientAuthOid = "1.3.6.1.5.5.7.3.2";
+
+    /// <summary>Requires the chain to allow both TLS roles: every certificate with an extended key usage extension must list server and client authentication.</summary>
+    /// <remarks>Every node accepts and opens internode connections, so one certificate serves both roles. A certificate without the extension is valid for any purpose and stays accepted.</remarks>
+    /// <param name="policy">The chain policy to restrict.</param>
+    internal static void RequireNodeRoles(X509ChainPolicy policy)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+
+        _ = policy.ApplicationPolicy.Add(new Oid(ServerAuthOid));
+        _ = policy.ApplicationPolicy.Add(new Oid(ClientAuthOid));
+    }
+
     /// <summary>Returns whether the certificate common name matches the expected cluster node identifier.</summary>
     /// <param name="certificate">ServerPeer or node certificate.</param>
     /// <param name="expectedNodeId">Configured cluster node identifier.</param>
