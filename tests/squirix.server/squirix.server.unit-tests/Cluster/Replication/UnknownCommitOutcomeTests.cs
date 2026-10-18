@@ -17,6 +17,11 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
 {
+    private const int ReplicaCount = 3;
+    private const int InFlightLimit = 8;
+    private const int IdempotencyCapacity = 16;
+    private static readonly TimeSpan CommitBudget = TimeSpan.FromSeconds(2);
+
     /// <summary>A duplicate that joins after local durability shares the original append boundary.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -87,15 +92,15 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
     {
         var pipeline = new RetryLocalPipeline(new GroupLogAppendUnconfirmedException(new IOException("Injected flush failure.")));
         await using var coordinator = new ReplicaCommitCoordinator(
-            new ReplicaCommitCoordinatorOptions(3, 0, 0, 8),
+            new ReplicaCommitCoordinatorOptions(ReplicaCount, 0, 0, InFlightLimit),
             pipeline,
             ReplicaFaultHooks.CreateNoOp(),
-            new GroupIdempotencyState(16, TimeSpan.MaxValue, TimeProvider.System))
+            new GroupIdempotencyState(IdempotencyCapacity, TimeSpan.MaxValue, TimeProvider.System))
         { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         var mutation = CreateMutation("00000000000000000000000000000001");
 
-        var first = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(2), cancellationToken));
-        var retry = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(2), cancellationToken));
+        var first = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(mutation, CommitBudget, cancellationToken));
+        var retry = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(mutation, CommitBudget, cancellationToken));
 
         _ = await Assert.That(first.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
         _ = await Assert.That(first.InnerException).IsTypeOf<GroupLogAppendUnconfirmedException>();

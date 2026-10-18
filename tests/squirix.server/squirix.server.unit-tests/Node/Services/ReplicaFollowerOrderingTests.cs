@@ -139,8 +139,9 @@ public sealed class ReplicaFollowerOrderingTests : IsolatedStorageTestBase
             await gateway.Parked.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             await committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
-            // The next write fails at its local append with a failure that does not latch the log (the storage is not at fault), which drops
-            // the started state: the write after it restarts the coordinator.
+            // The next write fails at its local append with an ObjectDisposedException, which does not latch the log (the log was closed, not
+            // the storage failed), and drops the started state: the write after it restarts the coordinator. A refusal or a stale term would
+            // end the leadership instead, so a disposed log is the failure that leaves the log usable here.
             hooks.StallNextFrameWrite();
             var failing = committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken);
             await hooks.Entered.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);

@@ -12,6 +12,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -30,6 +31,10 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
     private const int OlderTermTailEventId = 4010;
 
     private const int StorageRetryEventId = 4048;
+
+    private const int AppendUnconfirmedEventId = 4077;
+
+    private const int RepeatedPromotions = 3;
 
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
@@ -56,6 +61,9 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         hooks.StallNextFrameWrite();
         var promotion = committer.PromoteAsync(2UL, cancellationToken);
         await hooks.Entered.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        // An ObjectDisposedException does not latch the log, so the older-term tail stays reachable by the verification; a storage
+        // failure latches the log and is covered by FailedNoopAppendLatchesLog.
         hooks.ReleaseWithFailure(new ObjectDisposedException("Injected leader-term entry write failure."));
         await hooks.Exited.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         var authorized = await promotion.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
@@ -72,6 +80,40 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         _ = await Assert.That(events.Count(OlderTermTailEventId)).IsEqualTo(2);
         var status = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That((status.CurrentTerm, status.LastLogIndex, status.LastLogTerm, status.CommitIndex)).IsEqualTo((2UL, 2UL, 1UL, 0UL));
+    }
+
+    /// <summary>
+    /// A leader-term entry whose append fails after its frame was written latches the log: the promotion is not authorized, no pipeline
+    /// runs, and repeated promotions are refused by the latched log without another latch line.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedNoopAppendLatchesLog(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-noop-latch");
+        var hooks = new FailingFrameWriteHooks();
+        var events = new EventRecordingLogger();
+        await SeededLogs.SeedGroupsAsync(dir, Groups, cancellationToken);
+        var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks };
+        using var loggers = new FixedLoggerFactory(events);
+        await using var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1, loggers, options) { ElectionClock = TimeProvider.System };
+        await registry.OpenAsync(cancellationToken);
+        var log = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        await using var committer = Elected(registry, new HoldingGateway());
+
+        hooks.Arm();
+        var first = await committer.PromoteAsync(2UL, cancellationToken);
+        var repeated = new bool[RepeatedPromotions];
+        for (var i = 0; i < repeated.Length; i++)
+            repeated[i] = await committer.PromoteAsync(2UL, cancellationToken);
+
+        _ = await Assert.That(first).IsFalse();
+        _ = await Assert.That(repeated).DoesNotContain(true);
+        _ = await Assert.That(committer.Tenure?.NoopIndex ?? 0UL).IsEqualTo(0UL);
+        _ = await Assert.That(committer.RunningPipeline).IsNull();
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+        _ = await Assert.That(events.Count(AppendUnconfirmedEventId)).IsEqualTo(1);
+        _ = await Assert.That(hooks.Failures).IsEqualTo(1);
     }
 
     /// <summary>A start that fails after it appended the leader-term entry is retried without a second entry: the promotion keeps its index.</summary>

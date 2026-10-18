@@ -26,6 +26,7 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
 {
     private const string CacheName = "cache";
     private const int LocalAppendFailedEventId = 4075;
+    private const int RepeatedFaults = 3;
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>A write whose log append throws counts as one failed append, leaves nothing in flight, and leaves the log refusing.</summary>
@@ -158,6 +159,34 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
     }
 
     /// <summary>
+    /// The report of a failed local append is logged once while the fault repeats, again when another fault type appears, and again when
+    /// it returns after an append that succeeded.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FaultReportRestartsAfterChange(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-append-fault-dedup");
+        var events = new EventRecordingLogger();
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await using var committer = await LeadAsync(registry, events, cancellationToken);
+
+        for (var i = 0; i < RepeatedFaults; i++)
+            ReportFailedAppend(committer, new IOException("Injected write failure."));
+
+        var repeated = events.Count(LocalAppendFailedEventId);
+        ReportFailedAppend(committer, new UnauthorizedAccessException("Injected access failure."));
+        var otherType = events.Count(LocalAppendFailedEventId);
+        committer.LocalAppends.Begin();
+        committer.LocalAppends.End(ReplicaLocalAppends.Outcome.Appended);
+        ReportFailedAppend(committer, new UnauthorizedAccessException("Injected access failure."));
+
+        _ = await Assert.That(repeated).IsEqualTo(1);
+        _ = await Assert.That(otherType).IsEqualTo(2);
+        _ = await Assert.That(events.Count(LocalAppendFailedEventId)).IsEqualTo(3);
+    }
+
+    /// <summary>
     /// A log that latched its failure after a failed append refuses the next writes before any append; the refusal is still reported, so the
     /// election driver can see it.
     /// </summary>
@@ -202,6 +231,14 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
 
         _ = await Assert.That(committer.AppendProgress()).IsEqualTo(new ReplicaAppendProgress(0UL, 0UL, 1UL, false, false));
         _ = await Assert.That(events.Count(LocalAppendFailedEventId)).IsEqualTo(0);
+    }
+
+    private static void ReportFailedAppend(ReplicaGroupCommitter committer, Exception error)
+    {
+        var failedBefore = committer.LocalAppends.Snapshot().Failed;
+        committer.LocalAppends.Begin();
+        committer.LocalAppends.End(ReplicaLocalAppends.Outcome.Failed);
+        committer.ReportLocalAppendFault(error, failedBefore);
     }
 
     private static Task<ReplicaGroupCommitter> LeadAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken) =>

@@ -24,6 +24,7 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
     private const int AppendUnconfirmedEventId = 4077;
     private const string LeaderId = "leader-1";
     private const ulong Term = 1UL;
+    private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>A failure after the frame was written fails the append unconfirmed with its cause, and latches the log with one error line.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -62,6 +63,40 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken));
 
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+    }
+
+    /// <summary>A failure of the commit-index write behind durable frames latches the log, because the frames are in the file.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CommitIndexWriteFailureLatchesLog(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-latch-commit");
+        using var hooks = new StallableFollowerLogFaultHooks();
+        var events = new EventRecordingLogger();
+        await using var log = Create(dir, events, hooks);
+        await log.OpenSeededAsync(cancellationToken);
+
+        // The first append makes the term durable, so the stalled metadata write below is the commit index behind the second frame.
+        _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+        var request = new FollowerLogAppendRequest(
+            LeaderId,
+            Term,
+            1UL,
+            Term,
+            1UL,
+            ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, Term, Encoding.UTF8.GetBytes("b"))));
+
+        hooks.StallNextMetaWrite();
+        var append = log.AppendAsync(request, cancellationToken);
+        await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        hooks.ReleaseWithFailure(new IOException("Injected metadata write failure."));
+        await hooks.Exited.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(append);
+
+        _ = await Assert.That(failure.InnerException).IsTypeOf<IOException>();
+        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+        _ = await Assert.That(events.Count(AppendUnconfirmedEventId)).IsEqualTo(1);
     }
 
     /// <summary>
