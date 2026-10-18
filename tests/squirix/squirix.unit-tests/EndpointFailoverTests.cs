@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Attributes;
 using Squirix.Internal;
+using Squirix.Internal.Cluster.Reliability;
 using Squirix.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -26,7 +27,7 @@ public sealed class EndpointFailoverTests : TestBase
         var callCount = new MutableCallCount();
 
         var value = await failover.ExecuteAsync(
-            static (nodeId, state, _) =>
+            static (nodeId, _, state, _) =>
             {
                 state.Value++;
                 var equals = string.Equals(nodeId, "endpoint-0", StringComparison.OrdinalIgnoreCase);
@@ -47,7 +48,7 @@ public sealed class EndpointFailoverTests : TestBase
         var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
 
         var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
-            failover.ExecuteAsync<int, int>(static (_, _, _) => throw new RpcException(new Status(StatusCode.NotFound, "missing")), 0, cancellationToken));
+            failover.ExecuteAsync<int, int>(static (_, _, _, _) => throw new RpcException(new Status(StatusCode.NotFound, "missing")), 0, cancellationToken));
 
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.NotFound);
     }
@@ -65,7 +66,7 @@ public sealed class EndpointFailoverTests : TestBase
 
         var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
             failover.ExecuteAsync<MutableCallCount, int>(
-                static (_, state, _) =>
+                static (_, _, state, _) =>
                 {
                     state.Value++;
                     throw new RpcException(new Status(StatusCode.Unavailable, CommitOutcomeUnknownException.StableDetail));
@@ -76,6 +77,39 @@ public sealed class EndpointFailoverTests : TestBase
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(error.Status.Detail).IsEqualTo(CommitOutcomeUnknownException.StableDetail);
         _ = await Assert.That(callCount.Value).IsEqualTo(1);
+    }
+
+    /// <summary>
+    /// Verifies a connect timeout moves the call off every endpoint but the last, which keeps all the attempts of its call policy: the
+    /// operation has nowhere else to go, so the time left in its budget is spent on retries.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LastEndpointKeepsRetries(CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 3;
+        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(5), maxAttempts, TimeSpan.Zero, TimeSpan.Zero, peer: "endpoint-policy");
+        var attempts = new int[BootstrapEndpoints.Length];
+
+        _ = await AsyncAssert.ThrowsAsync<RpcException, int>(
+            failover.ExecuteAsync(
+                static (nodeId, hasMoreEndpoints, state, ct) => state.Policy.ExecuteAsync(
+                    static (target, token) =>
+                    {
+                        _ = token;
+                        _ = Interlocked.Increment(ref target.Attempts[target.Index]);
+                        var connect = new OperationCanceledException("canceled", new TimeoutException("connect timeout"));
+                        return ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Cancelled, string.Empty, connect)));
+                    },
+                    (state.Attempts, Index: Array.IndexOf(BootstrapEndpoints, nodeId)),
+                    hasMoreEndpoints,
+                    ct),
+                (Policy: policy, Attempts: attempts),
+                cancellationToken));
+
+        _ = await Assert.That(attempts[0]).IsEqualTo(1);
+        _ = await Assert.That(attempts[1]).IsEqualTo(maxAttempts);
     }
 
     /// <summary>Verifies the operation deadline must be finite and positive.</summary>

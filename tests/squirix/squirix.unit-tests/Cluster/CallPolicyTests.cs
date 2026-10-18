@@ -28,7 +28,7 @@ public sealed class CallPolicyTests
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-drain");
         policy.BeginDrain();
 
-        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, CancellationToken.None));
+        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, false, CancellationToken.None));
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
     }
 
@@ -82,7 +82,7 @@ public sealed class CallPolicyTests
         using var scope = RpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var call = policy.ExecuteAsync(static (signal, ct) => BlockUntilCanceledAsync(signal, ct), entered, CancellationToken.None).AsTask();
+        var call = policy.ExecuteAsync(static (signal, ct) => BlockUntilCanceledAsync(signal, ct), entered, false, CancellationToken.None).AsTask();
         await entered.Task.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
         var pending = !call.IsCompleted;
         clock.Advance(TimeSpan.FromHours(1));
@@ -124,7 +124,7 @@ public sealed class CallPolicyTests
         await using var policy = new CallPolicy(clock, TimeSpan.FromHours(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-attempt-clock");
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var call = policy.ExecuteAsync(static (signal, ct) => BlockUntilCanceledAsync(signal, ct), entered, CancellationToken.None).AsTask();
+        var call = policy.ExecuteAsync(static (signal, ct) => BlockUntilCanceledAsync(signal, ct), entered, false, CancellationToken.None).AsTask();
         await entered.Task.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
         var pending = !call.IsCompleted;
         clock.Advance(TimeSpan.FromHours(1));
@@ -148,9 +148,86 @@ public sealed class CallPolicyTests
                     return ValueTask.FromException<int>(new RpcException(new Status(StatusCode.InvalidArgument, "bad")));
                 },
                 box,
+                false,
                 CancellationToken.None));
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
         _ = await Assert.That(box.Count).IsEqualTo(1);
+    }
+
+    /// <summary>
+    /// A connect that timed out ends the call as unavailable after one attempt when the policy is told another endpoint can take it, and is
+    /// retried on the same endpoint otherwise.
+    /// </summary>
+    /// <param name="connectTimeoutEndsAttempts">Whether a connect that timed out ends the attempts.</param>
+    /// <param name="expectedAttempts">The attempts made.</param>
+    [Test]
+    [Arguments(true, 1)]
+    [Arguments(false, 2)]
+    public async Task ConnectTimeoutEndsAttemptsWhenAsked(bool connectTimeoutEndsAttempts, int expectedAttempts)
+    {
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-connect-timeout");
+        var box = new IntBox();
+        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(
+            policy.ExecuteAsync(
+                static (counter, cancellationToken) =>
+                {
+                    _ = cancellationToken;
+                    _ = counter.Increment();
+                    var connect = new OperationCanceledException("canceled", new TimeoutException("connect timeout"));
+                    return ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Cancelled, string.Empty, connect)));
+                },
+                box,
+                connectTimeoutEndsAttempts,
+                CancellationToken.None));
+
+        _ = await Assert.That(box.Count).IsEqualTo(expectedAttempts);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(connectTimeoutEndsAttempts ? StatusCode.Unavailable : StatusCode.DeadlineExceeded);
+    }
+
+    /// <summary>A cancellation that no connect timeout caused is still retried when connect timeouts end the attempts.</summary>
+    [Test]
+    public async Task PlainCancellationStillRetried()
+    {
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-plain-cancel");
+        var box = new IntBox();
+        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(
+            policy.ExecuteAsync(
+                static (counter, cancellationToken) =>
+                {
+                    _ = cancellationToken;
+                    _ = counter.Increment();
+                    var canceled = new OperationCanceledException("canceled");
+                    return ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Cancelled, string.Empty, canceled)));
+                },
+                box,
+                true,
+                CancellationToken.None));
+
+        _ = await Assert.That(box.Count).IsEqualTo(2);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+    }
+
+    /// <summary>A refused connect that carries a timeout in its debug exception, as on Windows, ends the call as unavailable.</summary>
+    [Test]
+    public async Task UnavailableConnectTimeoutEndsAttempts()
+    {
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "c-unavailable-connect");
+        var box = new IntBox();
+        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(
+            policy.ExecuteAsync(
+                static (counter, cancellationToken) =>
+                {
+                    _ = cancellationToken;
+                    _ = counter.Increment();
+                    var connect = new HttpRequestException("connect failed", new TimeoutException("connect timeout"));
+                    return ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, string.Empty, connect)));
+                },
+                box,
+                true,
+                CancellationToken.None));
+
+        _ = await Assert.That(box.Count).IsEqualTo(1);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
     }
 
     /// <summary>Retries Unavailable RpcException.</summary>
@@ -167,6 +244,7 @@ public sealed class CallPolicyTests
                 return n == 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(8);
             },
             box,
+            false,
             CancellationToken.None);
 
         _ = await Assert.That(value).IsEqualTo(8);
@@ -192,11 +270,12 @@ public sealed class CallPolicyTests
                 return 1;
             },
             gate,
+            false,
             CancellationToken.None);
 
         await firstEntered.Task.WaitAsync(timeout, TimeProvider.System, CancellationToken.None);
 
-        var queued = policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(2), 0, CancellationToken.None);
+        var queued = policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(2), 0, false, CancellationToken.None);
         var queuedPending = !queued.IsCompleted;
 
         policy.BeginDrain();
@@ -222,6 +301,7 @@ public sealed class CallPolicyTests
                 return n == 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.DeadlineExceeded, "slow"))) : new ValueTask<int>(4);
             },
             box,
+            false,
             CancellationToken.None);
 
         _ = await Assert.That(value).IsEqualTo(4);
@@ -242,6 +322,7 @@ public sealed class CallPolicyTests
                 return n == 1 ? ValueTask.FromException<int>(new HttpRequestException("boom")) : new ValueTask<int>(3);
             },
             box,
+            false,
             CancellationToken.None);
 
         _ = await Assert.That(value).IsEqualTo(3);
@@ -254,7 +335,7 @@ public sealed class CallPolicyTests
     {
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http-stop");
         _ = await AsyncAssert.ThrowsAsync<HttpRequestException, int>(
-            policy.ExecuteAsync(static (_, _) => ValueTask.FromException<int>(new HttpRequestException("boom")), 0, CancellationToken.None));
+            policy.ExecuteAsync(static (_, _) => ValueTask.FromException<int>(new HttpRequestException("boom")), 0, false, CancellationToken.None));
     }
 
     private static async Task HammerExecuteUntilDisposedAsync(CallPolicy policy, ManualResetEventSlim drained, ConcurrentQueue<string> faults, TaskCompletionSource readySignal)
@@ -263,7 +344,7 @@ public sealed class CallPolicyTests
         {
             try
             {
-                _ = await policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, CancellationToken.None);
+                _ = await policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, false, CancellationToken.None);
                 _ = readySignal.TrySetResult();
             }
             catch (Exception ex) when (ex is RpcException or OperationCanceledException)

@@ -70,7 +70,11 @@ internal sealed class CallPolicy : ICallPolicy
         }
     }
 
-    public async ValueTask<T> ExecuteAsync<TState, T>(Func<TState, CancellationToken, ValueTask<T>> action, TState state, CancellationToken cancellationToken)
+    public async ValueTask<T> ExecuteAsync<TState, T>(
+        Func<TState, CancellationToken, ValueTask<T>> action,
+        TState state,
+        bool connectTimeoutEndsAttempts,
+        CancellationToken cancellationToken)
     {
         _activeOperations.Enter();
 
@@ -83,14 +87,14 @@ internal sealed class CallPolicy : ICallPolicy
             cancellationToken.ThrowIfCancellationRequested(); // Ensure we never continue with a canceled token
 
             if (RpcDeadlineContext.CurrentBudget is not { } budget)
-                return await _executor.RunQueuedExecutionAsync(action, state, false, cancellationToken, cancellationToken).ConfigureAwait(false);
+                return await _executor.RunQueuedExecutionAsync(action, state, false, connectTimeoutEndsAttempts, cancellationToken, cancellationToken).ConfigureAwait(false);
 
             // The budget counts down on the clock its deadline was pushed with; a spent budget cancels at once.
             var budgetRemaining = budget.Remaining;
             var budgetDelay = budgetRemaining > TimeSpan.Zero ? budgetRemaining : TimeSpan.Zero;
             using var budgetTimer = new CancellationTokenSource(budgetDelay, budget.Clock);
             using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budgetTimer.Token);
-            return await _executor.RunQueuedExecutionAsync(action, state, true, budgetCts.Token, cancellationToken).ConfigureAwait(false);
+            return await _executor.RunQueuedExecutionAsync(action, state, true, connectTimeoutEndsAttempts, budgetCts.Token, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -169,6 +173,7 @@ internal sealed class CallPolicy : ICallPolicy
             Func<TState, CancellationToken, ValueTask<T>> action,
             TState state,
             bool hasDeadlineBudget,
+            bool connectTimeoutEndsAttempts,
             CancellationToken effectiveToken,
             CancellationToken cancellationToken)
         {
@@ -190,7 +195,7 @@ internal sealed class CallPolicy : ICallPolicy
             try
             {
                 ThrowIfDraining();
-                return await RunRetryLoopAsync(action, state, hasDeadlineBudget, effectiveToken, cancellationToken).ConfigureAwait(false);
+                return await RunRetryLoopAsync(action, state, hasDeadlineBudget, connectTimeoutEndsAttempts, effectiveToken, cancellationToken).ConfigureAwait(false);
             }
             finally
             {
@@ -241,6 +246,7 @@ internal sealed class CallPolicy : ICallPolicy
             Func<TState, CancellationToken, ValueTask<T>> action,
             TState state,
             int attempt,
+            bool connectTimeoutEndsAttempts,
             CancellationToken effectiveToken,
             CancellationToken cancellationToken,
             CancellationToken attemptToken)
@@ -255,7 +261,7 @@ internal sealed class CallPolicy : ICallPolicy
             }
             catch (RpcException rx)
             {
-                return await MapRpcFailureAsync<T>(rx, attempt, effectiveToken, cancellationToken).ConfigureAwait(false);
+                return await MapRpcFailureAsync<T>(rx, attempt, connectTimeoutEndsAttempts, effectiveToken, cancellationToken).ConfigureAwait(false);
             }
             catch (HttpRequestException ex)
             {
@@ -298,13 +304,28 @@ internal sealed class CallPolicy : ICallPolicy
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), oce, effectiveToken).ConfigureAwait(false));
         }
 
-        private async ValueTask<AttemptOutcome<T>> MapRpcFailureAsync<T>(RpcException rx, int attempt, CancellationToken effectiveToken, CancellationToken cancellationToken)
+        private async ValueTask<AttemptOutcome<T>> MapRpcFailureAsync<T>(
+            RpcException rx,
+            int attempt,
+            bool connectTimeoutEndsAttempts,
+            CancellationToken effectiveToken,
+            CancellationToken cancellationToken)
         {
             // A mutation may have committed durably even though its outcome is unknown (server write-ahead
             // idempotency intent). Re-sending the same operation would not re-execute (the server gates on the
             // intent), but the outcome is still ambiguous: stop retrying and surface it to the caller.
             if (CallPolicyRetryClassifier.IsCommitOutcomeUnknownStatus(rx))
                 return AttemptOutcome<T>.Stop(rx);
+
+            // A connect that timed out sent nothing, and connecting to the same host again would most likely wait out the bound again: when
+            // another endpoint can take the call, it ends here as unavailable so the caller moves on to that endpoint.
+            if (connectTimeoutEndsAttempts && CallPolicyRetryClassifier.IsConnectTimeout(rx))
+            {
+                RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", "connect_timeout").Inc();
+                return AttemptOutcome<T>.Stop(
+                    new RpcException(
+                        new Status(StatusCode.Unavailable, "The connection to the endpoint was not established within the connect timeout; nothing was sent.", rx)));
+            }
 
             // The gRPC deadline timer and the budget timer expire at the same instant: when gRPC reports the
             // expiry first, it is the exhausted operation budget, not a per-attempt timeout to retry.
@@ -337,6 +358,7 @@ internal sealed class CallPolicy : ICallPolicy
             Func<TState, CancellationToken, ValueTask<T>> action,
             TState state,
             bool hasDeadlineBudget,
+            bool connectTimeoutEndsAttempts,
             CancellationToken effectiveToken,
             CancellationToken cancellationToken)
         {
@@ -346,7 +368,7 @@ internal sealed class CallPolicy : ICallPolicy
             while (OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts)
             {
                 attempt++;
-                var outcome = await OneAttemptAsync(action, state, attempt, effectiveToken, cancellationToken).ConfigureAwait(false);
+                var outcome = await OneAttemptAsync(action, state, attempt, connectTimeoutEndsAttempts, effectiveToken, cancellationToken).ConfigureAwait(false);
                 if (outcome.Succeeded)
                     return outcome.Value!;
 
@@ -389,18 +411,19 @@ internal sealed class CallPolicy : ICallPolicy
             Func<TState, CancellationToken, ValueTask<T>> action,
             TState state,
             int attempt,
+            bool connectTimeoutEndsAttempts,
             CancellationToken effectiveToken,
             CancellationToken cancellationToken)
         {
             var budget = RpcDeadlineContext.GetRemainingBudget();
             var remaining = GetAttemptTimeoutForRemaining(budget);
             if (ShouldUseEffectiveTokenDirectly(budget, remaining))
-                return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, effectiveToken).ConfigureAwait(false);
+                return await ExecuteAttemptCoreAsync(action, state, attempt, connectTimeoutEndsAttempts, effectiveToken, cancellationToken, effectiveToken).ConfigureAwait(false);
 
             // The attempt timeout runs on the policy clock, so a test clock must be advanced for it to fire; the budget bounds it through the effective token.
             using var attemptTimer = new CancellationTokenSource(remaining, _timeProvider);
             using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken, attemptTimer.Token);
-            return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, attemptCts.Token).ConfigureAwait(false);
+            return await ExecuteAttemptCoreAsync(action, state, attempt, connectTimeoutEndsAttempts, effectiveToken, cancellationToken, attemptCts.Token).ConfigureAwait(false);
         }
 
         [Immutable]
@@ -429,6 +452,20 @@ internal sealed class CallPolicy : ICallPolicy
             private const string CommitOutcomeUnknownDetail = "COMMIT_OUTCOME_UNKNOWN";
 
             internal static bool IsCommitOutcomeUnknownStatus(RpcException ex) => string.Equals(ex.Status.Detail, CommitOutcomeUnknownDetail, StringComparison.Ordinal);
+
+            /// <summary>Determines whether <paramref name="ex" /> failed because the handler could not connect within its connect timeout.</summary>
+            /// <param name="ex">The gRPC exception of the attempt.</param>
+            /// <returns><see langword="true" /> when a <see cref="TimeoutException" />, which only the handler's connect bound raises, caused it.</returns>
+            internal static bool IsConnectTimeout(RpcException ex)
+            {
+                for (var current = ex.Status.DebugException ?? ex.InnerException; current != null; current = current.InnerException)
+                {
+                    if (current is TimeoutException)
+                        return true;
+                }
+
+                return false;
+            }
 
             internal static string ClassifyRetryReason(Exception ex) => ex switch
             {

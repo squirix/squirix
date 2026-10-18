@@ -29,7 +29,7 @@ public sealed class FailoverRetryTests : TestBase
         var observer = new OperationObserver("operation-preserve-1");
 
         var value = await failover.ExecuteAsync(
-            static (nodeId, state, _) =>
+            static (nodeId, _, state, _) =>
             {
                 state.Observed.Add((nodeId, state.OperationId));
                 return string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal) ? throw new RpcException(new Status(StatusCode.Unavailable, "down")) : new ValueTask<int>(42);
@@ -55,7 +55,7 @@ public sealed class FailoverRetryTests : TestBase
 
         var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
             failover.ExecuteAsync(
-                static (nodeId, state, _) =>
+                static (nodeId, _, state, _) =>
                 {
                     state.Observed.Add((nodeId, state.OperationId));
                     return new ValueTask<int>(42);
@@ -76,7 +76,7 @@ public sealed class FailoverRetryTests : TestBase
         var observer = new OperationObserver("operation-http-1");
 
         var value = await failover.ExecuteAsync(
-            static (nodeId, state, _) =>
+            static (nodeId, _, state, _) =>
             {
                 state.Observed.Add((nodeId, state.OperationId));
                 return string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal) ? throw new HttpRequestException("down") : new ValueTask<int>(42);
@@ -97,7 +97,7 @@ public sealed class FailoverRetryTests : TestBase
         var observer = new OperationObserver("operation-io-1");
 
         var value = await failover.ExecuteAsync(
-            static (nodeId, state, _) =>
+            static (nodeId, _, state, _) =>
             {
                 state.Observed.Add((nodeId, state.OperationId));
                 return string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal) ? throw new IOException("down") : new ValueTask<int>(42);
@@ -119,7 +119,7 @@ public sealed class FailoverRetryTests : TestBase
 
         var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
             failover.ExecuteAsync<OperationObserver, int>(
-                static (nodeId, state, _) =>
+                static (nodeId, _, state, _) =>
                 {
                     state.Observed.Add((nodeId, state.OperationId));
                     throw new RpcException(new Status(StatusCode.FailedPrecondition, "stale-term"));
@@ -140,7 +140,7 @@ public sealed class FailoverRetryTests : TestBase
         var observer = new OperationObserver("operation-stale-1");
 
         var value = await failover.ExecuteAsync(
-            static (nodeId, state, _) =>
+            static (nodeId, _, state, _) =>
             {
                 state.Observed.Add((nodeId, state.OperationId));
                 return string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal)

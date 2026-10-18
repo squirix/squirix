@@ -14,7 +14,9 @@ Remote applications connect with `SquirixClient.ConnectAsync` and one or more bo
 
 - Warm-up succeeds when **any** configured endpoint is reachable (configuration order).
 - Unreachable endpoints are skipped without failing connect.
-- The first reachable peer uses the configured bootstrap connect budget (default 5s per attempt, 30s overall).
+- The first reachable peer uses the configured bootstrap connect budget (default 5s per attempt, 30s overall). The
+  connect inside each attempt is capped at 2s (TCP connect and TLS handshake each), so a node whose connect takes
+  longer does not connect at warm-up.
 - After a primary peer is selected, remaining peers are probed with a short fail-fast budget (500ms per attempt, 2s
   overall) so dead standby URLs do not delay connect.
 - When at least one peer connects but others fail warm-up, the client emits
@@ -67,8 +69,11 @@ when a ping is unanswered for two seconds.
 - A connection that stops delivering anything without being closed (power loss, a network partition, a load balancer
   or firewall that dropped it) is found within about five seconds, also while it is idle, and the next call connects
   anew instead of spending its attempts on it. The pings also keep idle connections open through such devices.
-- A new connection to a host that is still silent is not bounded on its own: each attempt waits out its 3-second
-  timeout before the next endpoint is tried.
+- A new connection to a host that is still silent fails: the TCP connect and the TLS handshake each fail after 2
+  seconds. A slow TCP connect followed by a stalled handshake can instead run into the 3-second attempt timeout and is
+  then retried on the same endpoint. A connect that fails sent nothing, so it is not ambiguous. With more than one
+  bootstrap endpoint, the call leaves the endpoint after a connect timeout instead of retrying it, unless it is the
+  last endpoint left for the operation, which keeps its retries; with a single endpoint the connect is retried as above.
 - A call already written to such a connection still ends as a transport error or a timeout and is retried as above.
 - An idle connection costs one ping and its acknowledgement per second. A proxy between the client and the nodes must
   allow HTTP/2 pings at that rate on idle connections; one that refuses them closes the connections.
@@ -82,7 +87,9 @@ when a ping is unanswered for two seconds.
   deadline, its gRPC call deadline, caller cancellation and the `operation_id` across retries.
 - E2E (`OperationDeadlineE2ETests`) checks that the server receives the client deadline and that an owner-routing hop
   gets a budget no larger than the entry node's.
-- Client unit tests (`GrpcTransportEndpointsTests`) check the keepalive settings of the client's own connections.
+- Client unit tests (`GrpcTransportEndpointsTests`) check the keepalive and connect settings of the client's own
+  connections; `EndpointFailoverDialTests` checks that a call leaves an endpoint that never answers after one connect
+  bound.
 
 ## What this is not
 

@@ -27,4 +27,18 @@ public sealed class GrpcTransportEndpointsTests
         _ = await Assert.That(sockets?.KeepAlivePingDelay).IsEqualTo(TimeSpan.FromSeconds(1));
         _ = await Assert.That(sockets?.KeepAlivePingTimeout).IsEqualTo(TimeSpan.FromSeconds(2));
     }
+
+    /// <summary>
+    /// The client's own handler bounds a connect, TLS handshake included, below the per-attempt timeout, and sets no connect callback: with
+    /// one the channel no longer manages its connections and refuses to connect.
+    /// </summary>
+    [Test]
+    public async Task ChannelHandlerBoundsConnect()
+    {
+        using var handler = GrpcTransportEndpoints.CreateChannelHandler();
+
+        var sockets = await Assert.That(handler).IsTypeOf<SocketsHttpHandler>();
+        _ = await Assert.That(sockets?.ConnectTimeout).IsEqualTo(TimeSpan.FromSeconds(2));
+        _ = await Assert.That(sockets?.ConnectCallback is null).IsTrue();
+    }
 }

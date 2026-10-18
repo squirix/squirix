@@ -377,12 +377,13 @@ internal sealed class RemoteCache<T> : ICache<T>
             Func<SquirixCacheService.SquirixCacheServiceClient, TState, CancellationToken, ValueTask<TResult>> action,
             TState state,
             CancellationToken cancellationToken) => _failover.ExecuteAsync(
-            static (nodeId, execution, ct) =>
+            static (nodeId, hasMoreEndpoints, execution, ct) =>
             {
                 var client = execution.Cache._clients.ForNode(nodeId);
                 return execution.Cache._clients.PolicyFor(nodeId).ExecuteAsync(
                     static (policyState, token) => policyState.Action(policyState.Client, policyState.State, token),
                     (execution.Action, Client: client, execution.State),
+                    hasMoreEndpoints,
                     ct);
             },
             (Cache: this, Action: action, State: state),

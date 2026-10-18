@@ -37,7 +37,7 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
         for (var i = 0; i < Batch; i++)
         {
             var result = await failover.ExecuteAsync(
-                static (_, policyState, ct) => policyState.ExecuteAsync(static (_, token) => CompletedValueTaskAsync(token), 0, ct),
+                static (_, hasMoreEndpoints, policyState, ct) => policyState.ExecuteAsync(static (_, token) => CompletedValueTaskAsync(token), 0, hasMoreEndpoints, ct),
                 policy,
                 CancellationToken.None).ConfigureAwait(false);
             _consumer.Consume(result);
@@ -50,7 +50,7 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
     {
         var failover = _failover!;
         for (var i = 0; i < Batch; i++)
-            _consumer.Consume(await failover.ExecuteAsync(static (_, _, ct) => CompletedValueTaskAsync(ct), 0, CancellationToken.None).ConfigureAwait(false));
+            _consumer.Consume(await failover.ExecuteAsync(static (_, _, _, ct) => CompletedValueTaskAsync(ct), 0, CancellationToken.None).ConfigureAwait(false));
     }
 
     /// <summary>Runs through <see cref="CallPolicy" /> only.</summary>
@@ -59,7 +59,7 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
     {
         var policy = _policy!;
         for (var i = 0; i < Batch; i++)
-            _consumer.Consume(await policy.ExecuteAsync(static (_, ct) => CompletedValueTaskAsync(ct), 0, CancellationToken.None).ConfigureAwait(false));
+            _consumer.Consume(await policy.ExecuteAsync(static (_, ct) => CompletedValueTaskAsync(ct), 0, false, CancellationToken.None).ConfigureAwait(false));
     }
 
     /// <summary>Releases benchmark resources.</summary>

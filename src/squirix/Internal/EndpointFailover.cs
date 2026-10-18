@@ -61,11 +61,14 @@ internal sealed class EndpointFailover
     /// </summary>
     /// <typeparam name="TState">The logical operation state, preserved across the reroute.</typeparam>
     /// <typeparam name="TResult">The operation result type.</typeparam>
-    /// <param name="action">The endpoint-bound operation.</param>
+    /// <param name="action">
+    /// The endpoint-bound operation; its arguments are the endpoint node id, whether another endpoint remains for this operation after this
+    /// one, the logical state and the cancellation token.
+    /// </param>
     /// <param name="state">The logical operation state, including the operation id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The operation result.</returns>
-    internal async ValueTask<TResult> ExecuteAsync<TState, TResult>(Func<string, TState, CancellationToken, ValueTask<TResult>> action, TState state, CancellationToken cancellationToken)
+    internal async ValueTask<TResult> ExecuteAsync<TState, TResult>(Func<string, bool, TState, CancellationToken, ValueTask<TResult>> action, TState state, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(action);
 
@@ -86,7 +89,7 @@ internal sealed class EndpointFailover
 
             try
             {
-                var result = await action(nodeId, state, cancellationToken).ConfigureAwait(false);
+                var result = await action(nodeId, hasMoreEndpoints, state, cancellationToken).ConfigureAwait(false);
                 if (nodeIndex != startIndex)
                     SetActiveIndex(nodeIndex);
 
