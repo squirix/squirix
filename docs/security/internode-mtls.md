@@ -43,8 +43,9 @@ Multi-node settings must use **HTTPS** `Cluster.Uri` values. Plaintext `http://`
 
 ## Production model
 
-1. Operate a **cluster CA** (or subordinate CA) through your PKI — for example an internal CA, cert-manager, or cloud
-   private CA. Squirix only needs the PEM trust anchor at `SQUIRIX_CLUSTER_MTLS_CA_PATH`.
+1. Operate a **cluster CA** through your PKI — for example an internal CA, cert-manager, or cloud private CA. Squirix
+   only needs its PEM certificate at `SQUIRIX_CLUSTER_MTLS_CA_PATH`, and that certificate must be a self-signed root,
+   not a subordinate CA.
 2. Issue a **unique node certificate** per Squirix node, signed by that CA. The certificate **common name (CN)** must
    equal that node's `Cluster.NodeId` (the same string as in `Peers[].NodeId`). Store the private key in a secret
    manager or mounted volume.
