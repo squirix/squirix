@@ -159,8 +159,8 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         var imageLength = ComputePublishedLength(in stableSnapshot, _maxSnapshotBytes);
 
         cancellationToken.ThrowIfCancellationRequested();
-        var (groupSnapshot, i, sequence) = await ReadSelectionAsync(cancellationToken).ConfigureAwait(false);
-        var currentSlot = groupSnapshot == null ? 1 : i;
+        var (groupSnapshot, selectedSlot, sequence) = await ReadSelectionAsync(cancellationToken).ConfigureAwait(false);
+        var currentSlot = groupSnapshot == null ? 1 : selectedSlot;
         var firstSlot = 1 - currentSlot;
 
         long slotBytes = imageLength;

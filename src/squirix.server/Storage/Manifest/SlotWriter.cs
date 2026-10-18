@@ -109,8 +109,10 @@ internal sealed class SlotWriter : IDisposable
         _handle = handle;
         Interlocked.MemoryBarrier();
 
+        // A dispose that ran while the file was being opened found no handle to close, so the new one is closed here.
         if (Volatile.Read(ref _disposed) == 0)
             return;
+
         handle.Dispose();
         throw new ObjectDisposedException(nameof(SlotWriter));
     }
